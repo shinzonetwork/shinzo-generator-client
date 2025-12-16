@@ -46,22 +46,26 @@ func TestTransactionReceiptJSONMarshaling(t *testing.T) {
 
 func TestBlockJSONMarshaling(t *testing.T) {
 	block := Block{
-		Hash:             "0x1234567890abcdef",
-		Number:           "12345",
-		Timestamp:        "1600000000",
-		ParentHash:       "0xparent",
-		Difficulty:       "1000000",
-		GasUsed:          "4000000",
-		GasLimit:         "8000000",
-		Nonce:            "123456789",
-		Miner:            "0xminer",
-		Size:             "1024",
-		StateRoot:        "0xstateroot",
-		Sha3Uncles:       "0xsha3uncles",
-		TransactionsRoot: "0xtxroot",
-		ReceiptsRoot:     "0xreceiptsroot",
-		ExtraData:        "extra",
-		Transactions:     []Transaction{},
+		BaseFeePerGas: "1000000000",
+		Difficulty:    "1000000",
+		ExtraData:     "extra",
+		GasLimit:      "8000000",
+		GasUsed:       "4000000",
+		Hash:          "0x1234567890abcdef",
+		L1BlockNumber: "24000000",
+		LogsBloom:     "0xlogsbloom",
+		MixHash:       "0xmixhash",
+		Nonce:         "123456789",
+		Number:        12345,
+		ParentHash:    "0xparent",
+		ReceiptsRoot:  "0xreceiptsroot",
+		SendCount:     "100",
+		SendRoot:      "0xsendroot",
+		Sha3Uncles:    "0xsha3uncles",
+		Size:          "1024",
+		StateRoot:     "0xstateroot",
+		Timestamp:     "1600000000",
+		Transactions:  []Transaction{},
 	}
 
 	// Test marshaling
@@ -82,25 +86,43 @@ func TestBlockJSONMarshaling(t *testing.T) {
 		t.Errorf("Hash mismatch: got %s, want %s", unmarshaled.Hash, block.Hash)
 	}
 	if unmarshaled.Number != block.Number {
-		t.Errorf("Number mismatch: got %s, want %s", unmarshaled.Number, block.Number)
+		t.Errorf("Number mismatch: got %d, want %d", unmarshaled.Number, block.Number)
+	}
+	if unmarshaled.L1BlockNumber != block.L1BlockNumber {
+		t.Errorf("L1BlockNumber mismatch: got %s, want %s", unmarshaled.L1BlockNumber, block.L1BlockNumber)
 	}
 }
 
 func TestTransactionJSONMarshaling(t *testing.T) {
 	tx := Transaction{
-		Hash:             "0xtxhash",
+		// Transaction fields
 		BlockHash:        "0xblockhash",
-		BlockNumber:      "12345",
+		BlockNumber:      12345,
 		From:             "0xfrom",
-		To:               "0xto",
-		Value:            "1000",
 		Gas:              "21000",
 		GasPrice:         "20000000000",
+		Hash:             "0xtxhash",
 		Input:            "0xinput",
 		Nonce:            "1",
+		To:               "0xto",
 		TransactionIndex: 0,
-		Status:           true,
-		Logs:             []Log{},
+		Value:            "1000",
+		Type:             "0x0",
+		ChainId:          "42161",
+		V:                "0x25",
+		R:                "0xr",
+		S:                "0xs",
+		// Receipt fields
+		ContractAddress:   "",
+		CumulativeGasUsed: "100000",
+		EffectiveGasPrice: "20000000000",
+		GasUsed:           "21000",
+		GasUsedForL1:      "0",
+		L1BlockNumber:     "24000000",
+		Status:            "0x1",
+		Timeboosted:       false,
+		LogsBloom:         "0xlogsbloom",
+		Logs:              []Log{},
 	}
 
 	// Test marshaling
@@ -121,7 +143,13 @@ func TestTransactionJSONMarshaling(t *testing.T) {
 		t.Errorf("Hash mismatch: got %s, want %s", unmarshaled.Hash, tx.Hash)
 	}
 	if unmarshaled.Status != tx.Status {
-		t.Errorf("Status mismatch: got %t, want %t", unmarshaled.Status, tx.Status)
+		t.Errorf("Status mismatch: got %s, want %s", unmarshaled.Status, tx.Status)
+	}
+	if unmarshaled.BlockNumber != tx.BlockNumber {
+		t.Errorf("BlockNumber mismatch: got %d, want %d", unmarshaled.BlockNumber, tx.BlockNumber)
+	}
+	if unmarshaled.GasUsed != tx.GasUsed {
+		t.Errorf("GasUsed mismatch: got %s, want %s", unmarshaled.GasUsed, tx.GasUsed)
 	}
 }
 
@@ -130,7 +158,7 @@ func TestLogJSONMarshaling(t *testing.T) {
 		Address:          "0xcontract",
 		Topics:           []string{"0xtopic1", "0xtopic2"},
 		Data:             "0xlogdata",
-		BlockNumber:      "12345",
+		BlockNumber:      12345,
 		TransactionHash:  "0xtxhash",
 		TransactionIndex: 0,
 		BlockHash:        "0xblockhash",
@@ -225,49 +253,34 @@ func TestResponseJSONMarshaling(t *testing.T) {
 	}
 }
 
-func TestUpdateStructsJSONMarshaling(t *testing.T) {
-	// Test UpdateTransactionStruct
-	updateTx := UpdateTransactionStruct{
-		BlockId: "block-id-123",
-		TxHash:  "0xtxhash123",
+func TestDefraDocJSONMarshaling(t *testing.T) {
+	doc := DefraDoc{
+		JSON: map[string]interface{}{
+			"hash":   "0x1234567890abcdef",
+			"number": 12345,
+			"data":   "test data",
+		},
 	}
 
-	data, err := json.Marshal(updateTx)
+	// Test marshaling
+	data, err := json.Marshal(doc)
 	if err != nil {
-		t.Fatalf("Failed to marshal UpdateTransactionStruct: %v", err)
+		t.Fatalf("Failed to marshal DefraDoc: %v", err)
 	}
 
-	var unmarshaledTx UpdateTransactionStruct
-	err = json.Unmarshal(data, &unmarshaledTx)
+	// Test unmarshaling
+	var unmarshaled DefraDoc
+	err = json.Unmarshal(data, &unmarshaled)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal UpdateTransactionStruct: %v", err)
+		t.Fatalf("Failed to unmarshal DefraDoc: %v", err)
 	}
 
-	if unmarshaledTx.BlockId != updateTx.BlockId {
-		t.Errorf("BlockId mismatch: got %s, want %s", unmarshaledTx.BlockId, updateTx.BlockId)
+	// Verify data integrity
+	jsonMap, ok := unmarshaled.JSON.(map[string]interface{})
+	if !ok {
+		t.Errorf("Expected JSON to be map[string]interface{}, got %T", unmarshaled.JSON)
 	}
-
-	// Test UpdateLogStruct
-	updateLog := UpdateLogStruct{
-		BlockId:  "block-id-123",
-		TxId:     "tx-id-456",
-		TxHash:   "0xtxhash123",
-		LogIndex: "0",
+	if jsonMap["hash"] != "0x1234567890abcdef" {
+		t.Errorf("Hash mismatch in JSON: got %v, want %s", jsonMap["hash"], "0x1234567890abcdef")
 	}
-
-	data, err = json.Marshal(updateLog)
-	if err != nil {
-		t.Fatalf("Failed to marshal UpdateLogStruct: %v", err)
-	}
-
-	var unmarshaledLog UpdateLogStruct
-	err = json.Unmarshal(data, &unmarshaledLog)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal UpdateLogStruct: %v", err)
-	}
-
-	if unmarshaledLog.TxId != updateLog.TxId {
-		t.Errorf("TxId mismatch: got %s, want %s", unmarshaledLog.TxId, updateLog.TxId)
-	}
-
 }
