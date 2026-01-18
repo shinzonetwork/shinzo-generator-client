@@ -16,6 +16,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -521,58 +522,81 @@ func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block,
 	totalDocs := 1 + len(transactions) + totalLogs + totalALEs
 
 	if totalDocs <= h.maxDocsPerTxn {
-		return h.createBlockSingleTransaction(ctx, block, blockInt, transactions, receipts, receiptMap, totalDocs)
+		return h.createBlockSingleTransaction(ctx, block, blockInt, transactions, receiptMap)
 	}
 
-	return h.createBlockBatched(ctx, block, blockInt, transactions, receipts, receiptMap)
+	return h.createBlockBatched(ctx, block, blockInt, transactions, receiptMap)
 }
 
 // createBlockSingleTransaction creates the entire block in a single DB transaction.
-// This is optimal for small-to-medium blocks as it minimizes commit overhead.
-func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receipts []*types.TransactionReceipt, receiptMap map[string]*types.TransactionReceipt, totalDocs int) (string, error) {
-	// Start single transaction for everything
+func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
 	txn, err := h.defraNode.DB.NewTxn(false)
 	if err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create transaction", err)
 	}
 
-	blockMutation := h.buildBlockMutation(block, blockInt)
-	result := txn.ExecRequest(ctx, blockMutation)
-	if len(result.GQL.Errors) > 0 {
+	colBlock, err := txn.GetCollectionByName(ctx, constants.CollectionBlock)
+	if err != nil {
 		txn.Discard()
-		errMsg := result.GQL.Errors[0].Error()
+		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get block collection", err)
+	}
+	colTx, err := txn.GetCollectionByName(ctx, constants.CollectionTransaction)
+	if err != nil {
+		txn.Discard()
+		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get tx collection", err)
+	}
+	colLog, err := txn.GetCollectionByName(ctx, constants.CollectionLog)
+	if err != nil {
+		txn.Discard()
+		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get log collection", err)
+	}
+	colALE, err := txn.GetCollectionByName(ctx, constants.CollectionAccessListEntry)
+	if err != nil {
+		txn.Discard()
+		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get ALE collection", err)
+	}
+
+	blockDoc, err := h.buildBlockDocument(ctx, block, blockInt, colBlock)
+	if err != nil {
+		txn.Discard()
+		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build block document", err)
+	}
+
+	if err := colBlock.Create(ctx, blockDoc); err != nil {
+		txn.Discard()
+		errMsg := err.Error()
 		if strings.Contains(errMsg, "already exists") {
 			return "", fmt.Errorf("block already exists")
 		}
-		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", errMsg, result.GQL.Errors[0])
+		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", errMsg, err)
 	}
-
-	blockID, err := h.extractDocID(result.GQL.Data, "create_"+constants.CollectionBlock)
-	if err != nil || blockID == "" {
-		txn.Discard()
-		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get block ID", err)
-	}
+	blockID := blockDoc.ID().String()
 
 	txHashToID := make(map[string]string)
 	if len(transactions) > 0 {
-		txMutation, txInfos := h.buildBatchedTransactionMutation(transactions, blockID, 0)
-		if txMutation != "" {
-			result = txn.ExecRequest(ctx, txMutation)
-			if len(result.GQL.Errors) > 0 {
-				txn.Discard()
-				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", result.GQL.Errors[0].Error(), result.GQL.Errors[0])
+		txDocs := make([]*client.Document, 0, len(transactions))
+		for _, tx := range transactions {
+			if tx == nil {
+				continue
 			}
+			txDoc, err := h.buildTransactionDocument(ctx, tx, blockID, colTx)
+			if err != nil {
+				txn.Discard()
+				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build tx document", err)
+			}
+			txDocs = append(txDocs, txDoc)
+			txHashToID[tx.Hash] = txDoc.ID().String()
+		}
 
-			for _, txInfo := range txInfos {
-				docID := h.extractDocIDFromBatchedResponse(result.GQL.Data, txInfo.alias)
-				if docID != "" {
-					txHashToID[txInfo.hash] = docID
-				}
+		if len(txDocs) > 0 {
+			if err := colTx.CreateMany(ctx, txDocs); err != nil {
+				txn.Discard()
+				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create transactions", err)
 			}
 		}
 	}
 
-	var allLogs []logEntry
+	var logDocs []*client.Document
 	for _, tx := range transactions {
 		if tx == nil {
 			continue
@@ -586,22 +610,23 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 			continue
 		}
 		for i := range receipt.Logs {
-			allLogs = append(allLogs, logEntry{log: &receipt.Logs[i], txID: txID})
-		}
-	}
-
-	if len(allLogs) > 0 {
-		logMutation := h.buildBatchedLogMutation(allLogs, blockID, 0)
-		if logMutation != "" {
-			result = txn.ExecRequest(ctx, logMutation)
-			if len(result.GQL.Errors) > 0 {
+			logDoc, err := h.buildLogDocument(ctx, &receipt.Logs[i], blockID, txID, colLog)
+			if err != nil {
 				txn.Discard()
-				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", result.GQL.Errors[0].Error(), result.GQL.Errors[0])
+				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build log document", err)
 			}
+			logDocs = append(logDocs, logDoc)
 		}
 	}
 
-	var allALEs []aleEntry
+	if len(logDocs) > 0 {
+		if err := colLog.CreateMany(ctx, logDocs); err != nil {
+			txn.Discard()
+			return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create logs", err)
+		}
+	}
+
+	var aleDocs []*client.Document
 	for _, tx := range transactions {
 		if tx == nil {
 			continue
@@ -611,18 +636,19 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 			continue
 		}
 		for i := range tx.AccessList {
-			allALEs = append(allALEs, aleEntry{ale: &tx.AccessList[i], txID: txID})
+			aleDoc, err := h.buildALEDocument(ctx, &tx.AccessList[i], txID, colALE)
+			if err != nil {
+				txn.Discard()
+				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build ALE document", err)
+			}
+			aleDocs = append(aleDocs, aleDoc)
 		}
 	}
 
-	if len(allALEs) > 0 {
-		aleMutation := h.buildBatchedALEMutation(allALEs, 0)
-		if aleMutation != "" {
-			result = txn.ExecRequest(ctx, aleMutation)
-			if len(result.GQL.Errors) > 0 {
-				txn.Discard()
-				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", result.GQL.Errors[0].Error(), result.GQL.Errors[0])
-			}
+	if len(aleDocs) > 0 {
+		if err := colALE.CreateMany(ctx, aleDocs); err != nil {
+			txn.Discard()
+			return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create ALEs", err)
 		}
 	}
 
@@ -634,222 +660,118 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 	return blockID, nil
 }
 
-// buildEntireBlockMutation builds a single GraphQL mutation containing the block and all related documents.
-func (h *BlockHandler) buildEntireBlockMutation(block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, int, int, int) {
-	// Estimate size for pre-allocation
-	estimatedSize := 2048 + len(transactions)*1536
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		if receipt, ok := receiptMap[tx.Hash]; ok && receipt != nil {
-			estimatedSize += len(receipt.Logs) * 1024
-		}
-		estimatedSize += len(tx.AccessList) * 512
+// buildBlockDocument creates a client.Document for a block
+func (h *BlockHandler) buildBlockDocument(ctx context.Context, block *types.Block, blockInt int64, col client.Collection) (*client.Document, error) {
+	data := map[string]any{
+		"hash":             block.Hash,
+		"number":           blockInt,
+		"timestamp":        block.Timestamp,
+		"parentHash":       block.ParentHash,
+		"difficulty":       block.Difficulty,
+		"totalDifficulty":  block.TotalDifficulty,
+		"gasUsed":          block.GasUsed,
+		"gasLimit":         block.GasLimit,
+		"baseFeePerGas":    block.BaseFeePerGas,
+		"nonce":            block.Nonce,
+		"miner":            block.Miner,
+		"size":             block.Size,
+		"stateRoot":        block.StateRoot,
+		"sha3Uncles":       block.Sha3Uncles,
+		"transactionsRoot": block.TransactionsRoot,
+		"receiptsRoot":     block.ReceiptsRoot,
+		"logsBloom":        block.LogsBloom,
+		"extraData":        block.ExtraData,
+		"mixHash":          block.MixHash,
+		"uncles":           block.Uncles,
 	}
+	return client.NewDocFromMap(ctx, data, col.Version())
+}
 
-	var sb strings.Builder
-	sb.Grow(estimatedSize)
-	sb.WriteString("mutation {\n")
-
-	// === Block ===
-	sb.WriteString(`block0: create_`)
-	sb.WriteString(constants.CollectionBlock)
-	sb.WriteString(`(input: { hash: "`)
-	sb.WriteString(block.Hash)
-	sb.WriteString(`", number: `)
-	sb.WriteString(strconv.FormatInt(blockInt, 10))
-	sb.WriteString(`, timestamp: "`)
-	sb.WriteString(block.Timestamp)
-	sb.WriteString(`", parentHash: "`)
-	sb.WriteString(block.ParentHash)
-	sb.WriteString(`", difficulty: "`)
-	sb.WriteString(block.Difficulty)
-	sb.WriteString(`", totalDifficulty: "`)
-	sb.WriteString(block.TotalDifficulty)
-	sb.WriteString(`", gasUsed: "`)
-	sb.WriteString(block.GasUsed)
-	sb.WriteString(`", gasLimit: "`)
-	sb.WriteString(block.GasLimit)
-	sb.WriteString(`", baseFeePerGas: "`)
-	sb.WriteString(block.BaseFeePerGas)
-	sb.WriteString(`", nonce: "`)
-	sb.WriteString(block.Nonce)
-	sb.WriteString(`", miner: "`)
-	sb.WriteString(block.Miner)
-	sb.WriteString(`", size: "`)
-	sb.WriteString(block.Size)
-	sb.WriteString(`", stateRoot: "`)
-	sb.WriteString(block.StateRoot)
-	sb.WriteString(`", sha3Uncles: "`)
-	sb.WriteString(block.Sha3Uncles)
-	sb.WriteString(`", transactionsRoot: "`)
-	sb.WriteString(block.TransactionsRoot)
-	sb.WriteString(`", receiptsRoot: "`)
-	sb.WriteString(block.ReceiptsRoot)
-	sb.WriteString(`", logsBloom: "`)
-	sb.WriteString(block.LogsBloom)
-	sb.WriteString(`", extraData: "`)
-	sb.WriteString(block.ExtraData)
-	sb.WriteString(`", mixHash: "`)
-	sb.WriteString(block.MixHash)
-	sb.WriteString(`", uncles: `)
-	sb.WriteString(h.formatStringArray(block.Uncles))
-	sb.WriteString(` }) { _docID }`)
-	sb.WriteString("\n")
-
-	// === Transactions ===
-	txCount := 0
-	for i, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		alias := fmt.Sprintf("tx%d", i)
-		txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
-
-		sb.WriteString(alias)
-		sb.WriteString(`: create_`)
-		sb.WriteString(constants.CollectionTransaction)
-		sb.WriteString(`(input: { hash: "`)
-		sb.WriteString(tx.Hash)
-		sb.WriteString(`", blockNumber: `)
-		sb.WriteString(strconv.FormatInt(txBlockNum, 10))
-		sb.WriteString(`, blockHash: "`)
-		sb.WriteString(tx.BlockHash)
-		sb.WriteString(`", transactionIndex: `)
-		sb.WriteString(strconv.Itoa(tx.TransactionIndex))
-		sb.WriteString(`, from: "`)
-		sb.WriteString(tx.From)
-		sb.WriteString(`", to: "`)
-		sb.WriteString(tx.To)
-		sb.WriteString(`", value: "`)
-		sb.WriteString(tx.Value)
-		sb.WriteString(`", gas: "`)
-		sb.WriteString(tx.Gas)
-		sb.WriteString(`", gasPrice: "`)
-		sb.WriteString(tx.GasPrice)
-		sb.WriteString(`", maxFeePerGas: "`)
-		sb.WriteString(tx.MaxFeePerGas)
-		sb.WriteString(`", maxPriorityFeePerGas: "`)
-		sb.WriteString(tx.MaxPriorityFeePerGas)
-		sb.WriteString(`", input: "`)
-		sb.WriteString(string(tx.Input))
-		sb.WriteString(`", nonce: "`)
-		sb.WriteString(tx.Nonce)
-		sb.WriteString(`", type: "`)
-		sb.WriteString(tx.Type)
-		sb.WriteString(`", chainId: "`)
-		sb.WriteString(tx.ChainId)
-		sb.WriteString(`", v: "`)
-		sb.WriteString(tx.V)
-		sb.WriteString(`", r: "`)
-		sb.WriteString(tx.R)
-		sb.WriteString(`", s: "`)
-		sb.WriteString(tx.S)
-		sb.WriteString(`", cumulativeGasUsed: "`)
-		sb.WriteString(tx.CumulativeGasUsed)
-		sb.WriteString(`", effectiveGasPrice: "`)
-		sb.WriteString(tx.EffectiveGasPrice)
-		sb.WriteString(`", status: `)
-		sb.WriteString(strconv.FormatBool(tx.Status))
-		sb.WriteString(` }) { _docID }`)
-		sb.WriteString("\n")
-		txCount++
+// buildTransactionDocument creates a client.Document for a transaction
+func (h *BlockHandler) buildTransactionDocument(ctx context.Context, tx *types.Transaction, blockID string, col client.Collection) (*client.Document, error) {
+	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
+	data := map[string]any{
+		"hash":                 tx.Hash,
+		"blockNumber":          txBlockNum,
+		"blockHash":            tx.BlockHash,
+		"transactionIndex":     tx.TransactionIndex,
+		"from":                 tx.From,
+		"to":                   tx.To,
+		"value":                tx.Value,
+		"gas":                  tx.Gas,
+		"gasPrice":             tx.GasPrice,
+		"maxFeePerGas":         tx.MaxFeePerGas,
+		"maxPriorityFeePerGas": tx.MaxPriorityFeePerGas,
+		"input":                string(tx.Input),
+		"nonce":                tx.Nonce,
+		"type":                 tx.Type,
+		"chainId":              tx.ChainId,
+		"v":                    tx.V,
+		"r":                    tx.R,
+		"s":                    tx.S,
+		"cumulativeGasUsed":    tx.CumulativeGasUsed,
+		"effectiveGasPrice":    tx.EffectiveGasPrice,
+		"status":               tx.Status,
+		"block":                blockID,
 	}
+	return client.NewDocFromMap(ctx, data, col.Version())
+}
 
-	// === Logs ===
-	logIdx := 0
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		receipt, ok := receiptMap[tx.Hash]
-		if !ok || receipt == nil {
-			continue
-		}
-
-		for i := range receipt.Logs {
-			log := &receipt.Logs[i]
-			logBlockNum, _ := utils.HexToInt(log.BlockNumber)
-			alias := fmt.Sprintf("log%d", logIdx)
-
-			sb.WriteString(alias)
-			sb.WriteString(`: create_`)
-			sb.WriteString(constants.CollectionLog)
-			sb.WriteString(`(input: { address: "`)
-			sb.WriteString(log.Address)
-			sb.WriteString(`", topics: `)
-			sb.WriteString(h.formatStringArray(log.Topics))
-			sb.WriteString(`, data: "`)
-			sb.WriteString(log.Data)
-			sb.WriteString(`", blockNumber: `)
-			sb.WriteString(strconv.FormatInt(logBlockNum, 10))
-			sb.WriteString(`, transactionHash: "`)
-			sb.WriteString(log.TransactionHash)
-			sb.WriteString(`", transactionIndex: `)
-			sb.WriteString(strconv.Itoa(log.TransactionIndex))
-			sb.WriteString(`, blockHash: "`)
-			sb.WriteString(log.BlockHash)
-			sb.WriteString(`", logIndex: `)
-			sb.WriteString(strconv.Itoa(log.LogIndex))
-			sb.WriteString(`, removed: "`)
-			sb.WriteString(fmt.Sprintf("%v", log.Removed))
-			sb.WriteString(`" }) { _docID }`)
-			sb.WriteString("\n")
-			logIdx++
-		}
+// buildLogDocument creates a client.Document for a log
+func (h *BlockHandler) buildLogDocument(ctx context.Context, log *types.Log, blockID, txID string, col client.Collection) (*client.Document, error) {
+	logBlockNum, _ := utils.HexToInt(log.BlockNumber)
+	data := map[string]any{
+		"address":          log.Address,
+		"topics":           log.Topics,
+		"data":             log.Data,
+		"blockNumber":      logBlockNum,
+		"transactionHash":  log.TransactionHash,
+		"transactionIndex": log.TransactionIndex,
+		"blockHash":        log.BlockHash,
+		"logIndex":         log.LogIndex,
+		"removed":          fmt.Sprintf("%v", log.Removed),
+		"transaction":      txID,
+		"block":            blockID,
 	}
+	return client.NewDocFromMap(ctx, data, col.Version())
+}
 
-	// === Access List Entries ===
-	aleIdx := 0
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-
-		for i := range tx.AccessList {
-			ale := &tx.AccessList[i]
-			alias := fmt.Sprintf("ale%d", aleIdx)
-
-			sb.WriteString(alias)
-			sb.WriteString(`: create_`)
-			sb.WriteString(constants.CollectionAccessListEntry)
-			sb.WriteString(`(input: { address: "`)
-			sb.WriteString(ale.Address)
-			sb.WriteString(`", storageKeys: `)
-			sb.WriteString(h.formatStringArray(ale.StorageKeys))
-			sb.WriteString(` }) { _docID }`)
-			sb.WriteString("\n")
-			aleIdx++
-		}
+// buildALEDocument creates a client.Document for an access list entry
+func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessListEntry, txID string, col client.Collection) (*client.Document, error) {
+	data := map[string]any{
+		"address":     ale.Address,
+		"storageKeys": ale.StorageKeys,
+		"transaction": txID,
 	}
-
-	sb.WriteString("}")
-
-	return sb.String(), txCount, logIdx, aleIdx
+	return client.NewDocFromMap(ctx, data, col.Version())
 }
 
 // createBlockBatched creates the block using multiple transactions for large blocks.
 // This is the fallback for blocks exceeding MaxDocsPerTransaction.
-func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receipts []*types.TransactionReceipt, receiptMap map[string]*types.TransactionReceipt) (string, error) {
+func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
 	txn, err := h.defraNode.DB.NewTxn(false)
 	if err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
 	}
 
-	blockMutation := h.buildBlockMutation(block, blockInt)
-	result := txn.ExecRequest(ctx, blockMutation)
-	if len(result.GQL.Errors) > 0 {
+	colBlock, err := txn.GetCollectionByName(ctx, constants.CollectionBlock)
+	if err != nil {
 		txn.Discard()
-		errMsg := result.GQL.Errors[0].Error()
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", errMsg, result.GQL.Errors[0])
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err)
 	}
 
-	blockID, err := h.extractDocID(result.GQL.Data, "create_"+constants.CollectionBlock)
-	if err != nil || blockID == "" {
+	blockDoc, err := h.buildBlockDocument(ctx, block, blockInt, colBlock)
+	if err != nil {
 		txn.Discard()
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block ID", err)
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to build block document", err)
 	}
+
+	if err := colBlock.Create(ctx, blockDoc); err != nil {
+		txn.Discard()
+		errMsg := err.Error()
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", errMsg, err)
+	}
+	blockID := blockDoc.ID().String()
 
 	if err := txn.Commit(); err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
@@ -857,7 +779,6 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 
 	batchSize := 64 // Batch size for large blocks that exceed single-txn threshold
 	txHashToID := make(map[string]string)
-	txCount := 0
 
 	for i := 0; i < len(transactions); i += batchSize {
 		end := i + batchSize
@@ -870,39 +791,47 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 
-		batchedMutation, txInfos := h.buildBatchedTransactionMutation(batch, blockID, i)
-		if batchedMutation == "" {
-			continue
-		}
-
 		txn, err = h.defraNode.DB.NewTxn(false)
 		if err != nil {
 			logger.Sugar.Warnf("Failed to create txn for tx batch: %v", err)
 			continue
 		}
 
-		result := txn.ExecRequest(ctx, batchedMutation)
-		if len(result.GQL.Errors) > 0 {
+		colTx, err := txn.GetCollectionByName(ctx, constants.CollectionTransaction)
+		if err != nil {
 			txn.Discard()
-			logger.Sugar.Warnf("Batch tx mutation error: %v", result.GQL.Errors[0])
+			logger.Sugar.Warnf("Failed to get tx collection: %v", err)
 			continue
+		}
+
+		txDocs := make([]*client.Document, 0, len(batch))
+		for _, tx := range batch {
+			if tx == nil {
+				continue
+			}
+			txDoc, err := h.buildTransactionDocument(ctx, tx, blockID, colTx)
+			if err != nil {
+				logger.Sugar.Warnf("Failed to build tx document: %v", err)
+				continue
+			}
+			txDocs = append(txDocs, txDoc)
+			txHashToID[tx.Hash] = txDoc.ID().String()
+		}
+
+		if len(txDocs) > 0 {
+			if err := colTx.CreateMany(ctx, txDocs); err != nil {
+				txn.Discard()
+				logger.Sugar.Warnf("Failed to create tx batch: %v", err)
+				continue
+			}
 		}
 
 		if err := txn.Commit(); err != nil {
 			logger.Sugar.Warnf("Failed to commit tx batch: %v", err)
 			continue
 		}
-
-		for _, txInfo := range txInfos {
-			docID := h.extractDocIDFromBatchedResponse(result.GQL.Data, txInfo.alias)
-			if docID != "" {
-				txHashToID[txInfo.hash] = docID
-				txCount++
-			}
-		}
 	}
 
-	// Phase 3: Create Logs in batches
 	var allLogs []logEntry
 	for _, tx := range transactions {
 		if tx == nil {
@@ -921,7 +850,6 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		}
 	}
 
-	logCount := 0
 	for i := 0; i < len(allLogs); i += batchSize {
 		end := i + batchSize
 		if end > len(allLogs) {
@@ -933,33 +861,46 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 
-		batchedMutation := h.buildBatchedLogMutation(batch, blockID, i)
-		if batchedMutation == "" {
-			continue
-		}
-
 		txn, err = h.defraNode.DB.NewTxn(false)
 		if err != nil {
 			logger.Sugar.Warnf("Failed to create txn for log batch: %v", err)
 			continue
 		}
 
-		result := txn.ExecRequest(ctx, batchedMutation)
-		if len(result.GQL.Errors) > 0 {
+		colLog, err := txn.GetCollectionByName(ctx, constants.CollectionLog)
+		if err != nil {
 			txn.Discard()
-			logger.Sugar.Warnf("Batch log mutation error: %v", result.GQL.Errors[0])
+			logger.Sugar.Warnf("Failed to get log collection: %v", err)
 			continue
+		}
+
+		logDocs := make([]*client.Document, 0, len(batch))
+		for _, entry := range batch {
+			if entry.log == nil {
+				continue
+			}
+			logDoc, err := h.buildLogDocument(ctx, entry.log, blockID, entry.txID, colLog)
+			if err != nil {
+				logger.Sugar.Warnf("Failed to build log document: %v", err)
+				continue
+			}
+			logDocs = append(logDocs, logDoc)
+		}
+
+		if len(logDocs) > 0 {
+			if err := colLog.CreateMany(ctx, logDocs); err != nil {
+				txn.Discard()
+				logger.Sugar.Warnf("Failed to create log batch: %v", err)
+				continue
+			}
 		}
 
 		if err := txn.Commit(); err != nil {
 			logger.Sugar.Warnf("Failed to commit log batch: %v", err)
 			continue
 		}
-
-		logCount += len(batch)
 	}
 
-	// Phase 4: Create Access List Entries in batches
 	var allALEs []aleEntry
 	for _, tx := range transactions {
 		if tx == nil {
@@ -974,7 +915,6 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		}
 	}
 
-	aleCount := 0
 	for i := 0; i < len(allALEs); i += batchSize {
 		end := i + batchSize
 		if end > len(allALEs) {
@@ -986,464 +926,47 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 
-		batchedMutation := h.buildBatchedALEMutation(batch, i)
-		if batchedMutation == "" {
-			continue
-		}
-
 		txn, err = h.defraNode.DB.NewTxn(false)
 		if err != nil {
 			logger.Sugar.Warnf("Failed to create txn for ALE batch: %v", err)
 			continue
 		}
 
-		result := txn.ExecRequest(ctx, batchedMutation)
-		if len(result.GQL.Errors) > 0 {
+		colALE, err := txn.GetCollectionByName(ctx, constants.CollectionAccessListEntry)
+		if err != nil {
 			txn.Discard()
-			logger.Sugar.Warnf("Batch ALE mutation error: %v", result.GQL.Errors[0])
+			logger.Sugar.Warnf("Failed to get ALE collection: %v", err)
 			continue
+		}
+
+		aleDocs := make([]*client.Document, 0, len(batch))
+		for _, entry := range batch {
+			if entry.ale == nil {
+				continue
+			}
+			aleDoc, err := h.buildALEDocument(ctx, entry.ale, entry.txID, colALE)
+			if err != nil {
+				logger.Sugar.Warnf("Failed to build ALE document: %v", err)
+				continue
+			}
+			aleDocs = append(aleDocs, aleDoc)
+		}
+
+		if len(aleDocs) > 0 {
+			if err := colALE.CreateMany(ctx, aleDocs); err != nil {
+				txn.Discard()
+				logger.Sugar.Warnf("Failed to create ALE batch: %v", err)
+				continue
+			}
 		}
 
 		if err := txn.Commit(); err != nil {
 			logger.Sugar.Warnf("Failed to commit ALE batch: %v", err)
 			continue
 		}
-
-		aleCount += len(batch)
 	}
 
 	return blockID, nil
-}
-
-// txAliasInfo holds the alias and hash for a transaction in a batched mutation
-type txAliasInfo struct {
-	alias string
-	hash  string
-}
-
-// buildBatchedTransactionMutation creates a single GraphQL mutation for multiple transactions
-func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction, blockID string, startIdx int) (string, []txAliasInfo) {
-	var sb strings.Builder
-	sb.Grow(len(txs) * 1536)
-	sb.WriteString("mutation {\n")
-
-	var txInfos []txAliasInfo
-	for i, tx := range txs {
-		if tx == nil {
-			continue
-		}
-		alias := fmt.Sprintf("tx%d", startIdx+i)
-		txInfos = append(txInfos, txAliasInfo{alias: alias, hash: tx.Hash})
-		txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
-
-		sb.WriteString(alias)
-		sb.WriteString(`: create_`)
-		sb.WriteString(constants.CollectionTransaction)
-		sb.WriteString(`(input: { hash: "`)
-		sb.WriteString(tx.Hash)
-		sb.WriteString(`", blockNumber: `)
-		sb.WriteString(strconv.FormatInt(txBlockNum, 10))
-		sb.WriteString(`, blockHash: "`)
-		sb.WriteString(tx.BlockHash)
-		sb.WriteString(`", transactionIndex: `)
-		sb.WriteString(strconv.Itoa(tx.TransactionIndex))
-		sb.WriteString(`, from: "`)
-		sb.WriteString(tx.From)
-		sb.WriteString(`", to: "`)
-		sb.WriteString(tx.To)
-		sb.WriteString(`", value: "`)
-		sb.WriteString(tx.Value)
-		sb.WriteString(`", gas: "`)
-		sb.WriteString(tx.Gas)
-		sb.WriteString(`", gasPrice: "`)
-		sb.WriteString(tx.GasPrice)
-		sb.WriteString(`", maxFeePerGas: "`)
-		sb.WriteString(tx.MaxFeePerGas)
-		sb.WriteString(`", maxPriorityFeePerGas: "`)
-		sb.WriteString(tx.MaxPriorityFeePerGas)
-		sb.WriteString(`", input: "`)
-		sb.WriteString(string(tx.Input))
-		sb.WriteString(`", nonce: "`)
-		sb.WriteString(tx.Nonce)
-		sb.WriteString(`", type: "`)
-		sb.WriteString(tx.Type)
-		sb.WriteString(`", chainId: "`)
-		sb.WriteString(tx.ChainId)
-		sb.WriteString(`", v: "`)
-		sb.WriteString(tx.V)
-		sb.WriteString(`", r: "`)
-		sb.WriteString(tx.R)
-		sb.WriteString(`", s: "`)
-		sb.WriteString(tx.S)
-		sb.WriteString(`", cumulativeGasUsed: "`)
-		sb.WriteString(tx.CumulativeGasUsed)
-		sb.WriteString(`", effectiveGasPrice: "`)
-		sb.WriteString(tx.EffectiveGasPrice)
-		sb.WriteString(`", status: `)
-		sb.WriteString(strconv.FormatBool(tx.Status))
-		sb.WriteString(`, block: "`)
-		sb.WriteString(blockID)
-		sb.WriteString(`" }) { _docID }`)
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("}")
-
-	if len(txInfos) == 0 {
-		return "", nil
-	}
-	return sb.String(), txInfos
-}
-
-// buildBatchedLogMutation creates a single GraphQL mutation for multiple logs
-func (h *BlockHandler) buildBatchedLogMutation(logs []logEntry, blockID string, startIdx int) string {
-	var sb strings.Builder
-	sb.Grow(len(logs) * 1024)
-	sb.WriteString("mutation {\n")
-
-	count := 0
-	for i, entry := range logs {
-		if entry.log == nil {
-			continue
-		}
-		logBlockNum, _ := utils.HexToInt(entry.log.BlockNumber)
-		alias := fmt.Sprintf("log%d", startIdx+i)
-
-		sb.WriteString(alias)
-		sb.WriteString(`: create_`)
-		sb.WriteString(constants.CollectionLog)
-		sb.WriteString(`(input: { address: "`)
-		sb.WriteString(entry.log.Address)
-		sb.WriteString(`", topics: `)
-		sb.WriteString(h.formatStringArray(entry.log.Topics))
-		sb.WriteString(`, data: "`)
-		sb.WriteString(entry.log.Data)
-		sb.WriteString(`", blockNumber: `)
-		sb.WriteString(strconv.FormatInt(logBlockNum, 10))
-		sb.WriteString(`, transactionHash: "`)
-		sb.WriteString(entry.log.TransactionHash)
-		sb.WriteString(`", transactionIndex: `)
-		sb.WriteString(strconv.Itoa(entry.log.TransactionIndex))
-		sb.WriteString(`, blockHash: "`)
-		sb.WriteString(entry.log.BlockHash)
-		sb.WriteString(`", logIndex: `)
-		sb.WriteString(strconv.Itoa(entry.log.LogIndex))
-		sb.WriteString(`, removed: "`)
-		sb.WriteString(fmt.Sprintf("%v", entry.log.Removed))
-		sb.WriteString(`", transaction: "`)
-		sb.WriteString(entry.txID)
-		sb.WriteString(`", block: "`)
-		sb.WriteString(blockID)
-		sb.WriteString(`" }) { _docID }`)
-		sb.WriteString("\n")
-		count++
-	}
-
-	sb.WriteString("}")
-
-	if count == 0 {
-		return ""
-	}
-	return sb.String()
-}
-
-// buildBatchedALEMutation creates a single GraphQL mutation for multiple access list entries
-func (h *BlockHandler) buildBatchedALEMutation(ales []aleEntry, startIdx int) string {
-	var sb strings.Builder
-	sb.Grow(len(ales) * 512)
-	sb.WriteString("mutation {\n")
-
-	count := 0
-	for i, entry := range ales {
-		if entry.ale == nil {
-			continue
-		}
-		alias := fmt.Sprintf("ale%d", startIdx+i)
-
-		sb.WriteString(alias)
-		sb.WriteString(`: create_`)
-		sb.WriteString(constants.CollectionAccessListEntry)
-		sb.WriteString(`(input: { address: "`)
-		sb.WriteString(entry.ale.Address)
-		sb.WriteString(`", storageKeys: `)
-		sb.WriteString(h.formatStringArray(entry.ale.StorageKeys))
-		sb.WriteString(`, transaction: "`)
-		sb.WriteString(entry.txID)
-		sb.WriteString(`" }) { _docID }`)
-		sb.WriteString("\n")
-		count++
-	}
-
-	sb.WriteString("}")
-
-	if count == 0 {
-		return ""
-	}
-	return sb.String()
-}
-
-// extractDocIDFromBatchedResponse extracts a doc ID from a batched mutation response by alias
-func (h *BlockHandler) extractDocIDFromBatchedResponse(data any, alias string) string {
-	dataMap, ok := data.(map[string]any)
-	if !ok {
-		return ""
-	}
-
-	aliasData, ok := dataMap[alias]
-	if !ok {
-		keys := make([]string, 0, 5)
-		for k := range dataMap {
-			keys = append(keys, k)
-			if len(keys) >= 5 {
-				break
-			}
-		}
-		return ""
-	}
-
-	switch v := aliasData.(type) {
-	case map[string]any:
-		if docID, ok := v["_docID"].(string); ok {
-			return docID
-		}
-	case []map[string]interface{}:
-		// DefraDB returns this type for batched mutations
-		if len(v) > 0 {
-			if docID, ok := v[0]["_docID"].(string); ok {
-				return docID
-			}
-		}
-	case []any:
-		if len(v) > 0 {
-			if item, ok := v[0].(map[string]any); ok {
-				if docID, ok := item["_docID"].(string); ok {
-					return docID
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// buildBlockMutation creates a GraphQL mutation for a block using strings.Builder for efficiency
-func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) string {
-	var sb strings.Builder
-	sb.Grow(2048) // Pre-allocate for typical block mutation size
-
-	sb.WriteString(`mutation { create_`)
-	sb.WriteString(constants.CollectionBlock)
-	sb.WriteString(`(input: { hash: "`)
-	sb.WriteString(block.Hash)
-	sb.WriteString(`", number: `)
-	sb.WriteString(strconv.FormatInt(blockInt, 10))
-	sb.WriteString(`, timestamp: "`)
-	sb.WriteString(block.Timestamp)
-	sb.WriteString(`", parentHash: "`)
-	sb.WriteString(block.ParentHash)
-	sb.WriteString(`", difficulty: "`)
-	sb.WriteString(block.Difficulty)
-	sb.WriteString(`", totalDifficulty: "`)
-	sb.WriteString(block.TotalDifficulty)
-	sb.WriteString(`", gasUsed: "`)
-	sb.WriteString(block.GasUsed)
-	sb.WriteString(`", gasLimit: "`)
-	sb.WriteString(block.GasLimit)
-	sb.WriteString(`", baseFeePerGas: "`)
-	sb.WriteString(block.BaseFeePerGas)
-	sb.WriteString(`", nonce: "`)
-	sb.WriteString(block.Nonce)
-	sb.WriteString(`", miner: "`)
-	sb.WriteString(block.Miner)
-	sb.WriteString(`", size: "`)
-	sb.WriteString(block.Size)
-	sb.WriteString(`", stateRoot: "`)
-	sb.WriteString(block.StateRoot)
-	sb.WriteString(`", sha3Uncles: "`)
-	sb.WriteString(block.Sha3Uncles)
-	sb.WriteString(`", transactionsRoot: "`)
-	sb.WriteString(block.TransactionsRoot)
-	sb.WriteString(`", receiptsRoot: "`)
-	sb.WriteString(block.ReceiptsRoot)
-	sb.WriteString(`", logsBloom: "`)
-	sb.WriteString(block.LogsBloom)
-	sb.WriteString(`", extraData: "`)
-	sb.WriteString(block.ExtraData)
-	sb.WriteString(`", mixHash: "`)
-	sb.WriteString(block.MixHash)
-	sb.WriteString(`", uncles: `)
-	sb.WriteString(h.formatStringArray(block.Uncles))
-	sb.WriteString(` }) { _docID } }`)
-
-	return sb.String()
-}
-
-// buildTransactionMutation creates a GraphQL mutation for a transaction using strings.Builder
-func (h *BlockHandler) buildTransactionMutation(tx *types.Transaction, blockID string) string {
-	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
-
-	var sb strings.Builder
-	sb.Grow(1536) // Pre-allocate for typical transaction mutation size
-
-	sb.WriteString(`mutation { create_`)
-	sb.WriteString(constants.CollectionTransaction)
-	sb.WriteString(`(input: { hash: "`)
-	sb.WriteString(tx.Hash)
-	sb.WriteString(`", blockNumber: `)
-	sb.WriteString(strconv.FormatInt(txBlockNum, 10))
-	sb.WriteString(`, blockHash: "`)
-	sb.WriteString(tx.BlockHash)
-	sb.WriteString(`", transactionIndex: `)
-	sb.WriteString(strconv.Itoa(tx.TransactionIndex))
-	sb.WriteString(`, from: "`)
-	sb.WriteString(tx.From)
-	sb.WriteString(`", to: "`)
-	sb.WriteString(tx.To)
-	sb.WriteString(`", value: "`)
-	sb.WriteString(tx.Value)
-	sb.WriteString(`", gas: "`)
-	sb.WriteString(tx.Gas)
-	sb.WriteString(`", gasPrice: "`)
-	sb.WriteString(tx.GasPrice)
-	sb.WriteString(`", maxFeePerGas: "`)
-	sb.WriteString(tx.MaxFeePerGas)
-	sb.WriteString(`", maxPriorityFeePerGas: "`)
-	sb.WriteString(tx.MaxPriorityFeePerGas)
-	sb.WriteString(`", input: "`)
-	sb.WriteString(string(tx.Input))
-	sb.WriteString(`", nonce: "`)
-	sb.WriteString(tx.Nonce)
-	sb.WriteString(`", type: "`)
-	sb.WriteString(tx.Type)
-	sb.WriteString(`", chainId: "`)
-	sb.WriteString(tx.ChainId)
-	sb.WriteString(`", v: "`)
-	sb.WriteString(tx.V)
-	sb.WriteString(`", r: "`)
-	sb.WriteString(tx.R)
-	sb.WriteString(`", s: "`)
-	sb.WriteString(tx.S)
-	sb.WriteString(`", cumulativeGasUsed: "`)
-	sb.WriteString(tx.CumulativeGasUsed)
-	sb.WriteString(`", effectiveGasPrice: "`)
-	sb.WriteString(tx.EffectiveGasPrice)
-	sb.WriteString(`", status: `)
-	if tx.Status {
-		sb.WriteString("true")
-	} else {
-		sb.WriteString("false")
-	}
-	sb.WriteString(`, block: "`)
-	sb.WriteString(blockID)
-	sb.WriteString(`" }) { _docID } }`)
-
-	return sb.String()
-}
-
-// buildLogMutation creates a GraphQL mutation for a log using strings.Builder
-func (h *BlockHandler) buildLogMutation(log *types.Log, blockID, txID string) string {
-	logBlockNum, _ := utils.HexToInt(log.BlockNumber)
-
-	var sb strings.Builder
-	sb.Grow(1024) // Pre-allocate for typical log mutation size
-
-	sb.WriteString(`mutation { create_`)
-	sb.WriteString(constants.CollectionLog)
-	sb.WriteString(`(input: { address: "`)
-	sb.WriteString(log.Address)
-	sb.WriteString(`", topics: `)
-	sb.WriteString(h.formatStringArray(log.Topics))
-	sb.WriteString(`, data: "`)
-	sb.WriteString(log.Data)
-	sb.WriteString(`", blockNumber: `)
-	sb.WriteString(strconv.FormatInt(logBlockNum, 10))
-	sb.WriteString(`, transactionHash: "`)
-	sb.WriteString(log.TransactionHash)
-	sb.WriteString(`", transactionIndex: `)
-	sb.WriteString(strconv.Itoa(log.TransactionIndex))
-	sb.WriteString(`, blockHash: "`)
-	sb.WriteString(log.BlockHash)
-	sb.WriteString(`", logIndex: `)
-	sb.WriteString(strconv.Itoa(log.LogIndex))
-	sb.WriteString(`, removed: "`)
-	if log.Removed {
-		sb.WriteString("true")
-	} else {
-		sb.WriteString("false")
-	}
-	sb.WriteString(`", transaction: "`)
-	sb.WriteString(txID)
-	sb.WriteString(`", block: "`)
-	sb.WriteString(blockID)
-	sb.WriteString(`" }) { _docID } }`)
-
-	return sb.String()
-}
-
-// buildAccessListEntryMutation creates a GraphQL mutation for an access list entry using strings.Builder
-func (h *BlockHandler) buildAccessListEntryMutation(ale *types.AccessListEntry, txID string) string {
-	var sb strings.Builder
-	sb.Grow(512) // Pre-allocate for typical ALE mutation size
-
-	sb.WriteString(`mutation { create_`)
-	sb.WriteString(constants.CollectionAccessListEntry)
-	sb.WriteString(`(input: { address: "`)
-	sb.WriteString(ale.Address)
-	sb.WriteString(`", storageKeys: `)
-	sb.WriteString(h.formatStringArray(ale.StorageKeys))
-	sb.WriteString(`, transaction: "`)
-	sb.WriteString(txID)
-	sb.WriteString(`" }) { _docID } }`)
-
-	return sb.String()
-}
-
-// formatStringArray formats a string slice as a GraphQL array
-func (h *BlockHandler) formatStringArray(arr []string) string {
-	if len(arr) == 0 {
-		return "[]"
-	}
-	jsonBytes, _ := json.Marshal(arr)
-	return string(jsonBytes)
-}
-
-// extractDocID extracts the document ID from a GraphQL response
-func (h *BlockHandler) extractDocID(data any, fieldName string) (string, error) {
-	if data == nil {
-		return "", fmt.Errorf("nil data")
-	}
-
-	dataMap, ok := data.(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("data is not a map")
-	}
-
-	field, ok := dataMap[fieldName]
-	if !ok {
-		return "", fmt.Errorf("field %s not found", fieldName)
-	}
-
-	switch v := field.(type) {
-	case []any:
-		if len(v) > 0 {
-			if item, ok := v[0].(map[string]any); ok {
-				if docID, ok := item["_docID"].(string); ok {
-					return docID, nil
-				}
-			}
-		}
-	case []map[string]any:
-		if len(v) > 0 {
-			if docID, ok := v[0]["_docID"].(string); ok {
-				return docID, nil
-			}
-		}
-	case map[string]any:
-		if docID, ok := v["_docID"].(string); ok {
-			return docID, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not extract docID from %v", field)
 }
 
 // GetHighestBlockNumber returns the highest block number stored in DefraDB
