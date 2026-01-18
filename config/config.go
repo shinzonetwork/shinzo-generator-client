@@ -51,11 +51,11 @@ type GethConfig struct {
 
 // IndexerConfig represents indexer configuration
 type IndexerConfig struct {
-	StartHeight         int `yaml:"start_height"`
-	ConcurrentBlocks    int `yaml:"concurrent_blocks"`
-	PrefetchBlocks      int `yaml:"prefetch_blocks"`
-	ReceiptWorkers      int `yaml:"receipt_workers"`
-	MaxDocsPerTxn       int `yaml:"max_docs_per_txn"` // Threshold for single-txn vs batched block creation
+	StartHeight      int `yaml:"start_height"`
+	ConcurrentBlocks int `yaml:"concurrent_blocks"`
+	PrefetchBlocks   int `yaml:"prefetch_blocks"`
+	ReceiptWorkers   int `yaml:"receipt_workers"`
+	MaxDocsPerTxn    int `yaml:"max_docs_per_txn"` // Threshold for single-txn vs batched block creation
 }
 
 // LoggerConfig represents logger configuration
@@ -104,16 +104,16 @@ func LoadConfig(path string) (*Config, error) {
 // applyDefaults sets default values for optional configuration
 func applyDefaults(cfg *Config) {
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
-		cfg.Indexer.ConcurrentBlocks = 1 // Default to sequential
+		cfg.Indexer.ConcurrentBlocks = 8
 	}
 	if cfg.Indexer.PrefetchBlocks <= 0 {
-		cfg.Indexer.PrefetchBlocks = 2 // Prefetch 2 blocks ahead
+		cfg.Indexer.PrefetchBlocks = 16
 	}
 	if cfg.Indexer.ReceiptWorkers <= 0 {
-		cfg.Indexer.ReceiptWorkers = 20 // Default receipt workers
+		cfg.Indexer.ReceiptWorkers = 64
 	}
 	if cfg.Indexer.MaxDocsPerTxn <= 0 {
-		cfg.Indexer.MaxDocsPerTxn = 256 // Default threshold for single-txn block creation
+		cfg.Indexer.MaxDocsPerTxn = 500
 	}
 }
 
