@@ -34,6 +34,7 @@ func main() {
 	rpcURL := flag.String("rpc", "", "RPC URL for validation (overrides config)")
 	useEmbedded := flag.Bool("embedded", true, "Use embedded DefraDB node (default: true)")
 	defraDataDir := flag.String("defra-data", "./data/defra", "DefraDB data directory (for embedded mode)")
+	useBulkAPI := flag.Bool("bulk", true, "Use Collection API instead of GraphQL (faster, default: true)")
 	flag.Parse()
 
 	// Initialize logger
@@ -66,6 +67,7 @@ func main() {
 		AWSPrefix:        *awsPrefix,
 		RPCURL:           cfg.Geth.NodeURL,
 		DefraURL:         cfg.DefraDB.Url,
+		UseBulkAPI:       *useBulkAPI,
 	}
 
 	// Validate config
@@ -175,16 +177,17 @@ func printConfig(cfg *migration.Config, useEmbedded bool) {
 	fmt.Println("\n" + repeatString("=", 60))
 	fmt.Println("ETHEREUM SNAPSHOT MIGRATION TOOL")
 	fmt.Println(repeatString("=", 60))
-	fmt.Printf("Provider:        %s\n", cfg.Provider)
-	fmt.Printf("Block Range:     %d - %d\n", cfg.StartBlock, cfg.EndBlock)
-	fmt.Printf("Batch Size:      %d blocks\n", cfg.BatchSize)
-	fmt.Printf("Workers:         %d\n", cfg.Workers)
-	fmt.Printf("Output Dir:      %s\n", cfg.OutputDir)
-	fmt.Printf("Dry Run:         %v\n", cfg.DryRun)
-	fmt.Printf("Validation:      %v\n", cfg.EnableValidation)
+	fmt.Printf("Provider:         %s\n", cfg.Provider)
+	fmt.Printf("Block Range:      %d - %d\n", cfg.StartBlock, cfg.EndBlock)
+	fmt.Printf("Batch Size:       %d blocks\n", cfg.BatchSize)
+	fmt.Printf("Workers:          %d\n", cfg.Workers)
+	fmt.Printf("Output Dir:       %s\n", cfg.OutputDir)
+	fmt.Printf("Dry Run:          %v\n", cfg.DryRun)
+	fmt.Printf("Validation:       %v\n", cfg.EnableValidation)
 	fmt.Printf("Embedded DefraDB: %v\n", useEmbedded)
+	fmt.Printf("Use Bulk API:     %v\n", cfg.UseBulkAPI)
 	if cfg.EnableValidation {
-		fmt.Printf("Validate Sample: %d blocks\n", cfg.ValidateSample)
+		fmt.Printf("Validate Sample:  %d blocks\n", cfg.ValidateSample)
 	}
 	fmt.Println(repeatString("=", 60) + "\n")
 }
@@ -196,7 +199,7 @@ func printResults(result *migration.Result, totalDuration time.Duration) {
 	fmt.Printf("Status:              %s\n", result.Status)
 	fmt.Printf("Total Duration:      %s\n", totalDuration.Round(time.Millisecond))
 	fmt.Println(repeatString("-", 60))
-	
+
 	// Timing breakdown
 	fmt.Println("TIMING BREAKDOWN:")
 	fmt.Printf("  Download Time:     %s\n", result.DownloadDuration.Round(time.Millisecond))
@@ -206,7 +209,7 @@ func printResults(result *migration.Result, totalDuration time.Duration) {
 		fmt.Printf("  Other (overhead):  %s\n", otherTime.Round(time.Millisecond))
 	}
 	fmt.Println(repeatString("-", 60))
-	
+
 	// Data stats
 	fmt.Println("DATA IMPORTED:")
 	fmt.Printf("  Blocks Processed:    %d\n", result.BlocksProcessed)
@@ -216,7 +219,7 @@ func printResults(result *migration.Result, totalDuration time.Duration) {
 	fmt.Printf("  Access List Entries: %d\n", result.AccessListEntriesImported)
 	fmt.Printf("  Errors:              %d\n", result.ErrorCount)
 	fmt.Println(repeatString("-", 60))
-	
+
 	// Performance metrics (based on import time only)
 	fmt.Println("PERFORMANCE (Import Only):")
 	if result.ImportDuration.Seconds() > 0 && result.BlocksImported > 0 {
@@ -224,13 +227,13 @@ func printResults(result *migration.Result, totalDuration time.Duration) {
 		txsPerSec := float64(result.TransactionsImported) / result.ImportDuration.Seconds()
 		logsPerSec := float64(result.LogsImported) / result.ImportDuration.Seconds()
 		msPerBlock := result.ImportDuration.Milliseconds() / result.BlocksImported
-		
+
 		fmt.Printf("  Blocks/sec:          %.2f\n", blocksPerSec)
 		fmt.Printf("  Transactions/sec:    %.2f\n", txsPerSec)
 		fmt.Printf("  Logs/sec:            %.2f\n", logsPerSec)
 		fmt.Printf("  ms/block:            %d\n", msPerBlock)
 	}
-	
+
 	if result.LastCheckpoint > 0 {
 		fmt.Println(repeatString("-", 60))
 		fmt.Printf("Last Checkpoint:     %d\n", result.LastCheckpoint)
@@ -249,7 +252,6 @@ func printResults(result *migration.Result, totalDuration time.Duration) {
 	fmt.Println(repeatString("=", 60))
 }
 
-// Helper function to repeat a string
 func repeatString(s string, n int) string {
 	result := ""
 	for i := 0; i < n; i++ {

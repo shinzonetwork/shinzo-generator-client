@@ -152,7 +152,7 @@ func (m *Migrator) Run(ctx context.Context) (*Result, error) {
 		}
 	}
 
-	logger.Sugar.Infof("Starting migration: blocks %d to %d", startBlock, endBlock)
+	logger.Sugar.Infof("Starting migration: blocks %d to %d (UseBulkAPI=%v)", startBlock, endBlock, m.cfg.UseBulkAPI)
 
 	// Process blocks in batches
 	for currentBlock := startBlock; currentBlock <= endBlock; {
@@ -171,7 +171,15 @@ func (m *Migrator) Run(ctx context.Context) (*Result, error) {
 
 		logger.Sugar.Infof("Processing batch: blocks %d to %d", currentBlock, batchEnd)
 
-		batchResult, err := m.processBatchOptimized(ctx, currentBlock, batchEnd)
+		var batchResult *Result
+		var err error
+
+		if m.cfg.UseBulkAPI {
+			batchResult, err = m.processBatchBulk(ctx, currentBlock, batchEnd)
+		} else {
+			batchResult, err = m.processBatchGraphQL(ctx, currentBlock, batchEnd)
+		}
+
 		if err != nil {
 			logger.Sugar.Errorf("Batch failed: %v", err)
 			result.ErrorCount++
@@ -211,8 +219,8 @@ func (m *Migrator) Run(ctx context.Context) (*Result, error) {
 	return result, nil
 }
 
-// processBatchOptimized processes a batch using the optimized bulk import
-func (m *Migrator) processBatchOptimized(ctx context.Context, startBlock, endBlock int64) (*Result, error) {
+// processBatchBulk processes a batch using the Collection API (CreateBlockBulk)
+func (m *Migrator) processBatchBulk(ctx context.Context, startBlock, endBlock int64) (*Result, error) {
 	result := &Result{}
 
 	// ==================== DOWNLOAD PHASE ====================
@@ -240,37 +248,17 @@ func (m *Migrator) processBatchOptimized(ctx context.Context, startBlock, endBlo
 	logger.Sugar.Infof("Download phase completed in %v", result.DownloadDuration)
 
 	// ==================== PREPARE PHASE ====================
-	// Group transactions by block hash
-	txByBlockHash := make(map[string][]*types.Transaction)
+	// Group transactions by block number
+	txByBlock := make(map[int64][]*types.Transaction)
 	for _, tx := range transactions {
-		txByBlockHash[tx.BlockHash] = append(txByBlockHash[tx.BlockHash], tx)
+		blockNum := mustParseBlockNumber(tx.BlockNumber)
+		txByBlock[blockNum] = append(txByBlock[blockNum], tx)
 	}
 
-	// Group logs by tx hash and create receipts
+	// Group logs by tx hash
 	logsByTxHash := make(map[string][]types.Log)
 	for _, log := range logs {
 		logsByTxHash[log.TransactionHash] = append(logsByTxHash[log.TransactionHash], *log)
-	}
-
-	// Build receipt map
-	receiptsByTx := make(map[string]*types.TransactionReceipt)
-	for _, tx := range transactions {
-		txLogs := logsByTxHash[tx.Hash]
-		receipt := &types.TransactionReceipt{
-			TransactionHash:   tx.Hash,
-			BlockHash:         tx.BlockHash,
-			BlockNumber:       tx.BlockNumber,
-			From:              tx.From,
-			To:                tx.To,
-			Status:            "0x1",
-			GasUsed:           tx.GasUsed,
-			CumulativeGasUsed: tx.CumulativeGasUsed,
-			Logs:              txLogs,
-		}
-		if !tx.Status {
-			receipt.Status = "0x0"
-		}
-		receiptsByTx[tx.Hash] = receipt
 	}
 
 	// Dry run mode
@@ -294,9 +282,8 @@ func (m *Migrator) processBatchOptimized(ctx context.Context, startBlock, endBlo
 		errCount       int64
 	)
 
-	// Process blocks in sub-batches using workers
-	subBatchSize := 10 // Process 10 blocks at a time per worker
-	workChan := make(chan []*types.Block, m.cfg.Workers*2)
+	// Process blocks with worker pool
+	workChan := make(chan *types.Block, m.cfg.Workers*2)
 	var wg sync.WaitGroup
 
 	// Start workers
@@ -304,52 +291,61 @@ func (m *Migrator) processBatchOptimized(ctx context.Context, startBlock, endBlo
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for blockBatch := range workChan {
-				for _, block := range blockBatch {
-					if block == nil {
-						continue
-					}
-
-					txs := txByBlockHash[block.Hash]
-					receipts := make([]*types.TransactionReceipt, 0, len(txs))
-					for _, tx := range txs {
-						if r := receiptsByTx[tx.Hash]; r != nil {
-							receipts = append(receipts, r)
-						}
-					}
-
-					// Use optimized bulk import
-					bulkResult, err := m.blockHandler.CreateBlockBulk(ctx, block, txs, receipts)
-					if err != nil {
-						if !isAlreadyExistsError(err) {
-							logger.Sugar.Warnf("Failed to import block %s: %v", block.Number, err)
-							atomic.AddInt64(&errCount, 1)
-						}
-						continue
-					}
-
-					atomic.AddInt64(&blocksImported, int64(bulkResult.BlocksCreated))
-					atomic.AddInt64(&txsImported, int64(bulkResult.TransactionsCreated))
-					atomic.AddInt64(&logsImported, int64(bulkResult.LogsCreated))
-					atomic.AddInt64(&alesImported, int64(bulkResult.ALEsCreated))
+			for block := range workChan {
+				if block == nil {
+					continue
 				}
+
+				blockNum := mustParseBlockNumber(block.Number)
+				txs := txByBlock[blockNum]
+
+				// Build receipts with logs
+				receipts := make([]*types.TransactionReceipt, 0, len(txs))
+				for _, tx := range txs {
+					txLogs := logsByTxHash[tx.Hash]
+					receipt := &types.TransactionReceipt{
+						TransactionHash:   tx.Hash,
+						BlockHash:         tx.BlockHash,
+						BlockNumber:       tx.BlockNumber,
+						From:              tx.From,
+						To:                tx.To,
+						Status:            "0x1",
+						GasUsed:           tx.GasUsed,
+						CumulativeGasUsed: tx.CumulativeGasUsed,
+						Logs:              txLogs,
+					}
+					if !tx.Status {
+						receipt.Status = "0x0"
+					}
+					receipts = append(receipts, receipt)
+				}
+
+				// Use the new bulk import API
+				bulkResult, err := m.blockHandler.CreateBlockBulk(ctx, block, txs, receipts)
+				if err != nil {
+					if !isAlreadyExistsError(err) {
+						logger.Sugar.Warnf("Failed to import block %d: %v", blockNum, err)
+						atomic.AddInt64(&errCount, 1)
+					}
+					continue
+				}
+
+				atomic.AddInt64(&blocksImported, int64(bulkResult.BlocksCreated))
+				atomic.AddInt64(&txsImported, int64(bulkResult.TransactionsCreated))
+				atomic.AddInt64(&logsImported, int64(bulkResult.LogsCreated))
+				atomic.AddInt64(&alesImported, int64(bulkResult.ALEsCreated))
 			}
 		}()
 	}
 
-	// Send work in sub-batches
-	for i := 0; i < len(blocks); i += subBatchSize {
-		end := i + subBatchSize
-		if end > len(blocks) {
-			end = len(blocks)
-		}
-
+	// Send work
+	for _, block := range blocks {
 		select {
 		case <-ctx.Done():
 			close(workChan)
 			wg.Wait()
 			return result, ctx.Err()
-		case workChan <- blocks[i:end]:
+		case workChan <- block:
 		}
 	}
 
@@ -369,6 +365,156 @@ func (m *Migrator) processBatchOptimized(ctx context.Context, startBlock, endBlo
 	logger.Sugar.Infof("Batch complete: imported %d/%d blocks, %d txs, %d logs, %d ALEs (download: %v, import: %v)",
 		blocksImported, len(blocks), txsImported, logsImported, alesImported,
 		result.DownloadDuration, result.ImportDuration)
+
+	return result, nil
+}
+
+// processBatchGraphQL processes a batch using GraphQL (CreateBlockBatchOptimized) - original method
+func (m *Migrator) processBatchGraphQL(ctx context.Context, startBlock, endBlock int64) (*Result, error) {
+	result := &Result{}
+
+	// ==================== DOWNLOAD PHASE ====================
+	downloadStart := time.Now()
+
+	blocks, err := m.provider.ReadBlocks(ctx, startBlock, endBlock)
+	if err != nil {
+		return result, fmt.Errorf("failed to read blocks: %w", err)
+	}
+	logger.Sugar.Infof("Read %d blocks from provider", len(blocks))
+
+	transactions, err := m.provider.ReadTransactions(ctx, startBlock, endBlock)
+	if err != nil {
+		return result, fmt.Errorf("failed to read transactions: %w", err)
+	}
+	logger.Sugar.Infof("Read %d transactions from provider", len(transactions))
+
+	logs, err := m.provider.ReadLogs(ctx, startBlock, endBlock)
+	if err != nil {
+		return result, fmt.Errorf("failed to read logs: %w", err)
+	}
+	logger.Sugar.Infof("Read %d logs from provider", len(logs))
+
+	result.DownloadDuration = time.Since(downloadStart)
+	logger.Sugar.Infof("Download phase completed in %v", result.DownloadDuration)
+
+	// ==================== PREPARE PHASE ====================
+	txByBlock := make(map[int64][]*types.Transaction)
+	for _, tx := range transactions {
+		blockNum := mustParseBlockNumber(tx.BlockNumber)
+		txByBlock[blockNum] = append(txByBlock[blockNum], tx)
+	}
+
+	logByTx := make(map[string][]*types.Log)
+	for _, log := range logs {
+		logByTx[log.TransactionHash] = append(logByTx[log.TransactionHash], log)
+	}
+
+	if m.cfg.DryRun {
+		result.BlocksProcessed = int64(len(blocks))
+		result.TransactionsImported = int64(len(transactions))
+		result.LogsImported = int64(len(logs))
+		logger.Sugar.Infof("[DRY RUN] Would import %d blocks, %d transactions, %d logs",
+			len(blocks), len(transactions), len(logs))
+		return result, nil
+	}
+
+	// ==================== IMPORT PHASE ====================
+	importStart := time.Now()
+
+	var (
+		blocksImported int64
+		txsImported    int64
+		logsImported   int64
+		errCount       int64
+	)
+
+	type workItem struct {
+		block *types.Block
+		txs   []*types.Transaction
+	}
+
+	workChan := make(chan workItem, m.cfg.Workers*2)
+	var wg sync.WaitGroup
+
+	for i := 0; i < m.cfg.Workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range workChan {
+				blockNum := mustParseBlockNumber(item.block.Number)
+
+				for _, tx := range item.txs {
+					tx.Logs = make([]types.Log, 0)
+					for _, log := range logByTx[tx.Hash] {
+						tx.Logs = append(tx.Logs, *log)
+					}
+				}
+
+				receipts := make([]*types.TransactionReceipt, 0)
+				for _, tx := range item.txs {
+					receipt := &types.TransactionReceipt{
+						TransactionHash:   tx.Hash,
+						BlockHash:         tx.BlockHash,
+						BlockNumber:       tx.BlockNumber,
+						From:              tx.From,
+						To:                tx.To,
+						Status:            "0x1",
+						GasUsed:           tx.GasUsed,
+						CumulativeGasUsed: tx.CumulativeGasUsed,
+						Logs:              tx.Logs,
+					}
+					if !tx.Status {
+						receipt.Status = "0x0"
+					}
+					receipts = append(receipts, receipt)
+				}
+
+				// Use the original GraphQL method
+				_, err := m.blockHandler.CreateBlockBatchOptimized(ctx, item.block, item.txs, receipts)
+				if err != nil {
+					if !isAlreadyExistsError(err) {
+						logger.Sugar.Warnf("Failed to import block %d: %v", blockNum, err)
+						atomic.AddInt64(&errCount, 1)
+					}
+					continue
+				}
+
+				atomic.AddInt64(&blocksImported, 1)
+				atomic.AddInt64(&txsImported, int64(len(item.txs)))
+				for _, tx := range item.txs {
+					atomic.AddInt64(&logsImported, int64(len(tx.Logs)))
+				}
+			}
+		}()
+	}
+
+	for _, block := range blocks {
+		blockNum := mustParseBlockNumber(block.Number)
+		txs := txByBlock[blockNum]
+
+		select {
+		case <-ctx.Done():
+			close(workChan)
+			wg.Wait()
+			return result, ctx.Err()
+		case workChan <- workItem{block: block, txs: txs}:
+		}
+	}
+
+	close(workChan)
+	wg.Wait()
+
+	result.ImportDuration = time.Since(importStart)
+	logger.Sugar.Infof("Import phase completed in %v", result.ImportDuration)
+
+	result.BlocksProcessed = int64(len(blocks))
+	result.BlocksImported = blocksImported
+	result.TransactionsImported = txsImported
+	result.LogsImported = logsImported
+	result.ErrorCount = int(errCount)
+
+	logger.Sugar.Infof("Batch complete: imported %d/%d blocks, %d txs, %d logs (download: %v, import: %v)",
+		blocksImported, len(blocks), txsImported, logsImported, result.DownloadDuration, result.ImportDuration)
 
 	return result, nil
 }
@@ -416,7 +562,6 @@ func (m *Migrator) validateSample(ctx context.Context, startBlock, endBlock int6
 	return errors
 }
 
-// loadCheckpoint loads the migration checkpoint
 func (m *Migrator) loadCheckpoint() {
 	checkpointPath := filepath.Join(m.cfg.OutputDir, "checkpoint.json")
 	data, err := os.ReadFile(checkpointPath)
@@ -439,7 +584,6 @@ func (m *Migrator) loadCheckpoint() {
 	m.checkpoint = &cp
 }
 
-// saveCheckpoint saves the migration checkpoint
 func (m *Migrator) saveCheckpoint(lastBlock int64) {
 	checkpointPath := filepath.Join(m.cfg.OutputDir, "checkpoint.json")
 
