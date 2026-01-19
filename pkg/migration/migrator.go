@@ -187,6 +187,8 @@ func (m *Migrator) Run(ctx context.Context) (*Result, error) {
 		result.LogsImported += batchResult.LogsImported
 		result.AccessListEntriesImported += batchResult.AccessListEntriesImported
 		result.ValidationErrors = append(result.ValidationErrors, batchResult.ValidationErrors...)
+		result.DownloadDuration += batchResult.DownloadDuration
+		result.ImportDuration += batchResult.ImportDuration
 
 		// Save checkpoint
 		m.saveCheckpoint(batchEnd)
@@ -215,6 +217,9 @@ func (m *Migrator) Run(ctx context.Context) (*Result, error) {
 func (m *Migrator) processBatch(ctx context.Context, startBlock, endBlock int64) (*Result, error) {
 	result := &Result{}
 
+	// ==================== DOWNLOAD PHASE ====================
+	downloadStart := time.Now()
+
 	// Read blocks from provider
 	blocks, err := m.provider.ReadBlocks(ctx, startBlock, endBlock)
 	if err != nil {
@@ -236,6 +241,10 @@ func (m *Migrator) processBatch(ctx context.Context, startBlock, endBlock int64)
 	}
 	logger.Sugar.Infof("Read %d logs from provider", len(logs))
 
+	result.DownloadDuration = time.Since(downloadStart)
+	logger.Sugar.Infof("Download phase completed in %v", result.DownloadDuration)
+
+	// ==================== PREPARE PHASE ====================
 	// Group transactions and logs by block
 	txByBlock := make(map[int64][]*types.Transaction)
 	for _, tx := range transactions {
@@ -258,6 +267,9 @@ func (m *Migrator) processBatch(ctx context.Context, startBlock, endBlock int64)
 			len(blocks), len(transactions), len(logs))
 		return result, nil
 	}
+
+	// ==================== IMPORT PHASE ====================
+	importStart := time.Now()
 
 	// Import to DefraDB
 	var (
@@ -348,14 +360,17 @@ func (m *Migrator) processBatch(ctx context.Context, startBlock, endBlock int64)
 	close(workChan)
 	wg.Wait()
 
+	result.ImportDuration = time.Since(importStart)
+	logger.Sugar.Infof("Import phase completed in %v", result.ImportDuration)
+
 	result.BlocksProcessed = int64(len(blocks))
 	result.BlocksImported = blocksImported
 	result.TransactionsImported = txsImported
 	result.LogsImported = logsImported
 	result.ErrorCount = int(errCount)
 
-	logger.Sugar.Infof("Batch complete: imported %d/%d blocks, %d txs, %d logs",
-		blocksImported, len(blocks), txsImported, logsImported)
+	logger.Sugar.Infof("Batch complete: imported %d/%d blocks, %d txs, %d logs (download: %v, import: %v)",
+		blocksImported, len(blocks), txsImported, logsImported, result.DownloadDuration, result.ImportDuration)
 
 	return result, nil
 }

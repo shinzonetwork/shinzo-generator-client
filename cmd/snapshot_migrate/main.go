@@ -189,27 +189,55 @@ func printConfig(cfg *migration.Config, useEmbedded bool) {
 	fmt.Println(repeatString("=", 60) + "\n")
 }
 
-func printResults(result *migration.Result, duration time.Duration) {
+func printResults(result *migration.Result, totalDuration time.Duration) {
 	fmt.Println("\n" + repeatString("=", 60))
 	fmt.Println("MIGRATION RESULTS")
 	fmt.Println(repeatString("=", 60))
 	fmt.Printf("Status:              %s\n", result.Status)
-	fmt.Printf("Duration:            %s\n", duration.Round(time.Second))
-	fmt.Printf("Blocks Processed:    %d\n", result.BlocksProcessed)
-	fmt.Printf("Blocks Imported:     %d\n", result.BlocksImported)
-	fmt.Printf("Transactions:        %d\n", result.TransactionsImported)
-	fmt.Printf("Logs:                %d\n", result.LogsImported)
-	fmt.Printf("Access List Entries: %d\n", result.AccessListEntriesImported)
-	fmt.Printf("Errors:              %d\n", result.ErrorCount)
-	if result.BlocksProcessed > 0 && duration.Seconds() > 0 {
-		blocksPerSec := float64(result.BlocksProcessed) / duration.Seconds()
-		fmt.Printf("Throughput:          %.2f blocks/sec\n", blocksPerSec)
+	fmt.Printf("Total Duration:      %s\n", totalDuration.Round(time.Millisecond))
+	fmt.Println(repeatString("-", 60))
+	
+	// Timing breakdown
+	fmt.Println("TIMING BREAKDOWN:")
+	fmt.Printf("  Download Time:     %s\n", result.DownloadDuration.Round(time.Millisecond))
+	fmt.Printf("  Import Time:       %s\n", result.ImportDuration.Round(time.Millisecond))
+	otherTime := totalDuration - result.DownloadDuration - result.ImportDuration
+	if otherTime > 0 {
+		fmt.Printf("  Other (overhead):  %s\n", otherTime.Round(time.Millisecond))
 	}
+	fmt.Println(repeatString("-", 60))
+	
+	// Data stats
+	fmt.Println("DATA IMPORTED:")
+	fmt.Printf("  Blocks Processed:    %d\n", result.BlocksProcessed)
+	fmt.Printf("  Blocks Imported:     %d\n", result.BlocksImported)
+	fmt.Printf("  Transactions:        %d\n", result.TransactionsImported)
+	fmt.Printf("  Logs:                %d\n", result.LogsImported)
+	fmt.Printf("  Access List Entries: %d\n", result.AccessListEntriesImported)
+	fmt.Printf("  Errors:              %d\n", result.ErrorCount)
+	fmt.Println(repeatString("-", 60))
+	
+	// Performance metrics (based on import time only)
+	fmt.Println("PERFORMANCE (Import Only):")
+	if result.ImportDuration.Seconds() > 0 && result.BlocksImported > 0 {
+		blocksPerSec := float64(result.BlocksImported) / result.ImportDuration.Seconds()
+		txsPerSec := float64(result.TransactionsImported) / result.ImportDuration.Seconds()
+		logsPerSec := float64(result.LogsImported) / result.ImportDuration.Seconds()
+		msPerBlock := result.ImportDuration.Milliseconds() / result.BlocksImported
+		
+		fmt.Printf("  Blocks/sec:          %.2f\n", blocksPerSec)
+		fmt.Printf("  Transactions/sec:    %.2f\n", txsPerSec)
+		fmt.Printf("  Logs/sec:            %.2f\n", logsPerSec)
+		fmt.Printf("  ms/block:            %d\n", msPerBlock)
+	}
+	
 	if result.LastCheckpoint > 0 {
+		fmt.Println(repeatString("-", 60))
 		fmt.Printf("Last Checkpoint:     %d\n", result.LastCheckpoint)
 	}
 	if len(result.ValidationErrors) > 0 {
-		fmt.Printf("\nValidation Errors (%d):\n", len(result.ValidationErrors))
+		fmt.Println(repeatString("-", 60))
+		fmt.Printf("Validation Errors (%d):\n", len(result.ValidationErrors))
 		for i, err := range result.ValidationErrors {
 			if i >= 10 {
 				fmt.Printf("  ... and %d more\n", len(result.ValidationErrors)-10)

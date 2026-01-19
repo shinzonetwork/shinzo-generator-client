@@ -3,6 +3,7 @@ package migration
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 // Provider represents a data provider type
@@ -101,6 +102,10 @@ type Result struct {
 	ErrorCount                int
 	LastCheckpoint            int64
 	ValidationErrors          []ValidationError
+	
+	// Timing information
+	DownloadDuration time.Duration // Time spent downloading from provider
+	ImportDuration   time.Duration // Time spent importing to DefraDB
 }
 
 // ValidationError represents a validation error

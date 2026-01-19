@@ -123,3 +123,64 @@ help:
 	@echo "  make build && make migrate-dry"
 	@echo "  make migrate-test"
 	@echo "  ETH_RPC_URL=http://localhost:8545 make migrate-test"
+# Migration targets - add these to your existing Makefile
+
+.PHONY: build-migrate migrate-test migrate-dry migrate-100 migrate-1000
+
+# Build the migration tool
+build-migrate:
+	@echo "Building snapshot_migrate..."
+	go build -v -o bin/snapshot_migrate ./cmd/snapshot_migrate
+
+# Test migration with 100 blocks (measures import time separately from download)
+migrate-test: build-migrate
+	@echo "Running migration test with 100 blocks..."
+	@echo "This will show download time vs import time separately"
+	./bin/snapshot_migrate \
+		--provider aws \
+		--start 20000000 \
+		--end 20000099 \
+		--batch 100 \
+		--workers 4 \
+		--output ./snapshot_data \
+		--defra-data ./data/defra-migrate-test
+
+# Dry run (download only, no import)
+migrate-dry: build-migrate
+	@echo "Running dry migration (download only)..."
+	./bin/snapshot_migrate \
+		--provider aws \
+		--start 20000000 \
+		--end 20000099 \
+		--batch 100 \
+		--dry-run \
+		--output ./snapshot_data
+
+# Test with 100 blocks
+migrate-100: build-migrate
+	@echo "Running migration with 100 blocks..."
+	./bin/snapshot_migrate \
+		--provider aws \
+		--start 20000000 \
+		--end 20000099 \
+		--batch 100 \
+		--workers 4 \
+		--output ./snapshot_data \
+		--defra-data ./data/defra-migrate-test
+
+# Test with 1000 blocks
+migrate-1000: build-migrate
+	@echo "Running migration with 1000 blocks..."
+	./bin/snapshot_migrate \
+		--provider aws \
+		--start 20000000 \
+		--end 20000999 \
+		--batch 500 \
+		--workers 8 \
+		--output ./snapshot_data \
+		--defra-data ./data/defra-migrate-test
+
+# Clean migration test data
+migrate-clean:
+	rm -rf ./data/defra-migrate-test
+	rm -rf ./snapshot_data
