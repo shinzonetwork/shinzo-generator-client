@@ -104,7 +104,7 @@ func LoadConfig(path string) (*Config, error) {
 // applyDefaults sets default values for optional configuration
 func applyDefaults(cfg *Config) {
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
-		cfg.Indexer.ConcurrentBlocks = 16
+		cfg.Indexer.ConcurrentBlocks = 8
 	}
 	if cfg.Indexer.PrefetchBlocks <= 0 {
 		cfg.Indexer.PrefetchBlocks = 8
