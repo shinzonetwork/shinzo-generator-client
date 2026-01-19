@@ -21,8 +21,9 @@ func main() {
 	provider := flag.String("provider", "aws", "Data provider: aws, bigquery, cryo")
 	startBlock := flag.Int64("start", 0, "Start block number")
 	endBlock := flag.Int64("end", 0, "End block number (0 = latest available)")
-	batchSize := flag.Int("batch", 1000, "Blocks per batch")
+	batchSize := flag.Int("batch", 1000, "Blocks per download batch")
 	workers := flag.Int("workers", 4, "Number of parallel workers")
+	multiBlockBatch := flag.Int("multi-block", 20, "Blocks per DB transaction (higher = faster but more memory)")
 	validate := flag.Bool("validate", false, "Validate imported data against RPC")
 	validateSample := flag.Int("validate-sample", 100, "Number of blocks to sample for validation")
 	dryRun := flag.Bool("dry-run", false, "Download and parse data without importing")
@@ -32,32 +33,29 @@ func main() {
 	awsBucket := flag.String("aws-bucket", "aws-public-blockchain", "AWS S3 bucket name")
 	awsPrefix := flag.String("aws-prefix", "v1.0/eth", "AWS S3 prefix path")
 	rpcURL := flag.String("rpc", "", "RPC URL for validation (overrides config)")
-	useEmbedded := flag.Bool("embedded", true, "Use embedded DefraDB node (default: true)")
-	defraDataDir := flag.String("defra-data", "./data/defra", "DefraDB data directory (for embedded mode)")
-	useBulkAPI := flag.Bool("bulk", true, "Use Collection API instead of GraphQL (faster, default: true)")
+	useEmbedded := flag.Bool("embedded", true, "Use embedded DefraDB node")
+	defraDataDir := flag.String("defra-data", "./data/defra", "DefraDB data directory")
+	useBulkAPI := flag.Bool("bulk", true, "Use Collection API instead of GraphQL (faster)")
 	flag.Parse()
 
-	// Initialize logger
 	logger.Init(true)
 
-	// Load config
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		logger.Sugar.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Override RPC URL if provided
 	if *rpcURL != "" {
 		cfg.Geth.NodeURL = *rpcURL
 	}
 
-	// Create migration config
 	migrationCfg := &migration.Config{
 		Provider:         migration.Provider(*provider),
 		StartBlock:       *startBlock,
 		EndBlock:         *endBlock,
 		BatchSize:        *batchSize,
 		Workers:          *workers,
+		MultiBlockBatch:  *multiBlockBatch,
 		EnableValidation: *validate,
 		ValidateSample:   *validateSample,
 		DryRun:           *dryRun,
@@ -70,24 +68,20 @@ func main() {
 		UseBulkAPI:       *useBulkAPI,
 	}
 
-	// Validate config
 	if err := migrationCfg.Validate(); err != nil {
 		logger.Sugar.Fatalf("Invalid configuration: %v", err)
 	}
 
-	// Print configuration
 	printConfig(migrationCfg, *useEmbedded)
 
-	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
-		logger.Sugar.Infof("Received signal %v, initiating graceful shutdown...", sig)
+		logger.Sugar.Infof("Received signal %v, shutting down...", sig)
 		cancel()
 	}()
 
@@ -95,7 +89,6 @@ func main() {
 	var defraNode *node.Node
 
 	if *useEmbedded && !*dryRun {
-		// Start embedded DefraDB node
 		logger.Sugar.Info("Starting embedded DefraDB node...")
 		defraNode, err = startEmbeddedDefra(ctx, *defraDataDir)
 		if err != nil {
@@ -103,18 +96,14 @@ func main() {
 		}
 		defer func() {
 			logger.Sugar.Info("Shutting down DefraDB node...")
-			if err := defraNode.Close(context.Background()); err != nil {
-				logger.Sugar.Errorf("Error closing DefraDB node: %v", err)
-			}
+			defraNode.Close(context.Background())
 		}()
 
-		// Create migrator with embedded node
 		migrator, err = migration.NewMigratorWithNode(migrationCfg, defraNode)
 		if err != nil {
 			logger.Sugar.Fatalf("Failed to create migrator: %v", err)
 		}
 	} else {
-		// Create migrator (uses HTTP or dry-run)
 		migrator, err = migration.NewMigrator(migrationCfg)
 		if err != nil {
 			logger.Sugar.Fatalf("Failed to create migrator: %v", err)
@@ -122,8 +111,6 @@ func main() {
 	}
 
 	startTime := time.Now()
-
-	// Run migration
 	result, err := migrator.Run(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -133,26 +120,21 @@ func main() {
 		}
 	}
 
-	// Print results
 	printResults(result, time.Since(startTime))
 }
 
-// startEmbeddedDefra starts an embedded DefraDB node
 func startEmbeddedDefra(ctx context.Context, dataDir string) (*node.Node, error) {
-	// Create data directory if it doesn't exist
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// Configure DefraDB node
 	opts := []node.Option{
 		node.WithStoreType(node.BadgerStore),
 		node.WithStorePath(dataDir),
-		node.WithDisableP2P(true),  // Disable P2P for migration
-		node.WithDisableAPI(true),  // Disable HTTP API - we use direct access
+		node.WithDisableP2P(true),
+		node.WithDisableAPI(true),
 	}
 
-	// Create and start node
 	defraNode, err := node.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DefraDB node: %w", err)
@@ -162,10 +144,8 @@ func startEmbeddedDefra(ctx context.Context, dataDir string) (*node.Node, error)
 		return nil, fmt.Errorf("failed to start DefraDB node: %w", err)
 	}
 
-	// Load schema
 	schemaStr := schema.GetSchemaForBuild()
 	if _, err := defraNode.DB.AddSchema(ctx, schemaStr); err != nil {
-		// Schema might already exist, try to continue
 		logger.Sugar.Warnf("Schema add warning (may be already loaded): %v", err)
 	}
 
@@ -174,33 +154,29 @@ func startEmbeddedDefra(ctx context.Context, dataDir string) (*node.Node, error)
 }
 
 func printConfig(cfg *migration.Config, useEmbedded bool) {
-	fmt.Println("\n" + repeatString("=", 60))
+	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("ETHEREUM SNAPSHOT MIGRATION TOOL")
-	fmt.Println(repeatString("=", 60))
-	fmt.Printf("Provider:         %s\n", cfg.Provider)
-	fmt.Printf("Block Range:      %d - %d\n", cfg.StartBlock, cfg.EndBlock)
-	fmt.Printf("Batch Size:       %d blocks\n", cfg.BatchSize)
-	fmt.Printf("Workers:          %d\n", cfg.Workers)
-	fmt.Printf("Output Dir:       %s\n", cfg.OutputDir)
-	fmt.Printf("Dry Run:          %v\n", cfg.DryRun)
-	fmt.Printf("Validation:       %v\n", cfg.EnableValidation)
-	fmt.Printf("Embedded DefraDB: %v\n", useEmbedded)
-	fmt.Printf("Use Bulk API:     %v\n", cfg.UseBulkAPI)
-	if cfg.EnableValidation {
-		fmt.Printf("Validate Sample:  %d blocks\n", cfg.ValidateSample)
-	}
-	fmt.Println(repeatString("=", 60) + "\n")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("Provider:          %s\n", cfg.Provider)
+	fmt.Printf("Block Range:       %d - %d\n", cfg.StartBlock, cfg.EndBlock)
+	fmt.Printf("Download Batch:    %d blocks\n", cfg.BatchSize)
+	fmt.Printf("DB Batch:          %d blocks/txn\n", cfg.MultiBlockBatch)
+	fmt.Printf("Workers:           %d\n", cfg.Workers)
+	fmt.Printf("Output Dir:        %s\n", cfg.OutputDir)
+	fmt.Printf("Dry Run:           %v\n", cfg.DryRun)
+	fmt.Printf("Embedded DefraDB:  %v\n", useEmbedded)
+	fmt.Printf("Use Bulk API:      %v\n", cfg.UseBulkAPI)
+	fmt.Println(strings.Repeat("=", 60) + "\n")
 }
 
 func printResults(result *migration.Result, totalDuration time.Duration) {
-	fmt.Println("\n" + repeatString("=", 60))
+	fmt.Println("\n" + strings.Repeat("=", 60))
 	fmt.Println("MIGRATION RESULTS")
-	fmt.Println(repeatString("=", 60))
+	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("Status:              %s\n", result.Status)
 	fmt.Printf("Total Duration:      %s\n", totalDuration.Round(time.Millisecond))
-	fmt.Println(repeatString("-", 60))
+	fmt.Println(strings.Repeat("-", 60))
 
-	// Timing breakdown
 	fmt.Println("TIMING BREAKDOWN:")
 	fmt.Printf("  Download Time:     %s\n", result.DownloadDuration.Round(time.Millisecond))
 	fmt.Printf("  Import Time:       %s\n", result.ImportDuration.Round(time.Millisecond))
@@ -208,9 +184,8 @@ func printResults(result *migration.Result, totalDuration time.Duration) {
 	if otherTime > 0 {
 		fmt.Printf("  Other (overhead):  %s\n", otherTime.Round(time.Millisecond))
 	}
-	fmt.Println(repeatString("-", 60))
+	fmt.Println(strings.Repeat("-", 60))
 
-	// Data stats
 	fmt.Println("DATA IMPORTED:")
 	fmt.Printf("  Blocks Processed:    %d\n", result.BlocksProcessed)
 	fmt.Printf("  Blocks Imported:     %d\n", result.BlocksImported)
@@ -218,9 +193,8 @@ func printResults(result *migration.Result, totalDuration time.Duration) {
 	fmt.Printf("  Logs:                %d\n", result.LogsImported)
 	fmt.Printf("  Access List Entries: %d\n", result.AccessListEntriesImported)
 	fmt.Printf("  Errors:              %d\n", result.ErrorCount)
-	fmt.Println(repeatString("-", 60))
+	fmt.Println(strings.Repeat("-", 60))
 
-	// Performance metrics (based on import time only)
 	fmt.Println("PERFORMANCE (Import Only):")
 	if result.ImportDuration.Seconds() > 0 && result.BlocksImported > 0 {
 		blocksPerSec := float64(result.BlocksImported) / result.ImportDuration.Seconds()
@@ -235,27 +209,20 @@ func printResults(result *migration.Result, totalDuration time.Duration) {
 	}
 
 	if result.LastCheckpoint > 0 {
-		fmt.Println(repeatString("-", 60))
+		fmt.Println(strings.Repeat("-", 60))
 		fmt.Printf("Last Checkpoint:     %d\n", result.LastCheckpoint)
 	}
-	if len(result.ValidationErrors) > 0 {
-		fmt.Println(repeatString("-", 60))
-		fmt.Printf("Validation Errors (%d):\n", len(result.ValidationErrors))
-		for i, err := range result.ValidationErrors {
-			if i >= 10 {
-				fmt.Printf("  ... and %d more\n", len(result.ValidationErrors)-10)
-				break
-			}
-			fmt.Printf("  - Block %d: %s\n", err.BlockNumber, err.Message)
-		}
-	}
-	fmt.Println(repeatString("=", 60))
+	fmt.Println(strings.Repeat("=", 60))
 }
 
-func repeatString(s string, n int) string {
-	result := ""
-	for i := 0; i < n; i++ {
-		result += s
-	}
-	return result
+var strings = struct {
+	Repeat func(string, int) string
+}{
+	Repeat: func(s string, n int) string {
+		result := ""
+		for i := 0; i < n; i++ {
+			result += s
+		}
+		return result
+	},
 }

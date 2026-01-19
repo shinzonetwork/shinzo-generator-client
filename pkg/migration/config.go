@@ -20,8 +20,9 @@ type Config struct {
 	Provider         Provider
 	StartBlock       int64
 	EndBlock         int64
-	BatchSize        int
-	Workers          int
+	BatchSize        int  // Blocks per download batch
+	Workers          int  // Parallel workers
+	MultiBlockBatch  int  // Blocks per DB transaction (default: 20)
 	EnableValidation bool
 	ValidateSample   int
 	DryRun           bool
@@ -31,7 +32,7 @@ type Config struct {
 	AWSPrefix        string
 	RPCURL           string
 	DefraURL         string
-	UseBulkAPI       bool // Use Collection API instead of GraphQL (faster)
+	UseBulkAPI       bool // Use Collection API instead of GraphQL
 }
 
 // Validate checks if the configuration is valid
@@ -39,7 +40,7 @@ func (c *Config) Validate() error {
 	switch c.Provider {
 	case ProviderAWS, ProviderBigQuery, ProviderCryo:
 	default:
-		return fmt.Errorf("invalid provider: %s (must be aws, bigquery, or cryo)", c.Provider)
+		return fmt.Errorf("invalid provider: %s", c.Provider)
 	}
 
 	if c.StartBlock < 0 {
@@ -50,17 +51,24 @@ func (c *Config) Validate() error {
 	}
 
 	if c.BatchSize < 1 {
-		return fmt.Errorf("batch size must be >= 1")
+		c.BatchSize = 1000
 	}
 	if c.BatchSize > 10000 {
-		return fmt.Errorf("batch size must be <= 10000")
+		c.BatchSize = 10000
 	}
 
 	if c.Workers < 1 {
-		return fmt.Errorf("workers must be >= 1")
+		c.Workers = 4
 	}
 	if c.Workers > 32 {
-		return fmt.Errorf("workers must be <= 32")
+		c.Workers = 32
+	}
+
+	if c.MultiBlockBatch < 1 {
+		c.MultiBlockBatch = 20 // Default: 20 blocks per DB transaction
+	}
+	if c.MultiBlockBatch > 100 {
+		c.MultiBlockBatch = 100 // Cap at 100 to avoid huge transactions
 	}
 
 	if c.OutputDir == "" {
