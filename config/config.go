@@ -53,7 +53,6 @@ type GethConfig struct {
 type IndexerConfig struct {
 	StartHeight      int `yaml:"start_height"`
 	ConcurrentBlocks int `yaml:"concurrent_blocks"`
-	PrefetchBlocks   int `yaml:"prefetch_blocks"`
 	ReceiptWorkers   int `yaml:"receipt_workers"`
 	MaxDocsPerTxn    int `yaml:"max_docs_per_txn"` // Threshold for single-txn vs batched block creation
 }
@@ -105,9 +104,6 @@ func LoadConfig(path string) (*Config, error) {
 func applyDefaults(cfg *Config) {
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
-	}
-	if cfg.Indexer.PrefetchBlocks <= 0 {
-		cfg.Indexer.PrefetchBlocks = 8
 	}
 	if cfg.Indexer.ReceiptWorkers <= 0 {
 		cfg.Indexer.ReceiptWorkers = 64
@@ -184,11 +180,6 @@ func applyEnvOverrides(cfg *Config) {
 	if concurrentBlocks := os.Getenv("INDEXER_CONCURRENT_BLOCKS"); concurrentBlocks != "" {
 		if n, err := strconv.Atoi(concurrentBlocks); err == nil {
 			cfg.Indexer.ConcurrentBlocks = n
-		}
-	}
-	if prefetchBlocks := os.Getenv("INDEXER_PREFETCH_BLOCKS"); prefetchBlocks != "" {
-		if n, err := strconv.Atoi(prefetchBlocks); err == nil {
-			cfg.Indexer.PrefetchBlocks = n
 		}
 	}
 	if receiptWorkers := os.Getenv("INDEXER_RECEIPT_WORKERS"); receiptWorkers != "" {

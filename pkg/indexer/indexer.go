@@ -246,8 +246,8 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 	// Use concurrent processing if configured and using embedded DefraDB
 	if cfg.Indexer.ConcurrentBlocks > 1 && i.defraNode != nil {
-		logger.Sugar.Infof("Using concurrent block processing with %d workers, %d prefetch buffer",
-			cfg.Indexer.ConcurrentBlocks, cfg.Indexer.PrefetchBlocks)
+		logger.Sugar.Infof("Using concurrent block processing with %d workers",
+			cfg.Indexer.ConcurrentBlocks)
 		return i.runConcurrentIndexing(ctx, client, blockHandler, nextBlockToProcess, cfg)
 	}
 
@@ -311,20 +311,14 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	i.shouldIndex = true
 	i.isStarted = true
 
-	prefetcher := NewBlockPrefetcher(
-		client,
-		cfg.Indexer.PrefetchBlocks,
-		cfg.Indexer.ReceiptWorkers,
-	)
-	prefetcher.Start(startBlock)
-	defer prefetcher.Stop()
-
 	processor := NewConcurrentBlockProcessor(
 		blockHandler,
+		client,
 		cfg.Indexer.ConcurrentBlocks,
+		cfg.Indexer.ReceiptWorkers,
 	)
 
-	return processor.ProcessBlocks(ctx, prefetcher, startBlock, func(blockNum int64) {
+	return processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
 		i.updateBlockInfo(blockNum)
 		i.hasIndexedAtLeastOneBlock = true
 	})

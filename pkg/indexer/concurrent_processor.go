@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"sort"
 	"strings"
 	"sync"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 )
 
 // BlockResult holds the result of processing a block
@@ -22,42 +25,50 @@ type BlockResult struct {
 
 // ConcurrentBlockProcessor processes multiple blocks concurrently
 type ConcurrentBlockProcessor struct {
-	blockHandler *defra.BlockHandler
-	workers      int
-	resultChan   chan *BlockResult
-	pendingMu    sync.Mutex
-	pending      map[int64]*BlockResult
-	nextToCommit int64
+	blockHandler   *defra.BlockHandler
+	ethClient      *rpc.EthereumClient
+	workers        int
+	receiptWorkers int
+	resultChan     chan *BlockResult
+	pendingMu      sync.Mutex
+	pending        map[int64]*BlockResult
+	nextToCommit   int64
 }
 
 // NewConcurrentBlockProcessor creates a new concurrent processor
-func NewConcurrentBlockProcessor(blockHandler *defra.BlockHandler, workers int) *ConcurrentBlockProcessor {
+func NewConcurrentBlockProcessor(
+	blockHandler *defra.BlockHandler,
+	ethClient *rpc.EthereumClient,
+	workers int,
+	receiptWorkers int,
+) *ConcurrentBlockProcessor {
 	return &ConcurrentBlockProcessor{
-		blockHandler: blockHandler,
-		workers:      workers,
-		resultChan:   make(chan *BlockResult, workers*2),
-		pending:      make(map[int64]*BlockResult),
+		blockHandler:   blockHandler,
+		ethClient:      ethClient,
+		workers:        workers,
+		receiptWorkers: receiptWorkers,
+		resultChan:     make(chan *BlockResult, workers*2),
+		pending:        make(map[int64]*BlockResult),
 	}
 }
 
-// ProcessBlocks processes prefetched blocks concurrently while maintaining order
+// ProcessBlocks processes blocks concurrently while maintaining commit order.
 func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	ctx context.Context,
-	prefetcher *BlockPrefetcher,
 	startBlock int64,
 	onBlockProcessed func(blockNum int64),
 ) error {
 	p.nextToCommit = startBlock
 
 	var wg sync.WaitGroup
-	workChan := make(chan *PrefetchedBlock, p.workers)
+	workChan := make(chan int64, p.workers*2)
 
 	for i := 0; i < p.workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for prefetched := range workChan {
-				result := p.processBlock(ctx, prefetched)
+			for blockNum := range workChan {
+				result := p.fetchAndProcessBlock(ctx, blockNum)
 				select {
 				case p.resultChan <- result:
 				case <-ctx.Done():
@@ -100,10 +111,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 		}
 	}()
 
-	// Start requesting blocks after the ones already seeded by the prefetcher
-	nextBlockToRequest := startBlock + int64(prefetcher.bufferSize)
-	processedCount := 0
-
+	nextBlock := startBlock
 	for {
 		select {
 		case <-ctx.Done():
@@ -112,56 +120,99 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 			close(p.resultChan)
 			collectWg.Wait()
 			return ctx.Err()
-		default:
-			prefetched := prefetcher.GetNext()
-			if prefetched == nil {
-				continue
-			}
-
-			if prefetched.Error != nil {
-				if strings.Contains(prefetched.Error.Error(), "not found") ||
-					strings.Contains(prefetched.Error.Error(), "does not exist") {
-					logger.Sugar.Infof("Block %d not available yet, waiting...", prefetched.BlockNum)
-					time.Sleep(3 * time.Second)
-					prefetcher.RequestBlock(prefetched.BlockNum)
-					continue
-				}
-				p.resultChan <- &BlockResult{
-					BlockNum: prefetched.BlockNum,
-					Error:    prefetched.Error,
-				}
-				prefetcher.RequestBlock(prefetched.BlockNum)
-				continue
-			}
-
-			select {
-			case workChan <- prefetched:
-				processedCount++
-				prefetcher.RequestBlock(nextBlockToRequest)
-				nextBlockToRequest++
-			case <-ctx.Done():
-				close(workChan)
-				wg.Wait()
-				close(p.resultChan)
-				collectWg.Wait()
-				return ctx.Err()
-			}
+		case workChan <- nextBlock:
+			nextBlock++
 		}
 	}
 }
 
-// processBlock processes a single prefetched block with retry on transaction conflicts
-func (p *ConcurrentBlockProcessor) processBlock(ctx context.Context, prefetched *PrefetchedBlock) *BlockResult {
-	result := &BlockResult{BlockNum: prefetched.BlockNum}
+// fetchAndProcessBlock fetches a block with receipts and processes it
+func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blockNum int64) *BlockResult {
+	result := &BlockResult{BlockNum: blockNum}
+
+	var block *types.Block
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if ctx.Err() != nil {
+			result.Error = ctx.Err()
+			return result
+		}
+
+		block, err = p.ethClient.GetBlockByNumber(ctx, big.NewInt(blockNum))
+		if err == nil {
+			break
+		}
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
+			logger.Sugar.Infof("Block %d not available yet, waiting...", blockNum)
+			select {
+			case <-ctx.Done():
+				result.Error = ctx.Err()
+				return result
+			case <-time.After(3 * time.Second):
+			}
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			result.Error = ctx.Err()
+			return result
+		case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+		}
+	}
+	if err != nil {
+		result.Error = fmt.Errorf("failed to fetch block: %w", err)
+		return result
+	}
+
+	transactions := make([]*types.Transaction, len(block.Transactions))
+	for i := range block.Transactions {
+		transactions[i] = &block.Transactions[i]
+	}
+
+	receipts := make([]*types.TransactionReceipt, len(block.Transactions))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, p.receiptWorkers)
+
+	for i, tx := range block.Transactions {
+		wg.Add(1)
+		go func(idx int, txHash string) {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			receipt, err := p.ethClient.GetTransactionReceipt(ctx, txHash)
+			if err != nil {
+				// Don't log context cancellation as a warning
+				if ctx.Err() == nil {
+					logger.Sugar.Warnf("Failed to fetch receipt for tx %s: %v", txHash, err)
+				}
+				return
+			}
+			receipts[idx] = receipt
+		}(i, tx.Hash)
+	}
+	wg.Wait()
+
+	validReceipts := make([]*types.TransactionReceipt, 0, len(receipts))
+	for _, r := range receipts {
+		if r != nil {
+			validReceipts = append(validReceipts, r)
+		}
+	}
 
 	const maxRetries = 3
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		blockID, err := p.blockHandler.CreateBlockBatch(
-			ctx,
-			prefetched.Block,
-			prefetched.Transactions,
-			prefetched.Receipts,
-		)
+		if ctx.Err() != nil {
+			result.Error = ctx.Err()
+			return result
+		}
+
+		blockID, err := p.blockHandler.CreateBlockBatch(ctx, block, transactions, validReceipts)
 		if err == nil {
 			result.Success = true
 			result.BlockID = blockID
@@ -174,11 +225,15 @@ func (p *ConcurrentBlockProcessor) processBlock(ctx context.Context, prefetched 
 			return result
 		}
 
-		// Retry on transaction conflict
 		if strings.Contains(err.Error(), "transaction conflict") {
 			if attempt < maxRetries-1 {
-				logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", prefetched.BlockNum, attempt+1, maxRetries)
-				time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond) // 50ms, 100ms, 150ms backoff
+				logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", blockNum, attempt+1, maxRetries)
+				select {
+				case <-ctx.Done():
+					result.Error = ctx.Err()
+					return result
+				case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
+				}
 				continue
 			}
 		}
