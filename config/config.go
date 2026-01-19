@@ -70,6 +70,19 @@ type Config struct {
 	Geth    GethConfig    `yaml:"geth"`
 	Indexer IndexerConfig `yaml:"indexer"`
 	Logger  LoggerConfig  `yaml:"logger"`
+	Migration MigrationConfig `yaml:"migration"`
+}
+
+type MigrationConfig struct {
+    Enabled        bool   `yaml:"enabled"`
+    StartBlock     int64  `yaml:"start_block"`
+    EndBlock       int64  `yaml:"end_block"`
+    BatchSize      int    `yaml:"batch_size"`
+    Workers        int    `yaml:"workers"`
+    OutputDir      string `yaml:"output_dir"`
+    Provider       string `yaml:"provider"`
+    Validate       bool   `yaml:"validate"`
+    ValidateSample int    `yaml:"validate_sample"`
 }
 
 // LoadConfig loads configuration from a YAML file and environment variables

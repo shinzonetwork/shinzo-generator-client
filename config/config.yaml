@@ -1,6 +1,6 @@
 # Default configuration - environment variables will override these
 defradb:
-  url: "http://localhost:9181"  # Empty = embedded DefraDB
+  url: ""  # Empty = embedded DefraDB
   keyring_secret: "" # over written by env var
   embedded: true
   p2p:
@@ -29,4 +29,15 @@ indexer:
 
 logger:
   development: false
+
+migration:
+  enabled: true                     # Enable migration
+  start_block: 0                    # First block to migrate
+  end_block: 20000000               # Last block (or 0 to use indexer.start_height - 1)
+  batch_size: 1000                  # Blocks per batch
+  workers: 4                        # Parallel workers
+  output_dir: "./snapshot_data"     # Cache directory
+  provider: "aws"                   # Data provider
+  validate: false                   # Enable validation
+  validate_sample: 100              # Blocks to validate
 

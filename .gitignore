@@ -63,3 +63,18 @@ coverage.html
 logs/
 
 .DS_Store
+
+# ===========================================
+# Snapshot Migration Data (large files!)
+# ===========================================
+snapshot_data/
+test_snapshots/
+*.parquet
+*.snappy.parquet
+
+# Migration checkpoints (local state)
+checkpoint.json
+
+# DefraDB data directories
+data/
+data/defra/

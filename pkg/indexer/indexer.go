@@ -192,6 +192,23 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		logger.Sugar.Info("Using HTTP access for external DefraDB")
 	}
 
+	if cfg.Migration.Enabled && i.defraNode != nil {
+        logger.Sugar.Info("Migration enabled, running historical data import...")
+        
+        migCfg := &MigrationConfig{
+            StartBlock: cfg.Migration.StartBlock,
+            EndBlock:   cfg.Migration.EndBlock,
+            BatchSize:  cfg.Migration.BatchSize,
+            Workers:    cfg.Migration.Workers,
+            OutputDir:  cfg.Migration.OutputDir,
+            Provider:   cfg.Migration.Provider,
+        }
+        
+        if err := i.RunMigration(ctx, migCfg); err != nil {
+            logger.Sugar.Errorf("Migration failed: %v - continuing with live indexing", err)
+        }
+    }
+
 	// Apply rate limiting if configured
 	if cfg.Indexer.DocPushRateLimit > 0 {
 		blockHandler.SetRateLimit(cfg.Indexer.DocPushRateLimit)
