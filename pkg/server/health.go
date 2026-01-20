@@ -2,15 +2,25 @@ package server
 
 import (
 	"context"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
+)
+
+//go:embed health_status_page.html
+var embeddedHealthStatusPageHTML string
+
+var (
+	healthStatusPagePath = filepath.Join("pkg", "server", "health_status_page.html")
 )
 
 // HealthServer provides HTTP endpoints for health checks and metrics
@@ -125,7 +135,21 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested
+	accept := r.Header.Get("Accept")
+	acceptLower := strings.ToLower(accept)
 
+	// Serve JSON only if explicitly requested (Accept contains application/json and not text/html)
+	// Otherwise, default to HTML for browser requests
+	if strings.Contains(acceptLower, "text/html") && !strings.Contains(acceptLower, "application/json") {
+		// Default to HTML (browser request or Accept header includes text/html)
+		htmlContent := hs.getHealthStatusPageHTML()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write(htmlContent)
+		return
+	}
+	// Serve JSON response
 	response := HealthResponse{
 		Status:           "healthy",
 		Timestamp:        time.Now(),
@@ -344,4 +368,26 @@ func getSchemaType() string {
 		return "branchable"
 	}
 	return "non-branchable"
+}
+
+// getHealthStatusPageHTML reads the HTML file from disk at runtime, falling back to embedded version
+// This allows hot-reloading during development without rebuilding
+func (hs *HealthServer) getHealthStatusPageHTML() []byte {
+	// Try to read from disk first (for development hot-reload)
+	// Check multiple possible paths relative to where the binary might be running
+	possiblePaths := []string{
+		healthStatusPagePath,                          // pkg/server/health_status_page.html
+		filepath.Join(".", "health_status_page.html"), // ./health_status_page.html (if running from pkg/server)
+	}
+
+	for _, path := range possiblePaths {
+		if data, err := os.ReadFile(path); err == nil {
+			logger.Sugar.Debugf("Loaded health status page from: %s", path)
+			return data
+		}
+	}
+
+	// Fallback to embedded version (for production or if file not found)
+	logger.Sugar.Debug("Using embedded health status page")
+	return []byte(embeddedHealthStatusPageHTML)
 }
