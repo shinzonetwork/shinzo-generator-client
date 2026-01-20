@@ -21,9 +21,9 @@ geth:
 
 indexer:
   start_height: 23700000
-  concurrent_blocks: 16     # Number of blocks to process concurrently (default: 8)
-  receipt_workers: 64      # Concurrent receipt fetchers per block (default: 50)
-  max_docs_per_txn: 1000    # Docs threshold for single-txn block creation (default: 200)
+  concurrent_blocks: 16     # Number of blocks to process concurrently
+  receipt_workers: 16      # Concurrent receipt fetchers per block
+  max_docs_per_txn: 1000    # Docs threshold for single-txn block creation
 
 logger:
   development: false

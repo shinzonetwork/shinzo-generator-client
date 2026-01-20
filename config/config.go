@@ -106,7 +106,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Indexer.ConcurrentBlocks = 8
 	}
 	if cfg.Indexer.ReceiptWorkers <= 0 {
-		cfg.Indexer.ReceiptWorkers = 64
+		cfg.Indexer.ReceiptWorkers = 16
 	}
 	if cfg.Indexer.MaxDocsPerTxn <= 0 {
 		cfg.Indexer.MaxDocsPerTxn = 500
