@@ -272,6 +272,23 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 	return c.convertGethReceipt(receipt), nil
 }
 
+// GetBlockReceipts fetches all receipts for a block in a single RPC call.
+func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*types.TransactionReceipt, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, fmt.Errorf("no client available")
+	}
+	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
+	}
+	result := make([]*types.TransactionReceipt, len(receipts))
+	for i, receipt := range receipts {
+		result[i] = c.convertGethReceipt(receipt)
+	}
+	return result, nil
+}
+
 // convertGethReceipt converts go-ethereum receipt to our custom receipt type
 func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *types.TransactionReceipt {
 	if receipt == nil {

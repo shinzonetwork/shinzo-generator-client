@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -169,44 +168,53 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 		transactions[i] = &block.Transactions[i]
 	}
 
-	receipts := make([]*types.TransactionReceipt, len(block.Transactions))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, p.receiptWorkers)
+	var validReceipts []*types.TransactionReceipt
+	batchReceipts, batchErr := p.ethClient.GetBlockReceipts(ctx, big.NewInt(blockNum))
+	if batchErr == nil {
+		validReceipts = batchReceipts
+	} else {
+		if ctx.Err() == nil {
+			logger.Sugar.Debugf("Block %d: eth_getBlockReceipts not available, falling back to individual fetches: %v", blockNum, batchErr)
+		}
 
-	for i, tx := range block.Transactions {
-		wg.Add(1)
-		go func(idx int, txHash string) {
-			defer wg.Done()
+		receipts := make([]*types.TransactionReceipt, len(block.Transactions))
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, p.receiptWorkers)
 
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				return
-			}
+		for i, tx := range block.Transactions {
+			wg.Add(1)
+			go func(idx int, txHash string) {
+				defer wg.Done()
 
-			receipt, err := p.ethClient.GetTransactionReceipt(ctx, txHash)
-			if err != nil {
-				// Don't log context cancellation as a warning
-				if ctx.Err() == nil {
-					logger.Sugar.Warnf("Failed to fetch receipt for tx %s: %v", txHash, err)
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					return
 				}
-				return
-			}
-			receipts[idx] = receipt
-		}(i, tx.Hash)
-	}
-	wg.Wait()
 
-	validReceipts := make([]*types.TransactionReceipt, 0, len(receipts))
-	for _, r := range receipts {
-		if r != nil {
-			validReceipts = append(validReceipts, r)
+				receipt, err := p.ethClient.GetTransactionReceipt(ctx, txHash)
+				if err != nil {
+					if ctx.Err() == nil {
+						logger.Sugar.Warnf("Failed to fetch receipt for tx %s: %v", txHash, err)
+					}
+					return
+				}
+				receipts[idx] = receipt
+			}(i, tx.Hash)
+		}
+		wg.Wait()
+
+		validReceipts = make([]*types.TransactionReceipt, 0, len(receipts))
+		for _, r := range receipts {
+			if r != nil {
+				validReceipts = append(validReceipts, r)
+			}
 		}
 	}
 
 	const maxRetries = 3
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		if ctx.Err() != nil {
 			result.Error = ctx.Err()
 			return result
@@ -243,16 +251,4 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 	}
 
 	return result
-}
-
-// GetPendingBlocks returns currently pending block numbers (for debugging)
-func (p *ConcurrentBlockProcessor) GetPendingBlocks() []int64 {
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	blocks := make([]int64, 0, len(p.pending))
-	for blockNum := range p.pending {
-		blocks = append(blocks, blockNum)
-	}
-	sort.Slice(blocks, func(i, j int) bool { return blocks[i] < blocks[j] })
-	return blocks
 }

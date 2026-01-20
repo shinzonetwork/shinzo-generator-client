@@ -431,7 +431,7 @@ func (i *ChainIndexer) processSingleBlock(ctx context.Context, ethClient *rpc.Et
 	var blockId string
 
 	// Retry logic for storing block in DefraDB
-	for attempt := 0; attempt < DefaultRetryAttempts; attempt++ {
+	for attempt := range DefaultRetryAttempts {
 		blockId, err = blockHandler.CreateBlock(ctx, block)
 		if err == nil {
 			break
@@ -533,19 +533,6 @@ func (i *ChainIndexer) processTransaction(ctx context.Context, ethClient *rpc.Et
 	}
 
 	logger.Sugar.Infof("Processed transaction %s with %d access list entries and %d logs", tx.Hash, len(tx.AccessList), len(receipt.Logs))
-}
-
-// parseBlockNumber converts hex string to int64
-func parseBlockNumber(hexStr string) (int64, error) {
-	if strings.HasPrefix(hexStr, "0x") {
-		blockNum := new(big.Int)
-		blockNum.SetString(hexStr[2:], 16)
-		return blockNum.Int64(), nil
-	}
-
-	blockNum := new(big.Int)
-	blockNum.SetString(hexStr, 10)
-	return blockNum.Int64(), nil
 }
 
 func (i *ChainIndexer) StopIndexing() {
