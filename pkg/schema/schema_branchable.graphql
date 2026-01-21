@@ -54,6 +54,7 @@ type Ethereum__Mainnet__Transaction @branchable {
 
 type Ethereum__Mainnet__AccessListEntry @branchable {
     address: String
+    blockNumber: Int @index
     storageKeys: [String]
     transaction: Ethereum__Mainnet__Transaction @index @relation(name: "transaction_accessList")
 }
@@ -73,3 +74,13 @@ type Ethereum__Mainnet__Log @branchable {
     transaction: Ethereum__Mainnet__Transaction @index @relation(name: "transaction_logs")
 }
 
+type Ethereum__Mainnet__BatchSignature @branchable {
+    blockNumber: Int @index(unique: true)
+    blockHash: String @index
+    merkleRoot: String @index
+    cidCount: Int
+    signatureType: String
+    signatureIdentity: String @index
+    signatureValue: String
+    createdAt: String
+}

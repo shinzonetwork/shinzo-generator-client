@@ -3,6 +3,7 @@ package defra
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,8 +40,9 @@ type logEntry struct {
 
 // aleEntry holds an access list entry and its associated transaction ID for batched processing
 type aleEntry struct {
-	ale  *types.AccessListEntry
-	txID string
+	ale         *types.AccessListEntry
+	txID        string
+	blockNumber int64
 }
 
 func NewBlockHandler(url string) (*BlockHandler, error) {
@@ -162,7 +164,7 @@ func (h *BlockHandler) CreateTransaction(ctx context.Context, tx *types.Transact
 	return docID, nil
 }
 
-func (h *BlockHandler) CreateAccessListEntry(ctx context.Context, accessListEntry *types.AccessListEntry, tx_Id string) (string, error) {
+func (h *BlockHandler) CreateAccessListEntry(ctx context.Context, accessListEntry *types.AccessListEntry, tx_Id string, blockNumber int64) (string, error) {
 	if accessListEntry == nil {
 		logger.Sugar.Error("CreateAccessListEntry: AccessListEntry is nil")
 		return "", errors.NewInvalidInputFormat("defra", "CreateAccessListEntry", constants.CollectionAccessListEntry, nil)
@@ -173,6 +175,7 @@ func (h *BlockHandler) CreateAccessListEntry(ctx context.Context, accessListEntr
 	}
 	ALEData := map[string]interface{}{
 		"address":     accessListEntry.Address,
+		"blockNumber": blockNumber,
 		"storageKeys": accessListEntry.StorageKeys,
 		"transaction": tx_Id,
 	}
@@ -535,6 +538,10 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create transaction", err)
 	}
 
+	// Enable batch signing mode - collect CIDs instead of signing each document
+	collector := node.NewBatchCIDCollector()
+	ctx = node.ContextWithBatchSigning(ctx, collector)
+
 	colBlock, err := txn.GetCollectionByName(ctx, constants.CollectionBlock)
 	if err != nil {
 		txn.Discard()
@@ -636,7 +643,7 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 			continue
 		}
 		for i := range tx.AccessList {
-			aleDoc, err := h.buildALEDocument(ctx, &tx.AccessList[i], txID, colALE)
+			aleDoc, err := h.buildALEDocument(ctx, &tx.AccessList[i], txID, blockInt, colALE)
 			if err != nil {
 				txn.Discard()
 				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build ALE document", err)
@@ -657,7 +664,73 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to commit", err)
 	}
 
+	// Sign the batch of CIDs collected during document creation
+	collectedCIDs := collector.GetCIDs()
+	expectedDocs := 1 + len(transactions) + len(logDocs) + len(aleDocs) // nolint:ineffassign
+
+	batchSig, err := node.SignBatch(ctx, collector)
+	if err != nil {
+		logger.Sugar.Warnf("Failed to create batch signature for block %d: %v", blockInt, err)
+	} else if batchSig != nil {
+		valid, verifyErr := node.VerifyBatchSignature(batchSig, collectedCIDs)
+		if verifyErr != nil {
+			logger.Sugar.Warnf("Block %d: batch signature verification error: %v", blockInt, verifyErr)
+		} else if !valid {
+			logger.Sugar.Warnf("Block %d: batch signature verification FAILED", blockInt)
+		}
+
+		// Store the batch signature in a separate transaction
+		if err := h.storeBatchSignature(ctx, batchSig, blockInt, block.Hash); err != nil {
+			logger.Sugar.Warnf("Block %d: failed to store batch signature: %v", blockInt, err)
+		} else {
+			logger.Sugar.Debugf("Block %d: batch sig stored, %d CIDs (expected ~%d), merkle: %x, verified: %v",
+				blockInt, batchSig.CIDCount, expectedDocs, batchSig.MerkleRoot[:8], valid)
+		}
+	}
+
 	return blockID, nil
+}
+
+// storeBatchSignature stores a batch signature in DefraDB
+func (h *BlockHandler) storeBatchSignature(ctx context.Context, batchSig *node.BatchSignature, blockNumber int64, blockHash string) error {
+	txn, err := h.defraNode.DB.NewTxn(false)
+	if err != nil {
+		return fmt.Errorf("failed to create transaction: %w", err)
+	}
+
+	col, err := txn.GetCollectionByName(ctx, constants.CollectionBatchSignature)
+	if err != nil {
+		txn.Discard()
+		return fmt.Errorf("failed to get batch signature collection: %w", err)
+	}
+
+	data := map[string]any{
+		"blockNumber":       blockNumber,
+		"blockHash":         blockHash,
+		"merkleRoot":        hex.EncodeToString(batchSig.MerkleRoot),
+		"cidCount":          batchSig.CIDCount,
+		"signatureType":     batchSig.Header.Type,
+		"signatureIdentity": string(batchSig.Header.Identity),
+		"signatureValue":    hex.EncodeToString(batchSig.Value),
+		"createdAt":         time.Now().UTC().Format(time.RFC3339),
+	}
+
+	doc, err := client.NewDocFromMap(ctx, data, col.Version())
+	if err != nil {
+		txn.Discard()
+		return fmt.Errorf("failed to create document: %w", err)
+	}
+
+	if err := col.Create(ctx, doc); err != nil {
+		txn.Discard()
+		return fmt.Errorf("failed to store batch signature: %w", err)
+	}
+
+	if err := txn.Commit(); err != nil {
+		return fmt.Errorf("failed to commit batch signature: %w", err)
+	}
+
+	return nil
 }
 
 // buildBlockDocument creates a client.Document for a block
@@ -737,9 +810,10 @@ func (h *BlockHandler) buildLogDocument(ctx context.Context, log *types.Log, blo
 }
 
 // buildALEDocument creates a client.Document for an access list entry
-func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessListEntry, txID string, col client.Collection) (*client.Document, error) {
+func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessListEntry, txID string, blockNumber int64, col client.Collection) (*client.Document, error) {
 	data := map[string]any{
 		"address":     ale.Address,
+		"blockNumber": blockNumber,
 		"storageKeys": ale.StorageKeys,
 		"transaction": txID,
 	}
@@ -749,6 +823,10 @@ func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessLi
 // createBlockBatched creates the block using multiple transactions for large blocks.
 // This is the fallback for blocks exceeding MaxDocsPerTransaction.
 func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
+	// Enable batch signing mode for the entire block
+	collector := node.NewBatchCIDCollector()
+	ctx = node.ContextWithBatchSigning(ctx, collector)
+
 	txn, err := h.defraNode.DB.NewTxn(false)
 	if err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
@@ -905,7 +983,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 		for i := range tx.AccessList {
-			allALEs = append(allALEs, aleEntry{ale: &tx.AccessList[i], txID: txID})
+			allALEs = append(allALEs, aleEntry{ale: &tx.AccessList[i], txID: txID, blockNumber: blockInt})
 		}
 	}
 
@@ -935,7 +1013,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			if entry.ale == nil {
 				continue
 			}
-			aleDoc, err := h.buildALEDocument(ctx, entry.ale, entry.txID, colALE)
+			aleDoc, err := h.buildALEDocument(ctx, entry.ale, entry.txID, entry.blockNumber, colALE)
 			if err != nil {
 				logger.Sugar.Warnf("Failed to build ALE document: %v", err)
 				continue
@@ -954,6 +1032,30 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		if err := txn.Commit(); err != nil {
 			logger.Sugar.Warnf("Failed to commit ALE batch: %v", err)
 			continue
+		}
+	}
+
+	// Sign the batch of CIDs collected during document creation across all transactions
+	collectedCIDs := collector.GetCIDs()
+
+	batchSig, err := node.SignBatch(ctx, collector)
+	if err != nil {
+		logger.Sugar.Warnf("Failed to create batch signature for block %d: %v", blockInt, err)
+	} else if batchSig != nil {
+		// Verify the signature is valid
+		valid, verifyErr := node.VerifyBatchSignature(batchSig, collectedCIDs)
+		if verifyErr != nil {
+			logger.Sugar.Warnf("Block %d: batch signature verification error: %v", blockInt, verifyErr)
+		} else if !valid {
+			logger.Sugar.Warnf("Block %d: batch signature verification FAILED", blockInt)
+		}
+
+		// Store the batch signature
+		if err := h.storeBatchSignature(ctx, batchSig, blockInt, block.Hash); err != nil {
+			logger.Sugar.Warnf("Block %d: failed to store batch signature: %v", blockInt, err)
+		} else {
+			logger.Sugar.Debugf("Block %d (batched): batch sig stored, %d CIDs, merkle: %x, verified: %v",
+				blockInt, batchSig.CIDCount, batchSig.MerkleRoot[:8], valid)
 		}
 	}
 

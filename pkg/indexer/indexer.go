@@ -163,6 +163,15 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			return err
 		}
 
+		// Get the identity context for batch signing
+		identityCtx, err := appsdk.GetIdentityContext(ctx, appCfg)
+		if err != nil {
+			logger.Sugar.Warnf("Failed to get identity context for batch signing: %v (batch signatures may not work)", err)
+		} else {
+			ctx = identityCtx
+			logger.Sugar.Info("Identity context initialized for batch signing")
+		}
+
 	} else {
 		// Using external DefraDB - wait for it and apply schema via HTTP
 		err := defra.WaitForDefraDB(cfg.DefraDB.Url)
@@ -514,9 +523,12 @@ func (i *ChainIndexer) processTransaction(ctx context.Context, ethClient *rpc.Et
 		return
 	}
 
-	// Store access list entries for EIP-2930/EIP-1559 transactions
+	// Store access list entries
+	blockNumStr := strings.TrimPrefix(tx.BlockNumber, "0x")
+	blockNumBig, _ := new(big.Int).SetString(blockNumStr, 16)
+	blockNum := blockNumBig.Int64()
 	for _, accessListEntry := range tx.AccessList {
-		_, err := blockHandler.CreateAccessListEntry(ctx, &accessListEntry, txId)
+		_, err := blockHandler.CreateAccessListEntry(ctx, &accessListEntry, txId, blockNum)
 		if err != nil {
 			logger.Sugar.Errorf("Failed to create access list entry for tx %s: %v", tx.Hash, err)
 			continue
