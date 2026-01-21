@@ -8,6 +8,8 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -242,6 +244,12 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		if err := i.healthServer.Start(); err != nil {
 			logger.Sugar.Errorf("Health server failed: %v", err)
 		}
+	}()
+
+	// Wait a moment for the server to start, then open the browser
+	go func() {
+		time.Sleep(2 * time.Second) // Give the server time to start
+		openBrowser("http://localhost:8080/health")
 	}()
 
 	// Use concurrent processing if configured and using embedded DefraDB
@@ -673,6 +681,26 @@ func (i *ChainIndexer) updateBlockInfo(blockNum int64) {
 	defer i.mutex.Unlock()
 	i.currentBlock = blockNum
 	i.lastProcessedTime = time.Now()
+}
+
+// openBrowser opens the specified URL in the default browser
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default: // linux and others
+		cmd = exec.Command("xdg-open", url)
+	}
+
+	if err := cmd.Start(); err != nil {
+		logger.Sugar.Warnf("Failed to open browser: %v", err)
+		return
+	}
+	logger.Sugar.Infof("Opened health page in browser: %s", url)
 }
 
 func applySchemaViaHTTP(defraUrl string) error {

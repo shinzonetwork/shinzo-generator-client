@@ -342,6 +342,23 @@
             return date.toLocaleString('en-US', { timeZone: 'UTC', timeZoneName: 'short' });
         }
 
+        function parseDurationToHMS(input) {
+            const match = input.match(/(?:(\d+)m)?([\d.]+)s/);
+            if (!match) throw new Error("Invalid duration format");
+
+            const minutes = Number(match[1] ?? 0);
+            const seconds = Number(match[2]);
+
+            const totalSeconds = minutes * 60 + seconds;
+
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = Math.floor(totalSeconds % 60);
+
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${pad(h)}:${pad(m)}:${pad(s)}`;
+        }
+
         function updateStatusBadge(status) {
             const healthStatusText = document.getElementById('healthStatusText');
             const healthStatusIndicator = document.getElementById('healthStatusIndicator');
@@ -408,7 +425,7 @@
                 // Update status section
                 document.getElementById('statusValue').textContent = data.status || '-';
                 document.getElementById('currentBlockValue').textContent = formatNumber(data.current_block);
-                document.getElementById('uptimeValue').textContent = data.uptime || '-';
+                document.getElementById('uptimeValue').textContent = parseDurationToHMS(data.uptime) || '-';
 
                 // Update configuration section
                 document.getElementById('buildTagsValue').textContent = data.build_tags || '-';
