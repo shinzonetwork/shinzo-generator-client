@@ -109,7 +109,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Indexer.ReceiptWorkers = 16
 	}
 	if cfg.Indexer.MaxDocsPerTxn <= 0 {
-		cfg.Indexer.MaxDocsPerTxn = 500
+		cfg.Indexer.MaxDocsPerTxn = 1000
 	}
 }
 

@@ -58,14 +58,14 @@ func NewBlockHandler(url string) (*BlockHandler, error) {
 }
 
 // NewBlockHandlerWithNode creates a BlockHandler that uses direct DB calls for better performance.
-// maxDocsPerTxn is the threshold for single-txn vs batched block creation (default 256 if <= 0).
+// maxDocsPerTxn is the threshold for single-txn vs batched block creation.
 func NewBlockHandlerWithNode(defraNode *node.Node, maxDocsPerTxn int) (*BlockHandler, error) {
 	if defraNode == nil {
 		return nil, errors.NewConfigurationError("defra", "NewBlockHandlerWithNode",
 			"defraNode is nil", "", nil)
 	}
 	if maxDocsPerTxn <= 0 {
-		maxDocsPerTxn = 256
+		maxDocsPerTxn = 1000
 	}
 	return &BlockHandler{
 		defraNode:     defraNode,
@@ -777,14 +777,11 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
 	}
 
-	batchSize := 64 // Batch size for large blocks that exceed single-txn threshold
+	batchSize := h.maxDocsPerTxn
 	txHashToID := make(map[string]string)
 
 	for i := 0; i < len(transactions); i += batchSize {
-		end := i + batchSize
-		if end > len(transactions) {
-			end = len(transactions)
-		}
+		end := min(i+batchSize, len(transactions))
 
 		batch := transactions[i:end]
 		if len(batch) == 0 {
@@ -851,10 +848,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	}
 
 	for i := 0; i < len(allLogs); i += batchSize {
-		end := i + batchSize
-		if end > len(allLogs) {
-			end = len(allLogs)
-		}
+		end := min(i+batchSize, len(allLogs))
 
 		batch := allLogs[i:end]
 		if len(batch) == 0 {
@@ -916,10 +910,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	}
 
 	for i := 0; i < len(allALEs); i += batchSize {
-		end := i + batchSize
-		if end > len(allALEs) {
-			end = len(allALEs)
-		}
+		end := min(i+batchSize, len(allALEs))
 
 		batch := allALEs[i:end]
 		if len(batch) == 0 {
