@@ -533,10 +533,11 @@ func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block,
 
 // createBlockSingleTransaction creates the entire block in a single DB transaction.
 func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
-	txn, err := h.defraNode.DB.NewTxn(false)
+	txn, err := h.defraNode.DB.NewBlindWriteTxn()
 	if err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create transaction", err)
 	}
+	ctx = h.defraNode.DB.InitContext(ctx, txn)
 
 	// Enable batch signing mode - collect CIDs instead of signing each document
 	collector := node.NewBatchCIDCollector()
@@ -693,10 +694,11 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 
 // storeBatchSignature stores a batch signature in DefraDB
 func (h *BlockHandler) storeBatchSignature(ctx context.Context, batchSig *node.BatchSignature, blockNumber int64, blockHash string) error {
-	txn, err := h.defraNode.DB.NewTxn(false)
+	txn, err := h.defraNode.DB.NewBlindWriteTxn()
 	if err != nil {
 		return fmt.Errorf("failed to create transaction: %w", err)
 	}
+	ctx = h.defraNode.DB.InitContext(ctx, txn)
 
 	col, err := txn.GetCollectionByName(ctx, constants.CollectionBatchSignature)
 	if err != nil {
@@ -827,10 +829,13 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
 
-	txn, err := h.defraNode.DB.NewTxn(false)
+	// Use blind-write transaction - all blocks are new during indexing
+	txn, err := h.defraNode.DB.NewBlindWriteTxn()
 	if err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
 	}
+
+	ctx = h.defraNode.DB.InitContext(ctx, txn)
 
 	colBlock, err := txn.GetCollectionByName(ctx, constants.CollectionBlock)
 	if err != nil {
@@ -866,11 +871,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 
-		txn, err = h.defraNode.DB.NewTxn(false)
+		txn, err = h.defraNode.DB.NewBlindWriteTxn()
 		if err != nil {
 			logger.Sugar.Warnf("Failed to create txn for tx batch: %v", err)
 			continue
 		}
+		ctx = h.defraNode.DB.InitContext(ctx, txn)
 
 		colTx, err := txn.GetCollectionByName(ctx, constants.CollectionTransaction)
 		if err != nil {
@@ -933,11 +939,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 
-		txn, err = h.defraNode.DB.NewTxn(false)
+		txn, err = h.defraNode.DB.NewBlindWriteTxn()
 		if err != nil {
 			logger.Sugar.Warnf("Failed to create txn for log batch: %v", err)
 			continue
 		}
+		ctx = h.defraNode.DB.InitContext(ctx, txn)
 
 		colLog, err := txn.GetCollectionByName(ctx, constants.CollectionLog)
 		if err != nil {
@@ -995,11 +1002,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 
-		txn, err = h.defraNode.DB.NewTxn(false)
+		txn, err = h.defraNode.DB.NewBlindWriteTxn()
 		if err != nil {
 			logger.Sugar.Warnf("Failed to create txn for ALE batch: %v", err)
 			continue
 		}
+		ctx = h.defraNode.DB.InitContext(ctx, txn)
 
 		colALE, err := txn.GetCollectionByName(ctx, constants.CollectionAccessListEntry)
 		if err != nil {
