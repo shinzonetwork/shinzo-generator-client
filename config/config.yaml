@@ -21,7 +21,7 @@ geth:
 
 indexer:
   start_height: 23700000
-  concurrent_blocks: 4      # Number of blocks to process concurrently (reduced from 16 to improve P2P delivery)
+  concurrent_blocks: 2      # Number of blocks to process concurrently
   receipt_workers: 16      # Concurrent receipt fetchers per block
   max_docs_per_txn: 100000    # Docs threshold for single-txn block creation
 
