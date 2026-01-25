@@ -111,7 +111,13 @@ func toAppConfig(cfg *config.Config) *appConfig.Config {
 				EnableAutoReconnect: cfg.DefraDB.P2P.EnableAutoReconnect,
 			},
 			Store: appConfig.DefraStoreConfig{
-				Path: cfg.DefraDB.Store.Path,
+				Path:                    cfg.DefraDB.Store.Path,
+				BlockCacheMB:            cfg.DefraDB.Store.BlockCacheMB,
+				MemTableMB:              cfg.DefraDB.Store.MemTableMB,
+				IndexCacheMB:            cfg.DefraDB.Store.IndexCacheMB,
+				NumCompactors:           cfg.DefraDB.Store.NumCompactors,
+				NumLevelZeroTables:      cfg.DefraDB.Store.NumLevelZeroTables,
+				NumLevelZeroTablesStall: cfg.DefraDB.Store.NumLevelZeroTablesStall,
 			},
 		},
 	}

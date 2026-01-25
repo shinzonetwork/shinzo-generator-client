@@ -26,6 +26,14 @@ type DefraDBP2PConfig struct {
 // DefraDBStoreConfig represents store configuration for DefraDB
 type DefraDBStoreConfig struct {
 	Path string `yaml:"path"`
+	// Badger memory configuration
+	BlockCacheMB int64 `yaml:"block_cache_mb"`
+	MemTableMB   int64 `yaml:"memtable_mb"`
+	IndexCacheMB int64 `yaml:"index_cache_mb"`
+	// Badger compaction configuration
+	NumCompactors           int `yaml:"num_compactors"`
+	NumLevelZeroTables      int `yaml:"num_level_zero_tables"`
+	NumLevelZeroTablesStall int `yaml:"num_level_zero_tables_stall"`
 }
 
 // DefraDBConfig represents DefraDB configuration

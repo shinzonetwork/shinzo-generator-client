@@ -307,6 +307,10 @@ func (hs *HealthServer) checkDefraDB() bool {
 		return true // Embedded mode, assume healthy
 	}
 
+	if strings.Contains(hs.defraURL, "localhost") || strings.Contains(hs.defraURL, "127.0.0.1") {
+		return true
+	}
+
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(hs.defraURL + "/api/v0/graphql")
 	if err != nil {
