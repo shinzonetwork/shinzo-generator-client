@@ -260,7 +260,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	}()
 
 	// Use concurrent processing if configured and using embedded DefraDB
-	if cfg.Indexer.ConcurrentBlocks > 1 && i.defraNode != nil {
+	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers",
 			cfg.Indexer.ConcurrentBlocks)
 		return i.runConcurrentIndexing(ctx, client, blockHandler, nextBlockToProcess, cfg)
@@ -331,6 +331,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		client,
 		cfg.Indexer.ConcurrentBlocks,
 		cfg.Indexer.ReceiptWorkers,
+		cfg.Indexer.BlocksPerMinute,
 	)
 
 	return processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
@@ -345,7 +346,7 @@ func (i *ChainIndexer) processBlock(ctx context.Context, ethClient *rpc.Ethereum
 	var err error
 
 	// Retry logic for fetching block from Ethereum
-	for attempt := 0; attempt < DefaultRetryAttempts; attempt++ {
+	for attempt := range DefaultRetryAttempts {
 		block, err = ethClient.GetBlockByNumber(ctx, big.NewInt(blockNum))
 		if err == nil {
 			break
@@ -413,7 +414,7 @@ func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.Eth
 	}
 
 	var err error
-	for attempt := 0; attempt < DefaultRetryAttempts; attempt++ {
+	for attempt := range DefaultRetryAttempts {
 		_, err = blockHandler.CreateBlockBatch(ctx, block, transactions, receipts)
 		if err == nil {
 			break
@@ -504,7 +505,7 @@ func (i *ChainIndexer) processTransaction(ctx context.Context, ethClient *rpc.Et
 	// Retry logic for creating transaction
 	var txId string
 	var txErr error
-	for attempt := 0; attempt < DefaultRetryAttempts; attempt++ {
+	for attempt := range DefaultRetryAttempts {
 		txId, txErr = blockHandler.CreateTransaction(ctx, tx, blockId)
 		if txErr == nil {
 			break

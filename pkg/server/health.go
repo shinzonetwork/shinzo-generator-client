@@ -66,6 +66,7 @@ type HealthResponse struct {
 	LastProcessed    time.Time            `json:"last_processed,omitempty"`
 	DefraDBConnected bool                 `json:"defradb_connected"`
 	Uptime           string               `json:"uptime"`
+	UptimeSeconds    float64              `json:"uptime_seconds"`
 	P2P              *P2PInfo             `json:"p2p,omitempty"`
 	Registration     *DisplayRegistration `json:"registration,omitempty"`
 	BuildTags        string               `json:"build_tags,omitempty"`
@@ -126,11 +127,13 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	uptime := time.Since(startTime)
 	response := HealthResponse{
 		Status:           "healthy",
 		Timestamp:        time.Now(),
 		DefraDBConnected: hs.checkDefraDB(),
-		Uptime:           time.Since(startTime).String(),
+		Uptime:           uptime.String(),
+		UptimeSeconds:    uptime.Seconds(),
 		BuildTags:        getBuildTags(),
 		SchemaType:       getSchemaType(),
 	}
@@ -206,11 +209,13 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		ready = false
 	}
 
+	uptime := time.Since(startTime)
 	response := HealthResponse{
 		Status:           "ready",
 		Timestamp:        time.Now(),
 		DefraDBConnected: hs.checkDefraDB(),
-		Uptime:           time.Since(startTime).String(),
+		Uptime:           uptime.String(),
+		UptimeSeconds:    uptime.Seconds(),
 	}
 
 	if hs.indexer != nil {
