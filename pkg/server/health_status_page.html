@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Health Status</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #ffffff;
+            color: #000000;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 60px 24px;
+        }
+
+        .header {
+            margin-bottom: 60px;
+        }
+
+        .section-label {
+            display: flex;
+            align-items: center;
+            text-transform: uppercase;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-bottom: 40px;
+            font-weight: 500;
+        }
+
+        .section-label::before {
+            content: '/';
+            color: #D01F27;
+            margin-right: 12px;
+            font-weight: bold;
+        }
+
+        .section-label::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #e5e5e5;
+            margin-left: 12px;
+        }
+
+        h1 {
+            font-size: 48px;
+            font-weight: 400;
+            line-height: 1.2;
+            margin-bottom: 24px;
+        }
+
+        .highlight {
+            color: #D01F27;
+        }
+
+        .health-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 16px;
+            background: #f5f5f5;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: #D01F27;
+            text-transform: uppercase;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 24px;
+            margin-bottom: 60px;
+        }
+
+        .col-4 {
+            grid-column: span 4;
+        }
+
+        .col-12 {
+            grid-column: span 12;
+        }
+
+        .info-group {
+            padding: 32px;
+            border: 1px solid #e5e5e5;
+        }
+
+        h2 {
+            font-size: 24px;
+            font-weight: 400;
+            margin-bottom: 24px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f5f5f5;
+            font-size: 14px;
+        }
+
+        .info-row-placeholder {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .info-label {
+            font-weight: 500;
+            color: #666;
+        }
+
+        .info-value {
+            font-family: 'Courier New', monospace;
+            color: #000;
+            text-align: right;
+        }
+
+        .peer-section {
+            margin-top: 32px;
+        }
+
+        .peer-section h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 16px;
+        }
+
+        .peer-card {
+            background: #fafafa;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .peer-id {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #D01F27;
+            word-break: break-all;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .peer-detail {
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .peer-detail-label {
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .peer-detail-value {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            color: #000;
+            background: #fff;
+            padding: 8px;
+            word-break: break-all;
+        }
+
+        .status-indicator-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-indicator-inline::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-healthy::before {
+            background: #10b981;
+        }
+
+        .status-disconnected::before {
+            background: #ef4444;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #fecaca;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 40px 20px;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+
+            .col-4 {
+                grid-column: span 12;
+            }
+
+            .info-group {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>System <span class="highlight">[</span>Health<span class="highlight">]</span> Status</h1>
+            <div style="margin-top: 24px;">
+                <div class="health-status-badge">
+                    <span id="healthStatusIndicator"></span>
+                    <span id="healthStatusText">Loading...</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+        <div id="loading" class="loading" style="display: none;">Loading health status...</div>
+
+        <div class="section-label">System Overview</div>
+
+        <div class="grid">
+            <div class="col-4">
+                <div class="info-group">
+                    <h2>Status</h2>
+                    <div class="info-row">
+                        <span class="info-label">Status</span>
+                        <span class="info-value" id="statusValue">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Current Block</span>
+                        <span class="info-value" id="currentBlockValue">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Uptime</span>
+                        <span class="info-value" id="uptimeValue">-</span>
+                    </div>
+                </div>
+            </div>
+
+
+            <div class="col-4">
+                <div class="info-group">
+                    <h2>Configuration</h2>
+                    <div class="info-row">
+                        <span class="info-label">Build Tags</span>
+                        <span class="info-value" id="buildTagsValue">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Schema Type</span>
+                        <span class="info-value" id="schemaTypeValue">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Timestamp</span>
+                        <span class="info-value" id="timestampValue">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-4">
+                <div class="info-group">
+                    <h2>Database</h2>
+                    <div class="info-row">
+                        <span class="info-label">DefraDB</span>
+                        <span class="info-value" id="defraDBValue">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Last Processed</span>
+                        <span class="info-value" id="lastProcessedValue">-</span>
+                    </div>
+                    <div class="info-row info-row-placeholder">
+                        <span class="info-label">&nbsp;</span>
+                        <span class="info-value">&nbsp;</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-label">P2P Network</div>
+
+        <div class="grid">
+            <div class="col-12">
+                <div class="info-group">
+                    <h2>Network Status</h2>
+                    <div class="info-row">
+                        <span class="info-label">P2P Enabled</span>
+                        <span class="info-value" id="p2pEnabledValue">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Connected Peers</span>
+                        <span class="info-value" id="connectedPeersValue">-</span>
+                    </div>
+
+                    <div class="peer-section">
+                        <h3>Peer Connections</h3>
+                        <div id="peerList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let refreshInterval;
+
+        function formatNumber(num) {
+            if (num === null || num === undefined) return '0';
+            return new Intl.NumberFormat('en-US').format(num);
+        }
+
+        function formatTime(dateString) {
+            if (!dateString) return 'Never';
+            const date = new Date(dateString);
+            return date.toLocaleString('en-US', { timeZone: 'UTC', timeZoneName: 'short' });
+        }
+
+        function parseDurationToHMS(input) {
+            const match = input.match(/(?:(\d+)m)?([\d.]+)s/);
+            if (!match) throw new Error("Invalid duration format");
+
+            const minutes = Number(match[1] ?? 0);
+            const seconds = Number(match[2]);
+
+            const totalSeconds = minutes * 60 + seconds;
+
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = Math.floor(totalSeconds % 60);
+
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${pad(h)}:${pad(m)}:${pad(s)}`;
+        }
+
+        function updateStatusBadge(status) {
+            const healthStatusText = document.getElementById('healthStatusText');
+            const healthStatusIndicator = document.getElementById('healthStatusIndicator');
+            
+            healthStatusText.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+            
+            if (status === 'healthy') {
+                healthStatusIndicator.className = 'info-value status-indicator-inline status-healthy';
+            } else {
+                healthStatusIndicator.className = 'info-value status-indicator-inline status-disconnected';
+
+            }
+        }
+
+        function renderPeers(peers) {
+            const peerList = document.getElementById('peerList');
+            if (!peers || peers.length === 0) {
+                peerList.innerHTML = '<div class="peer-card"><div class="peer-id">No peers connected</div></div>';
+                return;
+            }
+
+            peerList.innerHTML = peers.map(peer => {
+                const addresses = peer.addresses && peer.addresses.length > 0 
+                    ? peer.addresses.map(addr => `<div class="peer-detail-value">${addr}</div>`).join('')
+                    : '<div class="peer-detail-value">No addresses</div>';
+                
+                const publicKey = peer.public_key 
+                    ? `<div class="peer-detail"><div class="peer-detail-label">Public Key</div><div class="peer-detail-value">${peer.public_key}</div></div>`
+                    : '';
+
+                return `
+                    <div class="peer-card">
+                        <div class="peer-id">${peer.id || 'Unknown'}</div>
+                        <div class="peer-detail">
+                            <div class="peer-detail-label">Address</div>
+                            ${addresses}
+                        </div>
+                        ${publicKey}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadHealthData() {
+            try {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('error').style.display = 'none';
+
+                const response = await fetch('/health', {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                // Update status badge
+                updateStatusBadge(data.status || 'unknown');
+
+                // Update status section
+                document.getElementById('statusValue').textContent = data.status || '-';
+                document.getElementById('currentBlockValue').textContent = formatNumber(data.current_block);
+                document.getElementById('uptimeValue').textContent = parseDurationToHMS(data.uptime) || '-';
+
+                // Update configuration section
+                document.getElementById('buildTagsValue').textContent = data.build_tags || '-';
+                document.getElementById('schemaTypeValue').textContent = data.schema_type || '-';
+                document.getElementById('timestampValue').textContent = formatTime(data.timestamp) || '-';
+
+                // Update database section
+                const defraDBValue = document.getElementById('defraDBValue');
+                if (data.defradb_connected) {
+                    defraDBValue.textContent = 'Connected';
+                    defraDBValue.className = 'info-value status-indicator-inline status-healthy';
+                } else {
+                    defraDBValue.textContent = 'Disconnected';
+                    defraDBValue.className = 'info-value status-indicator-inline status-disconnected';
+                }
+                document.getElementById('lastProcessedValue').textContent = formatTime(data.last_processed);
+
+                // Update P2P section
+                if (data.p2p) {
+                    const p2pEnabledValue = document.getElementById('p2pEnabledValue');
+                    if (data.p2p.enabled) {
+                        p2pEnabledValue.textContent = 'Yes';
+                        p2pEnabledValue.className = 'info-value status-indicator-inline status-healthy';
+                    } else {
+                        p2pEnabledValue.textContent = 'No';
+                        p2pEnabledValue.className = 'info-value status-indicator-inline status-disconnected';
+                    }
+                    document.getElementById('connectedPeersValue').textContent = formatNumber(data.p2p.peers ? data.p2p.peers.length : 0);
+                    renderPeers(data.p2p.peers || []);
+                } else {
+                    document.getElementById('p2pEnabledValue').textContent = 'N/A';
+                    document.getElementById('connectedPeersValue').textContent = '0';
+                    document.getElementById('peerList').innerHTML = '<div class="peer-card"><div class="peer-id">No P2P data available</div></div>';
+                }
+
+                document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = `Error loading health status: ${error.message}`;
+            }
+        }
+
+        // Initial load
+        loadHealthData();
+
+        // Auto-refresh every 10 seconds
+        refreshInterval = setInterval(loadHealthData, 10000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>
