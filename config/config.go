@@ -59,11 +59,14 @@ type GethConfig struct {
 
 // IndexerConfig represents indexer configuration
 type IndexerConfig struct {
-	StartHeight      int `yaml:"start_height"`
-	ConcurrentBlocks int `yaml:"concurrent_blocks"`
-	ReceiptWorkers   int `yaml:"receipt_workers"`
-	MaxDocsPerTxn    int `yaml:"max_docs_per_txn"`    // Threshold for single-txn vs batched block creation
-	BlocksPerMinute  int `yaml:"blocks_per_minute"`   // Rate limit for block processing (0 = unlimited)
+	StartHeight        int  `yaml:"start_height"`
+	ConcurrentBlocks   int  `yaml:"concurrent_blocks"`
+	ReceiptWorkers     int  `yaml:"receipt_workers"`
+	MaxDocsPerTxn      int  `yaml:"max_docs_per_txn"`
+	BlocksPerMinute    int  `yaml:"blocks_per_minute"`
+	HealthServerPort   int  `yaml:"health_server_port"`
+	PprofPort          int  `yaml:"pprof_port"`
+	OpenBrowserOnStart bool `yaml:"open_browser_on_start"`
 }
 
 // LoggerConfig represents logger configuration
@@ -119,6 +122,12 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Indexer.MaxDocsPerTxn <= 0 {
 		cfg.Indexer.MaxDocsPerTxn = 1000
+	}
+	if cfg.Indexer.HealthServerPort == 0 {
+		cfg.Indexer.HealthServerPort = 8080
+	}
+	if cfg.Indexer.PprofPort == 0 {
+		cfg.Indexer.PprofPort = 6060
 	}
 }
 

@@ -25,9 +25,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	go func() {
-		http.ListenAndServe(":6060", nil)
-	}()
+	if cfg.Indexer.PprofPort > 0 {
+		go func() {
+			addr := fmt.Sprintf(":%d", cfg.Indexer.PprofPort)
+			fmt.Printf("Starting pprof server on %s\n", addr)
+			http.ListenAndServe(addr, nil)
+		}()
+	}
 
 	// Create and start indexer
 	chainIndexer, err := indexer.CreateIndexer(cfg)

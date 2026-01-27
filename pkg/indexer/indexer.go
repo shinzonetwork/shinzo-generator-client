@@ -245,27 +245,28 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	// Get starting block number
 	nextBlockToProcess := int64(cfg.Indexer.StartHeight)
 
-	// Start health server
-	var healthDefraURL string
-	if cfg.DefraDB.Url != "" {
-		healthDefraURL = cfg.DefraDB.Url
-	} else if i.defraNode != nil {
-		healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
-	}
-	i.healthServer = server.NewHealthServer(8080, i, healthDefraURL)
-
-	// Start health server in background
-	go func() {
-		if err := i.healthServer.Start(); err != nil {
-			logger.Sugar.Errorf("Health server failed: %v", err)
+	if cfg.Indexer.HealthServerPort > 0 {
+		var healthDefraURL string
+		if cfg.DefraDB.Url != "" {
+			healthDefraURL = cfg.DefraDB.Url
+		} else if i.defraNode != nil {
+			healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
 		}
-	}()
+		i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
 
-	// Wait a moment for the server to start, then open the browser
-	go func() {
-		time.Sleep(2 * time.Second) // Give the server time to start
-		openBrowser("http://localhost:8080/health")
-	}()
+		go func() {
+			if err := i.healthServer.Start(); err != nil {
+				logger.Sugar.Errorf("Health server failed: %v", err)
+			}
+		}()
+
+		if cfg.Indexer.OpenBrowserOnStart {
+			go func() {
+				time.Sleep(2 * time.Second)
+				openBrowser(fmt.Sprintf("http://localhost:%d/health", cfg.Indexer.HealthServerPort))
+			}()
+		}
+	}
 
 	// Use concurrent processing if configured and using embedded DefraDB
 	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
