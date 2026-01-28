@@ -136,6 +136,9 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested
+	accept := r.Header.Get("Accept")
+	acceptLower := strings.ToLower(accept)
 
 	uptime := time.Since(startTime)
 	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested
