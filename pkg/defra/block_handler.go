@@ -15,7 +15,6 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -36,12 +35,6 @@ type logEntry struct {
 	txID string
 }
 
-// aleEntry holds an access list entry and its associated transaction ID for batched processing
-type aleEntry struct {
-	ale  *types.AccessListEntry
-	txID string
-}
-
 func NewBlockHandler(url string) (*BlockHandler, error) {
 	if url == "" {
 		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
@@ -58,19 +51,20 @@ func NewBlockHandler(url string) (*BlockHandler, error) {
 
 // NewBlockHandlerWithNode creates a BlockHandler that uses direct DB calls for better performance.
 // maxDocsPerTxn is the threshold for single-txn vs batched block creation (default 256 if <= 0).
-func NewBlockHandlerWithNode(defraNode *node.Node, maxDocsPerTxn int) (*BlockHandler, error) {
+func NewBlockHandlerWithNode(defraNode *node.Node, maxDocsPerTxn ...int) (*BlockHandler, error) {
 	if defraNode == nil {
 		return nil, errors.NewConfigurationError("defra", "NewBlockHandlerWithNode",
 			"defraNode is nil", "", nil)
 	}
-	if maxDocsPerTxn <= 0 {
-		maxDocsPerTxn = 256
+	maxDocs := 256
+	if len(maxDocsPerTxn) > 0 && maxDocsPerTxn[0] > 0 {
+		maxDocs = maxDocsPerTxn[0]
 	}
 	return &BlockHandler{
 		defraNode:     defraNode,
 		client:        nil,
 		defraURL:      "",
-		maxDocsPerTxn: maxDocsPerTxn,
+		maxDocsPerTxn: maxDocs,
 	}, nil
 }
 
@@ -80,34 +74,27 @@ func (h *BlockHandler) CreateBlock(ctx context.Context, block *types.Block) (str
 		return "", errors.NewInvalidBlockFormat("defra", "CreateBlock", fmt.Sprintf("%v", block), nil)
 	}
 
-	// Data conversion
-	blockInt, err := utils.HexToInt(block.Number)
-	if err != nil {
-		return "", err // Already properly wrapped
-	}
-
-	// Create block data
+	// Create block data matching new Arbitrum schema
 	blockData := map[string]interface{}{
-		"hash":             block.Hash,
-		"number":           blockInt,
-		"timestamp":        block.Timestamp,
-		"parentHash":       block.ParentHash,
-		"difficulty":       block.Difficulty,
-		"totalDifficulty":  block.TotalDifficulty,
-		"gasUsed":          block.GasUsed,
-		"gasLimit":         block.GasLimit,
-		"baseFeePerGas":    block.BaseFeePerGas,
-		"nonce":            block.Nonce,
-		"miner":            block.Miner,
-		"size":             block.Size,
-		"stateRoot":        block.StateRoot,
-		"sha3Uncles":       block.Sha3Uncles,
-		"transactionsRoot": block.TransactionsRoot,
-		"receiptsRoot":     block.ReceiptsRoot,
-		"logsBloom":        block.LogsBloom,
-		"extraData":        block.ExtraData,
-		"mixHash":          block.MixHash,
-		"uncles":           block.Uncles,
+		"baseFeePerGas": block.BaseFeePerGas,
+		"difficulty":    block.Difficulty,
+		"extraData":     block.ExtraData,
+		"gasLimit":      block.GasLimit,
+		"gasUsed":       block.GasUsed,
+		"hash":          block.Hash,
+		"l1BlockNumber": block.L1BlockNumber,
+		"logsBloom":     block.LogsBloom,
+		"mixHash":       block.MixHash,
+		"nonce":         block.Nonce,
+		"number":        block.Number, // int type
+		"parentHash":    block.ParentHash,
+		"receiptsRoot":  block.ReceiptsRoot,
+		"sendCount":     block.SendCount,
+		"sendRoot":      block.SendRoot,
+		"sha3Uncles":    block.Sha3Uncles,
+		"size":          block.Size,
+		"stateRoot":     block.StateRoot,
+		"timestamp":     block.Timestamp,
 	}
 	// Post block data to collection endpoint
 	docID, err := h.PostToCollection(ctx, constants.CollectionBlock, blockData)
@@ -124,34 +111,36 @@ func (h *BlockHandler) CreateTransaction(ctx context.Context, tx *types.Transact
 		return "", errors.NewInvalidInputFormat("defra", "CreateTransaction", "tx", nil)
 	}
 
-	blockInt, err := strconv.ParseInt(tx.BlockNumber, 10, 64)
-	if err != nil {
-		return "", errors.NewParsingFailed("defra", "CreateTransaction", "block number", err)
-	}
-
+	// Create transaction data matching new Arbitrum schema
 	txData := map[string]interface{}{
-		"hash":                 tx.Hash,
-		"blockNumber":          blockInt,
-		"blockHash":            tx.BlockHash,
-		"transactionIndex":     tx.TransactionIndex,
-		"from":                 tx.From,
-		"to":                   tx.To,
-		"value":                tx.Value,
-		"gas":                  tx.Gas,
-		"gasPrice":             tx.GasPrice,
-		"maxFeePerGas":         tx.MaxFeePerGas,
-		"maxPriorityFeePerGas": tx.MaxPriorityFeePerGas,
-		"input":                string(tx.Input),
-		"nonce":                fmt.Sprintf("%v", tx.Nonce),
-		"type":                 tx.Type,
-		"chainId":              tx.ChainId,
-		"v":                    tx.V,
-		"r":                    tx.R,
-		"s":                    tx.S,
-		"cumulativeGasUsed":    tx.CumulativeGasUsed,
-		"effectiveGasPrice":    tx.EffectiveGasPrice,
-		"status":               tx.Status,
-		"block":                block_id,
+		// Transaction fields
+		"blockHash":        tx.BlockHash,
+		"blockNumber":      tx.BlockNumber, // int type
+		"from":             tx.From,
+		"gas":              tx.Gas,
+		"gasPrice":         tx.GasPrice,
+		"hash":             tx.Hash,
+		"input":            tx.Input,
+		"nonce":            tx.Nonce,
+		"to":               tx.To,
+		"transactionIndex": tx.TransactionIndex,
+		"value":            tx.Value,
+		"type":             tx.Type,
+		"chainId":          tx.ChainId,
+		"v":                tx.V,
+		"r":                tx.R,
+		"s":                tx.S,
+		// Receipt fields
+		"contractAddress":   tx.ContractAddress,
+		"cumulativeGasUsed": tx.CumulativeGasUsed,
+		"effectiveGasPrice": tx.EffectiveGasPrice,
+		"gasUsed":           tx.GasUsed,
+		"gasUsedForL1":      tx.GasUsedForL1,
+		"l1BlockNumber":     tx.L1BlockNumber,
+		"status":            tx.Status,
+		"timeboosted":       tx.Timeboosted,
+		"logsBloom":         tx.LogsBloom,
+		"block":             block_id, // Relationship field matches schema
 	}
 	docID, err := h.PostToCollection(ctx, constants.CollectionTransaction, txData)
 	if err != nil {
@@ -161,54 +150,26 @@ func (h *BlockHandler) CreateTransaction(ctx context.Context, tx *types.Transact
 	return docID, nil
 }
 
-func (h *BlockHandler) CreateAccessListEntry(ctx context.Context, accessListEntry *types.AccessListEntry, tx_Id string) (string, error) {
-	if accessListEntry == nil {
-		logger.Sugar.Error("CreateAccessListEntry: AccessListEntry is nil")
-		return "", errors.NewInvalidInputFormat("defra", "CreateAccessListEntry", constants.CollectionAccessListEntry, nil)
-	}
-	if tx_Id == "" {
-		logger.Sugar.Error("CreateAccessListEntry: tx_Id is empty")
-		return "", errors.NewInvalidInputFormat("defra", "CreateAccessListEntry", "tx_Id", nil)
-	}
-	ALEData := map[string]interface{}{
-		"address":     accessListEntry.Address,
-		"storageKeys": accessListEntry.StorageKeys,
-		"transaction": tx_Id,
-	}
-	docID, err := h.PostToCollection(ctx, constants.CollectionAccessListEntry, ALEData)
-	if err != nil {
-		return "", errors.NewQueryFailed("defra", "CreateAccessListEntry", fmt.Sprintf("%v", ALEData), err)
-	}
-	return docID, nil
-}
-
 func (h *BlockHandler) CreateLog(ctx context.Context, log *types.Log, block_id, tx_Id string) (string, error) {
-	blockInt, err := utils.HexToInt(log.BlockNumber)
-	if err != nil {
-		return "", errors.NewParsingFailed("defra", "CreateLog", fmt.Sprintf("block number: %s", log.BlockNumber), err)
-	}
 	if log == nil {
 		return "", errors.NewInvalidInputFormat("defra", "CreateLog", constants.CollectionLog, nil)
-	}
-	if block_id == "" {
-		return "", errors.NewInvalidInputFormat("defra", "CreateLog", "block_id", nil)
 	}
 	if tx_Id == "" {
 		return "", errors.NewInvalidInputFormat("defra", "CreateLog", "tx_Id", nil)
 	}
 
+	// Create log data matching new Arbitrum schema
 	logData := map[string]interface{}{
 		"address":          log.Address,
 		"topics":           log.Topics,
 		"data":             log.Data,
-		"blockNumber":      blockInt,
+		"blockNumber":      log.BlockNumber, // int type
 		"transactionHash":  log.TransactionHash,
 		"transactionIndex": log.TransactionIndex,
 		"blockHash":        log.BlockHash,
 		"logIndex":         log.LogIndex,
-		"removed":          fmt.Sprintf("%v", log.Removed),
-		"transaction":      tx_Id,
-		"block":            block_id,
+		"removed":          log.Removed,      // bool type
+		"transaction":      tx_Id,            // Relationship field matches schema
 	}
 	docID, err := h.PostToCollection(ctx, constants.CollectionLog, logData)
 	if err != nil {
@@ -217,70 +178,6 @@ func (h *BlockHandler) CreateLog(ctx context.Context, log *types.Log, block_id, 
 	}
 
 	return docID, nil
-}
-
-func (h *BlockHandler) UpdateTransactionRelationships(ctx context.Context, blockId string, txHash string) (string, error) {
-
-	if blockId == "" {
-		return "", errors.NewInvalidInputFormat("defra", "UpdateTransactionRelationships", "blockId", nil)
-	}
-	if txHash == "" {
-		return "", errors.NewInvalidInputFormat("defra", "UpdateTransactionRelationships", "txHash", nil)
-	}
-
-	// Update transaction with block relationship
-	mutation := types.Request{Query: fmt.Sprintf(`mutation {
-		update_Transaction(filter: {hash: {_eq: %q}}, input: {block: %q}) {
-			_docID
-		}
-	}`, txHash, blockId)}
-
-	resp, err := h.SendToGraphql(ctx, mutation)
-	if err != nil {
-		return "", errors.NewQueryFailed("defra", "UpdateTransactionRelationships", fmt.Sprintf("%v", mutation), err)
-	}
-	docId, err := h.parseGraphQLResponse(resp, "update_Transaction")
-	if docId == "" {
-		return "", errors.NewQueryFailed("defra", "UpdateTransactionRelationships", fmt.Sprintf("%v", mutation), nil)
-	}
-	return docId, nil
-
-}
-
-func (h *BlockHandler) UpdateLogRelationships(ctx context.Context, blockId string, txId string, txHash string, logIndex string) (string, error) {
-
-	if blockId == "" {
-		return "", errors.NewInvalidInputFormat("defra", "UpdateLogRelationships", "blockId", nil)
-	}
-	if txId == "" {
-		return "", errors.NewInvalidInputFormat("defra", "UpdateLogRelationships", "txId", nil)
-	}
-	if txHash == "" {
-		return "", errors.NewInvalidInputFormat("defra", "UpdateLogRelationships", "txHash", nil)
-	}
-	if logIndex == "" {
-		return "", errors.NewInvalidInputFormat("defra", "UpdateLogRelationships", "logIndex", nil)
-	}
-
-	// Update log with block and transaction relationships
-	mutation := types.Request{Query: fmt.Sprintf(`mutation {
-		update_Log(filter: {logIndex: {_eq: %q}, transactionHash: {_eq: %q}}, input: {
-			block: %q,
-			transaction: %q
-		}) {
-			_docID
-		}
-	}`, logIndex, txHash, blockId, txId)}
-
-	resp, err := h.SendToGraphql(ctx, mutation)
-	if err != nil {
-		return "", errors.NewQueryFailed("defra", "UpdateLogRelationships", fmt.Sprintf("%v", mutation), err)
-	}
-	docId, err := h.parseGraphQLResponse(resp, "update_Log")
-	if docId == "" {
-		return "", errors.NewQueryFailed("defra", "UpdateLogRelationships", fmt.Sprintf("%v", mutation), nil)
-	}
-	return docId, nil
 }
 
 func (h *BlockHandler) PostToCollection(ctx context.Context, collection string, data map[string]interface{}) (string, error) {
@@ -355,14 +252,14 @@ func (h *BlockHandler) PostToCollection(ctx context.Context, collection string, 
 	}
 
 	// Extract data field
-	data, ok := rawResponse["data"].(map[string]interface{})
+	respData, ok := rawResponse["data"].(map[string]interface{})
 	if !ok {
 		return "", errors.NewQueryFailed("defra", "PostToCollection", fmt.Sprintf("%v", mutation), nil)
 	}
 
 	// Get document ID
 	createField := fmt.Sprintf("create_%s", collection)
-	createData, ok := data[createField]
+	createData, ok := respData[createField]
 	if !ok {
 		return "", errors.NewQueryFailed("defra", "PostToCollection", fmt.Sprintf("%v", mutation), nil)
 	}
@@ -484,7 +381,8 @@ func (h *BlockHandler) parseGraphQLResponse(resp []byte, fieldName string) (stri
 	return items[0].DocID, nil
 }
 
-// CreateBlockBatch creates a block with all its transactions, logs, and access list entries.
+// CreateBlockBatch creates a block with all its transactions and logs.
+// Updated for new Arbitrum schema (no AccessListEntry)
 func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block, transactions []*types.Transaction, receipts []*types.TransactionReceipt) (string, error) {
 	if h.defraNode == nil {
 		return "", errors.NewConfigurationError("defra", "CreateBlockBatch",
@@ -495,10 +393,8 @@ func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block,
 		return "", errors.NewInvalidBlockFormat("defra", "CreateBlockBatch", "nil", nil)
 	}
 
-	blockInt, err := utils.HexToInt(block.Number)
-	if err != nil {
-		return "", err
-	}
+	// block.Number is already an int in the new schema
+	blockInt := int64(block.Number)
 
 	receiptMap := make(map[string]*types.TransactionReceipt)
 	for _, receipt := range receipts {
@@ -508,7 +404,6 @@ func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block,
 	}
 
 	totalLogs := 0
-	totalALEs := 0
 	for _, tx := range transactions {
 		if tx == nil {
 			continue
@@ -516,9 +411,8 @@ func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block,
 		if receipt, ok := receiptMap[tx.Hash]; ok && receipt != nil {
 			totalLogs += len(receipt.Logs)
 		}
-		totalALEs += len(tx.AccessList)
 	}
-	totalDocs := 1 + len(transactions) + totalLogs + totalALEs
+	totalDocs := 1 + len(transactions) + totalLogs
 
 	if totalDocs <= h.maxDocsPerTxn {
 		return h.createBlockSingleTransaction(ctx, block, blockInt, transactions, receipts, receiptMap, totalDocs)
@@ -601,232 +495,12 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 		}
 	}
 
-	var allALEs []aleEntry
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		txID, ok := txHashToID[tx.Hash]
-		if !ok {
-			continue
-		}
-		for i := range tx.AccessList {
-			allALEs = append(allALEs, aleEntry{ale: &tx.AccessList[i], txID: txID})
-		}
-	}
-
-	if len(allALEs) > 0 {
-		aleMutation := h.buildBatchedALEMutation(allALEs, 0)
-		if aleMutation != "" {
-			result = txn.ExecRequest(ctx, aleMutation)
-			if len(result.GQL.Errors) > 0 {
-				txn.Discard()
-				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", result.GQL.Errors[0].Error(), result.GQL.Errors[0])
-			}
-		}
-	}
-
 	// Commit everything at once
 	if err := txn.Commit(); err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to commit", err)
 	}
 
 	return blockID, nil
-}
-
-// buildEntireBlockMutation builds a single GraphQL mutation containing the block and all related documents.
-func (h *BlockHandler) buildEntireBlockMutation(block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, int, int, int) {
-	// Estimate size for pre-allocation
-	estimatedSize := 2048 + len(transactions)*1536
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		if receipt, ok := receiptMap[tx.Hash]; ok && receipt != nil {
-			estimatedSize += len(receipt.Logs) * 1024
-		}
-		estimatedSize += len(tx.AccessList) * 512
-	}
-
-	var sb strings.Builder
-	sb.Grow(estimatedSize)
-	sb.WriteString("mutation {\n")
-
-	// === Block ===
-	sb.WriteString(`block0: create_`)
-	sb.WriteString(constants.CollectionBlock)
-	sb.WriteString(`(input: { hash: "`)
-	sb.WriteString(block.Hash)
-	sb.WriteString(`", number: `)
-	sb.WriteString(strconv.FormatInt(blockInt, 10))
-	sb.WriteString(`, timestamp: "`)
-	sb.WriteString(block.Timestamp)
-	sb.WriteString(`", parentHash: "`)
-	sb.WriteString(block.ParentHash)
-	sb.WriteString(`", difficulty: "`)
-	sb.WriteString(block.Difficulty)
-	sb.WriteString(`", totalDifficulty: "`)
-	sb.WriteString(block.TotalDifficulty)
-	sb.WriteString(`", gasUsed: "`)
-	sb.WriteString(block.GasUsed)
-	sb.WriteString(`", gasLimit: "`)
-	sb.WriteString(block.GasLimit)
-	sb.WriteString(`", baseFeePerGas: "`)
-	sb.WriteString(block.BaseFeePerGas)
-	sb.WriteString(`", nonce: "`)
-	sb.WriteString(block.Nonce)
-	sb.WriteString(`", miner: "`)
-	sb.WriteString(block.Miner)
-	sb.WriteString(`", size: "`)
-	sb.WriteString(block.Size)
-	sb.WriteString(`", stateRoot: "`)
-	sb.WriteString(block.StateRoot)
-	sb.WriteString(`", sha3Uncles: "`)
-	sb.WriteString(block.Sha3Uncles)
-	sb.WriteString(`", transactionsRoot: "`)
-	sb.WriteString(block.TransactionsRoot)
-	sb.WriteString(`", receiptsRoot: "`)
-	sb.WriteString(block.ReceiptsRoot)
-	sb.WriteString(`", logsBloom: "`)
-	sb.WriteString(block.LogsBloom)
-	sb.WriteString(`", extraData: "`)
-	sb.WriteString(block.ExtraData)
-	sb.WriteString(`", mixHash: "`)
-	sb.WriteString(block.MixHash)
-	sb.WriteString(`", uncles: `)
-	sb.WriteString(h.formatStringArray(block.Uncles))
-	sb.WriteString(` }) { _docID }`)
-	sb.WriteString("\n")
-
-	// === Transactions ===
-	txCount := 0
-	for i, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		alias := fmt.Sprintf("tx%d", i)
-		txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
-
-		sb.WriteString(alias)
-		sb.WriteString(`: create_`)
-		sb.WriteString(constants.CollectionTransaction)
-		sb.WriteString(`(input: { hash: "`)
-		sb.WriteString(tx.Hash)
-		sb.WriteString(`", blockNumber: `)
-		sb.WriteString(strconv.FormatInt(txBlockNum, 10))
-		sb.WriteString(`, blockHash: "`)
-		sb.WriteString(tx.BlockHash)
-		sb.WriteString(`", transactionIndex: `)
-		sb.WriteString(strconv.Itoa(tx.TransactionIndex))
-		sb.WriteString(`, from: "`)
-		sb.WriteString(tx.From)
-		sb.WriteString(`", to: "`)
-		sb.WriteString(tx.To)
-		sb.WriteString(`", value: "`)
-		sb.WriteString(tx.Value)
-		sb.WriteString(`", gas: "`)
-		sb.WriteString(tx.Gas)
-		sb.WriteString(`", gasPrice: "`)
-		sb.WriteString(tx.GasPrice)
-		sb.WriteString(`", maxFeePerGas: "`)
-		sb.WriteString(tx.MaxFeePerGas)
-		sb.WriteString(`", maxPriorityFeePerGas: "`)
-		sb.WriteString(tx.MaxPriorityFeePerGas)
-		sb.WriteString(`", input: "`)
-		sb.WriteString(string(tx.Input))
-		sb.WriteString(`", nonce: "`)
-		sb.WriteString(tx.Nonce)
-		sb.WriteString(`", type: "`)
-		sb.WriteString(tx.Type)
-		sb.WriteString(`", chainId: "`)
-		sb.WriteString(tx.ChainId)
-		sb.WriteString(`", v: "`)
-		sb.WriteString(tx.V)
-		sb.WriteString(`", r: "`)
-		sb.WriteString(tx.R)
-		sb.WriteString(`", s: "`)
-		sb.WriteString(tx.S)
-		sb.WriteString(`", cumulativeGasUsed: "`)
-		sb.WriteString(tx.CumulativeGasUsed)
-		sb.WriteString(`", effectiveGasPrice: "`)
-		sb.WriteString(tx.EffectiveGasPrice)
-		sb.WriteString(`", status: `)
-		sb.WriteString(strconv.FormatBool(tx.Status))
-		sb.WriteString(` }) { _docID }`)
-		sb.WriteString("\n")
-		txCount++
-	}
-
-	// === Logs ===
-	logIdx := 0
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		receipt, ok := receiptMap[tx.Hash]
-		if !ok || receipt == nil {
-			continue
-		}
-
-		for i := range receipt.Logs {
-			log := &receipt.Logs[i]
-			logBlockNum, _ := utils.HexToInt(log.BlockNumber)
-			alias := fmt.Sprintf("log%d", logIdx)
-
-			sb.WriteString(alias)
-			sb.WriteString(`: create_`)
-			sb.WriteString(constants.CollectionLog)
-			sb.WriteString(`(input: { address: "`)
-			sb.WriteString(log.Address)
-			sb.WriteString(`", topics: `)
-			sb.WriteString(h.formatStringArray(log.Topics))
-			sb.WriteString(`, data: "`)
-			sb.WriteString(log.Data)
-			sb.WriteString(`", blockNumber: `)
-			sb.WriteString(strconv.FormatInt(logBlockNum, 10))
-			sb.WriteString(`, transactionHash: "`)
-			sb.WriteString(log.TransactionHash)
-			sb.WriteString(`", transactionIndex: `)
-			sb.WriteString(strconv.Itoa(log.TransactionIndex))
-			sb.WriteString(`, blockHash: "`)
-			sb.WriteString(log.BlockHash)
-			sb.WriteString(`", logIndex: `)
-			sb.WriteString(strconv.Itoa(log.LogIndex))
-			sb.WriteString(`, removed: "`)
-			sb.WriteString(fmt.Sprintf("%v", log.Removed))
-			sb.WriteString(`" }) { _docID }`)
-			sb.WriteString("\n")
-			logIdx++
-		}
-	}
-
-	// === Access List Entries ===
-	aleIdx := 0
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-
-		for i := range tx.AccessList {
-			ale := &tx.AccessList[i]
-			alias := fmt.Sprintf("ale%d", aleIdx)
-
-			sb.WriteString(alias)
-			sb.WriteString(`: create_`)
-			sb.WriteString(constants.CollectionAccessListEntry)
-			sb.WriteString(`(input: { address: "`)
-			sb.WriteString(ale.Address)
-			sb.WriteString(`", storageKeys: `)
-			sb.WriteString(h.formatStringArray(ale.StorageKeys))
-			sb.WriteString(` }) { _docID }`)
-			sb.WriteString("\n")
-			aleIdx++
-		}
-	}
-
-	sb.WriteString("}")
-
-	return sb.String(), txCount, logIdx, aleIdx
 }
 
 // createBlockBatched creates the block using multiple transactions for large blocks.
@@ -959,59 +633,6 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		logCount += len(batch)
 	}
 
-	// Phase 4: Create Access List Entries in batches
-	var allALEs []aleEntry
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		txID, ok := txHashToID[tx.Hash]
-		if !ok {
-			continue
-		}
-		for i := range tx.AccessList {
-			allALEs = append(allALEs, aleEntry{ale: &tx.AccessList[i], txID: txID})
-		}
-	}
-
-	aleCount := 0
-	for i := 0; i < len(allALEs); i += batchSize {
-		end := i + batchSize
-		if end > len(allALEs) {
-			end = len(allALEs)
-		}
-
-		batch := allALEs[i:end]
-		if len(batch) == 0 {
-			continue
-		}
-
-		batchedMutation := h.buildBatchedALEMutation(batch, i)
-		if batchedMutation == "" {
-			continue
-		}
-
-		txn, err = h.defraNode.DB.NewTxn(false)
-		if err != nil {
-			logger.Sugar.Warnf("Failed to create txn for ALE batch: %v", err)
-			continue
-		}
-
-		result := txn.ExecRequest(ctx, batchedMutation)
-		if len(result.GQL.Errors) > 0 {
-			txn.Discard()
-			logger.Sugar.Warnf("Batch ALE mutation error: %v", result.GQL.Errors[0])
-			continue
-		}
-
-		if err := txn.Commit(); err != nil {
-			logger.Sugar.Warnf("Failed to commit ALE batch: %v", err)
-			continue
-		}
-
-		aleCount += len(batch)
-	}
-
 	return blockID, nil
 }
 
@@ -1022,6 +643,7 @@ type txAliasInfo struct {
 }
 
 // buildBatchedTransactionMutation creates a single GraphQL mutation for multiple transactions
+// Updated for new Arbitrum schema
 func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction, blockID string, startIdx int) (string, []txAliasInfo) {
 	var sb strings.Builder
 	sb.Grow(len(txs) * 1536)
@@ -1034,7 +656,6 @@ func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction,
 		}
 		alias := fmt.Sprintf("tx%d", startIdx+i)
 		txInfos = append(txInfos, txAliasInfo{alias: alias, hash: tx.Hash})
-		txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 
 		sb.WriteString(alias)
 		sb.WriteString(`: create_`)
@@ -1042,7 +663,7 @@ func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction,
 		sb.WriteString(`(input: { hash: "`)
 		sb.WriteString(tx.Hash)
 		sb.WriteString(`", blockNumber: `)
-		sb.WriteString(strconv.FormatInt(txBlockNum, 10))
+		sb.WriteString(strconv.Itoa(tx.BlockNumber)) // int type now
 		sb.WriteString(`, blockHash: "`)
 		sb.WriteString(tx.BlockHash)
 		sb.WriteString(`", transactionIndex: `)
@@ -1057,12 +678,8 @@ func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction,
 		sb.WriteString(tx.Gas)
 		sb.WriteString(`", gasPrice: "`)
 		sb.WriteString(tx.GasPrice)
-		sb.WriteString(`", maxFeePerGas: "`)
-		sb.WriteString(tx.MaxFeePerGas)
-		sb.WriteString(`", maxPriorityFeePerGas: "`)
-		sb.WriteString(tx.MaxPriorityFeePerGas)
 		sb.WriteString(`", input: "`)
-		sb.WriteString(string(tx.Input))
+		sb.WriteString(tx.Input)
 		sb.WriteString(`", nonce: "`)
 		sb.WriteString(tx.Nonce)
 		sb.WriteString(`", type: "`)
@@ -1075,13 +692,25 @@ func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction,
 		sb.WriteString(tx.R)
 		sb.WriteString(`", s: "`)
 		sb.WriteString(tx.S)
+		sb.WriteString(`", contractAddress: "`)
+		sb.WriteString(tx.ContractAddress)
 		sb.WriteString(`", cumulativeGasUsed: "`)
 		sb.WriteString(tx.CumulativeGasUsed)
 		sb.WriteString(`", effectiveGasPrice: "`)
 		sb.WriteString(tx.EffectiveGasPrice)
-		sb.WriteString(`", status: `)
-		sb.WriteString(strconv.FormatBool(tx.Status))
-		sb.WriteString(`, block: "`)
+		sb.WriteString(`", gasUsed: "`)
+		sb.WriteString(tx.GasUsed)
+		sb.WriteString(`", gasUsedForL1: "`)
+		sb.WriteString(tx.GasUsedForL1)
+		sb.WriteString(`", l1BlockNumber: "`)
+		sb.WriteString(tx.L1BlockNumber)
+		sb.WriteString(`", status: "`)
+		sb.WriteString(tx.Status) // string type now
+		sb.WriteString(`", timeboosted: `)
+		sb.WriteString(strconv.FormatBool(tx.Timeboosted))
+		sb.WriteString(`, logsBloom: "`)
+		sb.WriteString(tx.LogsBloom)
+		sb.WriteString(`", block: "`)
 		sb.WriteString(blockID)
 		sb.WriteString(`" }) { _docID }`)
 		sb.WriteString("\n")
@@ -1096,6 +725,7 @@ func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction,
 }
 
 // buildBatchedLogMutation creates a single GraphQL mutation for multiple logs
+// Updated for new Arbitrum schema
 func (h *BlockHandler) buildBatchedLogMutation(logs []logEntry, blockID string, startIdx int) string {
 	var sb strings.Builder
 	sb.Grow(len(logs) * 1024)
@@ -1106,7 +736,6 @@ func (h *BlockHandler) buildBatchedLogMutation(logs []logEntry, blockID string, 
 		if entry.log == nil {
 			continue
 		}
-		logBlockNum, _ := utils.HexToInt(entry.log.BlockNumber)
 		alias := fmt.Sprintf("log%d", startIdx+i)
 
 		sb.WriteString(alias)
@@ -1119,7 +748,7 @@ func (h *BlockHandler) buildBatchedLogMutation(logs []logEntry, blockID string, 
 		sb.WriteString(`, data: "`)
 		sb.WriteString(entry.log.Data)
 		sb.WriteString(`", blockNumber: `)
-		sb.WriteString(strconv.FormatInt(logBlockNum, 10))
+		sb.WriteString(strconv.Itoa(entry.log.BlockNumber)) // int type now
 		sb.WriteString(`, transactionHash: "`)
 		sb.WriteString(entry.log.TransactionHash)
 		sb.WriteString(`", transactionIndex: `)
@@ -1128,45 +757,8 @@ func (h *BlockHandler) buildBatchedLogMutation(logs []logEntry, blockID string, 
 		sb.WriteString(entry.log.BlockHash)
 		sb.WriteString(`", logIndex: `)
 		sb.WriteString(strconv.Itoa(entry.log.LogIndex))
-		sb.WriteString(`, removed: "`)
-		sb.WriteString(fmt.Sprintf("%v", entry.log.Removed))
-		sb.WriteString(`", transaction: "`)
-		sb.WriteString(entry.txID)
-		sb.WriteString(`", block: "`)
-		sb.WriteString(blockID)
-		sb.WriteString(`" }) { _docID }`)
-		sb.WriteString("\n")
-		count++
-	}
-
-	sb.WriteString("}")
-
-	if count == 0 {
-		return ""
-	}
-	return sb.String()
-}
-
-// buildBatchedALEMutation creates a single GraphQL mutation for multiple access list entries
-func (h *BlockHandler) buildBatchedALEMutation(ales []aleEntry, startIdx int) string {
-	var sb strings.Builder
-	sb.Grow(len(ales) * 512)
-	sb.WriteString("mutation {\n")
-
-	count := 0
-	for i, entry := range ales {
-		if entry.ale == nil {
-			continue
-		}
-		alias := fmt.Sprintf("ale%d", startIdx+i)
-
-		sb.WriteString(alias)
-		sb.WriteString(`: create_`)
-		sb.WriteString(constants.CollectionAccessListEntry)
-		sb.WriteString(`(input: { address: "`)
-		sb.WriteString(entry.ale.Address)
-		sb.WriteString(`", storageKeys: `)
-		sb.WriteString(h.formatStringArray(entry.ale.StorageKeys))
+		sb.WriteString(`, removed: `)
+		sb.WriteString(strconv.FormatBool(entry.log.Removed)) // bool type now
 		sb.WriteString(`, transaction: "`)
 		sb.WriteString(entry.txID)
 		sb.WriteString(`" }) { _docID }`)
@@ -1191,13 +783,6 @@ func (h *BlockHandler) extractDocIDFromBatchedResponse(data any, alias string) s
 
 	aliasData, ok := dataMap[alias]
 	if !ok {
-		keys := make([]string, 0, 5)
-		for k := range dataMap {
-			keys = append(keys, k)
-			if len(keys) >= 5 {
-				break
-			}
-		}
 		return ""
 	}
 
@@ -1226,6 +811,7 @@ func (h *BlockHandler) extractDocIDFromBatchedResponse(data any, alias string) s
 }
 
 // buildBlockMutation creates a GraphQL mutation for a block using strings.Builder for efficiency
+// Updated for new Arbitrum schema
 func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) string {
 	var sb strings.Builder
 	sb.Grow(2048) // Pre-allocate for typical block mutation size
@@ -1242,8 +828,6 @@ func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) st
 	sb.WriteString(block.ParentHash)
 	sb.WriteString(`", difficulty: "`)
 	sb.WriteString(block.Difficulty)
-	sb.WriteString(`", totalDifficulty: "`)
-	sb.WriteString(block.TotalDifficulty)
 	sb.WriteString(`", gasUsed: "`)
 	sb.WriteString(block.GasUsed)
 	sb.WriteString(`", gasLimit: "`)
@@ -1252,16 +836,12 @@ func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) st
 	sb.WriteString(block.BaseFeePerGas)
 	sb.WriteString(`", nonce: "`)
 	sb.WriteString(block.Nonce)
-	sb.WriteString(`", miner: "`)
-	sb.WriteString(block.Miner)
 	sb.WriteString(`", size: "`)
 	sb.WriteString(block.Size)
 	sb.WriteString(`", stateRoot: "`)
 	sb.WriteString(block.StateRoot)
 	sb.WriteString(`", sha3Uncles: "`)
 	sb.WriteString(block.Sha3Uncles)
-	sb.WriteString(`", transactionsRoot: "`)
-	sb.WriteString(block.TransactionsRoot)
 	sb.WriteString(`", receiptsRoot: "`)
 	sb.WriteString(block.ReceiptsRoot)
 	sb.WriteString(`", logsBloom: "`)
@@ -1270,128 +850,13 @@ func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) st
 	sb.WriteString(block.ExtraData)
 	sb.WriteString(`", mixHash: "`)
 	sb.WriteString(block.MixHash)
-	sb.WriteString(`", uncles: `)
-	sb.WriteString(h.formatStringArray(block.Uncles))
-	sb.WriteString(` }) { _docID } }`)
-
-	return sb.String()
-}
-
-// buildTransactionMutation creates a GraphQL mutation for a transaction using strings.Builder
-func (h *BlockHandler) buildTransactionMutation(tx *types.Transaction, blockID string) string {
-	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
-
-	var sb strings.Builder
-	sb.Grow(1536) // Pre-allocate for typical transaction mutation size
-
-	sb.WriteString(`mutation { create_`)
-	sb.WriteString(constants.CollectionTransaction)
-	sb.WriteString(`(input: { hash: "`)
-	sb.WriteString(tx.Hash)
-	sb.WriteString(`", blockNumber: `)
-	sb.WriteString(strconv.FormatInt(txBlockNum, 10))
-	sb.WriteString(`, blockHash: "`)
-	sb.WriteString(tx.BlockHash)
-	sb.WriteString(`", transactionIndex: `)
-	sb.WriteString(strconv.Itoa(tx.TransactionIndex))
-	sb.WriteString(`, from: "`)
-	sb.WriteString(tx.From)
-	sb.WriteString(`", to: "`)
-	sb.WriteString(tx.To)
-	sb.WriteString(`", value: "`)
-	sb.WriteString(tx.Value)
-	sb.WriteString(`", gas: "`)
-	sb.WriteString(tx.Gas)
-	sb.WriteString(`", gasPrice: "`)
-	sb.WriteString(tx.GasPrice)
-	sb.WriteString(`", maxFeePerGas: "`)
-	sb.WriteString(tx.MaxFeePerGas)
-	sb.WriteString(`", maxPriorityFeePerGas: "`)
-	sb.WriteString(tx.MaxPriorityFeePerGas)
-	sb.WriteString(`", input: "`)
-	sb.WriteString(string(tx.Input))
-	sb.WriteString(`", nonce: "`)
-	sb.WriteString(tx.Nonce)
-	sb.WriteString(`", type: "`)
-	sb.WriteString(tx.Type)
-	sb.WriteString(`", chainId: "`)
-	sb.WriteString(tx.ChainId)
-	sb.WriteString(`", v: "`)
-	sb.WriteString(tx.V)
-	sb.WriteString(`", r: "`)
-	sb.WriteString(tx.R)
-	sb.WriteString(`", s: "`)
-	sb.WriteString(tx.S)
-	sb.WriteString(`", cumulativeGasUsed: "`)
-	sb.WriteString(tx.CumulativeGasUsed)
-	sb.WriteString(`", effectiveGasPrice: "`)
-	sb.WriteString(tx.EffectiveGasPrice)
-	sb.WriteString(`", status: `)
-	if tx.Status {
-		sb.WriteString("true")
-	} else {
-		sb.WriteString("false")
-	}
-	sb.WriteString(`, block: "`)
-	sb.WriteString(blockID)
-	sb.WriteString(`" }) { _docID } }`)
-
-	return sb.String()
-}
-
-// buildLogMutation creates a GraphQL mutation for a log using strings.Builder
-func (h *BlockHandler) buildLogMutation(log *types.Log, blockID, txID string) string {
-	logBlockNum, _ := utils.HexToInt(log.BlockNumber)
-
-	var sb strings.Builder
-	sb.Grow(1024) // Pre-allocate for typical log mutation size
-
-	sb.WriteString(`mutation { create_`)
-	sb.WriteString(constants.CollectionLog)
-	sb.WriteString(`(input: { address: "`)
-	sb.WriteString(log.Address)
-	sb.WriteString(`", topics: `)
-	sb.WriteString(h.formatStringArray(log.Topics))
-	sb.WriteString(`, data: "`)
-	sb.WriteString(log.Data)
-	sb.WriteString(`", blockNumber: `)
-	sb.WriteString(strconv.FormatInt(logBlockNum, 10))
-	sb.WriteString(`, transactionHash: "`)
-	sb.WriteString(log.TransactionHash)
-	sb.WriteString(`", transactionIndex: `)
-	sb.WriteString(strconv.Itoa(log.TransactionIndex))
-	sb.WriteString(`, blockHash: "`)
-	sb.WriteString(log.BlockHash)
-	sb.WriteString(`", logIndex: `)
-	sb.WriteString(strconv.Itoa(log.LogIndex))
-	sb.WriteString(`, removed: "`)
-	if log.Removed {
-		sb.WriteString("true")
-	} else {
-		sb.WriteString("false")
-	}
-	sb.WriteString(`", transaction: "`)
-	sb.WriteString(txID)
-	sb.WriteString(`", block: "`)
-	sb.WriteString(blockID)
-	sb.WriteString(`" }) { _docID } }`)
-
-	return sb.String()
-}
-
-// buildAccessListEntryMutation creates a GraphQL mutation for an access list entry using strings.Builder
-func (h *BlockHandler) buildAccessListEntryMutation(ale *types.AccessListEntry, txID string) string {
-	var sb strings.Builder
-	sb.Grow(512) // Pre-allocate for typical ALE mutation size
-
-	sb.WriteString(`mutation { create_`)
-	sb.WriteString(constants.CollectionAccessListEntry)
-	sb.WriteString(`(input: { address: "`)
-	sb.WriteString(ale.Address)
-	sb.WriteString(`", storageKeys: `)
-	sb.WriteString(h.formatStringArray(ale.StorageKeys))
-	sb.WriteString(`, transaction: "`)
-	sb.WriteString(txID)
+	// Arbitrum-specific fields
+	sb.WriteString(`", l1BlockNumber: "`)
+	sb.WriteString(block.L1BlockNumber)
+	sb.WriteString(`", sendCount: "`)
+	sb.WriteString(block.SendCount)
+	sb.WriteString(`", sendRoot: "`)
+	sb.WriteString(block.SendRoot)
 	sb.WriteString(`" }) { _docID } }`)
 
 	return sb.String()
@@ -1493,28 +958,21 @@ func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error)
 		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, fmt.Sprintf("%v", blockArray))
 	}
 
-	// Extract number field (handle both string and integer)
+	// Extract number field (handle both string and integer since schema now uses int)
 	numberValue := block["number"]
 	switch v := numberValue.(type) {
-	case string:
-		// Try hex conversion first if string starts with 0x
-		if strings.HasPrefix(v, "0x") {
-			val, err := utils.HexToInt(v)
-			if err != nil {
-				return 0, errors.NewParsingFailed("defra", "GetHighestBlockNumber", fmt.Sprintf("block number: %s", v), err)
-			}
-			return val, nil
-		}
-		if num, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return num, nil
-		}
-		logger.Sugar.Errorf("failed to parse number string: %v", v)
 	case float64:
 		return int64(v), nil
 	case int64:
 		return v, nil
 	case int:
 		return int64(v), nil
+	case string:
+		// Fallback for string parsing
+		if num, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return num, nil
+		}
+		logger.Sugar.Errorf("failed to parse number string: %v", v)
 	default:
 		logger.Sugar.Errorf("unexpected number type: %T", numberValue)
 	}

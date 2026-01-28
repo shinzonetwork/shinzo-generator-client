@@ -1,10 +1,13 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -158,103 +161,217 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// GetLatestBlock fetches the latest block
-func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, error) {
-	client := c.getPreferredClient()
-	if client == nil {
-		return nil, fmt.Errorf("no client available")
-	}
-
-	// Get the latest block number first
-	latestHeader, err := client.HeaderByNumber(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
-	}
-
-	// For GCP Erigon nodes, start with blocks that are significantly behind
-	// to avoid transaction type compatibility issues
-	const initialBlocksBack = 100
-	targetBlockNumber := big.NewInt(1).Sub(latestHeader.Number, big.NewInt(initialBlocksBack))
-	logger.Sugar.Infof("Latest block: %s, targeting block: %s (%d blocks behind for Erigon compatibility)",
-		latestHeader.Number.String(), targetBlockNumber.String(), initialBlocksBack)
-
-	var gethBlock *ethtypes.Block
-
-	// Try progressively older blocks if transaction type errors occur
-	for retries := 0; retries < 8; retries++ {
-		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
-		if err != nil {
-			if strings.Contains(err.Error(), "transaction type not supported") ||
-				strings.Contains(err.Error(), "invalid transaction type") {
-
-				if retries < 7 {
-					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks
-					blocksBack := initialBlocksBack * (1 << uint(retries+1))
-					targetBlockNumber = big.NewInt(1).Sub(latestHeader.Number, big.NewInt(int64(blocksBack)))
-					logger.Sugar.Warnf("Retry %d: Transaction type error with Erigon, going back %d blocks total...",
-						retries+1, blocksBack)
-
-					// Add progressive delay to prevent API rate limiting
-					time.Sleep(time.Duration(retries+1) * time.Second)
-					continue
-				} else {
-					logger.Sugar.Errorf("Failed after %d retries due to transaction type compatibility with Erigon", retries+1)
-					return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
-				}
-			}
-			// For non-transaction-type errors, fail immediately
-			return nil, fmt.Errorf("failed to get block: %w", err)
-		}
-
-		// Success - log which block we're actually processing
-		if retries > 0 {
-			logger.Sugar.Infof("Successfully retrieved block %s after %d retries (Erigon compatibility)",
-				targetBlockNumber.String(), retries)
-		}
-		break
-	}
-
-	return c.convertGethBlock(gethBlock), nil
-}
-
-// GetBlockByNumber fetches a block by number
+// GetBlockByNumber fetches a block by number with Arbitrum transaction type support
 func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*types.Block, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, fmt.Errorf("no client available")
 	}
 
+	// Try go-ethereum first for standard transactions
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
+		if strings.Contains(err.Error(), "transaction type not supported") ||
+			strings.Contains(err.Error(), "invalid transaction type") {
+			// Fall back to raw JSON-RPC for Arbitrum transactions
+			logger.Sugar.Infof("Go-ethereum failed with transaction type error, using raw JSON-RPC for block %s", blockNumber.String())
+			return c.getBlockByNumberRaw(ctx, blockNumber)
+		}
+		return nil, fmt.Errorf("failed to get block %s: %w", blockNumber.String(), err)
 	}
 
 	return c.convertGethBlock(gethBlock), nil
 }
 
-// GetNetworkID returns the network ID
-func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
-	client := c.getPreferredClient()
-	if client == nil {
-		return nil, fmt.Errorf("no client available")
+// getBlockByNumberRaw fetches a block using raw JSON-RPC to handle Arbitrum transactions
+func (c *EthereumClient) getBlockByNumberRaw(ctx context.Context, blockNumber *big.Int) (*types.Block, error) {
+	// Use raw HTTP client for JSON-RPC call
+	if c.nodeURL == "" {
+		return nil, fmt.Errorf("HTTP URL not available for raw JSON-RPC")
 	}
 
-	return client.NetworkID(ctx)
+	// Prepare JSON-RPC request
+	blockNumHex := fmt.Sprintf("0x%x", blockNumber)
+	payload := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "eth_getBlockByNumber",
+		"params":  []interface{}{blockNumHex, true}, // true = include full transaction details
+		"id":      1,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal JSON-RPC request: %w", err)
+	}
+
+	// Make HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", c.nodeURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("X-goog-api-key", c.apiKey)
+	}
+
+	// Create HTTP client for raw request
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Parse response using raw JSON structure that matches Arbitrum RPC format
+	var rpcResponse struct {
+		Result *rawBlock `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON-RPC response: %w", err)
+	}
+
+	if rpcResponse.Error != nil {
+		return nil, fmt.Errorf("JSON-RPC error: %s", rpcResponse.Error.Message)
+	}
+
+	if rpcResponse.Result == nil {
+		return nil, fmt.Errorf("block not found")
+	}
+
+	// Convert raw block to our types.Block structure
+	return c.convertRawBlock(rpcResponse.Result)
 }
 
-// GetLatestBlockNumber returns just the latest block number (not the offset block)
-func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, error) {
-	client := c.getPreferredClient()
-	if client == nil {
-		return nil, fmt.Errorf("no client available")
+// rawBlock represents the JSON-RPC block structure with hex string fields
+type rawBlock struct {
+	Hash         string           `json:"hash"`
+	Number       string           `json:"number"`    // hex string
+	Timestamp    string           `json:"timestamp"` // hex string
+	ParentHash   string           `json:"parentHash"`
+	GasUsed      string           `json:"gasUsed"`  // hex string
+	GasLimit     string           `json:"gasLimit"` // hex string
+	Transactions []rawTransaction `json:"transactions"`
+	// Add other fields as needed
+}
+
+// rawTransaction represents the JSON-RPC transaction structure with hex string fields
+type rawTransaction struct {
+	Hash             string `json:"hash"`
+	BlockHash        string `json:"blockHash"`
+	BlockNumber      string `json:"blockNumber"`      // hex string
+	TransactionIndex string `json:"transactionIndex"` // hex string
+	From             string `json:"from"`
+	To               string `json:"to"`
+	Value            string `json:"value"`    // hex string
+	Gas              string `json:"gas"`      // hex string
+	GasPrice         string `json:"gasPrice"` // hex string
+	Input            string `json:"input"`
+	Nonce            string `json:"nonce"`   // hex string
+	Type             string `json:"type"`    // hex string
+	ChainId          string `json:"chainId"` // hex string
+	V                string `json:"v"`       // hex string
+	R                string `json:"r"`       // hex string
+	S                string `json:"s"`       // hex string
+}
+
+// convertRawBlock converts a raw JSON-RPC block to our types.Block structure
+func (c *EthereumClient) convertRawBlock(raw *rawBlock) (*types.Block, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("raw block is nil")
 	}
 
-	latestHeader, err := client.HeaderByNumber(ctx, nil)
+	// Convert hex number to int
+	blockNumber, err := hexToInt(raw.Number)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
+		return nil, fmt.Errorf("failed to convert block number %s: %w", raw.Number, err)
 	}
 
-	return latestHeader.Number, nil
+	// Convert transactions
+	transactions := make([]types.Transaction, 0, len(raw.Transactions))
+	for i, rawTx := range raw.Transactions {
+		tx, err := c.convertRawTransaction(&rawTx, raw, i)
+		if err != nil {
+			logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", rawTx.Hash, err)
+			continue
+		}
+		transactions = append(transactions, *tx)
+	}
+
+	return &types.Block{
+		Hash:         raw.Hash,
+		Number:       blockNumber,
+		Timestamp:    raw.Timestamp,
+		ParentHash:   raw.ParentHash,
+		GasUsed:      raw.GasUsed,
+		GasLimit:     raw.GasLimit,
+		Transactions: transactions,
+		// Set other fields with defaults or convert as needed
+	}, nil
+}
+
+// convertRawTransaction converts a raw JSON-RPC transaction to our types.Transaction structure
+func (c *EthereumClient) convertRawTransaction(raw *rawTransaction, block *rawBlock, index int) (*types.Transaction, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("raw transaction is nil")
+	}
+
+	// Convert hex numbers to int
+	blockNumber, err := hexToInt(raw.BlockNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert block number %s: %w", raw.BlockNumber, err)
+	}
+
+	transactionIndex, err := hexToInt(raw.TransactionIndex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert transaction index %s: %w", raw.TransactionIndex, err)
+	}
+
+	return &types.Transaction{
+		Hash:             raw.Hash,
+		BlockHash:        raw.BlockHash,
+		BlockNumber:      blockNumber,
+		TransactionIndex: transactionIndex,
+		From:             raw.From,
+		To:               raw.To,
+		Value:            raw.Value,
+		Gas:              raw.Gas,
+		GasPrice:         raw.GasPrice,
+		Input:            raw.Input,
+		Nonce:            raw.Nonce,
+		Type:             raw.Type,
+		ChainId:          raw.ChainId,
+		V:                raw.V,
+		R:                raw.R,
+		S:                raw.S,
+		// Initialize other fields with defaults
+		AccessList: []types.AccessListEntry{},
+	}, nil
+}
+
+// hexToInt converts a hex string to int
+func hexToInt(hexStr string) (int, error) {
+	if hexStr == "" || hexStr == "0x" {
+		return 0, nil
+	}
+
+	// Remove 0x prefix if present
+	if strings.HasPrefix(hexStr, "0x") {
+		hexStr = hexStr[2:]
+	}
+
+	// Parse hex string to int64, then convert to int
+	val, err := strconv.ParseInt(hexStr, 16, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(val), nil
 }
 
 // GetTransactionReceipt fetches a transaction receipt by hash
@@ -297,6 +414,25 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *types.Tr
 	}
 }
 
+// MergeTransactionWithReceipt merges transaction data with receipt data
+func (c *EthereumClient) MergeTransactionWithReceipt(tx *types.Transaction, receipt *types.TransactionReceipt) {
+	if tx == nil || receipt == nil {
+		return
+	}
+
+	// Merge receipt fields into transaction
+	tx.ContractAddress = receipt.ContractAddress
+	tx.CumulativeGasUsed = receipt.CumulativeGasUsed
+	tx.GasUsed = receipt.GasUsed
+	tx.Status = receipt.Status
+	tx.LogsBloom = "" // Will be populated from block if needed
+
+	// Convert logs to match new schema
+	logs := make([]types.Log, len(receipt.Logs))
+	copy(logs, receipt.Logs)
+	tx.Logs = logs
+}
+
 // convertGethLog converts go-ethereum log to our custom log type
 func (c *EthereumClient) convertGethLog(log *ethtypes.Log) types.Log {
 	// Convert topics
@@ -308,8 +444,8 @@ func (c *EthereumClient) convertGethLog(log *ethtypes.Log) types.Log {
 	return types.Log{
 		Address:          log.Address.Hex(),
 		Topics:           topics,
-		Data:             common.Bytes2Hex(log.Data),
-		BlockNumber:      fmt.Sprintf("%d", log.BlockNumber),
+		Data:             "0x" + common.Bytes2Hex(log.Data),
+		BlockNumber:      int(log.BlockNumber),
 		TransactionHash:  log.TxHash.Hex(),
 		TransactionIndex: int(log.TxIndex),
 		BlockHash:        log.BlockHash.Hex(),
@@ -328,9 +464,9 @@ func getContractAddress(receipt *ethtypes.Receipt) string {
 
 func getReceiptStatus(receipt *ethtypes.Receipt) string {
 	if receipt.Status == ethtypes.ReceiptStatusSuccessful {
-		return "1"
+		return "0x1"
 	}
-	return "0"
+	return "0x0"
 }
 
 // convertGethBlock converts go-ethereum Block to our custom Block type
@@ -353,35 +489,28 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 		transactions = append(transactions, *localTx)
 	}
 
-	// Convert uncles
-	uncles := make([]string, len(gethBlock.Uncles()))
-	for i, uncle := range gethBlock.Uncles() {
-		uncles[i] = uncle.Hash().Hex()
-	}
-
-	// Convert the block
+	// Convert the block to match new schema
 	return &types.Block{
-		Hash:             gethBlock.Hash().Hex(),
-		Number:           fmt.Sprintf("%d", gethBlock.NumberU64()),
-		Timestamp:        fmt.Sprintf("%d", gethBlock.Time()),
-		ParentHash:       gethBlock.ParentHash().Hex(),
-		Difficulty:       gethBlock.Difficulty().String(),
-		TotalDifficulty:  "", // Will be populated separately if needed
-		GasUsed:          fmt.Sprintf("%d", gethBlock.GasUsed()),
-		GasLimit:         fmt.Sprintf("%d", gethBlock.GasLimit()),
-		BaseFeePerGas:    getBaseFeePerGas(gethBlock),
-		Nonce:            fmt.Sprintf("%d", gethBlock.Nonce()),
-		Miner:            gethBlock.Coinbase().Hex(),
-		Size:             fmt.Sprintf("%d", gethBlock.Size()),
-		StateRoot:        gethBlock.Root().Hex(),
-		Sha3Uncles:       gethBlock.UncleHash().Hex(),
-		TransactionsRoot: gethBlock.TxHash().Hex(),
-		ReceiptsRoot:     gethBlock.ReceiptHash().Hex(),
-		LogsBloom:        common.Bytes2Hex(gethBlock.Bloom().Bytes()),
-		ExtraData:        common.Bytes2Hex(gethBlock.Extra()),
-		MixHash:          gethBlock.MixDigest().Hex(),
-		Uncles:           uncles,
-		Transactions:     transactions,
+		BaseFeePerGas: getBaseFeePerGas(gethBlock),
+		Difficulty:    gethBlock.Difficulty().String(),
+		ExtraData:     "0x" + common.Bytes2Hex(gethBlock.Extra()),
+		GasLimit:      fmt.Sprintf("%d", gethBlock.GasLimit()),
+		GasUsed:       fmt.Sprintf("%d", gethBlock.GasUsed()),
+		Hash:          gethBlock.Hash().Hex(),
+		L1BlockNumber: "", // Arbitrum specific - will be populated from block data if available
+		LogsBloom:     "0x" + common.Bytes2Hex(gethBlock.Bloom().Bytes()),
+		MixHash:       gethBlock.MixDigest().Hex(),
+		Nonce:         fmt.Sprintf("%d", gethBlock.Nonce()),
+		Number:        int(gethBlock.NumberU64()),
+		ParentHash:    gethBlock.ParentHash().Hex(),
+		ReceiptsRoot:  gethBlock.ReceiptHash().Hex(),
+		SendCount:     "", // Arbitrum specific - will be populated if available
+		SendRoot:      "", // Arbitrum specific - will be populated if available
+		Sha3Uncles:    gethBlock.UncleHash().Hex(),
+		Size:          fmt.Sprintf("%d", gethBlock.Size()),
+		StateRoot:     gethBlock.Root().Hex(),
+		Timestamp:     fmt.Sprintf("%d", gethBlock.Time()),
+		Transactions:  transactions,
 	}
 }
 
@@ -410,14 +539,34 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		// For EIP-1559 transactions, use effective gas price if available
 		// Fall back to gas fee cap if not
 		gasPrice = tx.GasFeeCap()
+	case 0x6a: // Arbitrum internal transaction type
+		// Arbitrum internal transactions may have zero gas price
+		gasPrice = tx.GasPrice()
+		if gasPrice == nil {
+			gasPrice = big.NewInt(0)
+		}
 	default:
 		// For unknown transaction types, try to get gas price
 		// If it fails, we'll catch it in the calling function
 		gasPrice = tx.GasPrice()
+		if gasPrice == nil {
+			gasPrice = big.NewInt(0)
+		}
 	}
 
-	// Extract signature components
+	// Extract signature components with error handling for Arbitrum transactions
 	v, r, s := tx.RawSignatureValues()
+
+	// Handle cases where signature components might be nil (e.g., Arbitrum internal transactions)
+	if v == nil {
+		v = big.NewInt(0)
+	}
+	if r == nil {
+		r = big.NewInt(0)
+	}
+	if s == nil {
+		s = big.NewInt(0)
+	}
 
 	// Get access list for EIP-2930/EIP-1559 transactions
 	accessList := make([]types.AccessListEntry, 0)
@@ -435,26 +584,34 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 	}
 
 	localTx := types.Transaction{
-		Hash:                 tx.Hash().Hex(),                          // string
-		BlockHash:            gethBlock.Hash().Hex(),                   // string
-		BlockNumber:          fmt.Sprintf("%d", gethBlock.NumberU64()), // string
-		From:                 fromAddrStr,                              // string
-		To:                   toAddr,                                   // string
-		Value:                tx.Value().String(),                      // string
-		Gas:                  fmt.Sprintf("%d", tx.Gas()),              // string
-		GasPrice:             gasPrice.String(),                        // string
-		MaxFeePerGas:         getMaxFeePerGas(tx),                      // string
-		MaxPriorityFeePerGas: getMaxPriorityFeePerGas(tx),              // string
-		Input:                "0x" + common.Bytes2Hex(tx.Data()),       // string
-		Nonce:                fmt.Sprintf("%d", tx.Nonce()),            // string
-		TransactionIndex:     index,                                    // int
-		Type:                 fmt.Sprintf("%d", tx.Type()),             // string
-		ChainId:              getChainId(tx),                           // string
-		AccessList:           accessList,                               // []accessListEntry
-		V:                    v.String(),                               // string
-		R:                    r.String(),                               // string
-		S:                    s.String(),                               // string
-		Status:               true,                                     // Default to true, will be updated from receipt
+		// Transaction fields
+		BlockHash:        gethBlock.Hash().Hex(),
+		BlockNumber:      int(gethBlock.NumberU64()),
+		From:             fromAddrStr,
+		Gas:              fmt.Sprintf("%d", tx.Gas()),
+		GasPrice:         gasPrice.String(),
+		Hash:             tx.Hash().Hex(),
+		Input:            "0x" + common.Bytes2Hex(tx.Data()),
+		Nonce:            fmt.Sprintf("%d", tx.Nonce()),
+		To:               toAddr,
+		TransactionIndex: index,
+		Value:            tx.Value().String(),
+		Type:             fmt.Sprintf("0x%x", tx.Type()),
+		ChainId:          getChainId(tx),
+		V:                v.String(),
+		R:                r.String(),
+		S:                s.String(),
+		// Receipt fields - will be populated when receipt is fetched
+		ContractAddress:   "",
+		CumulativeGasUsed: "",
+		EffectiveGasPrice: "",
+		GasUsed:           "",
+		GasUsedForL1:      "",
+		L1BlockNumber:     "",
+		Status:            "",
+		Timeboosted:       false,
+		LogsBloom:         "",
+		Logs:              []types.Log{},
 	}
 
 	return &localTx, nil

@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
@@ -138,39 +137,39 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 
 	// Create a mock geth block
 	gethBlock := &types.Block{
-		Number:           "12345",
-		Hash:             "0x1234567890abcdef",
-		ParentHash:       "0xabcdef1234567890",
-		Timestamp:        "1640995200",
-		Miner:            "0x1111111111111111111111111111111111111111",
-		GasLimit:         "8000000",
-		GasUsed:          "21000",
-		Difficulty:       "1000000",
-		TotalDifficulty:  "5000000",
-		Nonce:            "0x1234567890abcdef",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		LogsBloom:        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		StateRoot:        "0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544",
-		ReceiptsRoot:     "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		Size:             "1000",
-		ExtraData:        "0x",
+		Number:       12345,
+		Hash:         "0x1234567890abcdef",
+		ParentHash:   "0xabcdef1234567890",
+		Timestamp:    "1640995200",
+		GasLimit:     "8000000",
+		GasUsed:      "21000",
+		Nonce:        "0x1234567890abcdef",
+		Sha3Uncles:   "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		LogsBloom:    "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+		StateRoot:    "0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544",
+		ReceiptsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+		Size:         "1000",
+		ExtraData:    "0x",
 		Transactions: []types.Transaction{
 			{
-				Hash:             "0xabc123",
-				BlockNumber:      "12345",
-				From:             "0x1234567890123456789012345678901234567890",
-				To:               "0x0987654321098765432109876543210987654321",
-				Value:            "1000000000000000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainId:          "1",
-				V:                "27",
-				R:                "12345",
-				S:                "67890",
+				Hash:              "0xabc123",
+				BlockHash:         "0x1234567890abcdef",
+				BlockNumber:       12345,
+				From:              "0x1234567890123456789012345678901234567890",
+				To:                "0x0987654321098765432109876543210987654321",
+				Value:             "1000000000000000000",
+				Gas:               "21000",
+				GasPrice:          "20000000000",
+				Nonce:             "1",
+				TransactionIndex:  0,
+				Type:              "0",
+				ChainId:           "1",
+				V:                 "27",
+				R:                 "12345",
+				S:                 "67890",
+				Status:            "1",
+				GasUsed:           "21000",
+				EffectiveGasPrice: "20000000000",
 			},
 		},
 	}
@@ -194,24 +193,20 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 	// Test block structure
 	transactions := gethBlock.Transactions
 	defraBlock := &types.Block{
-		Number:           gethBlock.Number,
-		Hash:             gethBlock.Hash,
-		ParentHash:       gethBlock.ParentHash,
-		Nonce:            gethBlock.Nonce,
-		Sha3Uncles:       gethBlock.Sha3Uncles,
-		LogsBloom:        gethBlock.LogsBloom,
-		TransactionsRoot: gethBlock.TransactionsRoot,
-		StateRoot:        gethBlock.StateRoot,
-		ReceiptsRoot:     gethBlock.ReceiptsRoot,
-		Miner:            gethBlock.Miner,
-		Difficulty:       gethBlock.Difficulty,
-		TotalDifficulty:  gethBlock.TotalDifficulty,
-		ExtraData:        gethBlock.ExtraData,
-		Size:             gethBlock.Size,
-		GasLimit:         gethBlock.GasLimit,
-		GasUsed:          gethBlock.GasUsed,
-		Timestamp:        gethBlock.Timestamp,
-		Transactions:     transactions,
+		Number:       gethBlock.Number,
+		Hash:         gethBlock.Hash,
+		ParentHash:   gethBlock.ParentHash,
+		Nonce:        gethBlock.Nonce,
+		Sha3Uncles:   gethBlock.Sha3Uncles,
+		LogsBloom:    gethBlock.LogsBloom,
+		StateRoot:    gethBlock.StateRoot,
+		ReceiptsRoot: gethBlock.ReceiptsRoot,
+		ExtraData:    gethBlock.ExtraData,
+		Size:         gethBlock.Size,
+		GasLimit:     gethBlock.GasLimit,
+		GasUsed:      gethBlock.GasUsed,
+		Timestamp:    gethBlock.Timestamp,
+		Transactions: transactions,
 	}
 
 	assert.NotNil(t, defraBlock)
@@ -219,7 +214,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 	assert.Equal(t, gethBlock.Hash, defraBlock.Hash)
 	assert.Equal(t, gethBlock.ParentHash, defraBlock.ParentHash)
 	assert.Equal(t, gethBlock.Timestamp, defraBlock.Timestamp)
-	assert.Equal(t, gethBlock.Miner, defraBlock.Miner)
+	// Removed miner field assertion as it's no longer in the schema
 	assert.Equal(t, gethBlock.GasLimit, defraBlock.GasLimit)
 	assert.Equal(t, gethBlock.GasUsed, defraBlock.GasUsed)
 	assert.Len(t, defraBlock.Transactions, 1)
@@ -230,35 +225,30 @@ func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	gethBlock := &types.Block{
-		Number:       "12345",
+		Number:       12345,
 		Hash:         "0x1234567890abcdef",
 		ParentHash:   "0xabcdef1234567890",
 		Timestamp:    "1640995200",
-		Miner:        "0x1111111111111111111111111111111111111111",
 		GasLimit:     "8000000",
 		GasUsed:      "0",
 		Transactions: []types.Transaction{}, // Empty transactions
 	}
 
 	defraBlock := &types.Block{
-		Number:           gethBlock.Number,
-		Hash:             gethBlock.Hash,
-		ParentHash:       gethBlock.ParentHash,
-		Nonce:            gethBlock.Nonce,
-		Sha3Uncles:       gethBlock.Sha3Uncles,
-		LogsBloom:        gethBlock.LogsBloom,
-		TransactionsRoot: gethBlock.TransactionsRoot,
-		StateRoot:        gethBlock.StateRoot,
-		ReceiptsRoot:     gethBlock.ReceiptsRoot,
-		Miner:            gethBlock.Miner,
-		Difficulty:       gethBlock.Difficulty,
-		TotalDifficulty:  gethBlock.TotalDifficulty,
-		ExtraData:        gethBlock.ExtraData,
-		Size:             gethBlock.Size,
-		GasLimit:         gethBlock.GasLimit,
-		GasUsed:          gethBlock.GasUsed,
-		Timestamp:        gethBlock.Timestamp,
-		Transactions:     gethBlock.Transactions,
+		Number:       gethBlock.Number,
+		Hash:         gethBlock.Hash,
+		ParentHash:   gethBlock.ParentHash,
+		Nonce:        gethBlock.Nonce,
+		Sha3Uncles:   gethBlock.Sha3Uncles,
+		LogsBloom:    gethBlock.LogsBloom,
+		StateRoot:    gethBlock.StateRoot,
+		ReceiptsRoot: gethBlock.ReceiptsRoot,
+		ExtraData:    gethBlock.ExtraData,
+		Size:         gethBlock.Size,
+		GasLimit:     gethBlock.GasLimit,
+		GasUsed:      gethBlock.GasUsed,
+		Timestamp:    gethBlock.Timestamp,
+		Transactions: gethBlock.Transactions,
 	}
 
 	assert.NotNil(t, defraBlock)
@@ -331,8 +321,8 @@ func (m *MockBlockHandler) CreateBlock(ctx context.Context, block *types.Block) 
 	if m.createError != nil {
 		return "", m.createError
 	}
-	// Convert string block number to int64 for map key
-	blockNum, _ := strconv.ParseInt(block.Number, 10, 64)
+	// Block number is already int type
+	blockNum := int64(block.Number)
 	m.blocks[blockNum] = block
 	return "mock-block-id", nil
 }
@@ -365,17 +355,17 @@ func TestBlockProcessingLogic(t *testing.T) {
 
 	// Create test block
 	testBlock := &types.Block{
-		Number:     "100",
+		Number:     100,
 		Hash:       "0xtest123",
 		ParentHash: "0xparent123",
 		Timestamp:  "1640995200",
-		Miner:      "0x1111111111111111111111111111111111111111",
 		GasLimit:   "8000000",
 		GasUsed:    "21000",
 		Transactions: []types.Transaction{
 			{
 				Hash:             "0xtx123",
-				BlockNumber:      "100",
+				BlockHash:        "0xtest123",
+				BlockNumber:      100,
 				From:             "0xfrom123",
 				To:               "0xto123",
 				Value:            "1000000",
@@ -383,30 +373,28 @@ func TestBlockProcessingLogic(t *testing.T) {
 				GasPrice:         "20000000000",
 				Nonce:            "1",
 				TransactionIndex: 0,
+				Status:           "1",
+				GasUsed:          "21000",
 			},
 		},
 	}
 
 	// Test conversion
 	defraBlock := &types.Block{
-		Number:           testBlock.Number,
-		Hash:             testBlock.Hash,
-		ParentHash:       testBlock.ParentHash,
-		Nonce:            testBlock.Nonce,
-		Sha3Uncles:       testBlock.Sha3Uncles,
-		LogsBloom:        testBlock.LogsBloom,
-		TransactionsRoot: testBlock.TransactionsRoot,
-		StateRoot:        testBlock.StateRoot,
-		ReceiptsRoot:     testBlock.ReceiptsRoot,
-		Miner:            testBlock.Miner,
-		Difficulty:       testBlock.Difficulty,
-		TotalDifficulty:  testBlock.TotalDifficulty,
-		ExtraData:        testBlock.ExtraData,
-		Size:             testBlock.Size,
-		GasLimit:         testBlock.GasLimit,
-		GasUsed:          testBlock.GasUsed,
-		Timestamp:        testBlock.Timestamp,
-		Transactions:     testBlock.Transactions,
+		Number:       testBlock.Number,
+		Hash:         testBlock.Hash,
+		ParentHash:   testBlock.ParentHash,
+		Nonce:        testBlock.Nonce,
+		Sha3Uncles:   testBlock.Sha3Uncles,
+		LogsBloom:    testBlock.LogsBloom,
+		StateRoot:    testBlock.StateRoot,
+		ReceiptsRoot: testBlock.ReceiptsRoot,
+		ExtraData:    testBlock.ExtraData,
+		Size:         testBlock.Size,
+		GasLimit:     testBlock.GasLimit,
+		GasUsed:      testBlock.GasUsed,
+		Timestamp:    testBlock.Timestamp,
+		Transactions: testBlock.Transactions,
 	}
 
 	assert.NotNil(t, defraBlock)

@@ -155,8 +155,8 @@ func TestConvertGethBlock(t *testing.T) {
 		t.Errorf("Expected hash %s, got %s", gethBlock.Hash().Hex(), localBlock.Hash)
 	}
 
-	if localBlock.Number != gethBlock.Number().String() {
-		t.Errorf("Expected number %s, got %s", gethBlock.Number().String(), localBlock.Number)
+	if int64(localBlock.Number) != gethBlock.Number().Int64() {
+		t.Errorf("Expected number %d, got %d", gethBlock.Number().Int64(), localBlock.Number)
 	}
 
 	if len(localBlock.Transactions) != 1 {
@@ -198,8 +198,8 @@ func TestConvertTransaction(t *testing.T) {
 		t.Errorf("Expected hash %s, got %s", tx.Hash().Hex(), localTx.Hash)
 	}
 
-	if localTx.BlockNumber != gethBlock.Number().String() {
-		t.Errorf("Expected block number %s, got %s", gethBlock.Number().String(), localTx.BlockNumber)
+	if int64(localTx.BlockNumber) != gethBlock.Number().Int64() {
+		t.Errorf("Expected block number %d, got %d", gethBlock.Number().Int64(), localTx.BlockNumber)
 	}
 
 	if localTx.To != tx.To().Hex() {

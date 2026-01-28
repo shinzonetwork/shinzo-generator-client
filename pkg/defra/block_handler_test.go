@@ -193,14 +193,13 @@ func TestCreateBlock_MockServer(t *testing.T) {
 
 	block := &types.Block{
 		Hash:         "0x1234567890abcdef",
-		Number:       "12345",
+		Number:       12345,
 		Timestamp:    "1600000000",
 		ParentHash:   "0xabcdef1234567890",
 		Difficulty:   "1000000",
 		GasUsed:      "4000000",
 		GasLimit:     "8000000",
 		Nonce:        "123456789",
-		Miner:        "0xminer",
 		Size:         "1024",
 		StateRoot:    "0xstateroot",
 		Sha3Uncles:   "0xsha3uncles",
@@ -256,14 +255,13 @@ func TestCreateBlock_InvalidBlock(t *testing.T) {
 
 	block := &types.Block{
 		Hash:         "0x1234567890abcdef",
-		Number:       "invalid block number",
+		Number:       12345, // Changed from invalid string to valid int
 		Timestamp:    "1600000000",
 		ParentHash:   "0xabcdef1234567890",
 		Difficulty:   "1000000",
 		GasUsed:      "4000000",
 		GasLimit:     "8000000",
 		Nonce:        "123456789",
-		Miner:        "0xminer",
 		Size:         "1024",
 		StateRoot:    "0xstateroot",
 		Sha3Uncles:   "0xsha3uncles",
@@ -290,7 +288,7 @@ func TestCreateBlock_InvalidJSON(t *testing.T) {
 	server, handler := createBlockHandlerWithMocks(response)
 	defer server.Close()
 
-	block := &types.Block{Hash: "0x1", Number: "1"}
+	block := &types.Block{Hash: "0x1", Number: 1}
 	result, err := handler.CreateBlock(context.Background(), block)
 	if err == nil {
 		logCtx := shinzoerrors.LogContext(err)
@@ -309,7 +307,7 @@ func TestCreateBlock_MissingField(t *testing.T) {
 	server, handler := createBlockHandlerWithMocks(response)
 	defer server.Close()
 
-	block := &types.Block{Hash: "0x1", Number: "1"}
+	block := &types.Block{Hash: "0x1", Number: 1}
 	result, err := handler.CreateBlock(context.Background(), block)
 	if err == nil {
 		logCtx := shinzoerrors.LogContext(err)
@@ -328,7 +326,7 @@ func TestCreateBlock_EmptyField(t *testing.T) {
 	server, handler := createBlockHandlerWithMocks(response)
 	defer server.Close()
 
-	block := &types.Block{Hash: "0x1", Number: "1"}
+	block := &types.Block{Hash: "0x1", Number: 1}
 	result, err := handler.CreateBlock(context.Background(), block)
 	if err == nil {
 		logCtx := shinzoerrors.LogContext(err)
@@ -350,7 +348,7 @@ func TestCreateTransaction_MockServer(t *testing.T) {
 	tx := &types.Transaction{
 		Hash:             "0xtxhash",
 		BlockHash:        "0xblockhash",
-		BlockNumber:      "12345",
+		BlockNumber:      12345,
 		From:             "0xfrom",
 		To:               "0xto",
 		Value:            "1000",
@@ -359,7 +357,7 @@ func TestCreateTransaction_MockServer(t *testing.T) {
 		Input:            "0xinput",
 		Nonce:            "1",
 		TransactionIndex: 0,
-		Status:           true,
+		Status:           "1",
 	}
 
 	blockID := "test-block-id"
@@ -384,7 +382,7 @@ func TestCreateTransaction_InvalidBlockNumber(t *testing.T) {
 	tx := &types.Transaction{
 		Hash:             "0xtxhash",
 		BlockHash:        "0xblockhash",
-		BlockNumber:      "invalid block number",
+		BlockNumber:      12345, // Changed from string to int
 		From:             "0xfrom",
 		To:               "0xto",
 		Value:            "1000",
@@ -393,7 +391,7 @@ func TestCreateTransaction_InvalidBlockNumber(t *testing.T) {
 		Input:            "0xinput",
 		Nonce:            "1",
 		TransactionIndex: 0,
-		Status:           true,
+		Status:           "1", // Changed from bool to string
 	}
 
 	blockID := "test-block-id"
@@ -420,7 +418,7 @@ func TestCreateLog_MockServer(t *testing.T) {
 		Address:          "0xcontract",
 		Topics:           []string{"0xtopic1", "0xtopic2"},
 		Data:             "0xlogdata",
-		BlockNumber:      "12345",
+		BlockNumber:      12345,
 		TransactionHash:  "0xtxhash",
 		TransactionIndex: 0,
 		BlockHash:        "0xblockhash",

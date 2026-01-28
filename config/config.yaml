@@ -20,7 +20,7 @@ geth:
   api_key: "${GETH_API_KEY}"
 
 indexer:
-  start_height: 23700000
+  start_height: 420000000
   concurrent_blocks: 6     # Number of blocks to process concurrently (default: 1)
   prefetch_blocks: 16      # Number of blocks to prefetch ahead (default: 2)
   receipt_workers: 64      # Concurrent receipt fetchers per block (default: 20)
