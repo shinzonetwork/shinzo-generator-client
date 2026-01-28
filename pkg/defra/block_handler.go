@@ -761,7 +761,7 @@ func (h *BlockHandler) buildTransactionDocument(ctx context.Context, tx *types.T
 		"cumulativeGasUsed":    tx.CumulativeGasUsed,
 		"effectiveGasPrice":    tx.EffectiveGasPrice,
 		"status":               tx.Status,
-		"block":                blockID,
+		"_blockID":             blockID,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -779,8 +779,8 @@ func (h *BlockHandler) buildLogDocument(ctx context.Context, log *types.Log, blo
 		"blockHash":        log.BlockHash,
 		"logIndex":         log.LogIndex,
 		"removed":          fmt.Sprintf("%v", log.Removed),
-		"transaction":      txID,
-		"block":            blockID,
+		"_transactionID":   txID,
+		"_blockID":         blockID,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -788,10 +788,10 @@ func (h *BlockHandler) buildLogDocument(ctx context.Context, log *types.Log, blo
 // buildALEDocument creates a client.Document for an access list entry
 func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessListEntry, txID string, blockNumber int64, col client.Collection) (*client.Document, error) {
 	data := map[string]any{
-		"address":     ale.Address,
-		"blockNumber": blockNumber,
-		"storageKeys": ale.StorageKeys,
-		"transaction": txID,
+		"address":        ale.Address,
+		"blockNumber":    blockNumber,
+		"storageKeys":    ale.StorageKeys,
+		"_transactionID": txID,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
