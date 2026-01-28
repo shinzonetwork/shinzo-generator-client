@@ -18,9 +18,9 @@ defradb:
     memtable_mb: 1024      # Memtable size
     index_cache_mb: 2048   # Index cache size
     # Badger compaction configuration
-    num_compactors: 8              # Number of compaction workers
-    num_level_zero_tables: 50      # L0 tables before compaction starts
-    num_level_zero_tables_stall: 100  # L0 tables that trigger write stalls
+    num_compactors: 4              # Number of compaction workers
+    num_level_zero_tables: 20      # L0 tables before compaction starts
+    num_level_zero_tables_stall: 40  # L0 tables that trigger write stalls
 
 geth:
   node_url: "${GETH_RPC_URL}"  # Fallback
