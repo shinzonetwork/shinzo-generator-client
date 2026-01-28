@@ -26,6 +26,14 @@ type DefraDBP2PConfig struct {
 // DefraDBStoreConfig represents store configuration for DefraDB
 type DefraDBStoreConfig struct {
 	Path string `yaml:"path"`
+	// Badger memory configuration
+	BlockCacheMB int64 `yaml:"block_cache_mb"`
+	MemTableMB   int64 `yaml:"memtable_mb"`
+	IndexCacheMB int64 `yaml:"index_cache_mb"`
+	// Badger compaction configuration
+	NumCompactors           int `yaml:"num_compactors"`
+	NumLevelZeroTables      int `yaml:"num_level_zero_tables"`
+	NumLevelZeroTablesStall int `yaml:"num_level_zero_tables_stall"`
 }
 
 // DefraDBConfig represents DefraDB configuration
@@ -51,10 +59,14 @@ type GethConfig struct {
 
 // IndexerConfig represents indexer configuration
 type IndexerConfig struct {
-	StartHeight      int `yaml:"start_height"`
-	ConcurrentBlocks int `yaml:"concurrent_blocks"`
-	ReceiptWorkers   int `yaml:"receipt_workers"`
-	MaxDocsPerTxn    int `yaml:"max_docs_per_txn"` // Threshold for single-txn vs batched block creation
+	StartHeight        int  `yaml:"start_height"`
+	ConcurrentBlocks   int  `yaml:"concurrent_blocks"`
+	ReceiptWorkers     int  `yaml:"receipt_workers"`
+	MaxDocsPerTxn      int  `yaml:"max_docs_per_txn"`
+	BlocksPerMinute    int  `yaml:"blocks_per_minute"`
+	HealthServerPort   int  `yaml:"health_server_port"`
+	PprofPort          int  `yaml:"pprof_port"`
+	OpenBrowserOnStart bool `yaml:"open_browser_on_start"`
 }
 
 // LoggerConfig represents logger configuration
@@ -111,6 +123,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Indexer.MaxDocsPerTxn <= 0 {
 		cfg.Indexer.MaxDocsPerTxn = 1000
 	}
+	if cfg.Indexer.HealthServerPort == 0 {
+		cfg.Indexer.HealthServerPort = 8080
+	}
+	if cfg.Indexer.PprofPort == 0 {
+		cfg.Indexer.PprofPort = 6060
+	}
 }
 
 // validateConfig validates the configuration
@@ -158,6 +176,40 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.DefraDB.Store.Path = storePath
 	}
 
+	// Badger memory configuration
+	if blockCacheMB := os.Getenv("DEFRADB_BLOCK_CACHE_MB"); blockCacheMB != "" {
+		if n, err := strconv.ParseInt(blockCacheMB, 10, 64); err == nil {
+			cfg.DefraDB.Store.BlockCacheMB = n
+		}
+	}
+	if memtableMB := os.Getenv("DEFRADB_MEMTABLE_MB"); memtableMB != "" {
+		if n, err := strconv.ParseInt(memtableMB, 10, 64); err == nil {
+			cfg.DefraDB.Store.MemTableMB = n
+		}
+	}
+	if indexCacheMB := os.Getenv("DEFRADB_INDEX_CACHE_MB"); indexCacheMB != "" {
+		if n, err := strconv.ParseInt(indexCacheMB, 10, 64); err == nil {
+			cfg.DefraDB.Store.IndexCacheMB = n
+		}
+	}
+
+	// Badger compaction configuration
+	if numCompactors := os.Getenv("DEFRADB_NUM_COMPACTORS"); numCompactors != "" {
+		if n, err := strconv.Atoi(numCompactors); err == nil {
+			cfg.DefraDB.Store.NumCompactors = n
+		}
+	}
+	if numL0Tables := os.Getenv("DEFRADB_NUM_LEVEL_ZERO_TABLES"); numL0Tables != "" {
+		if n, err := strconv.Atoi(numL0Tables); err == nil {
+			cfg.DefraDB.Store.NumLevelZeroTables = n
+		}
+	}
+	if numL0TablesStall := os.Getenv("DEFRADB_NUM_LEVEL_ZERO_TABLES_STALL"); numL0TablesStall != "" {
+		if n, err := strconv.Atoi(numL0TablesStall); err == nil {
+			cfg.DefraDB.Store.NumLevelZeroTablesStall = n
+		}
+	}
+
 	// Geth configuration
 	if gethRpcUrl := os.Getenv("GETH_RPC_URL"); gethRpcUrl != "" {
 		cfg.Geth.NodeURL = gethRpcUrl
@@ -190,6 +242,11 @@ func applyEnvOverrides(cfg *Config) {
 	if maxDocsPerTxn := os.Getenv("INDEXER_MAX_DOCS_PER_TXN"); maxDocsPerTxn != "" {
 		if n, err := strconv.Atoi(maxDocsPerTxn); err == nil {
 			cfg.Indexer.MaxDocsPerTxn = n
+		}
+	}
+	if blocksPerMinute := os.Getenv("INDEXER_BLOCKS_PER_MINUTE"); blocksPerMinute != "" {
+		if n, err := strconv.Atoi(blocksPerMinute); err == nil {
+			cfg.Indexer.BlocksPerMinute = n
 		}
 	}
 

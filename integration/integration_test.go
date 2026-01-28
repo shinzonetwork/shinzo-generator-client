@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 	logger.Test("Cleaning up existing integration DefraDB data...")
 	cleanupPaths := []string{
 		"./.defra",
-		"./.defra/data",
+		"./.defra",
 	}
 	for _, path := range cleanupPaths {
 		if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 		options := []node.Option{
 			node.WithDisableAPI(false),
 			node.WithDisableP2P(true),
-			node.WithStorePath("./.defra/data"),
+			node.WithStorePath("./.defra"),
 			defrahttp.WithAddress("127.0.0.1:9181"),
 		}
 
@@ -647,32 +647,6 @@ func insertMockData() error {
 	logger.Test("Mock data with relationships and logs inserted successfully!")
 
 	return nil
-}
-
-func hasBlocks() bool {
-	query := `{"query":"query { Block(limit: 1) { number } }"}`
-	resp, err := http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer([]byte(query)))
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return false
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false
-	}
-
-	data, ok := result["data"].(map[string]interface{})
-	if !ok {
-		return false
-	}
-
-	blocks, ok := data[constants.CollectionBlock].([]interface{})
-	return ok && len(blocks) > 0
 }
 
 // applySchema applies the GraphQL schema to DefraDB node

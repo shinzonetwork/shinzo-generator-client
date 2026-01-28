@@ -8,6 +8,8 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -111,7 +113,13 @@ func toAppConfig(cfg *config.Config) *appConfig.Config {
 				EnableAutoReconnect: cfg.DefraDB.P2P.EnableAutoReconnect,
 			},
 			Store: appConfig.DefraStoreConfig{
-				Path: cfg.DefraDB.Store.Path,
+				Path:                    cfg.DefraDB.Store.Path,
+				BlockCacheMB:            cfg.DefraDB.Store.BlockCacheMB,
+				MemTableMB:              cfg.DefraDB.Store.MemTableMB,
+				IndexCacheMB:            cfg.DefraDB.Store.IndexCacheMB,
+				NumCompactors:           cfg.DefraDB.Store.NumCompactors,
+				NumLevelZeroTables:      cfg.DefraDB.Store.NumLevelZeroTables,
+				NumLevelZeroTablesStall: cfg.DefraDB.Store.NumLevelZeroTablesStall,
 			},
 		},
 	}
@@ -237,24 +245,31 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	// Get starting block number
 	nextBlockToProcess := int64(cfg.Indexer.StartHeight)
 
-	// Start health server
-	var healthDefraURL string
-	if cfg.DefraDB.Url != "" {
-		healthDefraURL = cfg.DefraDB.Url
-	} else if i.defraNode != nil {
-		healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
-	}
-	i.healthServer = server.NewHealthServer(8080, i, healthDefraURL)
-
-	// Start health server in background
-	go func() {
-		if err := i.healthServer.Start(); err != nil {
-			logger.Sugar.Errorf("Health server failed: %v", err)
+	if cfg.Indexer.HealthServerPort > 0 {
+		var healthDefraURL string
+		if cfg.DefraDB.Url != "" {
+			healthDefraURL = cfg.DefraDB.Url
+		} else if i.defraNode != nil {
+			healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
 		}
-	}()
+		i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
+
+		go func() {
+			if err := i.healthServer.Start(); err != nil {
+				logger.Sugar.Errorf("Health server failed: %v", err)
+			}
+		}()
+
+		if cfg.Indexer.OpenBrowserOnStart {
+			go func() {
+				time.Sleep(2 * time.Second)
+				openBrowser(fmt.Sprintf("http://localhost:%d/health", cfg.Indexer.HealthServerPort))
+			}()
+		}
+	}
 
 	// Use concurrent processing if configured and using embedded DefraDB
-	if cfg.Indexer.ConcurrentBlocks > 1 && i.defraNode != nil {
+	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers",
 			cfg.Indexer.ConcurrentBlocks)
 		return i.runConcurrentIndexing(ctx, client, blockHandler, nextBlockToProcess, cfg)
@@ -325,6 +340,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		client,
 		cfg.Indexer.ConcurrentBlocks,
 		cfg.Indexer.ReceiptWorkers,
+		cfg.Indexer.BlocksPerMinute,
 	)
 
 	return processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
@@ -339,7 +355,7 @@ func (i *ChainIndexer) processBlock(ctx context.Context, ethClient *rpc.Ethereum
 	var err error
 
 	// Retry logic for fetching block from Ethereum
-	for attempt := 0; attempt < DefaultRetryAttempts; attempt++ {
+	for attempt := range DefaultRetryAttempts {
 		block, err = ethClient.GetBlockByNumber(ctx, big.NewInt(blockNum))
 		if err == nil {
 			break
@@ -407,7 +423,7 @@ func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.Eth
 	}
 
 	var err error
-	for attempt := 0; attempt < DefaultRetryAttempts; attempt++ {
+	for attempt := range DefaultRetryAttempts {
 		_, err = blockHandler.CreateBlockBatch(ctx, block, transactions, receipts)
 		if err == nil {
 			break
@@ -498,7 +514,7 @@ func (i *ChainIndexer) processTransaction(ctx context.Context, ethClient *rpc.Et
 	// Retry logic for creating transaction
 	var txId string
 	var txErr error
-	for attempt := 0; attempt < DefaultRetryAttempts; attempt++ {
+	for attempt := range DefaultRetryAttempts {
 		txId, txErr = blockHandler.CreateTransaction(ctx, tx, blockId)
 		if txErr == nil {
 			break
@@ -666,6 +682,26 @@ func (i *ChainIndexer) updateBlockInfo(blockNum int64) {
 	defer i.mutex.Unlock()
 	i.currentBlock = blockNum
 	i.lastProcessedTime = time.Now()
+}
+
+// openBrowser opens the specified URL in the default browser
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default: // linux and others
+		cmd = exec.Command("xdg-open", url)
+	}
+
+	if err := cmd.Start(); err != nil {
+		logger.Sugar.Warnf("Failed to open browser: %v", err)
+		return
+	}
+	logger.Sugar.Infof("Opened health page in browser: %s", url)
 }
 
 func applySchemaViaHTTP(defraUrl string) error {

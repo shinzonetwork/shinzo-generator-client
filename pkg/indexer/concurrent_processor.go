@@ -24,14 +24,15 @@ type BlockResult struct {
 
 // ConcurrentBlockProcessor processes multiple blocks concurrently
 type ConcurrentBlockProcessor struct {
-	blockHandler   *defra.BlockHandler
-	ethClient      *rpc.EthereumClient
-	workers        int
-	receiptWorkers int
-	resultChan     chan *BlockResult
-	pendingMu      sync.Mutex
-	pending        map[int64]*BlockResult
-	nextToCommit   int64
+	blockHandler    *defra.BlockHandler
+	ethClient       *rpc.EthereumClient
+	workers         int
+	receiptWorkers  int
+	blocksPerMinute int
+	resultChan      chan *BlockResult
+	pendingMu       sync.Mutex
+	pending         map[int64]*BlockResult
+	nextToCommit    int64
 }
 
 // NewConcurrentBlockProcessor creates a new concurrent processor
@@ -40,14 +41,16 @@ func NewConcurrentBlockProcessor(
 	ethClient *rpc.EthereumClient,
 	workers int,
 	receiptWorkers int,
+	blocksPerMinute int,
 ) *ConcurrentBlockProcessor {
 	return &ConcurrentBlockProcessor{
-		blockHandler:   blockHandler,
-		ethClient:      ethClient,
-		workers:        workers,
-		receiptWorkers: receiptWorkers,
-		resultChan:     make(chan *BlockResult, workers*2),
-		pending:        make(map[int64]*BlockResult),
+		blockHandler:    blockHandler,
+		ethClient:       ethClient,
+		workers:         workers,
+		receiptWorkers:  receiptWorkers,
+		blocksPerMinute: blocksPerMinute,
+		resultChan:      make(chan *BlockResult, workers*2),
+		pending:         make(map[int64]*BlockResult),
 	}
 }
 
@@ -78,9 +81,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	}
 
 	var collectWg sync.WaitGroup
-	collectWg.Add(1)
-	go func() {
-		defer collectWg.Done()
+	collectWg.Go(func() {
 		for result := range p.resultChan {
 			p.pendingMu.Lock()
 			p.pending[result.BlockNum] = result
@@ -108,10 +109,34 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 			}
 			p.pendingMu.Unlock()
 		}
-	}()
+	})
 
 	nextBlock := startBlock
+
+	var minInterval time.Duration
+	if p.blocksPerMinute > 0 {
+		minInterval = time.Minute / time.Duration(p.blocksPerMinute)
+		logger.Sugar.Infof("Rate limiting enabled: %d blocks/minute (interval: %v)", p.blocksPerMinute, minInterval)
+	}
+
+	lastDispatch := time.Now().Add(-minInterval)
+
 	for {
+		if minInterval > 0 {
+			elapsed := time.Since(lastDispatch)
+			if elapsed < minInterval {
+				select {
+				case <-ctx.Done():
+					close(workChan)
+					wg.Wait()
+					close(p.resultChan)
+					collectWg.Wait()
+					return ctx.Err()
+				case <-time.After(minInterval - elapsed):
+				}
+			}
+		}
+
 		select {
 		case <-ctx.Done():
 			close(workChan)
@@ -120,6 +145,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 			collectWg.Wait()
 			return ctx.Err()
 		case workChan <- nextBlock:
+			lastDispatch = time.Now()
 			nextBlock++
 		}
 	}
@@ -131,7 +157,7 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 
 	var block *types.Block
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := range 3 {
 		if ctx.Err() != nil {
 			result.Error = ctx.Err()
 			return result
