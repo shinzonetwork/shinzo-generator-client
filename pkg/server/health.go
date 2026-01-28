@@ -141,9 +141,6 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	acceptLower := strings.ToLower(accept)
 
 	uptime := time.Since(startTime)
-	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested
-	accept := r.Header.Get("Accept")
-	acceptLower := strings.ToLower(accept)
 
 	// Serve JSON only if explicitly requested (Accept contains application/json and not text/html)
 	// Otherwise, default to HTML for browser requests
