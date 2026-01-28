@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -230,6 +231,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
@@ -343,13 +345,14 @@
         }
 
         function parseDurationToHMS(input) {
-            const match = input.match(/(?:(\d+)m)?([\d.]+)s/);
+            const match = input.match(/(?:(\d+)h)?(?:(\d+)m)?([\d.]+)s/);
             if (!match) throw new Error("Invalid duration format");
 
-            const minutes = Number(match[1] ?? 0);
-            const seconds = Number(match[2]);
+            const hours = Number(match[1] ?? 0);
+            const minutes = Number(match[2] ?? 0);
+            const seconds = Number(match[3]);
 
-            const totalSeconds = minutes * 60 + seconds;
+            const totalSeconds = hours * 3600 + minutes * 60 + seconds;
 
             const h = Math.floor(totalSeconds / 3600);
             const m = Math.floor((totalSeconds % 3600) / 60);
@@ -362,9 +365,9 @@
         function updateStatusBadge(status) {
             const healthStatusText = document.getElementById('healthStatusText');
             const healthStatusIndicator = document.getElementById('healthStatusIndicator');
-            
+
             healthStatusText.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-            
+
             if (status === 'healthy') {
                 healthStatusIndicator.className = 'info-value status-indicator-inline status-healthy';
             } else {
@@ -381,11 +384,11 @@
             }
 
             peerList.innerHTML = peers.map(peer => {
-                const addresses = peer.addresses && peer.addresses.length > 0 
+                const addresses = peer.addresses && peer.addresses.length > 0
                     ? peer.addresses.map(addr => `<div class="peer-detail-value">${addr}</div>`).join('')
                     : '<div class="peer-detail-value">No addresses</div>';
-                
-                const publicKey = peer.public_key 
+
+                const publicKey = peer.public_key
                     ? `<div class="peer-detail"><div class="peer-detail-label">Public Key</div><div class="peer-detail-value">${peer.public_key}</div></div>`
                     : '';
 
@@ -483,4 +486,5 @@
         });
     </script>
 </body>
+
 </html>
