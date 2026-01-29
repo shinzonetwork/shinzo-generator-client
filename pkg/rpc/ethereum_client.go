@@ -161,7 +161,7 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// GetBlockByNumber fetches a block by number with Arbitrum transaction type support
+// GetBlockByNumber fetches a block by number with Optimism transaction type support
 func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*types.Block, error) {
 	client := c.getPreferredClient()
 	if client == nil {
@@ -173,7 +173,7 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	if err != nil {
 		if strings.Contains(err.Error(), "transaction type not supported") ||
 			strings.Contains(err.Error(), "invalid transaction type") {
-			// Fall back to raw JSON-RPC for Arbitrum transactions
+			// Fall back to raw JSON-RPC for Optimism transactions
 			logger.Sugar.Infof("Go-ethereum failed with transaction type error, using raw JSON-RPC for block %s", blockNumber.String())
 			return c.getBlockByNumberRaw(ctx, blockNumber)
 		}
@@ -183,7 +183,7 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	return c.convertGethBlock(gethBlock), nil
 }
 
-// getBlockByNumberRaw fetches a block using raw JSON-RPC to handle Arbitrum transactions
+// getBlockByNumberRaw fetches a block using raw JSON-RPC to handle Optimism transactions
 func (c *EthereumClient) getBlockByNumberRaw(ctx context.Context, blockNumber *big.Int) (*types.Block, error) {
 	// Use raw HTTP client for JSON-RPC call
 	if c.nodeURL == "" {
@@ -223,7 +223,7 @@ func (c *EthereumClient) getBlockByNumberRaw(ctx context.Context, blockNumber *b
 	}
 	defer resp.Body.Close()
 
-	// Parse response using raw JSON structure that matches Arbitrum RPC format
+	// Parse response using raw JSON structure that matches Optimism RPC format
 	var rpcResponse struct {
 		Result *rawBlock `json:"result"`
 		Error  *struct {
@@ -492,25 +492,31 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 	// Convert the block to match new schema
 	return &types.Block{
 		BaseFeePerGas: getBaseFeePerGas(gethBlock),
+		// Post-Dencun fields - will be populated when available
+		BlobGasUsed:   "",
 		Difficulty:    gethBlock.Difficulty().String(),
+		ExcessBlobGas: "",
 		ExtraData:     "0x" + common.Bytes2Hex(gethBlock.Extra()),
 		GasLimit:      fmt.Sprintf("%d", gethBlock.GasLimit()),
 		GasUsed:       fmt.Sprintf("%d", gethBlock.GasUsed()),
 		Hash:          gethBlock.Hash().Hex(),
-		L1BlockNumber: "", // Arbitrum specific - will be populated from block data if available
+		L1BlockNumber: "", // Optimism specific - will be populated from block data if available
 		LogsBloom:     "0x" + common.Bytes2Hex(gethBlock.Bloom().Bytes()),
+		Miner:         gethBlock.Coinbase().Hex(),
 		MixHash:       gethBlock.MixDigest().Hex(),
 		Nonce:         fmt.Sprintf("%d", gethBlock.Nonce()),
 		Number:        int(gethBlock.NumberU64()),
+		ParentBeaconBlockRoot: "",
 		ParentHash:    gethBlock.ParentHash().Hex(),
 		ReceiptsRoot:  gethBlock.ReceiptHash().Hex(),
-		SendCount:     "", // Arbitrum specific - will be populated if available
-		SendRoot:      "", // Arbitrum specific - will be populated if available
+		RequestsHash:  "",
 		Sha3Uncles:    gethBlock.UncleHash().Hex(),
 		Size:          fmt.Sprintf("%d", gethBlock.Size()),
 		StateRoot:     gethBlock.Root().Hex(),
 		Timestamp:     fmt.Sprintf("%d", gethBlock.Time()),
+		TransactionsRoot: gethBlock.TxHash().Hex(),
 		Transactions:  transactions,
+		WithdrawalsRoot:  "",
 	}
 }
 
@@ -539,8 +545,8 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		// For EIP-1559 transactions, use effective gas price if available
 		// Fall back to gas fee cap if not
 		gasPrice = tx.GasFeeCap()
-	case 0x6a: // Arbitrum internal transaction type
-		// Arbitrum internal transactions may have zero gas price
+	case 0x6a: // Optimism internal transaction type
+		// Optimism internal transactions may have zero gas price
 		gasPrice = tx.GasPrice()
 		if gasPrice == nil {
 			gasPrice = big.NewInt(0)
@@ -554,10 +560,10 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		}
 	}
 
-	// Extract signature components with error handling for Arbitrum transactions
+	// Extract signature components with error handling for Optimism transactions
 	v, r, s := tx.RawSignatureValues()
 
-	// Handle cases where signature components might be nil (e.g., Arbitrum internal transactions)
+	// Handle cases where signature components might be nil (e.g., Optimism internal transactions)
 	if v == nil {
 		v = big.NewInt(0)
 	}

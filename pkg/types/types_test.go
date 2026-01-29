@@ -59,8 +59,6 @@ func TestBlockJSONMarshaling(t *testing.T) {
 		Number:        12345,
 		ParentHash:    "0xparent",
 		ReceiptsRoot:  "0xreceiptsroot",
-		SendCount:     "100",
-		SendRoot:      "0xsendroot",
 		Sha3Uncles:    "0xsha3uncles",
 		Size:          "1024",
 		StateRoot:     "0xstateroot",

@@ -74,10 +74,12 @@ func (h *BlockHandler) CreateBlock(ctx context.Context, block *types.Block) (str
 		return "", errors.NewInvalidBlockFormat("defra", "CreateBlock", fmt.Sprintf("%v", block), nil)
 	}
 
-	// Create block data matching new Arbitrum schema
+	// Create block data matching new Optimism schema
 	blockData := map[string]interface{}{
 		"baseFeePerGas": block.BaseFeePerGas,
+		"blobGasUsed":   block.BlobGasUsed,
 		"difficulty":    block.Difficulty,
+		"excessBlobGas": block.ExcessBlobGas,
 		"extraData":     block.ExtraData,
 		"gasLimit":      block.GasLimit,
 		"gasUsed":       block.GasUsed,
@@ -87,14 +89,15 @@ func (h *BlockHandler) CreateBlock(ctx context.Context, block *types.Block) (str
 		"mixHash":       block.MixHash,
 		"nonce":         block.Nonce,
 		"number":        block.Number, // int type
+		"parentBeaconBlockRoot": block.ParentBeaconBlockRoot,
 		"parentHash":    block.ParentHash,
 		"receiptsRoot":  block.ReceiptsRoot,
-		"sendCount":     block.SendCount,
-		"sendRoot":      block.SendRoot,
+		"requestsHash":  block.RequestsHash,
 		"sha3Uncles":    block.Sha3Uncles,
 		"size":          block.Size,
 		"stateRoot":     block.StateRoot,
 		"timestamp":     block.Timestamp,
+		"withdrawalsRoot":  block.WithdrawalsRoot,
 	}
 	// Post block data to collection endpoint
 	docID, err := h.PostToCollection(ctx, constants.CollectionBlock, blockData)
@@ -111,7 +114,7 @@ func (h *BlockHandler) CreateTransaction(ctx context.Context, tx *types.Transact
 		return "", errors.NewInvalidInputFormat("defra", "CreateTransaction", "tx", nil)
 	}
 
-	// Create transaction data matching new Arbitrum schema
+	// Create transaction data matching new Optimism schema
 	txData := map[string]interface{}{
 		// Transaction fields
 		"blockHash":        tx.BlockHash,
@@ -158,7 +161,7 @@ func (h *BlockHandler) CreateLog(ctx context.Context, log *types.Log, block_id, 
 		return "", errors.NewInvalidInputFormat("defra", "CreateLog", "tx_Id", nil)
 	}
 
-	// Create log data matching new Arbitrum schema
+	// Create log data matching new Optimism schema
 	logData := map[string]interface{}{
 		"address":          log.Address,
 		"topics":           log.Topics,
@@ -382,7 +385,7 @@ func (h *BlockHandler) parseGraphQLResponse(resp []byte, fieldName string) (stri
 }
 
 // CreateBlockBatch creates a block with all its transactions and logs.
-// Updated for new Arbitrum schema (no AccessListEntry)
+// Updated for new Optimism schema (no AccessListEntry)
 func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block, transactions []*types.Transaction, receipts []*types.TransactionReceipt) (string, error) {
 	if h.defraNode == nil {
 		return "", errors.NewConfigurationError("defra", "CreateBlockBatch",
@@ -643,7 +646,7 @@ type txAliasInfo struct {
 }
 
 // buildBatchedTransactionMutation creates a single GraphQL mutation for multiple transactions
-// Updated for new Arbitrum schema
+// Updated for new Optimism schema
 func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction, blockID string, startIdx int) (string, []txAliasInfo) {
 	var sb strings.Builder
 	sb.Grow(len(txs) * 1536)
@@ -725,7 +728,7 @@ func (h *BlockHandler) buildBatchedTransactionMutation(txs []*types.Transaction,
 }
 
 // buildBatchedLogMutation creates a single GraphQL mutation for multiple logs
-// Updated for new Arbitrum schema
+// Updated for new Optimism schema
 func (h *BlockHandler) buildBatchedLogMutation(logs []logEntry, blockID string, startIdx int) string {
 	var sb strings.Builder
 	sb.Grow(len(logs) * 1024)
@@ -811,7 +814,7 @@ func (h *BlockHandler) extractDocIDFromBatchedResponse(data any, alias string) s
 }
 
 // buildBlockMutation creates a GraphQL mutation for a block using strings.Builder for efficiency
-// Updated for new Arbitrum schema
+// Updated for new Optimism schema
 func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) string {
 	var sb strings.Builder
 	sb.Grow(2048) // Pre-allocate for typical block mutation size
@@ -828,6 +831,10 @@ func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) st
 	sb.WriteString(block.ParentHash)
 	sb.WriteString(`", difficulty: "`)
 	sb.WriteString(block.Difficulty)
+	sb.WriteString(`", blobGasUsed: "`)
+	sb.WriteString(block.BlobGasUsed)
+	sb.WriteString(`", excessBlobGas: "`)
+	sb.WriteString(block.ExcessBlobGas)
 	sb.WriteString(`", gasUsed: "`)
 	sb.WriteString(block.GasUsed)
 	sb.WriteString(`", gasLimit: "`)
@@ -836,6 +843,8 @@ func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) st
 	sb.WriteString(block.BaseFeePerGas)
 	sb.WriteString(`", nonce: "`)
 	sb.WriteString(block.Nonce)
+	sb.WriteString(`", miner: "`)
+	sb.WriteString(block.Miner)
 	sb.WriteString(`", size: "`)
 	sb.WriteString(block.Size)
 	sb.WriteString(`", stateRoot: "`)
@@ -850,13 +859,17 @@ func (h *BlockHandler) buildBlockMutation(block *types.Block, blockInt int64) st
 	sb.WriteString(block.ExtraData)
 	sb.WriteString(`", mixHash: "`)
 	sb.WriteString(block.MixHash)
-	// Arbitrum-specific fields
+	sb.WriteString(`", parentBeaconBlockRoot: "`)
+	sb.WriteString(block.ParentBeaconBlockRoot)
+	sb.WriteString(`", requestsHash: "`)
+	sb.WriteString(block.RequestsHash)
+	sb.WriteString(`", transactionsRoot: "`)
+	sb.WriteString(block.TransactionsRoot)
+	sb.WriteString(`", withdrawalsRoot: "`)
+	sb.WriteString(block.WithdrawalsRoot)
+	// Optimism-specific fields
 	sb.WriteString(`", l1BlockNumber: "`)
 	sb.WriteString(block.L1BlockNumber)
-	sb.WriteString(`", sendCount: "`)
-	sb.WriteString(block.SendCount)
-	sb.WriteString(`", sendRoot: "`)
-	sb.WriteString(block.SendRoot)
 	sb.WriteString(`" }) { _docID } }`)
 
 	return sb.String()

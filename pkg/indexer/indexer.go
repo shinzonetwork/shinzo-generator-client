@@ -499,7 +499,7 @@ func (i *ChainIndexer) processSingleBlock(ctx context.Context, ethClient *rpc.Et
 }
 
 // processTransaction handles a single transaction with its logs
-// Updated for Arbitrum schema (no AccessList support)
+// Updated for Optimism schema (no AccessList support)
 func (i *ChainIndexer) processTransaction(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler *defra.BlockHandler, tx *types.Transaction, blockId string) {
 	// Retry logic for creating transaction
 	var txId string

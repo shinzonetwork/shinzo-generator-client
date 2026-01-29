@@ -23,25 +23,30 @@ type TransactionReceipt struct {
 
 type Block struct {
 	BaseFeePerGas string        `json:"baseFeePerGas"`
+	BlobGasUsed   string        `json:"blobGasUsed"`
 	Difficulty    string        `json:"difficulty"`
+	ExcessBlobGas string        `json:"excessBlobGas"`
 	ExtraData     string        `json:"extraData"`
 	GasLimit      string        `json:"gasLimit"`
 	GasUsed       string        `json:"gasUsed"`
 	Hash          string        `json:"hash"`
 	L1BlockNumber string        `json:"l1BlockNumber"`
 	LogsBloom     string        `json:"logsBloom"`
+	Miner         string        `json:"miner"`
 	MixHash       string        `json:"mixHash"`
 	Nonce         string        `json:"nonce"`
 	Number        int           `json:"number"`
+	ParentBeaconBlockRoot string `json:"parentBeaconBlockRoot"`
 	ParentHash    string        `json:"parentHash"`
 	ReceiptsRoot  string        `json:"receiptsRoot"`
-	SendCount     string        `json:"sendCount"`
-	SendRoot      string        `json:"sendRoot"`
+	RequestsHash  string        `json:"requestsHash"`
 	Sha3Uncles    string        `json:"sha3Uncles"`
 	Size          string        `json:"size"`
 	StateRoot     string        `json:"stateRoot"`
 	Timestamp     string        `json:"timestamp"`
+	TransactionsRoot string     `json:"transactionsRoot"`
 	Transactions  []Transaction `json:"transactions,omitempty"`
+	WithdrawalsRoot  string     `json:"withdrawalsRoot"`
 }
 
 type Transaction struct {
