@@ -268,12 +268,6 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 	}
 
-	// Wait a moment for the server to start, then open the browser
-	go func() {
-		time.Sleep(2 * time.Second) // Give the server time to start
-		openBrowser("http://localhost:8080/health")
-	}()
-
 	// Use concurrent processing if configured and using embedded DefraDB
 	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers",
