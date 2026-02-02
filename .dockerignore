@@ -1,0 +1,49 @@
+# Database and state data
+.defra/
+
+# Build artifacts
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Git
+.git/
+.gitignore
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test and development files
+*_test.go
+testdata/
+coverage.out
+*.cover
+
+# Logs
+*.log
+logs/
+
+# Docker files (avoid recursive issues)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+*.md
+docs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
