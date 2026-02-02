@@ -13,6 +13,14 @@ defradb:
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
     path: "./.defra"
+    # Badger memory configuration
+    block_cache_mb: 4096  # Block cache size
+    memtable_mb: 1024      # Memtable size
+    index_cache_mb: 2048   # Index cache size
+    # Badger compaction configuration
+    num_compactors: 4              # Number of compaction workers
+    num_level_zero_tables: 20      # L0 tables before compaction starts
+    num_level_zero_tables_stall: 40  # L0 tables that trigger write stalls
 
 geth:
   node_url: "${GETH_RPC_URL}"  # Fallback
