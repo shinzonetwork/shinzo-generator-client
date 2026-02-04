@@ -1,11 +1,5 @@
 package types
 
-// AccessListEntry represents an access list entry for EIP-2930 transactions
-type AccessListEntry struct {
-	Address     string   `json:"address"`
-	StorageKeys []string `json:"storageKeys"`
-}
-
 // TransactionReceipt represents an Ethereum transaction receipt
 type TransactionReceipt struct {
 	TransactionHash   string `json:"transactionHash"`
@@ -22,61 +16,63 @@ type TransactionReceipt struct {
 }
 
 type Block struct {
-	Hash             string        `json:"hash"`
-	Number           string        `json:"number"`
-	Timestamp        string        `json:"timestamp"`
-	ParentHash       string        `json:"parentHash"`
-	Difficulty       string        `json:"difficulty"`
-	TotalDifficulty  string        `json:"totalDifficulty"`
-	GasUsed          string        `json:"gasUsed"`
-	GasLimit         string        `json:"gasLimit"`
-	BaseFeePerGas    string        `json:"baseFeePerGas,omitempty"`
-	Nonce            string        `json:"nonce"`
-	Miner            string        `json:"miner"`
-	Size             string        `json:"size"`
-	StateRoot        string        `json:"stateRoot"`
-	Sha3Uncles       string        `json:"sha3Uncles"`
-	TransactionsRoot string        `json:"transactionsRoot"`
-	ReceiptsRoot     string        `json:"receiptsRoot"`
-	LogsBloom        string        `json:"logsBloom"`
-	ExtraData        string        `json:"extraData"`
-	MixHash          string        `json:"mixHash"`
-	Uncles           []string      `json:"uncles"`
-	Transactions     []Transaction `json:"transactions,omitempty"`
+	BaseFeePerGas string        `json:"baseFeePerGas"`
+	Difficulty    string        `json:"difficulty"`
+	ExtraData     string        `json:"extraData"`
+	GasLimit      string        `json:"gasLimit"`
+	GasUsed       string        `json:"gasUsed"`
+	Hash          string        `json:"hash"`
+	LogsBloom     string        `json:"logsBloom"`
+	MixHash       string        `json:"mixHash"`
+	Nonce         string        `json:"nonce"`
+	Number        int           `json:"number"`
+	ParentHash    string        `json:"parentHash"`
+	ReceiptsRoot  string        `json:"receiptsRoot"`
+	Sha3Uncles    string        `json:"sha3Uncles"`
+	Size          string        `json:"size"`
+	StateRoot     string        `json:"stateRoot"`
+	Timestamp     string        `json:"timestamp"`
+	Transactions  []Transaction `json:"transactions,omitempty"`
+	// Avalanche-specific fields
+	BlockExtraData string `json:"blockExtraData,omitempty"`
+	BlockGasCost   string `json:"blockGasCost,omitempty"`
+	ExtDataGasUsed string `json:"extDataGasUsed,omitempty"`
+	ExtDataHash    string `json:"extDataHash,omitempty"`
 }
 
 type Transaction struct {
-	Hash                 string            `json:"hash"`
-	BlockHash            string            `json:"blockHash"`
-	BlockNumber          string            `json:"blockNumber"`
-	From                 string            `json:"from"`
-	To                   string            `json:"to"`
-	Value                string            `json:"value"`
-	Gas                  string            `json:"gas"`
-	GasPrice             string            `json:"gasPrice"`
-	MaxFeePerGas         string            `json:"maxFeePerGas,omitempty"`
-	MaxPriorityFeePerGas string            `json:"maxPriorityFeePerGas,omitempty"`
-	Input                string            `json:"input"`
-	Nonce                string            `json:"nonce"`
-	TransactionIndex     int               `json:"transactionIndex"`
-	Type                 string            `json:"type"`
-	ChainId              string            `json:"chainId,omitempty"`
-	AccessList           []AccessListEntry `json:"accessList,omitempty"`
-	V                    string            `json:"v"`
-	R                    string            `json:"r"`
-	S                    string            `json:"s"`
-	Status               bool              `json:"status"`
-	GasUsed              string            `json:"gasUsed,omitempty"`
-	CumulativeGasUsed    string            `json:"cumulativeGasUsed,omitempty"`
-	EffectiveGasPrice    string            `json:"effectiveGasPrice,omitempty"`
-	Logs                 []Log             `json:"logs,omitempty"`
+	// Transaction fields
+	BlockHash        string `json:"blockHash"`
+	BlockNumber      int    `json:"blockNumber"`
+	From             string `json:"from"`
+	Gas              string `json:"gas"`
+	GasPrice         string `json:"gasPrice"`
+	Hash             string `json:"hash"`
+	Input            string `json:"input"`
+	Nonce            string `json:"nonce"`
+	To               string `json:"to"`
+	TransactionIndex int    `json:"transactionIndex"`
+	Value            string `json:"value"`
+	Type             string `json:"type"`
+	ChainId          string `json:"chainId"`
+	V                string `json:"v"`
+	R                string `json:"r"`
+	S                string `json:"s"`
+	// Receipt fields
+	ContractAddress   string `json:"contractAddress"`
+	CumulativeGasUsed string `json:"cumulativeGasUsed"`
+	EffectiveGasPrice string `json:"effectiveGasPrice"`
+	GasUsed           string `json:"gasUsed"`
+	Status            string `json:"status"`
+	LogsBloom         string `json:"logsBloom"`
+	Logs              []Log  `json:"logs,omitempty"`
 }
 
 type Log struct {
 	Address          string   `json:"address"`
 	Topics           []string `json:"topics"`
 	Data             string   `json:"data"`
-	BlockNumber      string   `json:"blockNumber"`
+	BlockNumber      int      `json:"blockNumber"`
 	TransactionHash  string   `json:"transactionHash"`
 	TransactionIndex int      `json:"transactionIndex"`
 	BlockHash        string   `json:"blockHash"`
@@ -102,22 +98,4 @@ type Error struct {
 
 type DefraDoc struct {
 	JSON interface{} `json:"json"`
-}
-
-type UpdateTransactionStruct struct {
-	BlockId string `json:"blockId"`
-	TxHash  string `json:"txHash"`
-}
-
-type UpdateLogStruct struct {
-	BlockId  string `json:"blockId"`
-	TxId     string `json:"txId"`
-	TxHash   string `json:"txHash"`
-	LogIndex string `json:"logIndex"`
-}
-
-type UpdateEventStruct struct {
-	LogIndex string `json:"logIndex"`
-	TxHash   string `json:"txHash"`
-	LogDocId string `json:"logDocId"`
 }
