@@ -12,11 +12,26 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/indexer"
+
+	// Import chain implementations to register them
+	_ "github.com/shinzonetwork/shinzo-indexer-client/pkg/chains/ethereum"
+	_ "github.com/shinzonetwork/shinzo-indexer-client/pkg/chains/solana"
 )
 
 func main() {
 	configPath := flag.String("config", "config/config.yaml", "Path to configuration file")
+	chainName := flag.String("chain", "", "Chain to index (ethereum, solana). Overrides config file.")
+	listChains := flag.Bool("list-chains", false, "List available chains and exit")
 	flag.Parse()
+
+	// List available chains if requested
+	if *listChains {
+		fmt.Println("Available chains:")
+		fmt.Println("  - ethereum (Ethereum Mainnet)")
+		fmt.Println("  - solana   (Solana Mainnet)")
+		fmt.Println("\nUsage: block_poster --chain <chain_name>")
+		os.Exit(0)
+	}
 
 	// Load configuration
 	cfg, err := config.LoadConfig(*configPath)
@@ -24,6 +39,21 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Override active chain if specified via flag
+	if *chainName != "" {
+		cfg.Chains.Active = *chainName
+	}
+
+	// Get active chain configuration
+	activeChain := cfg.GetActiveChain()
+	chainCfg, err := cfg.GetChainConfig(activeChain)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get chain config for '%s': %v\n", activeChain, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Starting indexer for chain: %s (%s)\n", activeChain, chainCfg.Network)
 
 	if cfg.Indexer.PprofPort > 0 {
 		go func() {

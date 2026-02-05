@@ -4,6 +4,7 @@ go 1.25.5
 
 require (
 	github.com/ethereum/go-ethereum v1.16.8
+	github.com/gagliardetto/solana-go v1.12.0
 	github.com/ipfs/go-cid v0.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.46.0

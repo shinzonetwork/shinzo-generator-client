@@ -7,10 +7,59 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/chains"
 	"gopkg.in/yaml.v3"
 )
 
 const CollectionName = "shinzo"
+
+// ChainSpecificConfig holds chain-specific RPC and indexer configuration
+type ChainSpecificConfig struct {
+	// Chain type (ethereum, solana)
+	Type chains.ChainType `yaml:"type"`
+
+	// Network (mainnet, testnet, devnet)
+	Network chains.NetworkType `yaml:"network"`
+
+	// Whether this chain is enabled
+	Enabled bool `yaml:"enabled"`
+
+	// RPC endpoints
+	RPCURL string `yaml:"rpc_url"`
+	WSURL  string `yaml:"ws_url"`
+	APIKey string `yaml:"api_key"`
+
+	// Indexer settings for this chain
+	StartHeight      uint64 `yaml:"start_height"`
+	ConcurrentBlocks int    `yaml:"concurrent_blocks"`
+	BlocksPerMinute  int    `yaml:"blocks_per_minute"`
+
+	// Solana-specific settings
+	Commitment string `yaml:"commitment,omitempty"` // processed, confirmed, finalized
+}
+
+// ToChainConfig converts to chains.ChainConfig
+func (c *ChainSpecificConfig) ToChainConfig() chains.ChainConfig {
+	return chains.ChainConfig{
+		Type:        c.Type,
+		Network:     c.Network,
+		Enabled:     c.Enabled,
+		StartHeight: c.StartHeight,
+		RPCURL:      c.RPCURL,
+		WSURL:       c.WSURL,
+		APIKey:      c.APIKey,
+		Commitment:  c.Commitment,
+	}
+}
+
+// ChainsConfig holds multi-chain configuration
+type ChainsConfig struct {
+	// Map of chain name to configuration
+	Chains map[string]*ChainSpecificConfig `yaml:"chains"`
+
+	// Active chain to index (can be overridden by --chain flag)
+	Active string `yaml:"active"`
+}
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB
 type DefraDBP2PConfig struct {
@@ -77,9 +126,68 @@ type LoggerConfig struct {
 // Config represents the main configuration structure
 type Config struct {
 	DefraDB DefraDBConfig `yaml:"defradb"`
-	Geth    GethConfig    `yaml:"geth"`
-	Indexer IndexerConfig `yaml:"indexer"`
+	Geth    GethConfig    `yaml:"geth"`    // Legacy Ethereum config (backward compatibility)
+	Indexer IndexerConfig `yaml:"indexer"` // Legacy indexer config
 	Logger  LoggerConfig  `yaml:"logger"`
+
+	// Multi-chain configuration (new)
+	Chains ChainsConfig `yaml:"chains"`
+}
+
+// GetChainConfig returns the configuration for a specific chain
+// Falls back to legacy Geth config for Ethereum if chains config is not set
+func (c *Config) GetChainConfig(chainName string) (*ChainSpecificConfig, error) {
+	// Check if multi-chain config is available
+	if c.Chains.Chains != nil {
+		if chainCfg, ok := c.Chains.Chains[chainName]; ok {
+			return chainCfg, nil
+		}
+	}
+
+	// Fallback to legacy Geth config for Ethereum
+	if chainName == "ethereum" || chainName == "" {
+		return &ChainSpecificConfig{
+			Type:             chains.ChainTypeEthereum,
+			Network:          chains.NetworkMainnet,
+			Enabled:          true,
+			RPCURL:           c.Geth.NodeURL,
+			WSURL:            c.Geth.WsURL,
+			APIKey:           c.Geth.APIKey,
+			StartHeight:      uint64(c.Indexer.StartHeight),
+			ConcurrentBlocks: c.Indexer.ConcurrentBlocks,
+			BlocksPerMinute:  c.Indexer.BlocksPerMinute,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("chain configuration not found: %s", chainName)
+}
+
+// GetActiveChain returns the name of the active chain to index
+func (c *Config) GetActiveChain() string {
+	if c.Chains.Active != "" {
+		return c.Chains.Active
+	}
+	return "ethereum" // Default to Ethereum for backward compatibility
+}
+
+// GetEnabledChains returns a list of all enabled chains
+func (c *Config) GetEnabledChains() []string {
+	var enabled []string
+
+	if c.Chains.Chains != nil {
+		for name, cfg := range c.Chains.Chains {
+			if cfg.Enabled {
+				enabled = append(enabled, name)
+			}
+		}
+	}
+
+	// If no chains configured, assume Ethereum from legacy config
+	if len(enabled) == 0 && c.Geth.NodeURL != "" {
+		enabled = append(enabled, "ethereum")
+	}
+
+	return enabled
 }
 
 // LoadConfig loads configuration from a YAML file and environment variables
@@ -254,6 +362,46 @@ func applyEnvOverrides(cfg *Config) {
 	if loggerDebug := os.Getenv("LOGGER_DEBUG"); loggerDebug != "" {
 		if debug, err := strconv.ParseBool(loggerDebug); err == nil {
 			cfg.Logger.Development = debug
+		}
+	}
+
+	// Multi-chain configuration
+	if activeChain := os.Getenv("CHAIN_ACTIVE"); activeChain != "" {
+		cfg.Chains.Active = activeChain
+	}
+
+	// Solana configuration (convenience env vars)
+	if solanaRpcUrl := os.Getenv("SOLANA_RPC_URL"); solanaRpcUrl != "" {
+		if cfg.Chains.Chains == nil {
+			cfg.Chains.Chains = make(map[string]*ChainSpecificConfig)
+		}
+		if cfg.Chains.Chains["solana"] == nil {
+			cfg.Chains.Chains["solana"] = &ChainSpecificConfig{
+				Type:    chains.ChainTypeSolana,
+				Network: chains.NetworkMainnet,
+				Enabled: true,
+			}
+		}
+		cfg.Chains.Chains["solana"].RPCURL = solanaRpcUrl
+	}
+
+	if solanaWsUrl := os.Getenv("SOLANA_WS_URL"); solanaWsUrl != "" {
+		if cfg.Chains.Chains != nil && cfg.Chains.Chains["solana"] != nil {
+			cfg.Chains.Chains["solana"].WSURL = solanaWsUrl
+		}
+	}
+
+	if solanaCommitment := os.Getenv("SOLANA_COMMITMENT"); solanaCommitment != "" {
+		if cfg.Chains.Chains != nil && cfg.Chains.Chains["solana"] != nil {
+			cfg.Chains.Chains["solana"].Commitment = solanaCommitment
+		}
+	}
+
+	if solanaStartSlot := os.Getenv("SOLANA_START_SLOT"); solanaStartSlot != "" {
+		if n, err := strconv.ParseUint(solanaStartSlot, 10, 64); err == nil {
+			if cfg.Chains.Chains != nil && cfg.Chains.Chains["solana"] != nil {
+				cfg.Chains.Chains["solana"].StartHeight = n
+			}
 		}
 	}
 }

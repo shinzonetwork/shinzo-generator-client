@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
@@ -57,6 +58,12 @@ type ChainIndexer struct {
 	currentBlock              int64
 	lastProcessedTime         time.Time
 	mutex                     sync.RWMutex
+
+	// Multi-chain support
+	activeChain    string                       // Name of the active chain being indexed
+	chainConfig    *config.ChainSpecificConfig  // Configuration for the active chain
+	chainClient    chains.BlockchainClient      // Chain-specific blockchain client
+	docBuilder     chains.ChainDocumentBuilder  // Chain-specific document builder
 }
 
 func (i *ChainIndexer) IsStarted() bool {
@@ -86,12 +93,47 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 			errors.WithMetadata("host", "nil"),
 			errors.WithMetadata("port", "nil"))
 	}
+
+	// Get active chain configuration
+	activeChain := cfg.GetActiveChain()
+	chainConfig, err := cfg.GetChainConfig(activeChain)
+	if err != nil {
+		return nil, errors.NewConfigurationError(
+			"indexer",
+			"CreateIndexer",
+			fmt.Sprintf("failed to get chain config for %s: %v", activeChain, err),
+			activeChain,
+			err)
+	}
+
 	return &ChainIndexer{
 		cfg:                       cfg,
 		shouldIndex:               false,
 		isStarted:                 false,
 		hasIndexedAtLeastOneBlock: false,
+		activeChain:               activeChain,
+		chainConfig:               chainConfig,
 	}, nil
+}
+
+// GetActiveChain returns the name of the active chain being indexed
+func (i *ChainIndexer) GetActiveChain() string {
+	return i.activeChain
+}
+
+// GetChainConfig returns the configuration for the active chain
+func (i *ChainIndexer) GetChainConfig() *config.ChainSpecificConfig {
+	return i.chainConfig
+}
+
+// IsEthereum returns true if the active chain is Ethereum
+func (i *ChainIndexer) IsEthereum() bool {
+	return i.chainConfig != nil && i.chainConfig.Type == chains.ChainTypeEthereum
+}
+
+// IsSolana returns true if the active chain is Solana
+func (i *ChainIndexer) IsSolana() bool {
+	return i.chainConfig != nil && i.chainConfig.Type == chains.ChainTypeSolana
 }
 
 func toAppConfig(cfg *config.Config) *appConfig.Config {
@@ -229,8 +271,27 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	// create indexing bool
 	i.shouldIndex = true
 
-	// Connect to Ethereum client with WebSocket and HTTP support
-	client, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey)
+	// Connect to blockchain client based on chain type
+	var client *rpc.EthereumClient
+
+	// Check if we're indexing Solana
+	if i.IsSolana() {
+		logger.Sugar.Infof("Solana indexing requested - starting Solana indexer for %s", i.chainConfig.RPCURL)
+		return i.startSolanaIndexing(ctx, blockHandler, defraStarted)
+	}
+
+	// Default to Ethereum
+	// Use chain-specific config if available, otherwise fall back to legacy Geth config
+	rpcURL := cfg.Geth.NodeURL
+	wsURL := cfg.Geth.WsURL
+	apiKey := cfg.Geth.APIKey
+	if i.chainConfig != nil && i.chainConfig.RPCURL != "" {
+		rpcURL = i.chainConfig.RPCURL
+		wsURL = i.chainConfig.WSURL
+		apiKey = i.chainConfig.APIKey
+	}
+
+	client, err = rpc.NewEthereumClient(rpcURL, wsURL, apiKey)
 	if err != nil {
 		logCtx := errors.LogContext(err)
 		logger.Sugar.With(logCtx).Fatalf("Failed to connect to Ethereum client: %v", err)
@@ -240,7 +301,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	// Reuse the block handler created earlier for processing
 	// (blockHandler was already created above for the block check)
 
-	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
+	logger.Sugar.Infof("Starting Ethereum indexer - will process blocks from %s", rpcURL)
 
 	// Get starting block number
 	nextBlockToProcess := int64(cfg.Indexer.StartHeight)
@@ -768,4 +829,152 @@ func (i *ChainIndexer) GetNodePublicKey() (string, error) {
 
 func (i *ChainIndexer) GetPeerPublicKey() (string, error) {
 	return signer.GetP2PPublicKey(i.defraNode, toAppConfig(i.cfg))
+}
+
+// startSolanaIndexing handles Solana-specific indexing
+func (i *ChainIndexer) startSolanaIndexing(ctx context.Context, blockHandler *defra.BlockHandler, defraStarted bool) error {
+	cfg := i.cfg
+
+	// Create Solana client using the chains registry
+	chainCfg := i.chainConfig.ToChainConfig()
+	solanaClient, err := chains.CreateClient(chainCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create Solana client: %w", err)
+	}
+	defer solanaClient.Close()
+
+	i.chainClient = solanaClient
+
+	// Create document builder for Solana
+	docBuilder, err := chains.CreateDocumentBuilder(chains.ChainTypeSolana, chainCfg.Network)
+	if err != nil {
+		return fmt.Errorf("failed to create Solana document builder: %w", err)
+	}
+	i.docBuilder = docBuilder
+
+	logger.Sugar.Infof("Connected to Solana RPC at %s (network: %s)", chainCfg.RPCURL, chainCfg.Network)
+
+	// Get starting slot
+	startSlot := chainCfg.StartHeight
+	if startSlot == 0 {
+		// Get first available slot if not specified
+		latestSlot, err := solanaClient.GetLatestBlockNumber(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get latest Solana slot: %w", err)
+		}
+		// Start from 100 slots behind latest to avoid issues with very recent blocks
+		if latestSlot > 100 {
+			startSlot = latestSlot - 100
+		}
+		logger.Sugar.Infof("Starting Solana indexing from slot %d (latest: %d)", startSlot, latestSlot)
+	}
+
+	nextSlotToProcess := int64(startSlot)
+
+	// Start health server if configured
+	if cfg.Indexer.HealthServerPort > 0 {
+		var healthDefraURL string
+		if cfg.DefraDB.Url != "" {
+			healthDefraURL = cfg.DefraDB.Url
+		} else if i.defraNode != nil {
+			healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
+		}
+		i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
+
+		go func() {
+			if err := i.healthServer.Start(); err != nil {
+				logger.Sugar.Errorf("Health server failed: %v", err)
+			}
+		}()
+	}
+
+	i.shouldIndex = true
+	i.isStarted = true
+
+	// Main indexing loop for Solana
+	for i.shouldIndex {
+		select {
+		case <-ctx.Done():
+			logger.Sugar.Info("Solana indexing stopped")
+			return nil
+		default:
+			logger.Sugar.Infof("=== Processing Solana slot %d ===", nextSlotToProcess)
+
+			err := i.processSolanaSlot(ctx, solanaClient, blockHandler, uint64(nextSlotToProcess))
+			if err != nil {
+				if strings.Contains(err.Error(), "slot was skipped") {
+					// Solana skips slots when no block is produced
+					logger.Sugar.Debugf("Slot %d was skipped (no block), moving to next", nextSlotToProcess)
+					nextSlotToProcess++
+					continue
+				} else if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
+					// Slot doesn't exist yet - wait and retry
+					logger.Sugar.Infof("Slot %d not available yet, waiting 500ms...", nextSlotToProcess)
+					time.Sleep(500 * time.Millisecond)
+					continue
+				} else if strings.Contains(err.Error(), "already exists") {
+					// Slot already processed
+					logger.Sugar.Infof("Slot %d already processed, moving to next", nextSlotToProcess)
+					nextSlotToProcess++
+					i.hasIndexedAtLeastOneBlock = true
+					continue
+				} else {
+					// Other error - retry
+					logger.Sugar.Errorf("Failed to process slot %d: %v, retrying in 1s", nextSlotToProcess, err)
+					time.Sleep(1 * time.Second)
+					continue
+				}
+			}
+
+			// Success - move to next slot
+			logger.Sugar.Infof("Successfully processed Solana slot %d", nextSlotToProcess)
+			nextSlotToProcess++
+			i.hasIndexedAtLeastOneBlock = true
+			i.updateBlockInfo(nextSlotToProcess)
+		}
+	}
+
+	return nil
+}
+
+// processSolanaSlot processes a single Solana slot
+func (i *ChainIndexer) processSolanaSlot(ctx context.Context, client chains.BlockchainClient, blockHandler *defra.BlockHandler, slot uint64) error {
+	// Fetch the block
+	block, err := client.GetBlock(ctx, slot)
+	if err != nil {
+		return fmt.Errorf("failed to fetch slot %d: %w", slot, err)
+	}
+
+	// Build slot document
+	slotDoc, err := i.docBuilder.BuildBlockDocument(block)
+	if err != nil {
+		return fmt.Errorf("failed to build slot document: %w", err)
+	}
+
+	collections := i.docBuilder.GetCollectionNames()
+
+	// Create slot document in DefraDB
+	slotDocID, err := blockHandler.PostToCollection(ctx, collections.Block, slotDoc)
+	if err != nil {
+		return fmt.Errorf("failed to create slot document: %w", err)
+	}
+
+	logger.Sugar.Debugf("Created slot document %s for slot %d", slotDocID, slot)
+
+	// Process transactions
+	for _, tx := range block.Transactions() {
+		txDoc, err := i.docBuilder.BuildTransactionDocument(tx, slotDocID)
+		if err != nil {
+			logger.Sugar.Warnf("Failed to build transaction document: %v", err)
+			continue
+		}
+
+		_, err = blockHandler.PostToCollection(ctx, collections.Transaction, txDoc)
+		if err != nil {
+			logger.Sugar.Warnf("Failed to create transaction document: %v", err)
+			continue
+		}
+	}
+
+	return nil
 }

@@ -40,3 +40,30 @@ indexer:
 logger:
   development: false
   level: "error"
+
+# Multi-chain configuration (new)
+# Use --chain flag or CHAIN_ACTIVE env var to select active chain
+chains:
+  active: "ethereum"  # Default chain to index
+  chains:
+    ethereum:
+      type: "ethereum"
+      network: "mainnet"
+      enabled: true
+      rpc_url: "${GETH_RPC_URL}"
+      ws_url: "${GETH_WS_URL}"
+      api_key: "${GETH_API_KEY}"
+      start_height: 23700000
+      concurrent_blocks: 2
+      blocks_per_minute: 75
+
+    solana:
+      type: "solana"
+      network: "mainnet"
+      enabled: false  # Enable when ready to index Solana
+      rpc_url: "${SOLANA_RPC_URL}"
+      ws_url: "${SOLANA_WS_URL}"
+      start_height: 0  # Start slot
+      concurrent_blocks: 4
+      blocks_per_minute: 150
+      commitment: "confirmed"  # processed, confirmed, finalized
