@@ -14,13 +14,13 @@ defradb:
   store:
     path: "./.defra"
     # Badger memory configuration
-    block_cache_mb: 4096  # Block cache size
-    memtable_mb: 1024      # Memtable size
-    index_cache_mb: 2048   # Index cache size
+    block_cache_mb: 1024  # Block cache size
+    memtable_mb: 128      # Memtable size
+    index_cache_mb: 512   # Index cache size
     # Badger compaction configuration
     num_compactors: 4              # Number of compaction workers
-    num_level_zero_tables: 20      # L0 tables before compaction starts
-    num_level_zero_tables_stall: 40  # L0 tables that trigger write stalls
+    # num_level_zero_tables: 10      # L0 tables before compaction starts
+    # num_level_zero_tables_stall: 30  # L0 tables that trigger write stalls
 
 geth:
   node_url: "${GETH_RPC_URL}"  # Fallback
@@ -32,7 +32,7 @@ indexer:
   concurrent_blocks: 2      # Number of blocks to process concurrently
   receipt_workers: 8        # Concurrent receipt fetchers per block
   max_docs_per_txn: 1000    # Docs threshold for single-txn block creation
-  blocks_per_minute: 75     # Block indexing rate limit
+  blocks_per_minute: 65     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   pprof_port: 6060          # Pprof server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
