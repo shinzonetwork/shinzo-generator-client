@@ -8,7 +8,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.46.0
 	github.com/multiformats/go-multihash v0.2.3
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260206151213-d7c3ad1538a6
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260126015630-dd204fed1fdb
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )

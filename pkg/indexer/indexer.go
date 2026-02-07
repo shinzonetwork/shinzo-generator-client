@@ -152,8 +152,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			cfg.DefraDB.P2P.ListenAddr, cfg.DefraDB.P2P.Enabled)
 
 		defraNode, _, err := appsdk.StartDefraInstance(appCfg,
-			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForBuild()),
-			nil, constants.AllCollections...)
+			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForBuild()), constants.AllCollections...)
 		if err != nil {
 			return fmt.Errorf("Failed to start DefraDB instance with app-sdk: %v", err)
 		}
