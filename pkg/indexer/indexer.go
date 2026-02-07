@@ -52,7 +52,8 @@ type ChainIndexer struct {
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
-	defraNode                 *node.Node // Embedded DefraDB node (nil if using external)
+	defraNode                 *node.Node             // Embedded DefraDB node (nil if using external)
+	networkHandler            *appsdk.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
 	currentBlock              int64
 	lastProcessedTime         time.Time
@@ -151,17 +152,14 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		logger.Sugar.Warnf("=== P2P DEBUG === Original config - ListenAddr: '%s', Enabled: %t",
 			cfg.DefraDB.P2P.ListenAddr, cfg.DefraDB.P2P.Enabled)
 
-		defraNode, _, err := appsdk.StartDefraInstance(appCfg,
-			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForBuild()), constants.AllCollections...)
+		defraNode, networkHandler, err := appsdk.StartDefraInstance(appCfg,
+			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForBuild()), nil, constants.AllCollections...)
 		if err != nil {
 			return fmt.Errorf("Failed to start DefraDB instance with app-sdk: %v", err)
 		}
-		err = defraNode.DB.AddP2PCollections(ctx, constants.AllCollections...)
-		if err != nil {
-			return fmt.Errorf("failed to add P2P collections: %w", err)
-		}
-		// Store the defraNode reference for port access
+		// Store the defraNode and networkHandler references
 		i.defraNode = defraNode
+		i.networkHandler = networkHandler
 
 		// Use the actual DefraDB URL from the started node, not the config URL
 		actualDefraURL := defraNode.APIURL
@@ -573,6 +571,12 @@ func (i *ChainIndexer) StopIndexing() {
 		i.healthServer.Stop(ctx)
 	}
 
+	// Stop P2P network handler before closing the node
+	if i.networkHandler != nil {
+		i.networkHandler.StopNetwork()
+		i.networkHandler = nil
+	}
+
 	// Close embedded DefraDB node if it exists
 	if i.defraNode != nil {
 		i.defraNode.Close(context.Background())
@@ -621,8 +625,10 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 		return nil, nil
 	}
 
+	ctx := context.Background()
+
 	// Get peer information from DefraDB
-	peerInfoString, err := i.defraNode.DB.PeerInfo()
+	peerInfoString, err := i.defraNode.DB.PeerInfo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching peer info: %w", err)
 	}
@@ -642,9 +648,12 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 		}
 	}
 
+	// Use NetworkHandler to determine if P2P is active
+	networkActive := i.networkHandler != nil && i.networkHandler.IsNetworkActive()
+
 	return &server.P2PInfo{
 		PeerInfo: serverPeerInfo,
-		Enabled:  len(peerInfo) > 0, // P2P is enabled if we have addresses
+		Enabled:  networkActive,
 	}, nil
 }
 
