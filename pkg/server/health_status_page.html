@@ -385,11 +385,17 @@
         }
 
         function copyToClipboard(text, el) {
-            navigator.clipboard.writeText(text).then(() => {
-                const original = el.textContent;
-                el.textContent = 'Copied!';
-                setTimeout(() => { el.textContent = original; }, 1000);
-            });
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            const original = el.textContent;
+            el.textContent = 'Copied!';
+            setTimeout(() => { el.textContent = original; }, 1000);
         }
 
         function renderSelfInfo(self) {
