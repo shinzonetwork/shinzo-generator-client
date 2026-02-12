@@ -1,6 +1,6 @@
 type Ethereum__Mainnet__Block @branchable {
-    hash: String @index(unique: true)
-    number: Int @index
+    hash: String
+    number: Int
     timestamp: String
     parentHash: String
     difficulty: String
@@ -26,7 +26,7 @@ type Ethereum__Mainnet__Block @branchable {
 # BatchSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
 # Created in the same transaction as the block data, arrives via P2P together
 type Ethereum__Mainnet__BatchSignature @branchable {
-    blockNumber: Int @index(unique: true)
+    blockNumber: Int
     blockHash: String
     merkleRoot: String
     cidCount: Int
@@ -37,7 +37,7 @@ type Ethereum__Mainnet__BatchSignature @branchable {
 }
 
 type Ethereum__Mainnet__Transaction @branchable {
-    hash: String @index(unique: true)
+    hash: String
     blockHash: String
     blockNumber: Int
     from: String
@@ -60,7 +60,7 @@ type Ethereum__Mainnet__Transaction @branchable {
     cumulativeGasUsed: String
     effectiveGasPrice: String
     # Relationships
-    block: Ethereum__Mainnet__Block @index @relation(name: "block_transactions")
+    block: Ethereum__Mainnet__Block @relation(name: "block_transactions")
     logs: [Ethereum__Mainnet__Log] @relation(name: "transaction_logs")
     accessList: [Ethereum__Mainnet__AccessListEntry] @relation(name: "transaction_accessList")
 }
@@ -69,7 +69,7 @@ type Ethereum__Mainnet__AccessListEntry @branchable {
     address: String
     blockNumber: Int
     storageKeys: [String]
-    transaction: Ethereum__Mainnet__Transaction @index @relation(name: "transaction_accessList")
+    transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_accessList")
 }
 
 type Ethereum__Mainnet__Log @branchable {
@@ -83,6 +83,6 @@ type Ethereum__Mainnet__Log @branchable {
     logIndex: Int
     removed: String
     # Relationships
-    block: Ethereum__Mainnet__Block @index @relation(name: "block_logs")
-    transaction: Ethereum__Mainnet__Transaction @index @relation(name: "transaction_logs")
+    block: Ethereum__Mainnet__Block @relation(name: "block_logs")
+    transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_logs")
 }
