@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
@@ -315,48 +314,19 @@ func TestRequiredPeersInitialization(t *testing.T) {
 
 // MockBlockHandler for testing block processing logic
 type MockBlockHandler struct {
-	blocks       map[int64]*types.Block
-	transactions map[string]*types.Transaction
+	highestBlock int64
 	createError  error
 }
 
 func NewMockBlockHandler() *MockBlockHandler {
-	return &MockBlockHandler{
-		blocks:       make(map[int64]*types.Block),
-		transactions: make(map[string]*types.Transaction),
-	}
-}
-
-func (m *MockBlockHandler) CreateBlock(ctx context.Context, block *types.Block) (string, error) {
-	if m.createError != nil {
-		return "", m.createError
-	}
-	// Convert string block number to int64 for map key
-	blockNum, _ := strconv.ParseInt(block.Number, 10, 64)
-	m.blocks[blockNum] = block
-	return "mock-block-id", nil
-}
-
-func (m *MockBlockHandler) CreateTransaction(ctx context.Context, tx *types.Transaction, blockID string) (string, error) {
-	if m.createError != nil {
-		return "", m.createError
-	}
-	m.transactions[tx.Hash] = tx
-	return "mock-tx-id", nil
+	return &MockBlockHandler{}
 }
 
 func (m *MockBlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error) {
 	if m.createError != nil {
 		return 0, m.createError
 	}
-
-	var highest int64 = 0
-	for blockNum := range m.blocks {
-		if blockNum > highest {
-			highest = blockNum
-		}
-	}
-	return highest, nil
+	return m.highestBlock, nil
 }
 
 // TestBlockProcessingLogic tests the block processing logic with mocked dependencies
