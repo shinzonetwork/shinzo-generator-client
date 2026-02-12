@@ -112,11 +112,6 @@
             font-size: 14px;
         }
 
-        .info-row-placeholder {
-            opacity: 0;
-            pointer-events: none;
-        }
-
         .info-label {
             font-weight: 500;
             color: #666;
@@ -126,6 +121,14 @@
             font-family: 'Courier New', monospace;
             color: #000;
             text-align: right;
+        }
+
+        .copyable {
+            cursor: pointer;
+        }
+
+        .copyable:hover {
+            color: #D01F27;
         }
 
         .peer-section {
@@ -298,9 +301,9 @@
                         <span class="info-label">Last Processed</span>
                         <span class="info-value" id="lastProcessedValue">-</span>
                     </div>
-                    <div class="info-row info-row-placeholder">
-                        <span class="info-label">&nbsp;</span>
-                        <span class="info-value">&nbsp;</span>
+                    <div class="info-row">
+                        <span class="info-label">Peer ID</span>
+                        <span class="info-value" id="peerIdValue">-</span>
                     </div>
                 </div>
             </div>
@@ -376,6 +379,33 @@
             }
         }
 
+        function truncatePeerId(id) {
+            if (!id || id.length <= 16) return id;
+            return id.slice(0, 8) + '...' + id.slice(-8);
+        }
+
+        function copyToClipboard(text, el) {
+            navigator.clipboard.writeText(text).then(() => {
+                const original = el.textContent;
+                el.textContent = 'Copied!';
+                setTimeout(() => { el.textContent = original; }, 1000);
+            });
+        }
+
+        function renderSelfInfo(self) {
+            const peerIdValue = document.getElementById('peerIdValue');
+            if (self && self.id) {
+                peerIdValue.textContent = truncatePeerId(self.id);
+                peerIdValue.title = self.id;
+                peerIdValue.className = 'info-value copyable';
+                peerIdValue.onclick = () => copyToClipboard(self.id, peerIdValue);
+            } else {
+                peerIdValue.textContent = '-';
+                peerIdValue.onclick = null;
+                peerIdValue.className = 'info-value';
+            }
+        }
+
         function renderPeers(peers) {
             const peerList = document.getElementById('peerList');
             if (!peers || peers.length === 0) {
@@ -392,9 +422,10 @@
                     ? `<div class="peer-detail"><div class="peer-detail-label">Public Key</div><div class="peer-detail-value">${peer.public_key}</div></div>`
                     : '';
 
+                const peerId = peer.id || 'Unknown';
                 return `
                     <div class="peer-card">
-                        <div class="peer-id">${peer.id || 'Unknown'}</div>
+                        <div class="peer-id copyable" title="${peerId}" onclick="copyToClipboard('${peerId}', this)">${truncatePeerId(peerId)}</div>
                         <div class="peer-detail">
                             <div class="peer-detail-label">Address</div>
                             ${addresses}
@@ -457,10 +488,12 @@
                         p2pEnabledValue.className = 'info-value status-indicator-inline status-disconnected';
                     }
                     document.getElementById('connectedPeersValue').textContent = formatNumber(data.p2p.peers ? data.p2p.peers.length : 0);
+                    renderSelfInfo(data.p2p.self);
                     renderPeers(data.p2p.peers || []);
                 } else {
                     document.getElementById('p2pEnabledValue').textContent = 'N/A';
                     document.getElementById('connectedPeersValue').textContent = '0';
+                    document.getElementById('peerIdValue').textContent = '-';
                     document.getElementById('peerList').innerHTML = '<div class="peer-card"><div class="peer-id">No P2P data available</div></div>';
                 }
 
