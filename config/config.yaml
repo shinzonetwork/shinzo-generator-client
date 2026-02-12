@@ -32,7 +32,7 @@ indexer:
   concurrent_blocks: 2      # Number of blocks to process concurrently
   receipt_workers: 8        # Concurrent receipt fetchers per block
   max_docs_per_txn: 1000    # Docs threshold for single-txn block creation
-  blocks_per_minute: 65     # Block indexing rate limit
+  blocks_per_minute: 60     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   pprof_port: 6060          # Pprof server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
@@ -40,3 +40,10 @@ indexer:
 logger:
   development: false
   level: "error"
+
+pruner:
+  enabled: true             # Set to true to enable automatic pruning
+  max_blocks: 1000          # Number of blocks to retain
+  prune_threshold: 1        # Trigger pruning when exceeding max_blocks by this amount
+  interval_seconds: 30      # How often to check and prune
+  prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)

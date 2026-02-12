@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
 	"gopkg.in/yaml.v3"
 )
 
@@ -79,6 +80,7 @@ type Config struct {
 	DefraDB DefraDBConfig `yaml:"defradb"`
 	Geth    GethConfig    `yaml:"geth"`
 	Indexer IndexerConfig `yaml:"indexer"`
+	Pruner  pruner.Config `yaml:"pruner"`
 	Logger  LoggerConfig  `yaml:"logger"`
 }
 
@@ -129,6 +131,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Indexer.PprofPort == 0 {
 		cfg.Indexer.PprofPort = 6060
 	}
+
+	// Pruner defaults
+	cfg.Pruner.SetDefaults()
 }
 
 // validateConfig validates the configuration
@@ -254,6 +259,28 @@ func applyEnvOverrides(cfg *Config) {
 	if loggerDebug := os.Getenv("LOGGER_DEBUG"); loggerDebug != "" {
 		if debug, err := strconv.ParseBool(loggerDebug); err == nil {
 			cfg.Logger.Development = debug
+		}
+	}
+
+	// Pruner configuration
+	if prunerEnabled := os.Getenv("PRUNER_ENABLED"); prunerEnabled != "" {
+		if enabled, err := strconv.ParseBool(prunerEnabled); err == nil {
+			cfg.Pruner.Enabled = enabled
+		}
+	}
+	if prunerMaxBlocks := os.Getenv("PRUNER_MAX_BLOCKS"); prunerMaxBlocks != "" {
+		if n, err := strconv.ParseInt(prunerMaxBlocks, 10, 64); err == nil {
+			cfg.Pruner.MaxBlocks = n
+		}
+	}
+	if prunerThreshold := os.Getenv("PRUNER_PRUNE_THRESHOLD"); prunerThreshold != "" {
+		if n, err := strconv.ParseInt(prunerThreshold, 10, 64); err == nil {
+			cfg.Pruner.PruneThreshold = n
+		}
+	}
+	if prunerInterval := os.Getenv("PRUNER_INTERVAL_SECONDS"); prunerInterval != "" {
+		if n, err := strconv.Atoi(prunerInterval); err == nil {
+			cfg.Pruner.IntervalSeconds = n
 		}
 	}
 }
