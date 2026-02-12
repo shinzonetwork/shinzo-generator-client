@@ -91,6 +91,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 				if !ok {
 					break
 				}
+
 				delete(p.pending, p.nextToCommit)
 
 				if next.Success {
@@ -137,6 +138,25 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 			}
 		}
 
+		// Don't dispatch too far ahead of what's been committed
+		p.pendingMu.Lock()
+		maxAhead := int64(p.workers * 2)
+		tooFarAhead := nextBlock-p.nextToCommit >= maxAhead
+		p.pendingMu.Unlock()
+
+		if tooFarAhead {
+			select {
+			case <-ctx.Done():
+				close(workChan)
+				wg.Wait()
+				close(p.resultChan)
+				collectWg.Wait()
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				continue
+			}
+		}
+
 		select {
 		case <-ctx.Done():
 			close(workChan)
@@ -157,7 +177,11 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 
 	var block *types.Block
 	var err error
-	for attempt := range 3 {
+
+	// For "not found" (block not on chain yet), retry indefinitely with backoff.
+	// For other RPC errors, retry up to 3 times.
+	otherErrors := 0
+	for {
 		if ctx.Err() != nil {
 			result.Error = ctx.Err()
 			return result
@@ -177,11 +201,15 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 			}
 			continue
 		}
+		otherErrors++
+		if otherErrors >= 3 {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			result.Error = ctx.Err()
 			return result
-		case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+		case <-time.After(time.Duration(otherErrors) * 500 * time.Millisecond):
 		}
 	}
 	if err != nil {

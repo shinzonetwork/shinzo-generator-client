@@ -555,10 +555,10 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 		}
 	}
 
-	// Get actually connected peers
+	// Get actually connected peers (may fail if P2P is not initialized)
 	activePeerStrings, err := i.defraNode.DB.ActivePeers(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching active peers: %w", err)
+		activePeerStrings = nil // P2P not available, treat as no peers
 	}
 	activePeers, _ := appsdk.BootstrapIntoPeers(activePeerStrings)
 
