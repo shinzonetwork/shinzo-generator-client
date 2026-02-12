@@ -42,6 +42,7 @@ type HealthChecker interface {
 // P2PInfo represents DefraDB P2P network information
 type P2PInfo struct {
 	Enabled  bool       `json:"enabled"`
+	Self     *PeerInfo  `json:"self,omitempty"`
 	PeerInfo []PeerInfo `json:"peers"`
 }
 
