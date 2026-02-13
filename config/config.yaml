@@ -28,10 +28,10 @@ geth:
   api_key: "${GETH_API_KEY}"
 
 indexer:
-  start_height: 24440000 # 23700000
+  start_height: 24444444    # 23700000
   concurrent_blocks: 2      # Number of blocks to process concurrently
   receipt_workers: 8        # Concurrent receipt fetchers per block
-  max_docs_per_txn: 1000    # Docs threshold for single-txn block creation
+  max_docs_per_txn: 500    # Docs threshold for single-txn block creation
   blocks_per_minute: 60     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   pprof_port: 6060          # Pprof server port (-1 == disabled)
