@@ -44,6 +44,7 @@ type DefraDBConfig struct {
 	Url           string             `yaml:"url"`
 	KeyringSecret string             `yaml:"keyring_secret"`
 	Embedded      bool               `yaml:"embedded"`
+	UseRustFFI    bool               `yaml:"use_rust_ffi"`
 	P2P           DefraDBP2PConfig   `yaml:"p2p"`
 	Store         DefraDBStoreConfig `yaml:"store"`
 }
@@ -139,9 +140,10 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("start_height must be >= 0")
 	}
 
-	// When using an external DefraDB instance (embedded=false), a URL is required.
+	// When using an external DefraDB instance (embedded=false and not using Rust FFI), a URL is required.
 	// Embedded DefraDB can run on a random port when Url is empty.
-	if !cfg.DefraDB.Embedded && strings.TrimSpace(cfg.DefraDB.Url) == "" {
+	// Rust FFI mode is self-contained and does not need a URL.
+	if !cfg.DefraDB.Embedded && !cfg.DefraDB.UseRustFFI && strings.TrimSpace(cfg.DefraDB.Url) == "" {
 		return fmt.Errorf("external DefraDB requires a non-empty url")
 	}
 	return nil
@@ -172,6 +174,12 @@ func applyEnvOverrides(cfg *Config) {
 
 	if listenAddr := os.Getenv("DEFRADB_P2P_LISTEN_ADDR"); listenAddr != "" {
 		cfg.DefraDB.P2P.ListenAddr = listenAddr
+	}
+
+	if useRustFFI := os.Getenv("DEFRADB_USE_RUST_FFI"); useRustFFI != "" {
+		if parsed, err := strconv.ParseBool(useRustFFI); err == nil {
+			cfg.DefraDB.UseRustFFI = parsed
+		}
 	}
 
 	if storePath := os.Getenv("DEFRADB_STORE_PATH"); storePath != "" {
