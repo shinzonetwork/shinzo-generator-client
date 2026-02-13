@@ -568,11 +568,9 @@ func (c *EthereumClient) Close() error {
 // Prioritizes WebSocket for real-time blockchain data streaming
 func (c *EthereumClient) getPreferredClient() *ethclient.Client {
 	if c.wsClient != nil {
-		logger.Sugar.Debug("Using WebSocket client for real-time blockchain streaming")
 		return c.wsClient
 	}
 	if c.httpClient != nil {
-		logger.Sugar.Debug("Using HTTP client with API key authentication (WebSocket unavailable)")
 		return c.httpClient
 	}
 
