@@ -314,8 +314,14 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 	}
 
-	if cfg.Pruner.Enabled && i.defraNode != nil {
-		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode)
+	if cfg.Pruner.Enabled && (i.defraNode != nil || i.rustClient != nil) {
+		var dbAdapter pruner.DatabaseAdapter
+		if i.rustClient != nil {
+			dbAdapter = &pruner.RustFFIAdapter{Client: i.rustClient}
+		} else {
+			dbAdapter = &pruner.GoDBAdapter{Node: i.defraNode}
+		}
+		i.pruner = pruner.NewPruner(&cfg.Pruner, dbAdapter)
 
 		// pruneQueue was already created and loaded in the resume logic above
 		if pruneQueue == nil {

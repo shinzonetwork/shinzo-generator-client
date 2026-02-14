@@ -153,6 +153,20 @@ func (h *FFIBlockHandler) CreateBlockBatch(ctx context.Context, block *types.Blo
 	return blockID, nil
 }
 
+// CreateBatchSignatureForExistingBlock is a no-op for FFI mode.
+// When the Rust node receives blocks via P2P, it handles batch signing internally.
+func (h *FFIBlockHandler) CreateBatchSignatureForExistingBlock(
+	ctx context.Context,
+	blockNumber int64,
+	blockHash string,
+	block *types.Block,
+	transactions []*types.Transaction,
+	receipts []*types.TransactionReceipt,
+) (string, error) {
+	logger.Sugar.Debugf("Block %d: skipping batch signature for existing block (handled by Rust node)", blockNumber)
+	return "", nil
+}
+
 // GetHighestBlockNumber queries DefraDB for the highest block number.
 func (h *FFIBlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error) {
 	query := fmt.Sprintf(`query { %s(order: {number: DESC}, limit: 1) { number } }`, constants.CollectionBlock)
