@@ -205,14 +205,33 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 	startHeight := int64(cfg.Indexer.StartHeight)
 
-	nBlock, err := blockHandler.GetHighestBlockNumber(ctx)
-	if err != nil {
-		logger.Sugar.Infof("No existing blocks found (reason: %v), starting from configured height %d", err, startHeight)
-	} else if nBlock >= startHeight {
-		cfg.Indexer.StartHeight = int(nBlock + 1)
-		logger.Sugar.Infof("Resuming from block %d (highest existing: %d)", cfg.Indexer.StartHeight, nBlock)
-	} else {
-		logger.Sugar.Infof("Highest existing block %d < configured start %d, using configured height", nBlock, startHeight)
+	// Try to determine the highest existing block
+	var highestExisting int64
+	var pruneQueue *pruner.IndexerQueue
+
+	if cfg.Pruner.Enabled {
+		pruneQueue = pruner.NewIndexerQueue()
+		queueFilePath := filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")
+		if loaded, err := pruneQueue.LoadFromFile(queueFilePath); err != nil {
+			logger.Sugar.Warnf("Failed to load prune queue from disk: %v", err)
+		} else if loaded > 0 {
+			logger.Sugar.Infof("Restored %d entries from prune queue file", loaded)
+		}
+		highestExisting = pruneQueue.HighestBlockNumber()
+	}
+
+	if highestExisting == 0 {
+		nBlock, err := blockHandler.GetHighestBlockNumber(ctx)
+		if err != nil {
+			logger.Sugar.Infof("No existing blocks found (reason: %v), starting from configured height %d", err, startHeight)
+		} else {
+			highestExisting = nBlock
+		}
+	}
+
+	if highestExisting >= startHeight {
+		cfg.Indexer.StartHeight = int(highestExisting + 1)
+		logger.Sugar.Infof("Resuming from block %d (highest existing: %d)", cfg.Indexer.StartHeight, highestExisting)
 	}
 
 	// create indexing bool
@@ -261,14 +280,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	if cfg.Pruner.Enabled && i.defraNode != nil {
 		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode)
 
-		pruneQueue := pruner.NewIndexerQueue()
-
-		// Try to restore queue from disk (saved on last graceful stop)
-		queueFilePath := filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")
-		if loaded, err := pruneQueue.LoadFromFile(queueFilePath); err != nil {
-			logger.Sugar.Warnf("Failed to load prune queue from disk: %v", err)
-		} else if loaded > 0 {
-			logger.Sugar.Infof("Restored %d entries from prune queue file", loaded)
+		// pruneQueue was already created and loaded in the resume logic above
+		if pruneQueue == nil {
+			pruneQueue = pruner.NewIndexerQueue()
 		}
 
 		i.pruner.SetQueue(pruneQueue)
