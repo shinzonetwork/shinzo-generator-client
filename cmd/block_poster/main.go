@@ -4,8 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,14 +21,6 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
-	}
-
-	if cfg.Indexer.PprofPort > 0 {
-		go func() {
-			addr := fmt.Sprintf(":%d", cfg.Indexer.PprofPort)
-			fmt.Printf("Starting pprof server on %s\n", addr)
-			http.ListenAndServe(addr, nil)
-		}()
 	}
 
 	// Create and start indexer

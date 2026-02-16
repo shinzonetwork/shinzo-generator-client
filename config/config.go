@@ -68,7 +68,6 @@ type IndexerConfig struct {
 	MaxDocsPerTxn      int  `yaml:"max_docs_per_txn"`
 	BlocksPerMinute    int  `yaml:"blocks_per_minute"`
 	HealthServerPort   int  `yaml:"health_server_port"`
-	PprofPort          int  `yaml:"pprof_port"`
 	OpenBrowserOnStart bool `yaml:"open_browser_on_start"`
 }
 
@@ -130,10 +129,6 @@ func applyDefaults(cfg *Config) {
 	if cfg.Indexer.HealthServerPort == 0 {
 		cfg.Indexer.HealthServerPort = 8080
 	}
-	if cfg.Indexer.PprofPort == 0 {
-		cfg.Indexer.PprofPort = 6060
-	}
-
 	// Pruner defaults
 	cfg.Pruner.SetDefaults()
 }

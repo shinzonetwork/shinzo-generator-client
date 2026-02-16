@@ -36,7 +36,6 @@ indexer:
   max_docs_per_txn: 500    # Docs threshold for single-txn block creation
   blocks_per_minute: 60     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
-  pprof_port: 6060          # Pprof server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
 
 logger:
