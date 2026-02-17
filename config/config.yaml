@@ -22,7 +22,7 @@ defradb:
     # num_level_zero_tables: 10      # L0 tables before compaction starts
     # num_level_zero_tables_stall: 30  # L0 tables that trigger write stalls
     # Badger value log configuration
-    value_log_file_size_mb: 512     # Size of each vlog file
+    value_log_file_size_mb: 128      # Size of each vlog file (smaller = more effective GC)
 
 geth:
   node_url: "${GETH_RPC_URL}"  # Fallback
