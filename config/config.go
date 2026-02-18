@@ -251,6 +251,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Indexer.BlocksPerMinute = n
 		}
 	}
+	if healthPort := os.Getenv("INDEXER_HEALTH_SERVER_PORT"); healthPort != "" {
+		if n, err := strconv.Atoi(healthPort); err == nil {
+			cfg.Indexer.HealthServerPort = n
+		}
+	}
 
 	// Logger configuration
 	if loggerDebug := os.Getenv("LOGGER_DEBUG"); loggerDebug != "" {
