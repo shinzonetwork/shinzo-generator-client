@@ -282,6 +282,10 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 		}
 
 		if strings.Contains(err.Error(), "already exists") {
+			// Block exists via P2P, but we still need to sign it with our identity
+			if _, signErr := p.blockHandler.CreateBatchSignatureForExistingBlock(ctx, blockNum, block.Hash, block, transactions, validReceipts); signErr != nil {
+				logger.Sugar.Warnf("Block %d: failed to create batch signature for existing block: %v", blockNum, signErr)
+			}
 			result.Success = true
 			result.BlockID = "existing"
 			return result

@@ -452,7 +452,10 @@ func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.Eth
 		}
 
 		if strings.Contains(err.Error(), "already exists") {
-			logger.Sugar.Infof("Block %d already exists in DefraDB, skipping...", blockNum)
+			// Block exists via P2P, but we still need to sign it with our identity
+			if _, signErr := blockHandler.CreateBatchSignatureForExistingBlock(ctx, blockNum, block.Hash, block, transactions, receipts); signErr != nil {
+				logger.Sugar.Warnf("Block %d: failed to create batch signature for existing block: %v", blockNum, signErr)
+			}
 			return nil
 		}
 

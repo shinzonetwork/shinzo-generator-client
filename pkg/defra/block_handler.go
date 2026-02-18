@@ -430,6 +430,232 @@ func (h *BlockHandler) buildBatchSignatureDocument(ctx context.Context, batchSig
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
 
+// CreateBatchSignatureForExistingBlock creates a BatchSignature for a block that already
+// exists in DefraDB (received via P2P from another indexer).
+func (h *BlockHandler) CreateBatchSignatureForExistingBlock(
+	ctx context.Context,
+	blockNumber int64,
+	blockHash string,
+	block *types.Block,
+	transactions []*types.Transaction,
+	receipts []*types.TransactionReceipt,
+) (string, error) {
+	if h.defraNode == nil {
+		return "", fmt.Errorf("defraNode is nil")
+	}
+
+	// Build all documents in memory to compute deterministic docIDs.
+	// We need collection versions, so use a temporary transaction.
+	tmpTxn, err := h.defraNode.DB.NewBlindWriteTxn()
+	if err != nil {
+		return "", fmt.Errorf("failed to create transaction: %w", err)
+	}
+	tmpCtx := h.defraNode.DB.InitContext(ctx, tmpTxn)
+
+	colBlock, err := tmpTxn.GetCollectionByName(tmpCtx, constants.CollectionBlock)
+	if err != nil {
+		tmpTxn.Discard()
+		return "", fmt.Errorf("failed to get block collection: %w", err)
+	}
+	colTx, err := tmpTxn.GetCollectionByName(tmpCtx, constants.CollectionTransaction)
+	if err != nil {
+		tmpTxn.Discard()
+		return "", fmt.Errorf("failed to get transaction collection: %w", err)
+	}
+	colLog, err := tmpTxn.GetCollectionByName(tmpCtx, constants.CollectionLog)
+	if err != nil {
+		tmpTxn.Discard()
+		return "", fmt.Errorf("failed to get log collection: %w", err)
+	}
+	colALE, err := tmpTxn.GetCollectionByName(tmpCtx, constants.CollectionAccessListEntry)
+	if err != nil {
+		tmpTxn.Discard()
+		return "", fmt.Errorf("failed to get ALE collection: %w", err)
+	}
+
+	// Build block document to get its deterministic docID
+	blockDoc, err := h.buildBlockDocument(tmpCtx, block, blockNumber, colBlock)
+	if err != nil {
+		tmpTxn.Discard()
+		return "", fmt.Errorf("failed to build block document: %w", err)
+	}
+	blockID := blockDoc.ID().String()
+	allDocIDs := []string{blockID}
+
+	// Build receipt map for log lookup
+	receiptMap := make(map[string]*types.TransactionReceipt)
+	for _, receipt := range receipts {
+		if receipt != nil {
+			receiptMap[receipt.TransactionHash] = receipt
+		}
+	}
+
+	// Build transaction documents
+	txHashToID := make(map[string]string)
+	for _, tx := range transactions {
+		if tx == nil {
+			continue
+		}
+		txDoc, err := h.buildTransactionDocument(tmpCtx, tx, blockID, colTx)
+		if err != nil {
+			continue
+		}
+		txID := txDoc.ID().String()
+		txHashToID[tx.Hash] = txID
+		allDocIDs = append(allDocIDs, txID)
+	}
+
+	// Build log documents
+	for _, tx := range transactions {
+		if tx == nil {
+			continue
+		}
+		receipt, ok := receiptMap[tx.Hash]
+		if !ok || receipt == nil {
+			continue
+		}
+		txID, ok := txHashToID[tx.Hash]
+		if !ok {
+			continue
+		}
+		for i := range receipt.Logs {
+			logDoc, err := h.buildLogDocument(tmpCtx, &receipt.Logs[i], blockID, txID, colLog)
+			if err != nil {
+				continue
+			}
+			allDocIDs = append(allDocIDs, logDoc.ID().String())
+		}
+	}
+
+	// Build ALE documents
+	for _, tx := range transactions {
+		if tx == nil {
+			continue
+		}
+		txID, ok := txHashToID[tx.Hash]
+		if !ok {
+			continue
+		}
+		for i := range tx.AccessList {
+			aleDoc, err := h.buildALEDocument(tmpCtx, &tx.AccessList[i], txID, blockNumber, colALE)
+			if err != nil {
+				continue
+			}
+			allDocIDs = append(allDocIDs, aleDoc.ID().String())
+		}
+	}
+
+	tmpTxn.Discard()
+
+	// Collect CIDs from headstore with retry (P2P data may still be arriving)
+	const maxRetries = 15
+	const retryInterval = 2 * time.Second
+	var lastCIDCount int
+	var lastErr error
+
+	for attempt := range maxRetries {
+		cidTxn, err := h.defraNode.DB.NewBlindWriteTxn()
+		if err != nil {
+			lastErr = err
+			if attempt < maxRetries-1 {
+				time.Sleep(retryInterval)
+			}
+			continue
+		}
+		cidCtx := h.defraNode.DB.InitContext(ctx, cidTxn)
+		cids, err := node.CollectDocumentCIDs(cidCtx, allDocIDs)
+		cidTxn.Discard()
+
+		if err != nil {
+			lastErr = err
+			if attempt < maxRetries-1 {
+				time.Sleep(retryInterval)
+			}
+			continue
+		}
+
+		lastCIDCount = len(cids)
+		if len(cids) >= len(allDocIDs) {
+			break // Got at least one CID per document
+		}
+
+		lastErr = fmt.Errorf("got %d CIDs for %d docs", len(cids), len(allDocIDs))
+		if attempt < maxRetries-1 {
+			logger.Sugar.Debugf("Block %d: waiting for P2P data (%d/%d CIDs, attempt %d/%d)",
+				blockNumber, len(cids), len(allDocIDs), attempt+1, maxRetries)
+			time.Sleep(retryInterval)
+		}
+	}
+
+	if lastCIDCount == 0 {
+		return "", fmt.Errorf("no CIDs found for block %d after %d retries (%d docs): %w",
+			blockNumber, maxRetries, len(allDocIDs), lastErr)
+	}
+
+	// Final CID collection + signing in one transaction
+	sigTxn, err := h.defraNode.DB.NewBlindWriteTxn()
+	if err != nil {
+		return "", fmt.Errorf("failed to create signing transaction: %w", err)
+	}
+	sigCtx := h.defraNode.DB.InitContext(ctx, sigTxn)
+
+	cids, err := node.CollectDocumentCIDs(sigCtx, allDocIDs)
+	if err != nil {
+		sigTxn.Discard()
+		return "", fmt.Errorf("failed to collect CIDs for signing: %w", err)
+	}
+
+	collector := node.NewBatchCIDCollector()
+	for _, c := range cids {
+		collector.Add(c)
+	}
+
+	batchSig, err := node.SignBatch(sigCtx, collector)
+	if err != nil {
+		sigTxn.Discard()
+		return "", fmt.Errorf("failed to sign batch: %w", err)
+	}
+	if batchSig == nil {
+		sigTxn.Discard()
+		return "", fmt.Errorf("signing returned nil (no identity?)")
+	}
+
+	// Step 4: Create the BatchSignature document and commit
+	colBatchSig, err := sigTxn.GetCollectionByName(sigCtx, constants.CollectionBatchSignature)
+	if err != nil {
+		sigTxn.Discard()
+		return "", fmt.Errorf("failed to get batch signature collection: %w", err)
+	}
+
+	batchSigDoc, err := h.buildBatchSignatureDocument(sigCtx, batchSig, blockHash, blockNumber, colBatchSig)
+	if err != nil {
+		sigTxn.Discard()
+		return "", fmt.Errorf("failed to build batch signature document: %w", err)
+	}
+
+	if err := colBatchSig.Create(sigCtx, batchSigDoc); err != nil {
+		sigTxn.Discard()
+		return "", fmt.Errorf("failed to create batch signature document: %w", err)
+	}
+
+	if err := sigTxn.Commit(); err != nil {
+		return "", fmt.Errorf("failed to commit batch signature: %w", err)
+	}
+
+	docID := batchSigDoc.ID().String()
+	logger.Sugar.Infof("Block %d: batch sig for existing block (%d docs, %d CIDs, identity: %s...)",
+		blockNumber, len(allDocIDs), len(cids), truncate(string(batchSig.Header.Identity), 16))
+
+	return docID, nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
 // createBlockBatched creates the block using multiple transactions for large blocks.
 // This is the fallback for blocks exceeding MaxDocsPerTransaction.
 func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
@@ -663,12 +889,30 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			}
 		}
 
-		// On the last batch, create the BatchSignature document
-		if isLastBatch {
-			collectedCIDs := collector.GetCIDs()
+		if err := txn.Commit(); err != nil {
+			logger.Sugar.Warnf("Failed to commit ALE batch: %v", err)
+			continue
+		}
 
-			batchSig, err := node.SignBatch(ctx, collector)
+		if isLastBatch {
+			break
+		}
+	}
+
+	// Create BatchSignature in its own transaction (not bundled with ALE batches).
+	// This ensures it's always created even if ALE batches fail with "already exists".
+	{
+		collectedCIDs := collector.GetCIDs()
+
+		sigTxn, err := h.defraNode.DB.NewBlindWriteTxn()
+		if err != nil {
+			logger.Sugar.Warnf("Block %d: failed to create txn for batch signature: %v", blockInt, err)
+		} else {
+			sigCtx := h.defraNode.DB.InitContext(ctx, sigTxn)
+
+			batchSig, err := node.SignBatch(sigCtx, collector)
 			if err != nil {
+				sigTxn.Discard()
 				logger.Sugar.Warnf("Failed to create batch signature for block %d: %v", blockInt, err)
 			} else if batchSig != nil {
 				valid, verifyErr := node.VerifyBatchSignature(batchSig, collectedCIDs)
@@ -678,33 +922,29 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 					logger.Sugar.Warnf("Block %d: batch signature verification FAILED", blockInt)
 				}
 
-				colBatchSig, err := txn.GetCollectionByName(ctx, constants.CollectionBatchSignature)
+				colBatchSig, err := sigTxn.GetCollectionByName(sigCtx, constants.CollectionBatchSignature)
 				if err != nil {
+					sigTxn.Discard()
 					logger.Sugar.Warnf("Block %d: failed to get batch signature collection: %v", blockInt, err)
 				} else {
-					batchSigDoc, err := h.buildBatchSignatureDocument(ctx, batchSig, block.Hash, blockInt, colBatchSig)
+					batchSigDoc, err := h.buildBatchSignatureDocument(sigCtx, batchSig, block.Hash, blockInt, colBatchSig)
 					if err != nil {
+						sigTxn.Discard()
 						logger.Sugar.Warnf("Block %d: failed to build batch signature document: %v", blockInt, err)
+					} else if err := colBatchSig.Create(sigCtx, batchSigDoc); err != nil {
+						sigTxn.Discard()
+						logger.Sugar.Warnf("Block %d: failed to create batch signature document: %v", blockInt, err)
+					} else if err := sigTxn.Commit(); err != nil {
+						logger.Sugar.Warnf("Block %d: failed to commit batch signature: %v", blockInt, err)
 					} else {
-						if err := colBatchSig.Create(ctx, batchSigDoc); err != nil {
-							logger.Sugar.Warnf("Block %d: failed to create batch signature document: %v", blockInt, err)
-						} else {
-							batchSigDocID = batchSigDoc.ID().String()
-							logger.Sugar.Debugf("Block %d (batched): batch sig created, %d CIDs, merkle: %x, verified: %v",
-								blockInt, batchSig.CIDCount, batchSig.MerkleRoot[:8], valid)
-						}
+						batchSigDocID = batchSigDoc.ID().String()
+						logger.Sugar.Debugf("Block %d (batched): batch sig created, %d CIDs, merkle: %x, verified: %v",
+							blockInt, batchSig.CIDCount, batchSig.MerkleRoot[:8], valid)
 					}
 				}
+			} else {
+				sigTxn.Discard()
 			}
-		}
-
-		if err := txn.Commit(); err != nil {
-			logger.Sugar.Warnf("Failed to commit ALE batch: %v", err)
-			continue
-		}
-
-		if isLastBatch {
-			break
 		}
 	}
 
