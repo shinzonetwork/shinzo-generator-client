@@ -16,7 +16,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
-	defrahttp "github.com/sourcenetwork/defradb/http"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -47,15 +47,14 @@ func TestMain(m *testing.M) {
 		ctx := context.Background()
 
 		// Create DefraDB node directly without indexer
-		options := []node.Option{
-			node.WithDisableAPI(false),
-			node.WithDisableP2P(true),
-			node.WithStorePath("./.defra"),
-			defrahttp.WithAddress("127.0.0.1:9181"),
-		}
+		opts := options.Node().
+			SetDisableAPI(false).
+			SetDisableP2P(true)
+		opts.Store().SetPath("./.defra")
+		opts.HTTP().SetAddress("127.0.0.1:9181")
 
 		var err error
-		defraNode, err = node.New(ctx, options...)
+		defraNode, err = node.New(ctx, opts)
 		if err != nil {
 			logger.Sugar.Fatalf("Failed to create DefraDB node: %v", err)
 		}
