@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -30,10 +29,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set up graceful shutdown
-	_, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Channel to listen for interrupt signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -41,10 +36,7 @@ func main() {
 	// Start indexer in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
-		// Determine whether we're using an external DefraDB instance or embedded
-		// External DefraDB is used when a URL is configured and Embedded is false
 		useExternalDefra := !cfg.DefraDB.Embedded
-
 		if err := chainIndexer.StartIndexing(useExternalDefra); err != nil {
 			errChan <- err
 		}
@@ -58,7 +50,6 @@ func main() {
 	case sig := <-sigChan:
 		fmt.Printf("\nReceived signal %v, shutting down gracefully...\n", sig)
 		chainIndexer.StopIndexing()
-		cancel()
 		fmt.Println("Shutdown complete")
 	}
 }

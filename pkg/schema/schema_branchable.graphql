@@ -1,6 +1,6 @@
 type Ethereum__Mainnet__Block @branchable {
-    hash: String
-    number: Int
+    hash: String @index(unique: true)
+    number: Int @index
     timestamp: String
     parentHash: String
     difficulty: String
@@ -26,7 +26,7 @@ type Ethereum__Mainnet__Block @branchable {
 # BatchSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
 # Created in the same transaction as the block data, arrives via P2P together
 type Ethereum__Mainnet__BatchSignature @branchable {
-    blockNumber: Int
+    blockNumber: Int @index(unique: true)
     blockHash: String
     merkleRoot: String
     cidCount: Int
@@ -37,9 +37,9 @@ type Ethereum__Mainnet__BatchSignature @branchable {
 }
 
 type Ethereum__Mainnet__Transaction @branchable {
-    hash: String
+    hash: String @index(unique: true)
     blockHash: String
-    blockNumber: Int
+    blockNumber: Int @index
     from: String
     to: String
     value: String
@@ -67,7 +67,7 @@ type Ethereum__Mainnet__Transaction @branchable {
 
 type Ethereum__Mainnet__AccessListEntry @branchable {
     address: String
-    blockNumber: Int
+    blockNumber: Int @index
     storageKeys: [String]
     transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_accessList")
 }
@@ -78,7 +78,7 @@ type Ethereum__Mainnet__Log @branchable {
     data: String
     transactionHash: String
     blockHash: String
-    blockNumber: Int
+    blockNumber: Int @index
     transactionIndex: Int
     logIndex: Int
     removed: String

@@ -24,7 +24,7 @@ type BlockResult struct {
 
 // ConcurrentBlockProcessor processes multiple blocks concurrently
 type ConcurrentBlockProcessor struct {
-	blockHandler    *defra.BlockHandler
+	blockHandler    defra.BlockCreator
 	ethClient       *rpc.EthereumClient
 	workers         int
 	receiptWorkers  int
@@ -37,7 +37,7 @@ type ConcurrentBlockProcessor struct {
 
 // NewConcurrentBlockProcessor creates a new concurrent processor
 func NewConcurrentBlockProcessor(
-	blockHandler *defra.BlockHandler,
+	blockHandler defra.BlockCreator,
 	ethClient *rpc.EthereumClient,
 	workers int,
 	receiptWorkers int,

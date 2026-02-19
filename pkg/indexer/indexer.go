@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-app-sdk/pkg/rustffi"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
@@ -55,9 +57,11 @@ type ChainIndexer struct {
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
 	defraNode                 *node.Node             // Embedded DefraDB node (nil if using external)
+	rustClient                *rustffi.Client        // Rust FFI client (nil if using Go embedded)
 	networkHandler            *appsdk.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
 	pruner                    *pruner.Pruner // Document pruner for removing old blocks
+	cancel                    context.CancelFunc
 	currentBlock              int64
 	lastProcessedTime         time.Time
 	mutex                     sync.RWMutex
@@ -130,7 +134,8 @@ func toAppConfig(cfg *config.Config) *appConfig.Config {
 }
 
 func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	i.cancel = cancel
 	cfg := i.cfg
 
 	if cfg == nil {
@@ -143,7 +148,43 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		logger.Init(cfg.Logger.Development)
 	}
 
-	if !defraStarted {
+	// Determine which block handler to use: Rust FFI or Go embedded
+	var blockHandler defra.BlockCreator
+
+	if !defraStarted && cfg.DefraDB.UseRustFFI {
+		// Rust FFI embedded mode
+		logger.Sugar.Info("Starting embedded Rust DefraDB via FFI")
+		datastoreBackend := os.Getenv("STORE")
+		switch datastoreBackend {
+		case "rocks":
+			datastoreBackend = "rocksdb"
+		case "":
+			datastoreBackend = "redb"
+		}
+		rustCfg := &appConfig.RustFFIConfig{
+			DBPath:           cfg.DefraDB.Store.Path,
+			InMemory:         false,
+			DatastoreBackend: datastoreBackend,
+		}
+		rustClient, err := rustffi.NewClient(rustCfg)
+		if err != nil {
+			return fmt.Errorf("failed to create Rust FFI client: %v", err)
+		}
+		i.rustClient = rustClient
+
+		// Apply schema
+		schemaSDL := schema.GetSchemaForBuild()
+		if err := rustClient.ApplySchema(schemaSDL); err != nil {
+			if !strings.Contains(err.Error(), "already exists") {
+				return fmt.Errorf("failed to apply schema via Rust FFI: %v", err)
+			}
+		}
+		logger.Sugar.Info("Rust FFI node ready")
+
+		ffiHandler := defra.NewFFIBlockHandler(rustClient)
+		blockHandler = ffiHandler
+	} else if !defraStarted {
+		// Go embedded mode
 		// Use app-sdk to start DefraDB instance with persistent keys
 		// Convert indexer config to app-sdk config
 		appCfg := toAppConfig(cfg)
@@ -180,6 +221,12 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			logger.Sugar.Info("Identity context initialized for batch signing")
 		}
 
+		goHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
+		if err != nil {
+			return fmt.Errorf("failed to create block handler: %v", err)
+		}
+		logger.Sugar.Infof("Using direct DB access for embedded DefraDB (maxDocsPerTxn=%d)", cfg.Indexer.MaxDocsPerTxn)
+		blockHandler = goHandler
 	} else {
 		// Using external DefraDB - wait for it and apply schema via HTTP
 		err := defra.WaitForDefraDB(cfg.DefraDB.Url)
@@ -191,17 +238,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
 			return fmt.Errorf("failed to apply schema to external DefraDB: %v", err)
 		}
-	}
-
-	if i.defraNode == nil {
+		// External mode still requires a defraNode for the block handler
 		return fmt.Errorf("defraNode is required - external DefraDB via HTTP is no longer supported")
 	}
-
-	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
-	if err != nil {
-		return fmt.Errorf("failed to create block handler: %v", err)
-	}
-	logger.Sugar.Infof("Using direct DB access for embedded DefraDB (maxDocsPerTxn=%d)", cfg.Indexer.MaxDocsPerTxn)
 
 	startHeight := int64(cfg.Indexer.StartHeight)
 
@@ -277,8 +316,14 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 	}
 
-	if cfg.Pruner.Enabled && i.defraNode != nil {
-		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode)
+	if cfg.Pruner.Enabled && (i.defraNode != nil || i.rustClient != nil) {
+		var dbAdapter pruner.DatabaseAdapter
+		if i.rustClient != nil {
+			dbAdapter = &pruner.RustFFIAdapter{Client: i.rustClient}
+		} else {
+			dbAdapter = &pruner.GoDBAdapter{Node: i.defraNode}
+		}
+		i.pruner = pruner.NewPruner(&cfg.Pruner, dbAdapter)
 
 		// pruneQueue was already created and loaded in the resume logic above
 		if pruneQueue == nil {
@@ -286,7 +331,13 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 
 		i.pruner.SetQueue(pruneQueue)
-		blockHandler.SetDocIDTracker(&indexerQueueTracker{queue: pruneQueue})
+		tracker := &indexerQueueTracker{queue: pruneQueue}
+		switch h := blockHandler.(type) {
+		case *defra.BlockHandler:
+			h.SetDocIDTracker(tracker)
+		case *defra.FFIBlockHandler:
+			h.SetDocIDTracker(tracker)
+		}
 		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 
 		if err := i.pruner.Start(ctx); err != nil {
@@ -294,8 +345,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 	}
 
-	// Use concurrent processing if configured and using embedded DefraDB
-	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
+	// Use concurrent processing if configured and using embedded DefraDB (Go or Rust FFI)
+	isEmbedded := i.defraNode != nil || i.rustClient != nil
+	if cfg.Indexer.ConcurrentBlocks >= 1 && isEmbedded {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers",
 			cfg.Indexer.ConcurrentBlocks)
 		return i.runConcurrentIndexing(ctx, client, blockHandler, nextBlockToProcess, cfg)
@@ -354,7 +406,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 func (i *ChainIndexer) runConcurrentIndexing(
 	ctx context.Context,
 	client *rpc.EthereumClient,
-	blockHandler *defra.BlockHandler,
+	blockHandler defra.BlockCreator,
 	startBlock int64,
 	cfg *config.Config,
 ) error {
@@ -376,7 +428,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 }
 
 // processBlock fetches and stores a single block with retry logic
-func (i *ChainIndexer) processBlock(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler *defra.BlockHandler, blockNum int64) error {
+func (i *ChainIndexer) processBlock(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler defra.BlockCreator, blockNum int64) error {
 	var block *types.Block
 	var err error
 
@@ -404,7 +456,7 @@ func (i *ChainIndexer) processBlock(ctx context.Context, ethClient *rpc.Ethereum
 // processBlockBatch creates all documents for a block using optimized batch mutations.
 // This streams receipts as they arrive and processes them concurrently with fetching,
 // reducing latency compared to waiting for all receipts before processing.
-func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler *defra.BlockHandler, block *types.Block, blockNum int64) error {
+func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler defra.BlockCreator, block *types.Block, blockNum int64) error {
 	type txWithReceipt struct {
 		tx      *types.Transaction
 		receipt *types.TransactionReceipt
@@ -476,6 +528,11 @@ func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.Eth
 }
 
 func (i *ChainIndexer) StopIndexing() {
+	// Cancel the context first so workers and pruner can drain
+	if i.cancel != nil {
+		i.cancel()
+	}
+
 	i.shouldIndex = false
 	i.isStarted = false
 
@@ -502,6 +559,12 @@ func (i *ChainIndexer) StopIndexing() {
 	if i.defraNode != nil {
 		i.defraNode.Close(context.Background())
 		i.defraNode = nil
+	}
+
+	// Close Rust FFI client if it exists
+	if i.rustClient != nil {
+		i.rustClient.Close()
+		i.rustClient = nil
 	}
 }
 

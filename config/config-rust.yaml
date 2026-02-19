@@ -1,0 +1,38 @@
+# Config for running with embedded Rust DefraDB via FFI
+defradb:
+  url: ""
+  keyring_secret: ""
+  embedded: true
+  use_rust_ffi: true
+  p2p:
+    enabled: false
+    bootstrap_peers: []
+    listen_addr: "/ip4/0.0.0.0/tcp/9171"
+    max_retries: 5
+    retry_base_delay_ms: 1000
+    reconnect_interval_ms: 60000
+    enable_auto_reconnect: false
+  store:
+    path: "/tmp/shinzo-test/rust-ffi-data"
+    block_cache_mb: 1024
+    memtable_mb: 128
+    index_cache_mb: 512
+    num_compactors: 4
+
+geth:
+  node_url: "${GETH_RPC_URL}"
+  ws_url: "${GETH_WS_URL}"
+  api_key: "${GETH_API_KEY}"
+
+indexer:
+  start_height: 23700000
+  concurrent_blocks: 16
+  receipt_workers: 8
+  max_docs_per_txn: 1000
+  blocks_per_minute: 0
+  health_server_port: 8080
+  pprof_port: 6060
+  open_browser_on_start: false
+
+logger:
+  development: false
