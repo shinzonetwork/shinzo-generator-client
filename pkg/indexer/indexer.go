@@ -331,9 +331,12 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 
 		i.pruner.SetQueue(pruneQueue)
-		// SetDocIDTracker is only available on the Go BlockHandler
-		if goHandler, ok := blockHandler.(*defra.BlockHandler); ok {
-			goHandler.SetDocIDTracker(&indexerQueueTracker{queue: pruneQueue})
+		tracker := &indexerQueueTracker{queue: pruneQueue}
+		switch h := blockHandler.(type) {
+		case *defra.BlockHandler:
+			h.SetDocIDTracker(tracker)
+		case *defra.FFIBlockHandler:
+			h.SetDocIDTracker(tracker)
 		}
 		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 

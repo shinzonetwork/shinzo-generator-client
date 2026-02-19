@@ -25,7 +25,13 @@ var batchSessionCtxKey = batchSessionKeyType{}
 
 // FFIBlockHandler creates blocks in DefraDB via the Rust FFI client.
 type FFIBlockHandler struct {
-	client *rustffi.Client
+	client       *rustffi.Client
+	docIDTracker DocIDTrackerInterface
+}
+
+// SetDocIDTracker sets the tracker for recording docIDs at insert time.
+func (h *FFIBlockHandler) SetDocIDTracker(tracker DocIDTrackerInterface) {
+	h.docIDTracker = tracker
 }
 
 // NewFFIBlockHandler creates an FFIBlockHandler wrapping a rustffi.Client.
@@ -79,6 +85,7 @@ func (h *FFIBlockHandler) CreateBlockBatch(ctx context.Context, block *types.Blo
 
 	// Create transactions
 	txHashToID := make(map[string]string)
+	var txIDs []string
 	for _, tx := range transactions {
 		if tx == nil {
 			continue
@@ -90,9 +97,11 @@ func (h *FFIBlockHandler) CreateBlockBatch(ctx context.Context, block *types.Blo
 			continue
 		}
 		txHashToID[tx.Hash] = txDocID
+		txIDs = append(txIDs, txDocID)
 	}
 
 	// Create logs
+	var logIDs []string
 	for _, tx := range transactions {
 		if tx == nil {
 			continue
@@ -107,13 +116,17 @@ func (h *FFIBlockHandler) CreateBlockBatch(ctx context.Context, block *types.Blo
 		}
 		for i := range receipt.Logs {
 			logMutation := h.buildLogMutation(&receipt.Logs[i], blockID, txID)
-			if _, err := h.execMutation(ctx, logMutation); err != nil {
+			logDocID, err := h.execMutation(ctx, logMutation)
+			if err != nil {
 				logger.Sugar.Warnf("Failed to create log for tx %s index %d: %v", tx.Hash, i, err)
+			} else {
+				logIDs = append(logIDs, logDocID)
 			}
 		}
 	}
 
 	// Create access list entries
+	var aleIDs []string
 	for _, tx := range transactions {
 		if tx == nil {
 			continue
@@ -124,13 +137,17 @@ func (h *FFIBlockHandler) CreateBlockBatch(ctx context.Context, block *types.Blo
 		}
 		for i := range tx.AccessList {
 			aleMutation := h.buildALEMutation(&tx.AccessList[i], txID, blockInt)
-			if _, err := h.execMutation(ctx, aleMutation); err != nil {
+			aleDocID, err := h.execMutation(ctx, aleMutation)
+			if err != nil {
 				logger.Sugar.Warnf("Failed to create ALE for tx %s index %d: %v", tx.Hash, i, err)
+			} else {
+				aleIDs = append(aleIDs, aleDocID)
 			}
 		}
 	}
 
 	// Sign the batch and create BatchSignature document
+	var batchSigID string
 	batchSigJSON, err := h.client.BatchSign(sessionID)
 	if err != nil {
 		logger.Sugar.Warnf("Failed to sign batch for block %d: %v", blockInt, err)
@@ -142,11 +159,28 @@ func (h *FFIBlockHandler) CreateBlockBatch(ctx context.Context, block *types.Blo
 			// Execute batch signature mutation without the batch session
 			// (BatchSignature is metadata about the batch, not part of the signed content)
 			plainCtx := context.Background()
-			if _, err := h.execMutation(plainCtx, batchSigMutation); err != nil {
+			docID, err := h.execMutation(plainCtx, batchSigMutation)
+			if err != nil {
 				logger.Sugar.Warnf("Failed to create batch signature doc for block %d: %v", blockInt, err)
 			} else {
+				batchSigID = docID
 				logger.Sugar.Debugf("Block %d: FFI batch signature created", blockInt)
 			}
+		}
+	}
+
+	// Track docIDs for pruning queue
+	if h.docIDTracker != nil {
+		result := &BlockCreationResult{
+			BlockID:          blockID,
+			BlockNumber:      blockInt,
+			TransactionIDs:   txIDs,
+			LogIDs:           logIDs,
+			AccessListIDs:    aleIDs,
+			BatchSignatureID: batchSigID,
+		}
+		if err := h.docIDTracker.TrackBlock(ctx, blockInt, result); err != nil {
+			logger.Sugar.Warnf("Failed to track docIDs for block %d: %v", blockInt, err)
 		}
 	}
 
