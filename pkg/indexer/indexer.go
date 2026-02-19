@@ -61,6 +61,7 @@ type ChainIndexer struct {
 	networkHandler            *appsdk.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
 	pruner                    *pruner.Pruner // Document pruner for removing old blocks
+	cancel                    context.CancelFunc
 	currentBlock              int64
 	lastProcessedTime         time.Time
 	mutex                     sync.RWMutex
@@ -133,7 +134,8 @@ func toAppConfig(cfg *config.Config) *appConfig.Config {
 }
 
 func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	i.cancel = cancel
 	cfg := i.cfg
 
 	if cfg == nil {
@@ -523,6 +525,11 @@ func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.Eth
 }
 
 func (i *ChainIndexer) StopIndexing() {
+	// Cancel the context first so workers and pruner can drain
+	if i.cancel != nil {
+		i.cancel()
+	}
+
 	i.shouldIndex = false
 	i.isStarted = false
 
