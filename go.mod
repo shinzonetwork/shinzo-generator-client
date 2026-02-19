@@ -8,7 +8,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.46.0
 	github.com/multiformats/go-multihash v0.2.3
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260218150822-b6b19946477f
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260219182023-a5ba930f6054
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -431,5 +431,3 @@ require (
 	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
-
-replace github.com/shinzonetwork/shinzo-app-sdk => /Users/johnzampolin/go/src/github.com/shinzonetwork/shinzo-app-sdk
