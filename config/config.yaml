@@ -14,9 +14,9 @@ defradb:
   store:
     path: "./.defra"
     # Badger memory configuration
-    block_cache_mb: 1024  # Block cache size
-    memtable_mb: 128      # Memtable size
-    index_cache_mb: 512   # Index cache size
+    block_cache_mb: 512  # Block cache size
+    memtable_mb: 64      # Memtable size
+    index_cache_mb: 256   # Index cache size
     # Badger compaction configuration
     num_compactors: 4              # Number of compaction workers
     # num_level_zero_tables: 10      # L0 tables before compaction starts
