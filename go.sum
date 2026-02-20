@@ -2291,8 +2291,8 @@ github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNX
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 h1:n661drycOFuPLCN3Uc8sB6B/s6Z4t2xvBgU1htSHuq8=
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3/go.mod h1:A0bzQcvG0E7Rwjx0REVgAGH58e96+X0MeOfepqsbeW4=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260218150822-b6b19946477f h1:vzsGPmqvAw2YTijq0aUX394cgNgfqJra3Wh6aO2PZiI=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260218150822-b6b19946477f/go.mod h1:qtPiN/SzRyGubRGw88Rjc5nINdlA6cAdioD7VBsri9s=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260220180241-645c8e39632a h1:feoBkgIoR2MduN5b7Z81XNgBlvfHW2xutZokMfijEzY=
+github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260220180241-645c8e39632a/go.mod h1:TTHj4Ml7/YLWft2XkvsfZ3/QmlcZmgDzp2K4skZBVPg=
 github.com/shirou/gopsutil v3.21.11+incompatible h1:+1+c1VGhc88SSonWP6foOcLhvnKlUeu/erjjvaPEYiI=
 github.com/shirou/gopsutil v3.21.11+incompatible/go.mod h1:5b4v6he4MtMOwMlS0TUMTu2PcXUg8+E1lC7eC3UO/RA=
 github.com/shirou/gopsutil/v3 v3.22.6/go.mod h1:EdIubSnZhbAvBS1yJ7Xi+AShB/hxwLHOMz4MCYz7yMs=
@@ -2342,8 +2342,8 @@ github.com/sourcenetwork/corekv/namespace v0.3.1 h1:XllaUw6cteZkJYC5tgcJ40c6hIMh
 github.com/sourcenetwork/corekv/namespace v0.3.1/go.mod h1:uidxEQZsJ1eqecq1Zn5NipnFAgxL+VyXB6bPGziBewk=
 github.com/sourcenetwork/corelog v0.0.8 h1:jCo0mFBpWrfhUCGzzN3uUtPGyQv3jnITdPO1s2ME3RY=
 github.com/sourcenetwork/corelog v0.0.8/go.mod h1:cMabHgs3kARgYTQeQYSOmaGGP8XMU6sZrHd8LFrL3zA=
-github.com/sourcenetwork/defradb v0.20.1-0.20260218150650-181b8888960e h1:6UZvK1DtrFUtbOz0H7JwFYkd7kdwOpf6uv1x8/jOJI8=
-github.com/sourcenetwork/defradb v0.20.1-0.20260218150650-181b8888960e/go.mod h1:xiKVpr9CguJ7gtlb4viaTAzsikrBxtIaNdKSrbFikW4=
+github.com/sourcenetwork/defradb v0.20.1-0.20260220180040-442fbda5ef72 h1:S0AvxZcp7nsf1qmefeKk3wDpoqVgPdJFP/IfMFAXTrE=
+github.com/sourcenetwork/defradb v0.20.1-0.20260220180040-442fbda5ef72/go.mod h1:xiKVpr9CguJ7gtlb4viaTAzsikrBxtIaNdKSrbFikW4=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 h1:620zKV4rOn7U5j/WsPkk4SFj0z9/pVV4bBx0BpZQgro=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14/go.mod h1:jUoQv592uUX1u7QBjAY4C+l24X9ArhPfifOqXpDHz4U=
 github.com/sourcenetwork/go-p2p v0.1.8 h1:GMxb0DovBwJTlsZ+1anzEXg4UcmSLzJtKreRznGvx6s=
