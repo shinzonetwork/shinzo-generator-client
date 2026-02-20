@@ -10,9 +10,19 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/indexer"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
 )
 
 func main() {
+	// Check for subcommands before parsing flags
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "verify":
+			runVerify(os.Args[2:])
+			return
+		}
+	}
+
 	configPath := flag.String("config", "config/config.yaml", "Path to configuration file")
 	flag.Parse()
 
@@ -61,4 +71,40 @@ func main() {
 		cancel()
 		fmt.Println("Shutdown complete")
 	}
+}
+
+func runVerify(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: %s verify <snapshot-file.jsonl.gz> [snapshot-file...]\n", os.Args[0])
+		os.Exit(1)
+	}
+
+	allValid := true
+	for _, file := range args {
+		result, err := snapshot.VerifySnapshot(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "FAIL: %s — %v\n", file, err)
+			allValid = false
+			continue
+		}
+
+		if result.Valid {
+			fmt.Printf("PASS: %s (blocks %d-%d, %d batch sigs, signed by %s)\n",
+				file, result.StartBlock, result.EndBlock, result.BatchSigsFound, truncateID(result.SignerIdentity))
+		} else {
+			fmt.Fprintf(os.Stderr, "FAIL: %s — %s\n", file, result.Error)
+			allValid = false
+		}
+	}
+
+	if !allValid {
+		os.Exit(1)
+	}
+}
+
+func truncateID(id string) string {
+	if len(id) <= 20 {
+		return id
+	}
+	return id[:20] + "..."
 }
