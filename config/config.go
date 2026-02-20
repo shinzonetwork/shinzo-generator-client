@@ -8,6 +8,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
 	"gopkg.in/yaml.v3"
 )
 
@@ -69,6 +70,7 @@ type IndexerConfig struct {
 	BlocksPerMinute    int  `yaml:"blocks_per_minute"`
 	HealthServerPort   int  `yaml:"health_server_port"`
 	OpenBrowserOnStart bool `yaml:"open_browser_on_start"`
+	StartBuffer        int  `yaml:"start_buffer"`
 }
 
 // LoggerConfig represents logger configuration
@@ -78,11 +80,12 @@ type LoggerConfig struct {
 
 // Config represents the main configuration structure
 type Config struct {
-	DefraDB DefraDBConfig `yaml:"defradb"`
-	Geth    GethConfig    `yaml:"geth"`
-	Indexer IndexerConfig `yaml:"indexer"`
-	Pruner  pruner.Config `yaml:"pruner"`
-	Logger  LoggerConfig  `yaml:"logger"`
+	DefraDB  DefraDBConfig   `yaml:"defradb"`
+	Geth     GethConfig      `yaml:"geth"`
+	Indexer  IndexerConfig   `yaml:"indexer"`
+	Pruner   pruner.Config   `yaml:"pruner"`
+	Snapshot snapshot.Config `yaml:"snapshot"`
+	Logger   LoggerConfig    `yaml:"logger"`
 }
 
 // LoadConfig loads configuration from a YAML file and environment variables
@@ -129,8 +132,14 @@ func applyDefaults(cfg *Config) {
 	if cfg.Indexer.HealthServerPort == 0 {
 		cfg.Indexer.HealthServerPort = 8080
 	}
+	if cfg.Indexer.StartBuffer <= 0 {
+		cfg.Indexer.StartBuffer = 100
+	}
 	// Pruner defaults
 	cfg.Pruner.SetDefaults()
+
+	// Snapshot defaults
+	cfg.Snapshot.SetDefaults()
 }
 
 // validateConfig validates the configuration
@@ -256,6 +265,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Indexer.HealthServerPort = n
 		}
 	}
+	if startBuffer := os.Getenv("INDEXER_START_BUFFER"); startBuffer != "" {
+		if n, err := strconv.Atoi(startBuffer); err == nil {
+			cfg.Indexer.StartBuffer = n
+		}
+	}
 
 	// Logger configuration
 	if loggerDebug := os.Getenv("LOGGER_DEBUG"); loggerDebug != "" {
@@ -283,6 +297,26 @@ func applyEnvOverrides(cfg *Config) {
 	if prunerInterval := os.Getenv("PRUNER_INTERVAL_SECONDS"); prunerInterval != "" {
 		if n, err := strconv.Atoi(prunerInterval); err == nil {
 			cfg.Pruner.IntervalSeconds = n
+		}
+	}
+
+	// Snapshot configuration
+	if snapshotEnabled := os.Getenv("SNAPSHOT_ENABLED"); snapshotEnabled != "" {
+		if enabled, err := strconv.ParseBool(snapshotEnabled); err == nil {
+			cfg.Snapshot.Enabled = enabled
+		}
+	}
+	if snapshotDir := os.Getenv("SNAPSHOT_DIR"); snapshotDir != "" {
+		cfg.Snapshot.Dir = snapshotDir
+	}
+	if blocksPerFile := os.Getenv("SNAPSHOT_BLOCKS_PER_FILE"); blocksPerFile != "" {
+		if n, err := strconv.ParseInt(blocksPerFile, 10, 64); err == nil {
+			cfg.Snapshot.BlocksPerFile = n
+		}
+	}
+	if snapshotInterval := os.Getenv("SNAPSHOT_INTERVAL_SECONDS"); snapshotInterval != "" {
+		if n, err := strconv.Atoi(snapshotInterval); err == nil {
+			cfg.Snapshot.IntervalSeconds = n
 		}
 	}
 }
