@@ -30,7 +30,7 @@ geth:
   api_key: "${GETH_API_KEY}"
 
 indexer:
-  start_height: 24484400    # 23700000
+  start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
   concurrent_blocks: 1      # Number of blocks to process concurrently
   receipt_workers: 8        # Concurrent receipt fetchers per block
   max_docs_per_txn: 500    # Docs threshold for single-txn block creation

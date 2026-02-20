@@ -203,9 +203,16 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	}
 	logger.Sugar.Infof("Using direct DB access for embedded DefraDB (maxDocsPerTxn=%d)", cfg.Indexer.MaxDocsPerTxn)
 
-	startHeight := int64(cfg.Indexer.StartHeight)
+	// Connect to Ethereum client early — needed for latest block query and indexing
+	client, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey)
+	if err != nil {
+		logCtx := errors.LogContext(err)
+		logger.Sugar.With(logCtx).Fatalf("Failed to connect to Ethereum client: %v", err)
+	}
+	defer client.Close()
 
-	// Try to determine the highest existing block
+	// Determine start height: DB state takes priority, then config, then latest chain block
+	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
 	var pruneQueue *pruner.IndexerQueue
 
@@ -223,27 +230,45 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	if highestExisting == 0 {
 		nBlock, err := blockHandler.GetHighestBlockNumber(ctx)
 		if err != nil {
-			logger.Sugar.Infof("No existing blocks found (reason: %v), starting from configured height %d", err, startHeight)
+			logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
 		} else {
 			highestExisting = nBlock
 		}
 	}
 
-	if highestExisting >= startHeight {
-		cfg.Indexer.StartHeight = int(highestExisting + 1)
-		logger.Sugar.Infof("Resuming from block %d (highest existing: %d)", cfg.Indexer.StartHeight, highestExisting)
+	// Query chain tip — used for gap detection and fresh-start fallback
+	latestBlock, err := client.GetLatestBlockNumber(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get latest block number from RPC: %w", err)
+	}
+	chainTip := latestBlock.Int64()
+
+	const startBuffer = 100 // start this many blocks before chain tip when skipping ahead
+
+	if highestExisting > 0 {
+		resumeFrom := highestExisting + 1
+		gap := chainTip - highestExisting
+		if gap > startBuffer {
+			// Too far behind (e.g. VM was down) — skip ahead to near chain tip
+			resumeFrom = chainTip - startBuffer
+			logger.Sugar.Infof("Gap of %d blocks, skipping ahead to %d (chain tip: %d)", gap, resumeFrom, chainTip)
+		}
+		cfg.Indexer.StartHeight = int(resumeFrom)
+		logger.Sugar.Infof("Resuming from block %d (highest existing: %d, chain tip: %d)", cfg.Indexer.StartHeight, highestExisting, chainTip)
+	} else if configuredHeight > 0 {
+		// DB is empty, specific start height configured — use it
+		logger.Sugar.Infof("Starting from configured height %d (chain tip: %d)", configuredHeight, chainTip)
+	} else {
+		// DB is empty, no start height — start near chain tip
+		cfg.Indexer.StartHeight = int(chainTip - startBuffer)
+		if cfg.Indexer.StartHeight < 0 {
+			cfg.Indexer.StartHeight = 0
+		}
+		logger.Sugar.Infof("No existing blocks, starting from %d (chain tip: %d)", cfg.Indexer.StartHeight, chainTip)
 	}
 
 	// create indexing bool
 	i.shouldIndex = true
-
-	// Connect to Ethereum client with WebSocket and HTTP support
-	client, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey)
-	if err != nil {
-		logCtx := errors.LogContext(err)
-		logger.Sugar.With(logCtx).Fatalf("Failed to connect to Ethereum client: %v", err)
-	}
-	defer client.Close()
 
 	// Reuse the block handler created earlier for processing
 	// (blockHandler was already created above for the block check)
