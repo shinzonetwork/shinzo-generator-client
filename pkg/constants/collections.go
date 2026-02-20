@@ -6,7 +6,8 @@ const (
 	CollectionTransaction     = "Ethereum__Mainnet__Transaction"
 	CollectionLog             = "Ethereum__Mainnet__Log"
 	CollectionAccessListEntry = "Ethereum__Mainnet__AccessListEntry"
-	CollectionBatchSignature  = "Ethereum__Mainnet__BatchSignature"
+	CollectionBatchSignature    = "Ethereum__Mainnet__BatchSignature"
+	CollectionSnapshotSignature = "Ethereum__Mainnet__SnapshotSignature"
 )
 
 // Collection name slice for bulk operations
@@ -16,4 +17,5 @@ var AllCollections = []string{
 	CollectionAccessListEntry,
 	CollectionLog,
 	CollectionBatchSignature,
+	CollectionSnapshotSignature,
 }

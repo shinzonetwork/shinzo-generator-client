@@ -24,6 +24,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -57,7 +58,8 @@ type ChainIndexer struct {
 	defraNode                 *node.Node             // Embedded DefraDB node (nil if using external)
 	networkHandler            *appsdk.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
-	pruner                    *pruner.Pruner // Document pruner for removing old blocks
+	pruner                    *pruner.Pruner        // Document pruner for removing old blocks
+	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks
 	currentBlock              int64
 	lastProcessedTime         time.Time
 	mutex                     sync.RWMutex
@@ -243,7 +245,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	}
 	chainTip := latestBlock.Int64()
 
-	const startBuffer = 100 // start this many blocks before chain tip when skipping ahead
+	startBuffer := int64(cfg.Indexer.StartBuffer)
 
 	if highestExisting > 0 {
 		resumeFrom := highestExisting + 1
@@ -286,6 +288,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
 		}
 		i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
+		if i.defraNode != nil {
+			i.healthServer.SetDefraNode(i.defraNode)
+		}
 
 		go func() {
 			if err := i.healthServer.Start(); err != nil {
@@ -316,6 +321,17 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 		if err := i.pruner.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start pruner: %v", err)
+		}
+	}
+
+	// Start snapshotter if enabled
+	if cfg.Snapshot.Enabled && i.defraNode != nil {
+		i.snapshotter = snapshot.New(&cfg.Snapshot, i.defraNode)
+		if err := i.snapshotter.Start(ctx); err != nil {
+			logger.Sugar.Warnf("Failed to start snapshotter: %v", err)
+		}
+		if i.healthServer != nil {
+			i.healthServer.SetSnapshotter(i.snapshotter)
 		}
 	}
 
@@ -503,6 +519,12 @@ func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.Eth
 func (i *ChainIndexer) StopIndexing() {
 	i.shouldIndex = false
 	i.isStarted = false
+
+	// Stop snapshotter before pruner (capture data before it's pruned)
+	if i.snapshotter != nil {
+		i.snapshotter.Stop()
+		i.snapshotter = nil
+	}
 
 	// Stop pruner
 	if i.pruner != nil {
