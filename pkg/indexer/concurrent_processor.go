@@ -22,6 +22,15 @@ type BlockResult struct {
 	Error    error
 }
 
+// signingJob holds the data needed to sign an existing block in the background
+type signingJob struct {
+	blockNum     int64
+	blockHash    string
+	block        *types.Block
+	transactions []*types.Transaction
+	receipts     []*types.TransactionReceipt
+}
+
 // ConcurrentBlockProcessor processes multiple blocks concurrently
 type ConcurrentBlockProcessor struct {
 	blockHandler    *defra.BlockHandler
@@ -33,6 +42,7 @@ type ConcurrentBlockProcessor struct {
 	pendingMu       sync.Mutex
 	pending         map[int64]*BlockResult
 	nextToCommit    int64
+	signingChan     chan signingJob
 }
 
 // NewConcurrentBlockProcessor creates a new concurrent processor
@@ -51,6 +61,7 @@ func NewConcurrentBlockProcessor(
 		blocksPerMinute: blocksPerMinute,
 		resultChan:      make(chan *BlockResult, workers*2),
 		pending:         make(map[int64]*BlockResult),
+		signingChan:     make(chan signingJob, 64),
 	}
 }
 
@@ -61,6 +72,21 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	onBlockProcessed func(blockNum int64),
 ) error {
 	p.nextToCommit = startBlock
+
+	// Start background signing worker for existing blocks
+	var signingWg sync.WaitGroup
+	signingWg.Go(func() {
+		for job := range p.signingChan {
+			if ctx.Err() != nil {
+				continue // drain channel
+			}
+			if _, err := p.blockHandler.CreateBatchSignatureForExistingBlock(
+				ctx, job.blockNum, job.blockHash, job.block, job.transactions, job.receipts,
+			); err != nil {
+				logger.Sugar.Warnf("Block %d: failed to create batch signature for existing block: %v", job.blockNum, err)
+			}
+		}
+	})
 
 	var wg sync.WaitGroup
 	workChan := make(chan int64, p.workers*2)
@@ -112,6 +138,15 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 		}
 	})
 
+	shutdown := func() {
+		close(workChan)
+		wg.Wait()
+		close(p.resultChan)
+		collectWg.Wait()
+		close(p.signingChan)
+		signingWg.Wait()
+	}
+
 	nextBlock := startBlock
 
 	var minInterval time.Duration
@@ -128,10 +163,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 			if elapsed < minInterval {
 				select {
 				case <-ctx.Done():
-					close(workChan)
-					wg.Wait()
-					close(p.resultChan)
-					collectWg.Wait()
+					shutdown()
 					return ctx.Err()
 				case <-time.After(minInterval - elapsed):
 				}
@@ -147,10 +179,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 		if tooFarAhead {
 			select {
 			case <-ctx.Done():
-				close(workChan)
-				wg.Wait()
-				close(p.resultChan)
-				collectWg.Wait()
+				shutdown()
 				return ctx.Err()
 			case <-time.After(100 * time.Millisecond):
 				continue
@@ -159,10 +188,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 
 		select {
 		case <-ctx.Done():
-			close(workChan)
-			wg.Wait()
-			close(p.resultChan)
-			collectWg.Wait()
+			shutdown()
 			return ctx.Err()
 		case workChan <- nextBlock:
 			lastDispatch = time.Now()
@@ -282,9 +308,17 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 		}
 
 		if strings.Contains(err.Error(), "already exists") {
-			// Block exists via P2P, but we still need to sign it with our identity
-			if _, signErr := p.blockHandler.CreateBatchSignatureForExistingBlock(ctx, blockNum, block.Hash, block, transactions, validReceipts); signErr != nil {
-				logger.Sugar.Warnf("Block %d: failed to create batch signature for existing block: %v", blockNum, signErr)
+			// Block exists via P2P — enqueue signing in background so indexing isn't blocked
+			select {
+			case p.signingChan <- signingJob{
+				blockNum:     blockNum,
+				blockHash:    block.Hash,
+				block:        block,
+				transactions: transactions,
+				receipts:     validReceipts,
+			}:
+			default:
+				logger.Sugar.Warnf("Block %d: signing queue full, skipping batch signature", blockNum)
 			}
 			result.Success = true
 			result.BlockID = "existing"

@@ -747,7 +747,11 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		if len(txDocs) > 0 {
 			if err := colTx.CreateMany(ctx, txDocs); err != nil {
 				txn.Discard()
-				logger.Sugar.Warnf("Failed to create tx batch: %v", err)
+				if strings.Contains(err.Error(), "already exists") {
+					logger.Sugar.Debugf("Block %d: tx batch already exists via P2P, skipping", blockInt)
+				} else {
+					logger.Sugar.Warnf("Failed to create tx batch: %v", err)
+				}
 				continue
 			}
 		}
@@ -815,7 +819,11 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		if len(logDocs) > 0 {
 			if err := colLog.CreateMany(ctx, logDocs); err != nil {
 				txn.Discard()
-				logger.Sugar.Warnf("Failed to create log batch: %v", err)
+				if strings.Contains(err.Error(), "already exists") {
+					logger.Sugar.Debugf("Block %d: log batch already exists via P2P, skipping", blockInt)
+				} else {
+					logger.Sugar.Warnf("Failed to create log batch: %v", err)
+				}
 				continue
 			}
 		}
@@ -883,7 +891,11 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			if len(aleDocs) > 0 {
 				if err := colALE.CreateMany(ctx, aleDocs); err != nil {
 					txn.Discard()
-					logger.Sugar.Warnf("Failed to create ALE batch: %v", err)
+					if strings.Contains(err.Error(), "already exists") {
+						logger.Sugar.Debugf("Block %d: ALE batch already exists via P2P, skipping", blockInt)
+					} else {
+						logger.Sugar.Warnf("Failed to create ALE batch: %v", err)
+					}
 					continue
 				}
 			}
