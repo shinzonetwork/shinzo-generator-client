@@ -19,6 +19,7 @@ type DefraDBP2PConfig struct {
 	BootstrapPeers      []string `yaml:"bootstrap_peers"`
 	ListenAddr          string   `yaml:"listen_addr"`
 	Enabled             bool     `yaml:"enabled"`
+	AcceptIncoming      bool     `yaml:"accept_incoming"`
 	MaxRetries          int      `yaml:"max_retries"`
 	RetryBaseDelayMs    int      `yaml:"retry_base_delay_ms"`
 	ReconnectIntervalMs int      `yaml:"reconnect_interval_ms"`
@@ -181,6 +182,12 @@ func applyEnvOverrides(cfg *Config) {
 
 	if listenAddr := os.Getenv("DEFRADB_P2P_LISTEN_ADDR"); listenAddr != "" {
 		cfg.DefraDB.P2P.ListenAddr = listenAddr
+	}
+
+	if acceptIncoming := os.Getenv("DEFRADB_P2P_ACCEPT_INCOMING"); acceptIncoming != "" {
+		if parsed, err := strconv.ParseBool(acceptIncoming); err == nil {
+			cfg.DefraDB.P2P.AcceptIncoming = parsed
+		}
 	}
 
 	if storePath := os.Getenv("DEFRADB_STORE_PATH"); storePath != "" {

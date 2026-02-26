@@ -28,6 +28,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 
 	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
@@ -157,8 +158,16 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		logger.Sugar.Warnf("=== P2P DEBUG === Original config - ListenAddr: '%s', Enabled: %t",
 			cfg.DefraDB.P2P.ListenAddr, cfg.DefraDB.P2P.Enabled)
 
+		// When accept_incoming is false (default), reject all incoming P2P documents.
+		// The indexer is the source of truth from the chain and should not accept
+		// relayed data from peers to avoid storing multiple signatures.
+		var replicationFilter client.ReplicationFilter
+		if !cfg.DefraDB.P2P.AcceptIncoming {
+			replicationFilter = &indexerReplicationFilter{}
+		}
+
 		defraNode, networkHandler, err := appsdk.StartDefraInstance(appCfg,
-			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForBuild()), nil, &indexerReplicationFilter{}, constants.AllCollections...)
+			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForBuild()), nil, replicationFilter, constants.AllCollections...)
 		if err != nil {
 			return fmt.Errorf("Failed to start DefraDB instance with app-sdk: %v", err)
 		}

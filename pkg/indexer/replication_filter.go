@@ -4,9 +4,9 @@ import "context"
 
 // indexerReplicationFilter rejects all incoming P2P documents.
 // The indexer is the source of truth (indexes directly from chain),
-// so it should never accept data from peers. Without this filter,
-// a host connected to two indexers would relay data between them,
-// causing duplicate CRDT DAG entries and bloated storage.
+// so it should not accept data from peers. Without this filter,
+// a host connected to two indexers would relay batch/snapshot signatures
+// between them, creating duplicate documents with different signer CIDs.
 type indexerReplicationFilter struct{}
 
 // AllowReplication implements client.ReplicationFilter.
