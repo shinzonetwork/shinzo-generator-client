@@ -22,7 +22,7 @@ type kvSnapshotHeader struct {
 	StartBlock           int64    `json:"start_block"`
 	EndBlock             int64    `json:"end_block"`
 	CreatedAt            string   `json:"created_at"`
-	BatchSigMerkleRoots  []string `json:"batch_sig_merkle_roots,omitempty"`
+	BlockSigMerkleRoots  []string `json:"block_sig_merkle_roots,omitempty"`
 }
 
 // createKVSnapshot exports raw Badger KV pairs for a block range to a binary file.
@@ -38,10 +38,20 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 
 	gw := gzip.NewWriter(f)
 
-	// Query batch sig merkle roots to embed in header for host-side verification
-	roots, _, err := getBatchSigMerkleRoots(ctx, s.defraNode, startBlock, endBlock)
+	// Ensure cleanup on any error path
+	committed := false
+	defer func() {
+		if !committed {
+			gw.Close()
+			f.Close()
+			os.Remove(tmpPath)
+		}
+	}()
+
+	// Query block sig merkle roots to embed in header for host-side verification
+	roots, _, err := getBlockSigMerkleRoots(ctx, s.defraNode, startBlock, endBlock)
 	if err != nil {
-		logger.Sugar.Warnf("KV snapshot: failed to get batch sig roots: %v", err)
+		logger.Sugar.Warnf("KV snapshot: failed to get block sig roots: %v", err)
 	}
 	var rootsHex []string
 	for _, r := range roots {
@@ -55,28 +65,19 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 		StartBlock:          startBlock,
 		EndBlock:            endBlock,
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
-		BatchSigMerkleRoots: rootsHex,
+		BlockSigMerkleRoots: rootsHex,
 	}
 	headerBytes, err := json.Marshal(header)
 	if err != nil {
-		gw.Close()
-		f.Close()
-		os.Remove(tmpPath)
 		return fmt.Errorf("marshal header: %w", err)
 	}
 
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes)))
 	if _, err := gw.Write(lenBuf[:]); err != nil {
-		gw.Close()
-		f.Close()
-		os.Remove(tmpPath)
 		return err
 	}
 	if _, err := gw.Write(headerBytes); err != nil {
-		gw.Close()
-		f.Close()
-		os.Remove(tmpPath)
 		return err
 	}
 
@@ -89,16 +90,13 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 		{constants.CollectionTransaction, "blockNumber"},
 		{constants.CollectionLog, "blockNumber"},
 		{constants.CollectionAccessListEntry, "blockNumber"},
-		{constants.CollectionBatchSignature, "blockNumber"},
+		{constants.CollectionBlockSignature, "blockNumber"},
 	}
 
 	totalKVs := 0
 	for _, col := range collections {
 		docIDs, err := s.queryDocIDs(ctx, col.name, col.blockField, startBlock, endBlock)
 		if err != nil {
-			gw.Close()
-			f.Close()
-			os.Remove(tmpPath)
 			return fmt.Errorf("query docIDs for %s: %w", col.name, err)
 		}
 
@@ -108,9 +106,6 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 
 		n, err := s.defraNode.DB.ExportDocKVs(ctx, col.name, docIDs, gw, true)
 		if err != nil {
-			gw.Close()
-			f.Close()
-			os.Remove(tmpPath)
 			return fmt.Errorf("export KVs for %s: %w", col.name, err)
 		}
 		totalKVs += n
@@ -120,15 +115,10 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 	// Write EOF marker (key_len = 0)
 	binary.BigEndian.PutUint32(lenBuf[:], 0)
 	if _, err := gw.Write(lenBuf[:]); err != nil {
-		gw.Close()
-		f.Close()
-		os.Remove(tmpPath)
 		return err
 	}
 
 	if err := gw.Close(); err != nil {
-		f.Close()
-		os.Remove(tmpPath)
 		return err
 	}
 	if err := f.Close(); err != nil {
@@ -136,7 +126,8 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 		return err
 	}
 
-	// Atomic rename
+	// Atomic rename — past this point, cleanup should not remove the file
+	committed = true
 	if err := os.Rename(tmpPath, filePath); err != nil {
 		os.Remove(tmpPath)
 		return err
@@ -146,7 +137,7 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 
 	// Sign the snapshot using the same roots embedded in the header
 	if err := signSnapshotWithRoots(s.ctx, s.defraNode, filename, startBlock, endBlock, roots, len(roots)); err != nil {
-		logger.Sugar.Warnf("Snapshot signing failed for %s: %v", filename, err)
+		return fmt.Errorf("snapshot signing failed for %s: %w", filename, err)
 	}
 
 	return nil

@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
@@ -80,10 +80,10 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 			if ctx.Err() != nil {
 				continue // drain channel
 			}
-			if _, err := p.blockHandler.CreateBatchSignatureForExistingBlock(
+			if _, err := p.blockHandler.CreateBlockSignatureForExistingBlock(
 				ctx, job.blockNum, job.blockHash, job.block, job.transactions, job.receipts,
 			); err != nil {
-				logger.Sugar.Warnf("Block %d: failed to create batch signature for existing block: %v", job.blockNum, err)
+				logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", job.blockNum, err)
 			}
 		}
 	})
@@ -217,7 +217,7 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 		if err == nil {
 			break
 		}
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
+		if errors.IsErrNotFound(err) {
 			logger.Sugar.Infof("Block %d not available yet, waiting...", blockNum)
 			select {
 			case <-ctx.Done():
@@ -307,7 +307,7 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 			return result
 		}
 
-		if strings.Contains(err.Error(), "already exists") {
+		if errors.IsErrAlreadyExists(err) {
 			// Block exists via P2P — enqueue signing in background so indexing isn't blocked
 			select {
 			case p.signingChan <- signingJob{
@@ -318,14 +318,14 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 				receipts:     validReceipts,
 			}:
 			default:
-				logger.Sugar.Warnf("Block %d: signing queue full, skipping batch signature", blockNum)
+				logger.Sugar.Warnf("Block %d: signing queue full, skipping block signature", blockNum)
 			}
 			result.Success = true
 			result.BlockID = "existing"
 			return result
 		}
 
-		if strings.Contains(err.Error(), "transaction conflict") {
+		if errors.IsErrTransactionConflict(err) {
 			if attempt < maxRetries-1 {
 				logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", blockNum, attempt+1, maxRetries)
 				select {

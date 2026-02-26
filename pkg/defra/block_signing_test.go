@@ -205,7 +205,7 @@ func TestLargeBatch(t *testing.T) {
 }
 
 // computeMerkleRootIndexer simulates DefraDB's ComputeMerkleRoot function
-// This is a copy of the logic from defradb/internal/core/block/batch_signing.go
+// This is a copy of the logic from defradb/internal/core/block/block_signing.go
 func computeMerkleRootIndexer(cids []gocid.Cid) []byte {
 	if len(cids) == 0 {
 		return nil
@@ -244,7 +244,7 @@ func computeMerkleRootIndexer(cids []gocid.Cid) []byte {
 }
 
 // computeMerkleRootHost simulates the host's ComputeMerkleRootFromStrings function
-// This is a copy of the logic from shinzo-host-client/pkg/attestation/batchSignatureVerifier.go
+// This is a copy of the logic from shinzo-host-client/pkg/attestation/blockSignatureVerifier.go
 func computeMerkleRootHost(cidStrings []string) []byte {
 	if len(cidStrings) == 0 {
 		return nil

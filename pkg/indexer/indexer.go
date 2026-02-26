@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -152,10 +151,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		appCfg := toAppConfig(cfg)
 		// Note: app-sdk P2P config has no Enabled field - P2P should be enabled by ListenAddr
 
-		// Debug: Log the P2P configuration being passed to app-sdk
-		logger.Sugar.Warnf("=== P2P DEBUG === ListenAddr: '%s', BootstrapPeers: %v",
+		logger.Sugar.Debugf("P2P config: ListenAddr: '%s', BootstrapPeers: %v",
 			appCfg.DefraDB.P2P.ListenAddr, appCfg.DefraDB.P2P.BootstrapPeers)
-		logger.Sugar.Warnf("=== P2P DEBUG === Original config - ListenAddr: '%s', Enabled: %t",
+		logger.Sugar.Debugf("P2P config (original): ListenAddr: '%s', Enabled: %t",
 			cfg.DefraDB.P2P.ListenAddr, cfg.DefraDB.P2P.Enabled)
 
 		// When accept_incoming is false (default), reject all incoming P2P documents.
@@ -182,13 +180,13 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			return err
 		}
 
-		// Get the identity context for batch signing
+		// Get the identity context for block signing
 		identityCtx, err := appsdk.GetIdentityContext(ctx, appCfg)
 		if err != nil {
-			logger.Sugar.Warnf("Failed to get identity context for batch signing: %v (batch signatures may not work)", err)
+			logger.Sugar.Warnf("Failed to get identity context for block signing: %v (block signatures may not work)", err)
 		} else {
 			ctx = identityCtx
-			logger.Sugar.Info("Identity context initialized for batch signing")
+			logger.Sugar.Info("Identity context initialized for block signing")
 		}
 
 	} else {
@@ -199,7 +197,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 
 		err = applySchemaViaHTTP(cfg.DefraDB.Url)
-		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+		if err != nil && !errors.IsErrAlreadyExists(err) {
 			return fmt.Errorf("failed to apply schema to external DefraDB: %v", err)
 		}
 	}
@@ -365,18 +363,18 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 			err := i.processBlock(ctx, client, blockHandler, nextBlockToProcess)
 			if err != nil {
-				if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
+				if errors.IsErrNotFound(err) {
 					// Block doesn't exist yet (we're ahead of the chain) - wait 3 seconds and try again
 					logger.Sugar.Infof("Block %d not available yet (ahead of chain), waiting 3s before retry...", nextBlockToProcess)
 					time.Sleep(3 * time.Second)
 					continue
-				} else if strings.Contains(err.Error(), "already exists") {
+				} else if errors.IsErrAlreadyExists(err) {
 					// Block already processed, move to next
 					logger.Sugar.Infof("Block %d already processed, moving to next", nextBlockToProcess)
 					nextBlockToProcess++
 					i.hasIndexedAtLeastOneBlock = true
 					continue
-				} else if strings.Contains(err.Error(), "transaction type not supported") {
+				} else if errors.IsErrUnsupportedTxType(err) {
 					// Skip problematic block
 					logger.Sugar.Warnf("Block %d has unsupported transaction types, skipping", nextBlockToProcess)
 					nextBlockToProcess++
@@ -501,10 +499,10 @@ func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.Eth
 			break
 		}
 
-		if strings.Contains(err.Error(), "already exists") {
+		if errors.IsErrAlreadyExists(err) {
 			// Block exists via P2P, but we still need to sign it with our identity
-			if _, signErr := blockHandler.CreateBatchSignatureForExistingBlock(ctx, blockNum, block.Hash, block, transactions, receipts); signErr != nil {
-				logger.Sugar.Warnf("Block %d: failed to create batch signature for existing block: %v", blockNum, signErr)
+			if _, signErr := blockHandler.CreateBlockSignatureForExistingBlock(ctx, blockNum, block.Hash, block, transactions, receipts); signErr != nil {
+				logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, signErr)
 			}
 			return nil
 		}
@@ -795,5 +793,5 @@ func (t *indexerQueueTracker) TrackBlock(_ context.Context, blockNumber int64, r
 		constants.CollectionLog:             result.LogIDs,
 		constants.CollectionAccessListEntry: result.AccessListIDs,
 	}
-	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, otherDocIDs, result.BatchSignatureID)
+	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, otherDocIDs, result.BlockSignatureID)
 }

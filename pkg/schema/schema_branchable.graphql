@@ -23,9 +23,9 @@ type Ethereum__Mainnet__Block @branchable {
     transactions: [Ethereum__Mainnet__Transaction] @relation(name: "block_transactions")
 }
 
-# BatchSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
+# BlockSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
 # Created in the same transaction as the block data, arrives via P2P together
-type Ethereum__Mainnet__BatchSignature @branchable {
+type Ethereum__Mainnet__BlockSignature @branchable {
     blockNumber: Int
     blockHash: String
     merkleRoot: String
@@ -37,7 +37,7 @@ type Ethereum__Mainnet__BatchSignature @branchable {
     createdAt: String
 }
 
-# SnapshotSignature seals a snapshot file with a Merkle root over per-block batch
+# SnapshotSignature seals a snapshot file with a Merkle root over per-block block
 # signature Merkle roots. Used for cross-indexer attestation and snapshot exchange.
 type Ethereum__Mainnet__SnapshotSignature @branchable {
     startBlock: Int
@@ -49,7 +49,7 @@ type Ethereum__Mainnet__SnapshotSignature @branchable {
     signatureValue: String
     snapshotFile: String
     createdAt: String
-    batchSigMerkleRoots: [String]
+    blockSigMerkleRoots: [String]
 }
 
 type Ethereum__Mainnet__Transaction @branchable {

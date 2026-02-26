@@ -27,19 +27,19 @@ type SnapshotSignatureData struct {
 	SignatureIdentity    string   `json:"signature_identity"`
 	SignatureValue       string   `json:"signature_value"`
 	CreatedAt            string   `json:"created_at"`
-	BatchSigMerkleRoots  []string `json:"batch_sig_merkle_roots,omitempty"`
+	BlockSigMerkleRoots  []string `json:"block_sig_merkle_roots,omitempty"`
 }
 
-// ComputeSnapshotMerkleRoot computes a Merkle root from per-block batch signature
+// ComputeSnapshotMerkleRoot computes a Merkle root from per-block block signature
 // Merkle roots. The input must be sorted by block number (ascending).
-// This mirrors the algorithm in defradb/internal/core/block/batch_signing.go.
-func ComputeSnapshotMerkleRoot(batchSigMerkleRoots [][]byte) []byte {
-	if len(batchSigMerkleRoots) == 0 {
+// This mirrors the algorithm in defradb/internal/core/block/block_signing.go.
+func ComputeSnapshotMerkleRoot(blockSigMerkleRoots [][]byte) []byte {
+	if len(blockSigMerkleRoots) == 0 {
 		return nil
 	}
 
-	hashes := make([][]byte, len(batchSigMerkleRoots))
-	for i, root := range batchSigMerkleRoots {
+	hashes := make([][]byte, len(blockSigMerkleRoots))
+	for i, root := range blockSigMerkleRoots {
 		hash := sha256.Sum256(root)
 		hashes[i] = hash[:]
 	}
@@ -64,17 +64,17 @@ func ComputeSnapshotMerkleRoot(batchSigMerkleRoots [][]byte) []byte {
 	return hashes[0]
 }
 
-// getBatchSigMerkleRoots queries DefraDB for batch signature Merkle roots
+// getBlockSigMerkleRoots queries DefraDB for block signature Merkle roots
 // in the given block range, returned sorted by blockNumber ASC.
-func getBatchSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBlock, endBlock int64) ([][]byte, int, error) {
+func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBlock, endBlock int64) ([][]byte, int, error) {
 	query := fmt.Sprintf(
 		`query { %s(filter: {blockNumber: {_geq: %d, _leq: %d}}, order: {blockNumber: ASC}) { merkleRoot } }`,
-		constants.CollectionBatchSignature, startBlock, endBlock,
+		constants.CollectionBlockSignature, startBlock, endBlock,
 	)
 
 	result := defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return nil, 0, fmt.Errorf("query batch signatures: %v", result.GQL.Errors[0])
+		return nil, 0, fmt.Errorf("query block signatures: %v", result.GQL.Errors[0])
 	}
 
 	data, ok := result.GQL.Data.(map[string]any)
@@ -82,7 +82,7 @@ func getBatchSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 		return nil, 0, nil
 	}
 
-	raw := data[constants.CollectionBatchSignature]
+	raw := data[constants.CollectionBlockSignature]
 	if raw == nil {
 		return nil, 0, nil
 	}
@@ -172,7 +172,7 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 		"signatureValue":      sig.SignatureValue,
 		"snapshotFile":        sig.SnapshotFile,
 		"createdAt":           sig.CreatedAt,
-		"batchSigMerkleRoots": sig.BatchSigMerkleRoots,
+		"blockSigMerkleRoots": sig.BlockSigMerkleRoots,
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
@@ -197,7 +197,7 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 // and returns them keyed by snapshot filename for easy lookup.
 func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[string]*SnapshotSignatureData, error) {
 	query := fmt.Sprintf(
-		`query { %s { startBlock endBlock merkleRoot blockCount signatureType signatureIdentity signatureValue snapshotFile createdAt batchSigMerkleRoots } }`,
+		`query { %s { startBlock endBlock merkleRoot blockCount signatureType signatureIdentity signatureValue snapshotFile createdAt blockSigMerkleRoots } }`,
 		constants.CollectionSnapshotSignature,
 	)
 
@@ -260,16 +260,16 @@ func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[str
 		if v, ok := doc["createdAt"].(string); ok {
 			sig.CreatedAt = v
 		}
-		if raw, ok := doc["batchSigMerkleRoots"]; ok && raw != nil {
+		if raw, ok := doc["blockSigMerkleRoots"]; ok && raw != nil {
 			switch typed := raw.(type) {
 			case []any:
 				for _, item := range typed {
 					if s, ok := item.(string); ok {
-						sig.BatchSigMerkleRoots = append(sig.BatchSigMerkleRoots, s)
+						sig.BlockSigMerkleRoots = append(sig.BlockSigMerkleRoots, s)
 					}
 				}
 			case []string:
-				sig.BatchSigMerkleRoots = typed
+				sig.BlockSigMerkleRoots = typed
 			}
 		}
 		if sig.SnapshotFile != "" {
@@ -280,11 +280,11 @@ func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[str
 	return sigs, nil
 }
 
-// signSnapshotWithRoots signs a snapshot using pre-queried batch sig roots.
+// signSnapshotWithRoots signs a snapshot using pre-queried block sig roots.
 // This avoids re-querying roots (which could race with concurrent block commits).
 func signSnapshotWithRoots(ctx context.Context, defraNode *node.Node, snapshotFilename string, startBlock, endBlock int64, roots [][]byte, blockCount int) error {
 	if len(roots) == 0 {
-		logger.Sugar.Warnf("Snapshot signing: no batch signatures found for blocks %d-%d, skipping signing", startBlock, endBlock)
+		logger.Sugar.Warnf("Snapshot signing: no block signatures found for blocks %d-%d, skipping signing", startBlock, endBlock)
 		return nil
 	}
 
@@ -301,10 +301,10 @@ func signSnapshotWithRoots(ctx context.Context, defraNode *node.Node, snapshotFi
 		return nil
 	}
 
-	// Convert batch sig roots to hex strings for storage
-	batchSigRootStrs := make([]string, len(roots))
+	// Convert block sig roots to hex strings for storage
+	blockSigRootStrs := make([]string, len(roots))
 	for i, r := range roots {
-		batchSigRootStrs[i] = hex.EncodeToString(r)
+		blockSigRootStrs[i] = hex.EncodeToString(r)
 	}
 
 	sig := &SnapshotSignatureData{
@@ -318,7 +318,7 @@ func signSnapshotWithRoots(ctx context.Context, defraNode *node.Node, snapshotFi
 		SignatureIdentity:   sigIdentity,
 		SignatureValue:      hex.EncodeToString(sigValue),
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
-		BatchSigMerkleRoots: batchSigRootStrs,
+		BlockSigMerkleRoots: blockSigRootStrs,
 	}
 
 	// Create DefraDB document
