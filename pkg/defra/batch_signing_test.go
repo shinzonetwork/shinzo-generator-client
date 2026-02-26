@@ -1,6 +1,7 @@
 package defra
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"sort"
@@ -214,7 +215,7 @@ func computeMerkleRootIndexer(cids []gocid.Cid) []byte {
 	sortedCids := make([]gocid.Cid, len(cids))
 	copy(sortedCids, cids)
 	sort.Slice(sortedCids, func(i, j int) bool {
-		return sortedCids[i].String() < sortedCids[j].String()
+		return bytes.Compare(sortedCids[i].Bytes(), sortedCids[j].Bytes()) < 0
 	})
 
 	// Hash each CID's raw bytes
@@ -265,7 +266,7 @@ func computeMerkleRootHost(cidStrings []string) []byte {
 
 	// Sort CIDs by their string representation
 	sort.Slice(parsedCids, func(i, j int) bool {
-		return parsedCids[i].String() < parsedCids[j].String()
+		return bytes.Compare(parsedCids[i].Bytes(), parsedCids[j].Bytes()) < 0
 	})
 
 	// Hash each CID's raw bytes

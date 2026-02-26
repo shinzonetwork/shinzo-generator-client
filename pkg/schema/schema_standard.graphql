@@ -30,6 +30,7 @@ type Ethereum__Mainnet__BatchSignature {
     blockHash: String
     merkleRoot: String
     cidCount: Int
+    cids: [String]
     signatureType: String
     signatureIdentity: String
     signatureValue: String

@@ -277,7 +277,8 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 		}
 
 		// Create a separate BatchSignature document (not embedded in block)
-		batchSigDoc, err := h.buildBatchSignatureDocument(ctx, batchSig, block.Hash, blockInt, colBatchSig)
+		sortedCIDs := node.SortedCIDStrings(collectedCIDs)
+		batchSigDoc, err := h.buildBatchSignatureDocument(ctx, batchSig, block.Hash, blockInt, colBatchSig, sortedCIDs)
 		if err != nil {
 			logger.Sugar.Warnf("Block %d: failed to build batch signature document: %v", blockInt, err)
 		} else {
@@ -416,12 +417,13 @@ func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessLi
 }
 
 // buildBatchSignatureDocument creates a client.Document for a batch signature
-func (h *BlockHandler) buildBatchSignatureDocument(ctx context.Context, batchSig *node.BatchSignature, blockHash string, blockNumber int64, col client.Collection) (*client.Document, error) {
+func (h *BlockHandler) buildBatchSignatureDocument(ctx context.Context, batchSig *node.BatchSignature, blockHash string, blockNumber int64, col client.Collection, sortedCIDStrings []string) (*client.Document, error) {
 	data := map[string]any{
 		"blockNumber":       blockNumber,
 		"blockHash":         blockHash,
 		"merkleRoot":        hex.EncodeToString(batchSig.MerkleRoot),
 		"cidCount":          batchSig.CIDCount,
+		"cids":              sortedCIDStrings,
 		"signatureType":     batchSig.Header.Type,
 		"signatureIdentity": string(batchSig.Header.Identity),
 		"signatureValue":    hex.EncodeToString(batchSig.Value),
@@ -627,7 +629,8 @@ func (h *BlockHandler) CreateBatchSignatureForExistingBlock(
 		return "", fmt.Errorf("failed to get batch signature collection: %w", err)
 	}
 
-	batchSigDoc, err := h.buildBatchSignatureDocument(sigCtx, batchSig, blockHash, blockNumber, colBatchSig)
+	sortedCIDs := node.SortedCIDStrings(cids)
+	batchSigDoc, err := h.buildBatchSignatureDocument(sigCtx, batchSig, blockHash, blockNumber, colBatchSig, sortedCIDs)
 	if err != nil {
 		sigTxn.Discard()
 		return "", fmt.Errorf("failed to build batch signature document: %w", err)
@@ -939,7 +942,8 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 					sigTxn.Discard()
 					logger.Sugar.Warnf("Block %d: failed to get batch signature collection: %v", blockInt, err)
 				} else {
-					batchSigDoc, err := h.buildBatchSignatureDocument(sigCtx, batchSig, block.Hash, blockInt, colBatchSig)
+					sortedCIDs := node.SortedCIDStrings(collectedCIDs)
+					batchSigDoc, err := h.buildBatchSignatureDocument(sigCtx, batchSig, block.Hash, blockInt, colBatchSig, sortedCIDs)
 					if err != nil {
 						sigTxn.Discard()
 						logger.Sugar.Warnf("Block %d: failed to build batch signature document: %v", blockInt, err)
@@ -988,17 +992,17 @@ func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error)
 		return 0, errors.NewQueryFailed("defra", "GetHighestBlockNumber", query, result.GQL.Errors[0])
 	}
 
-	data, ok := result.GQL.Data.(map[string]interface{})
+	data, ok := result.GQL.Data.(map[string]any)
 	if !ok {
 		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "no data")
 	}
 
-	blockArray, ok := data[constants.CollectionBlock].([]interface{})
+	blockArray, ok := data[constants.CollectionBlock].([]any)
 	if !ok || len(blockArray) == 0 {
 		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "no blocks")
 	}
 
-	block, ok := blockArray[0].(map[string]interface{})
+	block, ok := blockArray[0].(map[string]any)
 	if !ok {
 		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "invalid format")
 	}
