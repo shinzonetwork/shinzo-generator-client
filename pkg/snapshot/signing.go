@@ -17,16 +17,17 @@ import (
 
 // SnapshotSignatureData holds the cryptographic signature for a snapshot file.
 type SnapshotSignatureData struct {
-	Version           int    `json:"version"`
-	SnapshotFile      string `json:"snapshot_file"`
-	StartBlock        int64  `json:"start_block"`
-	EndBlock          int64  `json:"end_block"`
-	MerkleRoot        string `json:"merkle_root"`
-	BlockCount        int    `json:"block_count"`
-	SignatureType     string `json:"signature_type"`
-	SignatureIdentity string `json:"signature_identity"`
-	SignatureValue    string `json:"signature_value"`
-	CreatedAt         string `json:"created_at"`
+	Version              int      `json:"version"`
+	SnapshotFile         string   `json:"snapshot_file"`
+	StartBlock           int64    `json:"start_block"`
+	EndBlock             int64    `json:"end_block"`
+	MerkleRoot           string   `json:"merkle_root"`
+	BlockCount           int      `json:"block_count"`
+	SignatureType        string   `json:"signature_type"`
+	SignatureIdentity    string   `json:"signature_identity"`
+	SignatureValue       string   `json:"signature_value"`
+	CreatedAt            string   `json:"created_at"`
+	BatchSigMerkleRoots  []string `json:"batch_sig_merkle_roots,omitempty"`
 }
 
 // ComputeSnapshotMerkleRoot computes a Merkle root from per-block batch signature
@@ -162,15 +163,16 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 	}
 
 	data := map[string]any{
-		"startBlock":        sig.StartBlock,
-		"endBlock":          sig.EndBlock,
-		"merkleRoot":        sig.MerkleRoot,
-		"blockCount":        sig.BlockCount,
-		"signatureType":     sig.SignatureType,
-		"signatureIdentity": sig.SignatureIdentity,
-		"signatureValue":    sig.SignatureValue,
-		"snapshotFile":      sig.SnapshotFile,
-		"createdAt":         sig.CreatedAt,
+		"startBlock":          sig.StartBlock,
+		"endBlock":            sig.EndBlock,
+		"merkleRoot":          sig.MerkleRoot,
+		"blockCount":          sig.BlockCount,
+		"signatureType":       sig.SignatureType,
+		"signatureIdentity":   sig.SignatureIdentity,
+		"signatureValue":      sig.SignatureValue,
+		"snapshotFile":        sig.SnapshotFile,
+		"createdAt":           sig.CreatedAt,
+		"batchSigMerkleRoots": sig.BatchSigMerkleRoots,
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
@@ -195,7 +197,7 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 // and returns them keyed by snapshot filename for easy lookup.
 func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[string]*SnapshotSignatureData, error) {
 	query := fmt.Sprintf(
-		`query { %s { startBlock endBlock merkleRoot blockCount signatureType signatureIdentity signatureValue snapshotFile createdAt } }`,
+		`query { %s { startBlock endBlock merkleRoot blockCount signatureType signatureIdentity signatureValue snapshotFile createdAt batchSigMerkleRoots } }`,
 		constants.CollectionSnapshotSignature,
 	)
 
@@ -258,25 +260,24 @@ func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[str
 		if v, ok := doc["createdAt"].(string); ok {
 			sig.CreatedAt = v
 		}
+		if raw, ok := doc["batchSigMerkleRoots"]; ok && raw != nil {
+			switch typed := raw.(type) {
+			case []any:
+				for _, item := range typed {
+					if s, ok := item.(string); ok {
+						sig.BatchSigMerkleRoots = append(sig.BatchSigMerkleRoots, s)
+					}
+				}
+			case []string:
+				sig.BatchSigMerkleRoots = typed
+			}
+		}
 		if sig.SnapshotFile != "" {
 			sigs[sig.SnapshotFile] = sig
 		}
 	}
 
 	return sigs, nil
-}
-
-// signSnapshot performs the full signing flow after a snapshot file is created:
-// 1. Queries batch signature Merkle roots for the block range
-// 2. Computes the snapshot Merkle root
-// 3. Signs it with the indexer's identity
-// 4. Creates SnapshotSignature document in DefraDB
-func signSnapshot(ctx context.Context, defraNode *node.Node, snapshotFilename string, startBlock, endBlock int64) error {
-	roots, blockCount, err := getBatchSigMerkleRoots(ctx, defraNode, startBlock, endBlock)
-	if err != nil {
-		return fmt.Errorf("get batch sig merkle roots: %w", err)
-	}
-	return signSnapshotWithRoots(ctx, defraNode, snapshotFilename, startBlock, endBlock, roots, blockCount)
 }
 
 // signSnapshotWithRoots signs a snapshot using pre-queried batch sig roots.
@@ -300,17 +301,24 @@ func signSnapshotWithRoots(ctx context.Context, defraNode *node.Node, snapshotFi
 		return nil
 	}
 
+	// Convert batch sig roots to hex strings for storage
+	batchSigRootStrs := make([]string, len(roots))
+	for i, r := range roots {
+		batchSigRootStrs[i] = hex.EncodeToString(r)
+	}
+
 	sig := &SnapshotSignatureData{
-		Version:           1,
-		SnapshotFile:      snapshotFilename,
-		StartBlock:        startBlock,
-		EndBlock:          endBlock,
-		MerkleRoot:        hex.EncodeToString(snapshotRoot),
-		BlockCount:        blockCount,
-		SignatureType:     sigType,
-		SignatureIdentity: sigIdentity,
-		SignatureValue:    hex.EncodeToString(sigValue),
-		CreatedAt:         time.Now().UTC().Format(time.RFC3339),
+		Version:             1,
+		SnapshotFile:        snapshotFilename,
+		StartBlock:          startBlock,
+		EndBlock:            endBlock,
+		MerkleRoot:          hex.EncodeToString(snapshotRoot),
+		BlockCount:          blockCount,
+		SignatureType:       sigType,
+		SignatureIdentity:   sigIdentity,
+		SignatureValue:      hex.EncodeToString(sigValue),
+		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+		BatchSigMerkleRoots: batchSigRootStrs,
 	}
 
 	// Create DefraDB document

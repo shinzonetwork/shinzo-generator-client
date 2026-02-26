@@ -49,6 +49,7 @@ type Ethereum__Mainnet__SnapshotSignature {
     signatureValue: String
     snapshotFile: String
     createdAt: String
+    batchSigMerkleRoots: [String]
 }
 
 type Ethereum__Mainnet__Transaction {
