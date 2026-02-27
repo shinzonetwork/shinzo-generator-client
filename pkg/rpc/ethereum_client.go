@@ -184,8 +184,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, erro
 	for retries := 0; retries < 8; retries++ {
 		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
 		if err != nil {
-			if strings.Contains(err.Error(), "transaction type not supported") ||
-				strings.Contains(err.Error(), "invalid transaction type") {
+			if errors.IsErrUnsupportedTxType(err) {
 
 				if retries < 7 {
 					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks

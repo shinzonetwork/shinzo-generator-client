@@ -5,6 +5,7 @@ defradb:
   embedded: true
   p2p:
     enabled: true
+    accept_incoming: false          # Accept incoming P2P documents. false = reject all (indexer is source of truth).
     bootstrap_peers: []
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed

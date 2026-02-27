@@ -89,8 +89,8 @@ func runVerify(args []string) {
 		}
 
 		if result.Valid {
-			fmt.Printf("PASS: %s (blocks %d-%d, %d batch sigs, signed by %s)\n",
-				file, result.StartBlock, result.EndBlock, result.BatchSigsFound, truncateID(result.SignerIdentity))
+			fmt.Printf("PASS: %s (blocks %d-%d, %d block sigs, signed by %s)\n",
+				file, result.StartBlock, result.EndBlock, result.BlockSigsFound, truncateID(result.SignerIdentity))
 		} else {
 			fmt.Fprintf(os.Stderr, "FAIL: %s — %s\n", file, result.Error)
 			allValid = false

@@ -19,7 +19,7 @@ type VerifyResult struct {
 	StartBlock        int64  `json:"start_block"`
 	EndBlock          int64  `json:"end_block"`
 	BlockCount        int    `json:"block_count"`
-	BatchSigsFound    int    `json:"batch_sigs_found"`
+	BlockSigsFound    int    `json:"block_sigs_found"`
 	MerkleRootMatch   bool   `json:"merkle_root_match"`
 	SignatureValid    bool   `json:"signature_valid"`
 	SignerIdentity    string `json:"signer_identity"`
@@ -27,7 +27,7 @@ type VerifyResult struct {
 }
 
 // VerifySnapshot verifies a snapshot file against its sidecar signature.
-// It reads the snapshot to extract batch signature Merkle roots, recomputes
+// It reads the snapshot to extract block signature Merkle roots, recomputes
 // the snapshot Merkle root, and verifies both the root match and the
 // cryptographic signature.
 func VerifySnapshot(snapshotPath string) (*VerifyResult, error) {
@@ -56,16 +56,16 @@ func VerifySnapshotWithSig(snapshotPath string, sig *SnapshotSignatureData) (*Ve
 		SignerIdentity: sig.SignatureIdentity,
 	}
 
-	// Extract batch sig merkle roots from the snapshot file
-	roots, err := extractBatchSigMerkleRoots(snapshotPath)
+	// Extract block sig merkle roots from the snapshot file
+	roots, err := extractBlockSigMerkleRoots(snapshotPath)
 	if err != nil {
-		result.Error = fmt.Sprintf("extract batch sig roots: %v", err)
+		result.Error = fmt.Sprintf("extract block sig roots: %v", err)
 		return result, nil
 	}
-	result.BatchSigsFound = len(roots)
+	result.BlockSigsFound = len(roots)
 
 	if len(roots) == 0 {
-		result.Error = "no batch signatures found in snapshot"
+		result.Error = "no block signatures found in snapshot"
 		return result, nil
 	}
 
@@ -124,9 +124,9 @@ func VerifySnapshotWithSig(snapshotPath string, sig *SnapshotSignatureData) (*Ve
 	return result, nil
 }
 
-// extractBatchSigMerkleRoots reads a snapshot file and extracts the merkleRoot
-// values from batch_signature entries, in the order they appear (by blockNumber ASC).
-func extractBatchSigMerkleRoots(snapshotPath string) ([][]byte, error) {
+// extractBlockSigMerkleRoots reads a snapshot file and extracts the merkleRoot
+// values from block_signature entries, in the order they appear (by blockNumber ASC).
+func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 	f, err := os.Open(snapshotPath)
 	if err != nil {
 		return nil, fmt.Errorf("open snapshot: %w", err)
@@ -157,7 +157,7 @@ func extractBatchSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 			continue
 		}
 
-		if entry.Type != "batch_signature" || entry.Data == nil {
+		if entry.Type != "block_signature" || entry.Data == nil {
 			continue
 		}
 
