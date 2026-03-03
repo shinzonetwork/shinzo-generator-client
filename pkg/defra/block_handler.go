@@ -998,14 +998,25 @@ func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error)
 		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "no data")
 	}
 
-	blockArray, ok := data[constants.CollectionBlock].([]any)
-	if !ok || len(blockArray) == 0 {
+	// DefraDB ExecRequest may return []any or []map[string]any depending on context
+	var block map[string]any
+	switch arr := data[constants.CollectionBlock].(type) {
+	case []any:
+		if len(arr) == 0 {
+			return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "no blocks")
+		}
+		var ok bool
+		block, ok = arr[0].(map[string]any)
+		if !ok {
+			return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "invalid format")
+		}
+	case []map[string]any:
+		if len(arr) == 0 {
+			return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "no blocks")
+		}
+		block = arr[0]
+	default:
 		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "no blocks")
-	}
-
-	block, ok := blockArray[0].(map[string]any)
-	if !ok {
-		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", constants.CollectionBlock, "invalid format")
 	}
 
 	switch v := block["number"].(type) {
