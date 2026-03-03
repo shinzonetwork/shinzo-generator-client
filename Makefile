@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage bootstrap playground stop integration-test docker-build docker-up docker-down deploy
+.PHONY: deps env build start clean defradb gitpush test test-branchable testrpc coverage bootstrap playground stop integration-test docker-build docker-up docker-down deploy
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -65,6 +65,12 @@ test:
 	echo ""; \
 	rm -f /tmp/test_output.log; \
 	exit $$exit_code
+
+test-branchable:
+	go test -tags branchable ./pkg/schema/ -v -coverprofile=schema_branch.out
+	@echo ""
+	@echo "Coverage:"
+	@go tool cover -func=schema_branch.out | tail -1
 
 test-local:
 	@echo "🧪 Running local indexer test with Geth endpoint..."
