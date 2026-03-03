@@ -8,13 +8,13 @@ import (
 
 // Error substring constants for matching upstream errors that don't use typed errors.
 const (
-	ErrStrNotFound               = "not found"
-	ErrStrDoesNotExist           = "does not exist"
-	ErrStrAlreadyExists          = "already exists"
+	ErrStrNotFound                = "not found"
+	ErrStrDoesNotExist            = "does not exist"
+	ErrStrAlreadyExists           = "already exists"
 	ErrStrCollectionAlreadyExists = "collection already exists"
-	ErrStrTransactionConflict    = "transaction conflict"
-	ErrStrTxTypeNotSupported     = "transaction type not supported"
-	ErrStrInvalidTxType          = "invalid transaction type"
+	ErrStrTransactionConflict     = "transaction conflict"
+	ErrStrTxTypeNotSupported      = "transaction type not supported"
+	ErrStrInvalidTxType           = "invalid transaction type"
 )
 
 // IsErrNotFound checks if an error message indicates a "not found" condition.
@@ -144,16 +144,16 @@ func WrapError(err error, component, operation string) IndexerError {
 	// Create generic error wrapper
 	return &SystemError{
 		baseError: newBaseError("WRAPPED_ERROR", "Wrapped standard error", Error, NonRetryable,
-			component, operation, "", err, nil),
+			component, operation, "", err),
 	}
 }
 
 // LogContext extracts structured logging context from error
-func LogContext(err error) map[string]interface{} {
+func LogContext(err error) map[string]any {
 	var indexerErr IndexerError
 	if errors.As(err, &indexerErr) {
 		ctx := indexerErr.Context()
-		logCtx := map[string]interface{}{
+		logCtx := map[string]any{
 			"error_code": indexerErr.Code(),
 			"severity":   indexerErr.Severity().String(),
 			"retryable":  indexerErr.Retryable().String(),
@@ -178,7 +178,7 @@ func LogContext(err error) map[string]interface{} {
 		return logCtx
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"error":      err.Error(),
 		"error_type": "standard_error",
 	}
