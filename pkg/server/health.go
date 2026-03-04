@@ -28,12 +28,13 @@ var (
 
 // HealthServer provides HTTP endpoints for health checks and metrics
 type HealthServer struct {
-	server      *http.Server
-	mux         *http.ServeMux
-	indexer     HealthChecker
-	defraURL    string
-	snapshotter *snapshot.Snapshotter
-	defraNode   *node.Node
+	server              *http.Server
+	mux                 *http.ServeMux
+	indexer             HealthChecker
+	defraURL            string
+	snapshotter         *snapshot.Snapshotter
+	defraNode           *node.Node
+	querySnapshotSigsFn func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error)
 }
 
 // HealthChecker interface for checking indexer health
@@ -111,9 +112,10 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 5 * time.Minute, // large snapshot files need time to transfer
 		},
-		mux:      mux,
-		indexer:  indexer,
-		defraURL: defraURL,
+		mux:                 mux,
+		indexer:             indexer,
+		defraURL:            defraURL,
+		querySnapshotSigsFn: snapshot.QuerySnapshotSignatures,
 	}
 
 	// Register routes
@@ -375,7 +377,7 @@ func (hs *HealthServer) snapshotsListHandler(w http.ResponseWriter, r *http.Requ
 	var sigs map[string]*snapshot.SnapshotSignatureData
 	if hs.defraNode != nil {
 		var err error
-		sigs, err = snapshot.QuerySnapshotSignatures(r.Context(), hs.defraNode)
+		sigs, err = hs.querySnapshotSigsFn(r.Context(), hs.defraNode)
 		if err != nil {
 			logger.Sugar.Warnf("Failed to query snapshot signatures: %v", err)
 		}
@@ -528,7 +530,11 @@ func normalizeHex(s string) string {
 
 // getBuildTags returns the build tags used to compile the binary
 func getBuildTags() string {
-	if schema.IsBranchable() {
+	return buildTagsFor(schema.IsBranchable())
+}
+
+func buildTagsFor(branchable bool) string {
+	if branchable {
 		return "branchable"
 	}
 	return "standard"
@@ -536,7 +542,11 @@ func getBuildTags() string {
 
 // getSchemaType returns the schema type based on build tags
 func getSchemaType() string {
-	if schema.IsBranchable() {
+	return schemaTypeFor(schema.IsBranchable())
+}
+
+func schemaTypeFor(branchable bool) string {
+	if branchable {
 		return "branchable"
 	}
 	return "non-branchable"
