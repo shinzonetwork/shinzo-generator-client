@@ -332,6 +332,13 @@ func TestWaitForDefraDB_FailureInvalidURL(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to become ready")
 }
 
+func TestWaitForDefraDB_InvalidRequestURL(t *testing.T) {
+	// URL with control character causes NewRequestWithContext to fail
+	err := WaitForDefraDB("http://\x7f")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create request")
+}
+
 // ---------------------------------------------------------------------------
 // SetDocIDTracker tests
 // ---------------------------------------------------------------------------

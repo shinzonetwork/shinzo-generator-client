@@ -7,14 +7,23 @@ import (
 	"strconv"
 	"time"
 
+	cid "github.com/ipfs/go-cid"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
+
+// blockDB abstracts the DB operations used by BlockHandler for testability.
+type blockDB interface {
+	NewBlindWriteTxn() (client.Txn, error)
+	InitContext(ctx context.Context, txn client.Txn) context.Context
+	ExecRequest(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult
+}
 
 // retryBackoff returns an exponential backoff duration capped at 8 seconds.
 func retryBackoff(attempt int) time.Duration {
@@ -44,9 +53,16 @@ type DocIDTrackerInterface interface {
 }
 
 type BlockHandler struct {
-	defraNode     *node.Node            // Direct access to embedded DefraDB
+	db            blockDB               // DB interface (from defraNode.DB)
 	maxDocsPerTxn int                   // Threshold for single-txn vs batched block creation
 	docIDTracker  DocIDTrackerInterface // Optional tracker for docIDs
+
+	// Injectable functions for testability (set to defaults in NewBlockHandler)
+	signBlockFn      func(ctx context.Context, collector *node.BlockCIDCollector) (*node.BlockSignature, error)
+	verifyBlockSigFn func(sig *node.BlockSignature, cids []cid.Cid) (bool, error)
+	collectDocCIDsFn func(ctx context.Context, docIDs []string) ([]cid.Cid, error)
+	maxCIDRetries    int
+	retryBackoffFn   func(int) time.Duration
 
 	// Document throughput metrics
 	metricsWindowStart  time.Time
@@ -77,8 +93,13 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int) (*BlockHandler, er
 		maxDocsPerTxn = 1000
 	}
 	return &BlockHandler{
-		defraNode:     defraNode,
-		maxDocsPerTxn: maxDocsPerTxn,
+		db:               defraNode.DB,
+		maxDocsPerTxn:    maxDocsPerTxn,
+		signBlockFn:      node.SignBlock,
+		verifyBlockSigFn: node.VerifyBlockSignatureCIDs,
+		collectDocCIDsFn: node.CollectDocumentCIDs,
+		maxCIDRetries:    15,
+		retryBackoffFn:   retryBackoff,
 	}, nil
 }
 
@@ -89,7 +110,7 @@ func (h *BlockHandler) SetDocIDTracker(tracker DocIDTrackerInterface) {
 
 // CreateBlockBatch creates a block with all its transactions, logs, and access list entries.
 func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block, transactions []*types.Transaction, receipts []*types.TransactionReceipt) (string, error) {
-	if h.defraNode == nil {
+	if h.db == nil {
 		return "", errors.NewConfigurationError("defra", "CreateBlockBatch",
 			"batch creation requires embedded DefraDB node", "", nil)
 	}
@@ -135,11 +156,11 @@ func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block,
 // This ensures all documents arrive via P2P together, and the host can listen for
 // BlockSignature events to create attestations.
 func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
-	txn, err := h.defraNode.DB.NewBlindWriteTxn()
+	txn, err := h.db.NewBlindWriteTxn()
 	if err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create transaction", err)
 	}
-	ctx = h.defraNode.DB.InitContext(ctx, txn)
+	ctx = h.db.InitContext(ctx, txn)
 
 	// Enable block signing mode - collect CIDs instead of signing each document
 	collector := node.NewBlockCIDCollector()
@@ -275,11 +296,11 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 	expectedDocs := 1 + len(transactions) + len(logDocs) + len(aleDocs)
 
 	var blockSigDocID string
-	blockSig, err := node.SignBlock(ctx, collector)
+	blockSig, err := h.signBlockFn(ctx, collector)
 	if err != nil {
 		logger.Sugar.Warnf("Failed to create block signature for block %d: %v", blockInt, err)
 	} else if blockSig != nil {
-		valid, verifyErr := node.VerifyBlockSignatureCIDs(blockSig, collectedCIDs)
+		valid, verifyErr := h.verifyBlockSigFn(blockSig, collectedCIDs)
 		if verifyErr != nil {
 			logger.Sugar.Warnf("Block %d: block signature verification error: %v", blockInt, verifyErr)
 		} else if !valid {
@@ -452,17 +473,17 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 	transactions []*types.Transaction,
 	receipts []*types.TransactionReceipt,
 ) (string, error) {
-	if h.defraNode == nil {
+	if h.db == nil {
 		return "", fmt.Errorf("defraNode is nil")
 	}
 
 	// Build all documents in memory to compute deterministic docIDs.
 	// We need collection versions, so use a temporary transaction.
-	tmpTxn, err := h.defraNode.DB.NewBlindWriteTxn()
+	tmpTxn, err := h.db.NewBlindWriteTxn()
 	if err != nil {
 		return "", fmt.Errorf("failed to create transaction: %w", err)
 	}
-	tmpCtx := h.defraNode.DB.InitContext(ctx, tmpTxn)
+	tmpCtx := h.db.InitContext(ctx, tmpTxn)
 
 	colBlock, err := tmpTxn.GetCollectionByName(tmpCtx, constants.CollectionBlock)
 	if err != nil {
@@ -560,27 +581,27 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 	tmpTxn.Discard()
 
 	// Collect CIDs from headstore with retry (P2P data may still be arriving)
-	const maxRetries = 15
+	maxRetries := h.maxCIDRetries
 	var lastCIDCount int
 	var lastErr error
 
 	for attempt := range maxRetries {
-		cidTxn, err := h.defraNode.DB.NewBlindWriteTxn()
+		cidTxn, err := h.db.NewBlindWriteTxn()
 		if err != nil {
 			lastErr = err
 			if attempt < maxRetries-1 {
-				time.Sleep(retryBackoff(attempt))
+				time.Sleep(h.retryBackoffFn(attempt))
 			}
 			continue
 		}
-		cidCtx := h.defraNode.DB.InitContext(ctx, cidTxn)
-		cids, err := node.CollectDocumentCIDs(cidCtx, allDocIDs)
+		cidCtx := h.db.InitContext(ctx, cidTxn)
+		cids, err := h.collectDocCIDsFn(cidCtx, allDocIDs)
 		cidTxn.Discard()
 
 		if err != nil {
 			lastErr = err
 			if attempt < maxRetries-1 {
-				time.Sleep(retryBackoff(attempt))
+				time.Sleep(h.retryBackoffFn(attempt))
 			}
 			continue
 		}
@@ -594,7 +615,7 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 		if attempt < maxRetries-1 {
 			logger.Sugar.Debugf("Block %d: waiting for P2P data (%d/%d CIDs, attempt %d/%d)",
 				blockNumber, len(cids), len(allDocIDs), attempt+1, maxRetries)
-			time.Sleep(retryBackoff(attempt))
+			time.Sleep(h.retryBackoffFn(attempt))
 		}
 	}
 
@@ -604,13 +625,13 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 	}
 
 	// Final CID collection + signing in one transaction
-	sigTxn, err := h.defraNode.DB.NewBlindWriteTxn()
+	sigTxn, err := h.db.NewBlindWriteTxn()
 	if err != nil {
 		return "", fmt.Errorf("failed to create signing transaction: %w", err)
 	}
-	sigCtx := h.defraNode.DB.InitContext(ctx, sigTxn)
+	sigCtx := h.db.InitContext(ctx, sigTxn)
 
-	cids, err := node.CollectDocumentCIDs(sigCtx, allDocIDs)
+	cids, err := h.collectDocCIDsFn(sigCtx, allDocIDs)
 	if err != nil {
 		sigTxn.Discard()
 		return "", fmt.Errorf("failed to collect CIDs for signing: %w", err)
@@ -621,7 +642,7 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 		collector.Add(c)
 	}
 
-	blockSig, err := node.SignBlock(sigCtx, collector)
+	blockSig, err := h.signBlockFn(sigCtx, collector)
 	if err != nil {
 		sigTxn.Discard()
 		return "", fmt.Errorf("failed to sign block: %w", err)
@@ -676,12 +697,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	ctx = node.ContextWithBlockSigning(ctx, collector)
 
 	// First batch: Create the block document
-	txn, err := h.defraNode.DB.NewBlindWriteTxn()
+	txn, err := h.db.NewBlindWriteTxn()
 	if err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
 	}
 
-	ctx = h.defraNode.DB.InitContext(ctx, txn)
+	ctx = h.db.InitContext(ctx, txn)
 
 	colBlock, err := txn.GetCollectionByName(ctx, constants.CollectionBlock)
 	if err != nil {
@@ -726,12 +747,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 
-		txn, err = h.defraNode.DB.NewBlindWriteTxn()
+		txn, err = h.db.NewBlindWriteTxn()
 		if err != nil {
 			batchErrors = append(batchErrors, fmt.Errorf("create txn for tx batch: %w", err))
 			continue
 		}
-		ctx = h.defraNode.DB.InitContext(ctx, txn)
+		ctx = h.db.InitContext(ctx, txn)
 
 		colTx, err := txn.GetCollectionByName(ctx, constants.CollectionTransaction)
 		if err != nil {
@@ -800,12 +821,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 			continue
 		}
 
-		txn, err = h.defraNode.DB.NewBlindWriteTxn()
+		txn, err = h.db.NewBlindWriteTxn()
 		if err != nil {
 			batchErrors = append(batchErrors, fmt.Errorf("create txn for log batch: %w", err))
 			continue
 		}
-		ctx = h.defraNode.DB.InitContext(ctx, txn)
+		ctx = h.db.InitContext(ctx, txn)
 
 		colLog, err := txn.GetCollectionByName(ctx, constants.CollectionLog)
 		if err != nil {
@@ -865,12 +886,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 
 		batch := allALEs[i:end]
 
-		txn, err = h.defraNode.DB.NewBlindWriteTxn()
+		txn, err = h.db.NewBlindWriteTxn()
 		if err != nil {
 			batchErrors = append(batchErrors, fmt.Errorf("create txn for ALE batch: %w", err))
 			continue
 		}
-		ctx = h.defraNode.DB.InitContext(ctx, txn)
+		ctx = h.db.InitContext(ctx, txn)
 
 		colALE, err := txn.GetCollectionByName(ctx, constants.CollectionAccessListEntry)
 		if err != nil {
@@ -916,18 +937,18 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	{
 		collectedCIDs := collector.GetCIDs()
 
-		sigTxn, err := h.defraNode.DB.NewBlindWriteTxn()
+		sigTxn, err := h.db.NewBlindWriteTxn()
 		if err != nil {
 			logger.Sugar.Warnf("Block %d: failed to create txn for block signature: %v", blockInt, err)
 		} else {
-			sigCtx := h.defraNode.DB.InitContext(ctx, sigTxn)
+			sigCtx := h.db.InitContext(ctx, sigTxn)
 
-			blockSig, err := node.SignBlock(sigCtx, collector)
+			blockSig, err := h.signBlockFn(sigCtx, collector)
 			if err != nil {
 				sigTxn.Discard()
 				logger.Sugar.Warnf("Failed to create block signature for block %d: %v", blockInt, err)
 			} else if blockSig != nil {
-				valid, verifyErr := node.VerifyBlockSignatureCIDs(blockSig, collectedCIDs)
+				valid, verifyErr := h.verifyBlockSigFn(blockSig, collectedCIDs)
 				if verifyErr != nil {
 					logger.Sugar.Warnf("Block %d: block signature verification error: %v", blockInt, verifyErr)
 				} else if !valid {
@@ -988,7 +1009,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error) {
 	query := `query {` + constants.CollectionBlock + ` (order: {number: DESC}, limit: 1) { number }}`
 
-	result := h.defraNode.DB.ExecRequest(ctx, query)
+	result := h.db.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
 		return 0, errors.NewQueryFailed("defra", "GetHighestBlockNumber", query, result.GQL.Errors[0])
 	}
