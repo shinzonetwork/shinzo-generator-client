@@ -1687,6 +1687,76 @@ func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 	assert.Equal(t, "0x0000000000000000000000000000000000000000", localTx.From)
 }
 
+// --- GetFromAddress FrontierSigner fallback (high-s value) ---
+
+func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
+	// Craft a pre-EIP-155 tx where HomesteadSigner rejects (s > secp256k1HalfN)
+	// but FrontierSigner accepts. We sign normally, then flip s to s' = N - s
+	// and adjust v, producing a valid but "non-canonical" signature.
+	key, expectedAddr := defaultTestKey()
+
+	inner := &ethtypes.LegacyTx{
+		Nonce:    42,
+		GasPrice: big.NewInt(20000000000),
+		Gas:      21000,
+		To:       toPtr(common.HexToAddress("0xto")),
+		Value:    big.NewInt(1000),
+	}
+
+	// Sign with FrontierSigner to get a valid pre-EIP-155 signature
+	signer := ethtypes.FrontierSigner{}
+	signedTx, err := ethtypes.SignNewTx(key, signer, inner)
+	require.NoError(t, err)
+
+	// Extract V, R, S
+	v, r, s := signedTx.RawSignatureValues()
+
+	// secp256k1 curve order N
+	secp256k1N, _ := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+	secp256k1HalfN := new(big.Int).Div(secp256k1N, big.NewInt(2))
+
+	// If s is already > halfN, the original signature works. Otherwise flip it.
+	newS := new(big.Int).Set(s)
+	newV := new(big.Int).Set(v)
+	if s.Cmp(secp256k1HalfN) <= 0 {
+		// Flip s: s' = N - s
+		newS.Sub(secp256k1N, s)
+		// Flip recovery bit: 27 ↔ 28
+		if v.Int64() == 27 {
+			newV.SetInt64(28)
+		} else {
+			newV.SetInt64(27)
+		}
+	}
+
+	// Create a new tx with the high-s signature
+	highSTx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    42,
+		GasPrice: big.NewInt(20000000000),
+		Gas:      21000,
+		To:       toPtr(common.HexToAddress("0xto")),
+		Value:    big.NewInt(1000),
+		V:        newV,
+		R:        r,
+		S:        newS,
+	})
+
+	// Verify: HomesteadSigner should reject (s > halfN)
+	_, homesteadErr := ethtypes.Sender(ethtypes.HomesteadSigner{}, highSTx)
+	require.Error(t, homesteadErr, "HomesteadSigner should reject high-s signature")
+
+	// Verify: FrontierSigner should accept
+	from, frontierErr := ethtypes.Sender(ethtypes.FrontierSigner{}, highSTx)
+	require.NoError(t, frontierErr, "FrontierSigner should accept high-s signature")
+	assert.Equal(t, expectedAddr, from)
+
+	// Now test GetFromAddress — it should succeed via the FrontierSigner fallback path
+	addr, err := GetFromAddress(highSTx)
+	require.NoError(t, err)
+	require.NotNil(t, addr)
+	assert.Equal(t, expectedAddr, *addr)
+}
+
 // --- Test helpers ---
 
 func toPtr(addr common.Address) *common.Address {
