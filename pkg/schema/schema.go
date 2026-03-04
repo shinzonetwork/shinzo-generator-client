@@ -22,7 +22,11 @@ func GetBranchableSchema() string {
 
 // GetSchemaForBuild returns the appropriate schema based on build tags.
 func GetSchemaForBuild() string {
-	if IsBranchable() {
+	return schemaForBuild(IsBranchable())
+}
+
+func schemaForBuild(branchable bool) string {
+	if branchable {
 		return GetBranchableSchema()
 	}
 	return GetSchema()

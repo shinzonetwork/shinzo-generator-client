@@ -46,3 +46,18 @@ func TestGetSchemaForBuild(t *testing.T) {
 		t.Error("GetSchemaForBuild() should return standard schema without branchable tag")
 	}
 }
+
+func TestSchemaForBuild(t *testing.T) {
+	t.Run("standard", func(t *testing.T) {
+		s := schemaForBuild(false)
+		if s != GetSchema() {
+			t.Error("schemaForBuild(false) should return standard schema")
+		}
+	})
+	t.Run("branchable", func(t *testing.T) {
+		s := schemaForBuild(true)
+		if s != GetBranchableSchema() {
+			t.Error("schemaForBuild(true) should return branchable schema")
+		}
+	})
+}
