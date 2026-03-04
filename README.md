@@ -219,10 +219,10 @@ go build -tags=branchable -o bin/block_poster cmd/block_poster/main.go
 | `pkg/rpc` | 97.9% |
 | `pkg/server` | 95.6% |
 | `pkg/indexer` | 89.4% |
-| `pkg/schema` | 83.3% |
-| `pkg/snapshot` | 72.6% |
+| `pkg/schema` | 100.0% |
+| `pkg/snapshot` | 86.6% |
 | `pkg/defra` | 71.2% |
-| **Total** | **80.4%** |
+| **Total** | **82.0%** |
 
 Run `make coverage` to generate an HTML coverage report.
 
