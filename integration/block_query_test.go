@@ -36,7 +36,7 @@ func getLatestBlockNumber(t *testing.T) int {
 	}
 
 	// Cast data to map
-	dataMap, ok := data.(map[string]interface{})
+	dataMap, ok := data.(map[string]any)
 	if !ok {
 		t.Fatalf("GraphQL 'data' field is not a map: %v", data)
 	}
@@ -48,7 +48,7 @@ func getLatestBlockNumber(t *testing.T) int {
 	}
 
 	// Cast Block to array
-	blockList, ok := blockField.([]interface{})
+	blockList, ok := blockField.([]any)
 	if !ok {
 		t.Fatalf("Block field is not an array: %v", blockField)
 	}
@@ -57,7 +57,7 @@ func getLatestBlockNumber(t *testing.T) int {
 		t.Fatalf("No blocks returned from DefraDB - database may be empty")
 	}
 
-	num, ok := blockList[0].(map[string]interface{})["number"]
+	num, ok := blockList[0].(map[string]any)["number"]
 	if !ok {
 		t.Fatalf("Block missing number field: %v", blockList[0])
 	}
@@ -74,7 +74,7 @@ func TestGetHighestBlockNumber(t *testing.T) {
 
 func TestGetLatestBlocks(t *testing.T) {
 	result := MakeQuery(t, blockQueryPath, "GetLatestBlocks", nil)
-	blockList, ok := result["data"].(map[string]interface{})[constants.CollectionBlock].([]interface{})
+	blockList, ok := result["data"].(map[string]any)[constants.CollectionBlock].([]any)
 	if !ok {
 		t.Fatalf("No %s field or wrong type in response: %v", constants.CollectionBlock, result)
 	}
@@ -82,7 +82,7 @@ func TestGetLatestBlocks(t *testing.T) {
 		t.Fatalf("No blocks returned")
 	}
 	for _, b := range blockList {
-		block := b.(map[string]interface{})
+		block := b.(map[string]any)
 		if _, ok := block["hash"]; !ok {
 			t.Errorf("Block missing hash field")
 		}
@@ -94,13 +94,13 @@ func TestGetLatestBlocks(t *testing.T) {
 
 func TestGetBlockWithTransactions(t *testing.T) {
 	blockNumber := getLatestBlockNumber(t)
-	variables := map[string]interface{}{"blockNumber": blockNumber}
+	variables := map[string]any{"blockNumber": blockNumber}
 	result := MakeQuery(t, blockQueryPath, "GetBlockWithTransactions", variables)
-	blockList, ok := result["data"].(map[string]interface{})[constants.CollectionBlock].([]interface{})
+	blockList, ok := result["data"].(map[string]any)[constants.CollectionBlock].([]any)
 	if !ok || len(blockList) == 0 {
 		t.Fatalf("No block with number %v found; cannot test transactions.", blockNumber)
 	}
-	block := blockList[0].(map[string]interface{})
+	block := blockList[0].(map[string]any)
 	if _, ok := block["transactions"]; !ok {
 		t.Errorf("Block missing transactions field")
 	}

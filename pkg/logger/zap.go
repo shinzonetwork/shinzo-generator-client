@@ -56,7 +56,7 @@ func Test(msg string) {
 }
 
 // Testf logs a formatted message at TEST level - specifically for test output
-func Testf(template string, args ...interface{}) {
+func Testf(template string, args ...any) {
 	if Sugar != nil {
 		Sugar.Logf(TestLevel, template, args...)
 	}

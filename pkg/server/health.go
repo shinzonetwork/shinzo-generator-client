@@ -333,7 +333,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"service":   "Shinzo Network Indexer",
 		"version":   "1.0.0",
 		"status":    "running",
@@ -354,7 +354,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 // snapshotListEntry extends SnapshotInfo with inline signature data.
 type snapshotListEntry struct {
 	snapshot.SnapshotInfo
-	Signed    bool                          `json:"signed"`
+	Signed    bool                            `json:"signed"`
 	Signature *snapshot.SnapshotSignatureData `json:"signature,omitempty"`
 }
 

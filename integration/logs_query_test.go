@@ -16,8 +16,8 @@ func init() {
 	logsQueryPath = filepath.Join(getProjectRoot(nil), "queries/logs.graphql")
 }
 
-func assertLogHasTopics(t *testing.T, logMap map[string]interface{}) {
-	topics, ok := logMap["topics"].([]interface{})
+func assertLogHasTopics(t *testing.T, logMap map[string]any) {
+	topics, ok := logMap["topics"].([]any)
 	if !ok || len(topics) == 0 {
 		t.Errorf("Log missing or empty topics field: %v", logMap)
 	}
@@ -25,14 +25,14 @@ func assertLogHasTopics(t *testing.T, logMap map[string]interface{}) {
 
 func TestGetAllTransactionLogs(t *testing.T) {
 	txHash := getArbitraryTransactionHash(t)
-	result := MakeQuery(t, logsQueryPath, "GetAllTransactionLogs", map[string]interface{}{"txHash": txHash})
-	logList, ok := result["data"].(map[string]interface{})[constants.CollectionLog].([]interface{})
+	result := MakeQuery(t, logsQueryPath, "GetAllTransactionLogs", map[string]any{"txHash": txHash})
+	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
 	if !ok {
 		t.Errorf("No logs returned for txHash %v: %v", txHash, result)
 		return
 	}
 	for _, l := range logList {
-		logMap, ok := l.(map[string]interface{})
+		logMap, ok := l.(map[string]any)
 		if !ok {
 			t.Errorf("Log is not a map: %v", l)
 			continue
@@ -45,8 +45,8 @@ func TestGetAllTransactionLogs(t *testing.T) {
 }
 
 // Helper to get any block from the database
-func getArbitraryBlock(t *testing.T) map[string]interface{} {
-	result := MakeQuery(t, blockQueryPath, "GetLatestBlocks", map[string]interface{}{
+func getArbitraryBlock(t *testing.T) map[string]any {
+	result := MakeQuery(t, blockQueryPath, "GetLatestBlocks", map[string]any{
 		"limit": 1,
 	})
 
@@ -54,17 +54,17 @@ func getArbitraryBlock(t *testing.T) map[string]interface{} {
 		t.Fatalf("No blocks returned from DefraDB - database may be empty")
 	}
 
-	data, ok := result["data"].(map[string]interface{})
+	data, ok := result["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("Invalid data format in GraphQL response: %v", result)
 	}
 
-	blocks, ok := data[constants.CollectionBlock].([]interface{})
+	blocks, ok := data[constants.CollectionBlock].([]any)
 	if !ok || len(blocks) == 0 {
 		t.Fatalf("No blocks returned")
 	}
 
-	block, ok := blocks[0].(map[string]interface{})
+	block, ok := blocks[0].(map[string]any)
 	if !ok {
 		t.Fatalf("Invalid block format: %v", blocks[0])
 	}
@@ -78,14 +78,14 @@ func TestGetAllBlockLogs(t *testing.T) {
 	if !ok || len(blockHash) == 0 {
 		t.Fatalf("Block hash missing or empty in block: %v", block)
 	}
-	result := MakeQuery(t, logsQueryPath, "GetAllBlockLogs", map[string]interface{}{"blockHash": blockHash})
-	logList, ok := result["data"].(map[string]interface{})[constants.CollectionLog].([]interface{})
+	result := MakeQuery(t, logsQueryPath, "GetAllBlockLogs", map[string]any{"blockHash": blockHash})
+	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
 	if !ok {
 		t.Errorf("No logs returned for blockHash %v: %v", blockHash, result)
 		return
 	}
 	for _, l := range logList {
-		logMap, ok := l.(map[string]interface{})
+		logMap, ok := l.(map[string]any)
 		if !ok {
 			t.Errorf("Log is not a map: %v", l)
 			continue
@@ -99,21 +99,21 @@ func TestGetAllBlockLogs(t *testing.T) {
 
 func TestGetAllLogsByTopic(t *testing.T) {
 	topic := getArbitraryTopic(t)
-	result := MakeQuery(t, logsQueryPath, "GetAllLogsByTopic", map[string]interface{}{"topic": topic})
-	logList, ok := result["data"].(map[string]interface{})[constants.CollectionLog].([]interface{})
+	result := MakeQuery(t, logsQueryPath, "GetAllLogsByTopic", map[string]any{"topic": topic})
+	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
 	if !ok {
 		t.Errorf("No logs returned for topic %v: %v", topic, result)
 		return
 	}
 	found := false
 	for _, l := range logList {
-		logMap, ok := l.(map[string]interface{})
+		logMap, ok := l.(map[string]any)
 		if !ok {
 			t.Errorf("Log is not a map: %v", l)
 			continue
 		}
 		assertLogHasTopics(t, logMap)
-		topics, _ := logMap["topics"].([]interface{})
+		topics, _ := logMap["topics"].([]any)
 		topicFound := false
 		for _, tpc := range topics {
 			tpcStr, ok := tpc.(string)

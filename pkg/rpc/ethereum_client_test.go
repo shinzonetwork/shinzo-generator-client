@@ -35,10 +35,10 @@ func TestMain(m *testing.M) {
 type jsonRPCRequest struct {
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params"`
-	ID     interface{}     `json:"id"`
+	ID     any             `json:"id"`
 }
 
-func newMockRPCServer(handler func(method string, params json.RawMessage) (interface{}, error)) *httptest.Server {
+func newMockRPCServer(handler func(method string, params json.RawMessage) (any, error)) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req jsonRPCRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -49,16 +49,16 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (inter
 		result, err := handler(req.Method, req.Params)
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
-			resp := map[string]interface{}{
+			resp := map[string]any{
 				"jsonrpc": "2.0",
 				"id":      req.ID,
-				"error":   map[string]interface{}{"code": -32000, "message": err.Error()},
+				"error":   map[string]any{"code": -32000, "message": err.Error()},
 			}
 			json.NewEncoder(w).Encode(resp)
 			return
 		}
 
-		resp := map[string]interface{}{
+		resp := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
 			"result":  result,
@@ -68,7 +68,7 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (inter
 }
 
 func simpleRPCServer() *httptest.Server {
-	return newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	return newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_chainId", "net_version":
 			return "0x1", nil
@@ -715,11 +715,11 @@ func TestClose_WithHTTPClient(t *testing.T) {
 // --- RPC methods with mock server ---
 
 func TestGetLatestBlockNumber_Success(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
 			// Return a full block header with all required fields
-			return map[string]interface{}{
+			return map[string]any{
 				"number":           "0x64",
 				"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
 				"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -754,7 +754,7 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 }
 
 func TestGetNetworkID_Success(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "net_version":
 			return "1", nil
@@ -775,10 +775,10 @@ func TestGetNetworkID_Success(t *testing.T) {
 
 // --- GetBlockByNumber with mock server ---
 
-func fullBlockResponse(number string, txs []interface{}) map[string]interface{} {
+func fullBlockResponse(number string, txs []any) map[string]any {
 	// Empty trie root hash — must match empty transaction list
 	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
-	block := map[string]interface{}{
+	block := map[string]any{
 		"number":           number,
 		"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
 		"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -797,18 +797,18 @@ func fullBlockResponse(number string, txs []interface{}) map[string]interface{} 
 		"gasUsed":          "0x5208",
 		"timestamp":        "0x60000000",
 		"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":           []interface{}{},
+		"uncles":           []any{},
 	}
 	if txs != nil {
 		block["transactions"] = txs
 	} else {
-		block["transactions"] = []interface{}{}
+		block["transactions"] = []any{}
 	}
 	return block
 }
 
 func TestGetBlockByNumber_Success(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
 			return fullBlockResponse("0x64", nil), nil
@@ -829,7 +829,7 @@ func TestGetBlockByNumber_Success(t *testing.T) {
 }
 
 func TestGetBlockByNumber_Error(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
 			return nil, fmt.Errorf("block not found")
@@ -850,10 +850,10 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 // --- GetTransactionReceipt with mock server ---
 
 func TestGetTransactionReceipt_Success(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getTransactionReceipt":
-			return map[string]interface{}{
+			return map[string]any{
 				"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
 				"transactionIndex":  "0x0",
 				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -863,7 +863,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 				"cumulativeGasUsed": "0x5208",
 				"gasUsed":           "0x5208",
 				"contractAddress":   nil,
-				"logs":              []interface{}{},
+				"logs":              []any{},
 				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
 				"status":            "0x1",
 				"effectiveGasPrice": "0x4a817c800",
@@ -886,7 +886,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 }
 
 func TestGetTransactionReceipt_Error(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getTransactionReceipt":
 			return nil, fmt.Errorf("not found")
@@ -907,18 +907,18 @@ func TestGetTransactionReceipt_Error(t *testing.T) {
 // --- GetBlockReceipts with mock server ---
 
 func TestGetBlockReceipts_Success(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockReceipts":
-			return []interface{}{
-				map[string]interface{}{
+			return []any{
+				map[string]any{
 					"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
 					"transactionIndex":  "0x0",
 					"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
 					"blockNumber":       "0x64",
 					"cumulativeGasUsed": "0x5208",
 					"gasUsed":           "0x5208",
-					"logs":              []interface{}{},
+					"logs":              []any{},
 					"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
 					"status":            "0x1",
 					"effectiveGasPrice": "0x4a817c800",
@@ -942,7 +942,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 }
 
 func TestGetBlockReceipts_Error(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockReceipts":
 			return nil, fmt.Errorf("block receipts not found")
@@ -963,7 +963,7 @@ func TestGetBlockReceipts_Error(t *testing.T) {
 // --- GetLatestBlock with mock server ---
 
 func TestGetLatestBlock_Success(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
 			// Both HeaderByNumber and BlockByNumber use this method.
@@ -986,7 +986,7 @@ func TestGetLatestBlock_Success(t *testing.T) {
 }
 
 func TestGetLatestBlock_HeaderError(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("connection refused")
 	})
 	defer server.Close()
@@ -1002,7 +1002,7 @@ func TestGetLatestBlock_HeaderError(t *testing.T) {
 
 func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
 	callCount := 0
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
 			callCount++
@@ -1029,7 +1029,7 @@ func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
 
 func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
 	callCount := 0
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
 			callCount++
@@ -1057,7 +1057,7 @@ func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
 // --- GetLatestBlockNumber error path ---
 
 func TestGetLatestBlockNumber_Error(t *testing.T) {
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
 			return nil, fmt.Errorf("header error")
@@ -1196,7 +1196,7 @@ func TestGetLatestBlock_UnsupportedTxType_Exhausted(t *testing.T) {
 	}
 	// Test that all 8 retries are exhausted for unsupported tx type errors
 	callCount := 0
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		if method == "eth_getBlockByNumber" {
 			callCount++
 			if callCount == 1 {
@@ -1223,7 +1223,7 @@ func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
 	}
 	// Test success on the second attempt after one unsupported tx type error
 	callCount := 0
-	server := newMockRPCServer(func(method string, params json.RawMessage) (interface{}, error) {
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		if method == "eth_getBlockByNumber" {
 			callCount++
 			if callCount == 1 {
@@ -1444,7 +1444,7 @@ func newWSMockServer() *httptest.Server {
 				return
 			}
 
-			resp := map[string]interface{}{
+			resp := map[string]any{
 				"jsonrpc": "2.0",
 				"id":      req.ID,
 				"result":  "0x1",
@@ -1550,7 +1550,7 @@ func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
 			if err := json.Unmarshal(msg, &req); err != nil {
 				return
 			}
-			resp := map[string]interface{}{
+			resp := map[string]any{
 				"jsonrpc": "2.0",
 				"id":      req.ID,
 				"result":  "0x1",
@@ -1702,4 +1702,3 @@ func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {
 	addr := crypto.PubkeyToAddress(key.PublicKey)
 	return key, addr
 }
-

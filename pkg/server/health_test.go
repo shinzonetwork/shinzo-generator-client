@@ -36,10 +36,10 @@ type mockHealthChecker struct {
 	signErr       error
 }
 
-func (m *mockHealthChecker) IsHealthy() bool                  { return m.healthy }
-func (m *mockHealthChecker) GetCurrentBlock() int64            { return m.currentBlock }
-func (m *mockHealthChecker) GetLastProcessedTime() time.Time   { return m.lastProcessed }
-func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)    { return m.p2pInfo, m.p2pErr }
+func (m *mockHealthChecker) IsHealthy() bool                 { return m.healthy }
+func (m *mockHealthChecker) GetCurrentBlock() int64          { return m.currentBlock }
+func (m *mockHealthChecker) GetLastProcessedTime() time.Time { return m.lastProcessed }
+func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.p2pInfo, m.p2pErr }
 func (m *mockHealthChecker) SignMessages(message string) (DefraPKRegistration, PeerIDRegistration, error) {
 	return m.defraReg, m.peerReg, m.signErr
 }
@@ -365,7 +365,7 @@ func TestRootHandler_RootPath(t *testing.T) {
 	hs.rootHandler(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "Shinzo Network Indexer", resp["service"])
 }
@@ -408,7 +408,7 @@ func TestSnapshotsListHandler_EmptyList(t *testing.T) {
 	hs.snapshotsListHandler(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, float64(0), resp["count"])
 }
@@ -833,7 +833,7 @@ type failWriter struct {
 	code   int
 }
 
-func (f *failWriter) Header() http.Header        { return f.header }
+func (f *failWriter) Header() http.Header         { return f.header }
 func (f *failWriter) WriteHeader(statusCode int)  { f.code = statusCode }
 func (f *failWriter) Write(b []byte) (int, error) { return 0, fmt.Errorf("simulated write error") }
 
@@ -877,4 +877,3 @@ func TestSnapshotImportHandler_InvalidGzipFile(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Contains(t, resp["error"], "gzip")
 }
-
