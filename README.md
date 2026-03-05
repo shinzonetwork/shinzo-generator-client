@@ -222,7 +222,7 @@ go build -tags=branchable -o bin/block_poster cmd/block_poster/main.go
 | `pkg/server` | 99.0% |
 | `pkg/snapshot` | 86.6% |
 | `pkg/utils` | 100.0% |
-| **Total** | **91.0%** |
+| **Total** | **95.6%** |
 
 Run `make coverage` to generate an HTML coverage report.
 
