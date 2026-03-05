@@ -631,7 +631,7 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 		return "", fmt.Errorf("signing returned nil (no identity?)")
 	}
 
-	// Step 4: Create the BlockSignature document and commit
+	// Create the BlockSignature document and commit
 	colBlockSig, err := sigTxn.GetCollectionByName(sigCtx, constants.CollectionBlockSignature)
 	if err != nil {
 		sigTxn.Discard()
