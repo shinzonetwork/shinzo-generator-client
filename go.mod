@@ -7,6 +7,7 @@ require (
 	github.com/ipfs/go-cid v0.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.46.0
+	github.com/multiformats/go-multihash v0.2.3
 	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260226160102-0ae94d37513b
 	github.com/sourcenetwork/immutable v0.3.0
 	go.uber.org/zap v1.27.0
@@ -237,7 +238,6 @@ require (
 	github.com/multiformats/go-multiaddr-fmt v0.1.0 // indirect
 	github.com/multiformats/go-multibase v0.2.0 // indirect
 	github.com/multiformats/go-multicodec v0.10.0 // indirect
-	github.com/multiformats/go-multihash v0.2.3 // indirect
 	github.com/multiformats/go-multistream v0.6.1 // indirect
 	github.com/multiformats/go-varint v0.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

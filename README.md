@@ -122,7 +122,15 @@ A high-performance blockchain indexing solution built with Source Network, Defra
      development: true
    ```
 
-## How to Run
+## Production Deployment
+
+1. SSH into your VM
+2. Paste the contents of `indexer-prod-setup.sh` into the terminal and press Enter — this creates the `docker-compose.yml` with your configuration
+3. Paste the contents of `indexer-prod.sh` into the terminal and press Enter — this installs Docker, sets up data directories, and starts the indexer
+
+The indexer should now be up and running.
+
+## How to Run (Development)
 
 ### Using Makefile (Recommended)
 ```bash

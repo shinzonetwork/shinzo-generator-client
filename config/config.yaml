@@ -49,5 +49,5 @@ pruner:
 snapshot:
   enabled: true             # Set to true to enable automatic snapshots before pruning
   dir: "./.defra/snapshots" # Directory to store snapshot files
-  blocks_per_file: 100     # Aligned ranges: [N*1000 .. N*1000+999]
+  blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
   interval_seconds: 30      # How often to check and create snapshots
