@@ -201,11 +201,11 @@ func TestListSnapshots_BadNamingSkipped(t *testing.T) {
 
 	// Files that don't match the expected pattern
 	badFiles := []string{
-		"snapshot_abc_def.kvsnap.gz",     // non-numeric
-		"snapshot_1000.kvsnap.gz",         // only 2 parts after split
-		"random_file.txt",                 // not matching glob
-		"snapshot_1_2_3.kvsnap.gz",        // too many parts (4 after split)
-		"snapshot_.kvsnap.gz",             // missing numbers
+		"snapshot_abc_def.kvsnap.gz", // non-numeric
+		"snapshot_1000.kvsnap.gz",    // only 2 parts after split
+		"random_file.txt",            // not matching glob
+		"snapshot_1_2_3.kvsnap.gz",   // too many parts (4 after split)
+		"snapshot_.kvsnap.gz",        // missing numbers
 	}
 	for _, f := range badFiles {
 		err := os.WriteFile(filepath.Join(dir, f), []byte("data"), 0644)
@@ -2360,37 +2360,8 @@ func TestVerifySnapshotWithSig_InvalidMerkleRootHex(t *testing.T) {
 		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
+	sig := &SnapshotSignatureData{}
 
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     "Ed25519",
-		SignatureIdentity: "someid",
-		// MerkleRoot in signature is valid hex but we make signature_value valid hex
-		// so we reach the merkle root decode step. Actually, MerkleRoot IS valid hex
-		// here. Let me test the path where MerkleRoot is NOT valid hex.
-	}
-
-	// Override the MerkleRoot to be invalid hex but set it to match computed
-	// so MerkleRootMatch is true. That's impossible since invalid hex can't match.
-	// So this path (line 84-87) is only hit when MerkleRootMatch is true but
-	// the MerkleRoot hex string is invalid. This is contradictory since
-	// ComputeSnapshotMerkleRoot returns valid hex. So this path is technically
-	// unreachable with correct code. But let me craft a scenario where we
-	// get past the merkle root match check.
-
-	// Actually, looking more carefully: computedRootHex is always valid hex
-	// since it comes from hex.EncodeToString. And sig.MerkleRoot must equal
-	// computedRootHex for MerkleRootMatch to be true. So if sig.MerkleRoot
-	// equals computedRootHex, then hex.DecodeString(sig.MerkleRoot) won't fail.
-	// This path is only reachable if something very odd happens.
-	// Let's skip this specific sub-path and instead verify the other paths.
 	_ = sig
 	_ = p
 }
@@ -2999,7 +2970,7 @@ func TestLoop_StopsOnStopChan(t *testing.T) {
 func TestSignMerkleRoot_IdentityNotFull(t *testing.T) {
 	// Create a context with a non-full identity (just a DID)
 	baseIdent := identity.FromDID("did:key:z6Mk123")
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](baseIdent))
+	ctx := identity.WithContext(context.Background(), immutable.Some(baseIdent))
 
 	merkleRoot := bytes.Repeat([]byte{0xAA}, 32)
 	_, _, _, err := signMerkleRoot(ctx, merkleRoot)
@@ -3128,9 +3099,6 @@ func TestImportKV_ValidHeaderEmptyKVs(t *testing.T) {
 
 func TestCreateKVSnapshot_TmpFileCleanedOnError(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
-	// Don't insert any blocks - but use a nonexistent collection indirectly
-	// Actually, createKVSnapshot with no blocks in range succeeds.
-	// We need a different error trigger. Let's use a readonly dir.
 
 	snapshotDir := filepath.Join(t.TempDir(), "readonly_dir")
 	err := os.MkdirAll(snapshotDir, 0755)

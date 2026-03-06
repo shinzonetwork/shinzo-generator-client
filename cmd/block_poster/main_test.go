@@ -254,13 +254,15 @@ logger:
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
-		// Use external DefraDB with an unreachable URL. WaitForDefraDB will
-		// retry for ~15s (15 attempts * 1s sleep), keeping the goroutine busy.
-		// Meanwhile the select blocks, allowing our SIGTERM to be picked up
-		// before the errChan receives anything.
+		// Use external DefraDB with a non-routable TEST-NET-2 (RFC 5737) address.
+		// TCP SYN to this IP gets no response, so WaitForDefraDB's HTTP client
+		// hangs for its 5s timeout on the first attempt. The SIGTERM at 500ms
+		// wins the select race before errChan receives anything.
+		// Note: 127.0.0.1:1 can't be used because some CI runners have port 1
+		// accessible, causing WaitForDefraDB to return immediately.
 		configContent := fmt.Sprintf(`
 defradb:
-  url: "http://127.0.0.1:1"
+  url: "http://198.51.100.1:1"
   embedded: false
   p2p:
     enabled: false

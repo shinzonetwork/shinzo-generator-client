@@ -345,7 +345,7 @@ func TestWaitForDefraDB_InvalidRequestURL(t *testing.T) {
 
 // mockDocIDTracker is a simple mock implementing DocIDTrackerInterface
 type mockDocIDTracker struct {
-	trackedBlocks []int64
+	trackedBlocks  []int64
 	trackedResults []*BlockCreationResult
 }
 
@@ -451,10 +451,7 @@ func TestBlockCreationResult_Fields(t *testing.T) {
 }
 
 func TestBlockCreationResult_EmptySlices(t *testing.T) {
-	result := &BlockCreationResult{
-		BlockID:     "block-0",
-		BlockNumber: 0,
-	}
+	result := &BlockCreationResult{}
 
 	assert.Nil(t, result.TransactionIDs, "TransactionIDs should be nil when not set")
 	assert.Nil(t, result.LogIDs, "LogIDs should be nil when not set")
