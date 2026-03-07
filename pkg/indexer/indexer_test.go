@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -958,7 +959,12 @@ func TestBlockResult_Fields(t *testing.T) {
 
 func TestOpenBrowser_InvalidURL(t *testing.T) {
 	logger.InitConsoleOnly(true)
-	// Just verify it doesn't panic with an empty URL
+	original := execCommand
+	execCommand = func(name string, arg ...string) *exec.Cmd {
+		return exec.Command("echo", "mock-browser")
+	}
+	defer func() { execCommand = original }()
+
 	openBrowser("")
 }
 
@@ -2550,8 +2556,12 @@ func TestSignMessages_WithEmbeddedNode_KeyringSetup(t *testing.T) {
 
 func TestOpenBrowser_ValidURL(t *testing.T) {
 	logger.InitConsoleOnly(true)
-	// This will attempt to open a browser on macOS via `open` command.
-	// In CI, it may fail silently. We just verify it doesn't panic.
+	original := execCommand
+	execCommand = func(name string, arg ...string) *exec.Cmd {
+		return exec.Command("echo", "mock-browser")
+	}
+	defer func() { execCommand = original }()
+
 	openBrowser("http://localhost:12345/health")
 }
 
@@ -3517,7 +3527,12 @@ func TestFetchAndProcessBlock_ContextCancelDuringBatch(t *testing.T) {
 
 func TestOpenBrowser_NonEmptyURL(t *testing.T) {
 	logger.InitConsoleOnly(true)
-	// On macOS, this actually opens a browser briefly — acceptable in tests
+	original := execCommand
+	execCommand = func(name string, arg ...string) *exec.Cmd {
+		return exec.Command("echo", "mock-browser")
+	}
+	defer func() { execCommand = original }()
+
 	openBrowser("http://localhost:0/test-url-for-coverage")
 }
 
@@ -4696,12 +4711,12 @@ func TestExtractPublicKeyFromPeerID_RSAKey(t *testing.T) {
 
 func TestOpenBrowser_StartFailure(t *testing.T) {
 	logger.InitConsoleOnly(true)
+	original := execCommand
+	execCommand = func(name string, arg ...string) *exec.Cmd {
+		return exec.Command("nonexistent-command-that-will-fail")
+	}
+	defer func() { execCommand = original }()
 
-	// openBrowser uses runtime.GOOS to pick the command.
-	// On macOS it calls "open", which will succeed for valid URLs but
-	// we test it with a benign URL. The main coverage target is the
-	// cmd.Start() error path, which fires on invalid platforms.
-	// We just exercise the function to confirm it doesn't panic.
 	openBrowser("http://127.0.0.1:0/health")
 }
 
@@ -6777,15 +6792,13 @@ func TestGetPeerInfo_P2PEnabledNodeClosed(t *testing.T) {
 
 func TestOpenBrowser_DarwinHappyPath(t *testing.T) {
 	logger.InitConsoleOnly(true)
+	original := execCommand
+	execCommand = func(name string, arg ...string) *exec.Cmd {
+		return exec.Command("echo", "mock-browser")
+	}
+	defer func() { execCommand = original }()
 
-	// Calling openBrowser with a URL that won't actually open a visible browser
-	// but will exercise the darwin branch (line 689-690) and cmd.Start (line 695).
-	// We use a data: URL that opens nothing meaningful.
 	openBrowser("about:blank")
-
-	// If we reach here without panic, the function executed.
-	// The darwin path uses "open" which should succeed (line 695 doesn't error).
-	t.Log("openBrowser completed on darwin")
 }
 
 // ---------------------------------------------------------------------------

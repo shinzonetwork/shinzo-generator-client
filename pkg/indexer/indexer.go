@@ -693,17 +693,19 @@ func (i *ChainIndexer) updateBlockInfo(blockNum int64) {
 	i.lastProcessedTime = time.Now()
 }
 
+var execCommand = exec.Command
+
 // openBrowser opens the specified URL in the default browser
 func openBrowser(url string) {
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		cmd = execCommand("cmd", "/c", "start", url)
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = execCommand("open", url)
 	default: // linux and others
-		cmd = exec.Command("xdg-open", url)
+		cmd = execCommand("xdg-open", url)
 	}
 
 	if err := cmd.Start(); err != nil {
