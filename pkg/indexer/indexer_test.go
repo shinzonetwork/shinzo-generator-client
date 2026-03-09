@@ -7513,4 +7513,3 @@ func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
 	indexer.shouldIndex = false
 	indexer.StopIndexing()
 }
-
