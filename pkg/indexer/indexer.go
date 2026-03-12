@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -16,15 +15,15 @@ import (
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/chain/evm"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
@@ -227,19 +226,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		return fmt.Errorf("defraNode is required - external DefraDB via HTTP is no longer supported")
 	}
 
-	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn, i.collections)
-	if err != nil {
-		return fmt.Errorf("failed to create block handler: %v", err)
-	}
-	logger.Sugar.Infof("Using direct DB access for embedded DefraDB (maxDocsPerTxn=%d)", cfg.Indexer.MaxDocsPerTxn)
-
-	// Connect to Ethereum client early — needed for latest block query and indexing
-	client, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey)
-	if err != nil {
-		logCtx := errors.LogContext(err)
-		logger.Sugar.With(logCtx).Fatalf("Failed to connect to Ethereum client: %v", err)
-	}
-	defer client.Close()
+	chain := evm.NewEvmChain(cfg, i.collections)
+	chain.Init(ctx, i.defraNode)
+	defer chain.Close()
 
 	// Determine start height: DB state takes priority, then config, then latest chain block
 	configuredHeight := int64(cfg.Indexer.StartHeight)
@@ -258,7 +247,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	}
 
 	if highestExisting == 0 {
-		nBlock, err := blockHandler.GetHighestBlockNumber(ctx)
+		nBlock, err := chain.GetHighestStoredBlockNumber(ctx)
 		if err != nil {
 			logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
 		} else {
@@ -267,11 +256,10 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	}
 
 	// Query chain tip — used for gap detection and fresh-start fallback
-	latestBlock, err := client.GetLatestBlockNumber(ctx)
+	chainTip, err := chain.FetchHighestBlockNumber(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get latest block number from RPC: %w", err)
 	}
-	chainTip := latestBlock.Int64()
 
 	startBuffer := int64(cfg.Indexer.StartBuffer)
 
@@ -343,12 +331,13 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			pruneQueue = pruner.NewIndexerQueue()
 		}
 
+		// TODO(tzdybal): pruning
 		i.pruner.SetQueue(pruneQueue)
-		blockHandler.SetDocIDTracker(&indexerQueueTracker{
-			queue:       pruneQueue,
-			collections: i.collections,
-		})
-		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
+		//blockHandler.SetDocIDTracker(&indexerQueueTracker{
+		//	queue:       pruneQueue,
+		//	collections: i.collections,
+		//})
+		//logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 
 		if err := i.pruner.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start pruner: %v", err)
@@ -370,7 +359,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers",
 			cfg.Indexer.ConcurrentBlocks)
-		return i.runConcurrentIndexing(ctx, client, blockHandler, nextBlockToProcess, cfg)
+		return i.runConcurrentIndexing(ctx, chain, nextBlockToProcess, cfg)
 	}
 
 	// Sequential processing (original behavior)
@@ -385,7 +374,8 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			// Process the specific block we want (nextBlockToProcess)
 			logger.Sugar.Infof("=== Processing block %d ===", nextBlockToProcess)
 
-			err := i.processBlock(ctx, client, blockHandler, nextBlockToProcess)
+			result := chain.FetchAndStoreBlock(ctx, nextBlockToProcess)
+			err := result.Error
 			if err != nil {
 				if errors.IsErrNotFound(err) {
 					// Block doesn't exist yet (we're ahead of the chain) - wait 3 seconds and try again
@@ -411,6 +401,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 					continue
 				}
 			}
+			i.updateBlockInfo(nextBlockToProcess)
 
 			// Success! Move to next block (Step 3: increment by 1 and repeat)
 			logger.Sugar.Infof("Successfully processed block %d", nextBlockToProcess)
@@ -425,8 +416,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 // runConcurrentIndexing runs the indexer with concurrent block processing.
 func (i *ChainIndexer) runConcurrentIndexing(
 	ctx context.Context,
-	client *rpc.EthereumClient,
-	blockHandler *defra.BlockHandler,
+	chain chain.Chain,
 	startBlock int64,
 	cfg *config.Config,
 ) error {
@@ -434,8 +424,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	i.isStarted = true
 
 	processor := NewConcurrentBlockProcessor(
-		blockHandler,
-		client,
+		chain,
 		cfg.Indexer.ConcurrentBlocks,
 		cfg.Indexer.ReceiptWorkers,
 		cfg.Indexer.BlocksPerMinute,
@@ -445,106 +434,6 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		i.updateBlockInfo(blockNum)
 		i.hasIndexedAtLeastOneBlock = true
 	})
-}
-
-// processBlock fetches and stores a single block with retry logic
-func (i *ChainIndexer) processBlock(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler *defra.BlockHandler, blockNum int64) error {
-	var block *types.Block
-	var err error
-
-	// Retry logic for fetching block from Ethereum
-	for attempt := range DefaultRetryAttempts {
-		block, err = ethClient.GetBlockByNumber(ctx, big.NewInt(blockNum))
-		if err == nil {
-			break
-		}
-
-		if attempt < DefaultRetryAttempts-1 {
-			retryDelay := time.Duration(attempt+1) * time.Second
-			logger.Sugar.Warnf("Failed to fetch block %d (attempt %d/%d): %v, retrying in %v",
-				blockNum, attempt+1, DefaultRetryAttempts, err, retryDelay)
-			time.Sleep(retryDelay)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("failed to fetch block %d after %d attempts: %w", blockNum, DefaultRetryAttempts, err)
-	}
-
-	return i.processBlockBatch(ctx, ethClient, blockHandler, block, blockNum)
-}
-
-// processBlockBatch creates all documents for a block using optimized batch mutations.
-// This streams receipts as they arrive and processes them concurrently with fetching,
-// reducing latency compared to waiting for all receipts before processing.
-func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler *defra.BlockHandler, block *types.Block, blockNum int64) error {
-	type txWithReceipt struct {
-		tx      *types.Transaction
-		receipt *types.TransactionReceipt
-	}
-	receiptWorkers := i.cfg.Indexer.ReceiptWorkers
-	receiptChan := make(chan txWithReceipt, receiptWorkers*2)
-
-	var fetchWg sync.WaitGroup
-	receiptSem := make(chan struct{}, receiptWorkers)
-
-	for idx := range block.Transactions {
-		tx := &block.Transactions[idx]
-		fetchWg.Add(1)
-		go func(tx *types.Transaction) {
-			defer fetchWg.Done()
-			receiptSem <- struct{}{}
-			defer func() { <-receiptSem }()
-
-			receipt, err := ethClient.GetTransactionReceipt(ctx, tx.Hash)
-			if err != nil {
-				logger.Sugar.Warnf("Failed to get receipt for tx %s: %v", tx.Hash, err)
-				return
-			}
-			receiptChan <- txWithReceipt{tx: tx, receipt: receipt}
-		}(tx)
-	}
-
-	go func() {
-		fetchWg.Wait()
-		close(receiptChan)
-	}()
-
-	var transactions []*types.Transaction
-	var receipts []*types.TransactionReceipt
-	for result := range receiptChan {
-		transactions = append(transactions, result.tx)
-		receipts = append(receipts, result.receipt)
-	}
-
-	var err error
-	for attempt := range DefaultRetryAttempts {
-		_, err = blockHandler.CreateBlockBatch(ctx, block, transactions, receipts)
-		if err == nil {
-			break
-		}
-
-		if errors.IsErrAlreadyExists(err) {
-			// Block exists via P2P, but we still need to sign it with our identity
-			if _, signErr := blockHandler.CreateBlockSignatureForExistingBlock(ctx, blockNum, block.Hash, block, transactions, receipts); signErr != nil {
-				logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, signErr)
-			}
-			return nil
-		}
-
-		if attempt < DefaultRetryAttempts-1 {
-			retryDelay := time.Duration(attempt+1) * time.Second
-			logger.Sugar.Warnf("Failed to batch create block %d (attempt %d/%d): %v, retrying in %v",
-				blockNum, attempt+1, DefaultRetryAttempts, err, retryDelay)
-			time.Sleep(retryDelay)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("failed to batch create block %d after %d attempts: %w", blockNum, DefaultRetryAttempts, err)
-	}
-
-	logger.Sugar.Infof("Successfully batch processed block %d with %d transactions", blockNum, len(block.Transactions))
-	i.updateBlockInfo(blockNum)
-	return nil
 }
 
 func (i *ChainIndexer) StopIndexing() {
