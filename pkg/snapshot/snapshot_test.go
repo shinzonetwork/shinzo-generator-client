@@ -1485,7 +1485,7 @@ func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
 // Returns the block handler for further use.
 func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) *defra.BlockHandler {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000)
+	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -1558,7 +1558,7 @@ func TestGetBlockNumber_SingleBlock(t *testing.T) {
 func TestGetBlockNumber_NonSequentialBlocks(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := defra.NewBlockHandler(td.Node, 1000)
+	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
 	ctx := context.Background()
 
@@ -4255,7 +4255,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 
 func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) (context.Context, *defra.BlockHandler) {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000)
+	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)

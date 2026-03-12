@@ -836,7 +836,7 @@ func TestApplySchemaViaHTTP_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := applySchemaViaHTTP(server.URL)
+	err := applySchemaViaHTTP(server.URL, constants.DefaultCollectionPrefix)
 	assert.NoError(t, err)
 }
 
@@ -847,13 +847,13 @@ func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := applySchemaViaHTTP(server.URL)
+	err := applySchemaViaHTTP(server.URL, constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
 
 func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
-	err := applySchemaViaHTTP("http://127.0.0.1:1")
+	err := applySchemaViaHTTP("http://127.0.0.1:1", constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
 }
 
@@ -1110,7 +1110,7 @@ func TestProcessBlock_Success_NoTransactions(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -1151,7 +1151,7 @@ func TestProcessBlock_RPCError_RetriesAndFails(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -1197,7 +1197,7 @@ func TestProcessBlockBatch_WithTransactions(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -1274,7 +1274,7 @@ func TestProcessBlockBatch_WithBlockReceipts(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -1328,7 +1328,7 @@ func fakeDocID(seed int) string {
 
 func TestTrackBlock_Success(t *testing.T) {
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue}
+	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(1),
@@ -1345,7 +1345,7 @@ func TestTrackBlock_Success(t *testing.T) {
 
 func TestTrackBlock_MultipleBlocks(t *testing.T) {
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue}
+	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	for i := int64(100); i < 105; i++ {
 		result := &defra.BlockCreationResult{
@@ -1360,7 +1360,7 @@ func TestTrackBlock_MultipleBlocks(t *testing.T) {
 
 func TestTrackBlock_EmptyResult(t *testing.T) {
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue}
+	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID: fakeDocID(1),
@@ -1373,7 +1373,7 @@ func TestTrackBlock_EmptyResult(t *testing.T) {
 
 func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue}
+	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(1),
@@ -1514,7 +1514,7 @@ func TestFetchAndProcessBlock_Success_NoTx(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -1545,7 +1545,7 @@ func TestFetchAndProcessBlock_RPCError(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -1571,7 +1571,7 @@ func TestFetchAndProcessBlock_ContextCancelled(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -1606,7 +1606,7 @@ func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -1651,7 +1651,7 @@ func TestProcessBlocks_ContextCancel(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -1704,7 +1704,7 @@ func TestProcessBlocks_WithRateLimit_ContextCancel(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	// Rate limit to 600 blocks/min = 10/sec
@@ -2087,7 +2087,7 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -2190,7 +2190,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) 
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -2268,7 +2268,7 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -2310,7 +2310,7 @@ func TestFetchAndProcessBlock_OtherRPCErrorRetry(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -2343,7 +2343,7 @@ func TestFetchAndProcessBlock_TransactionConflict(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -2380,7 +2380,7 @@ func TestFetchAndProcessBlock_ContextCancelledDuringNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -2415,7 +2415,7 @@ func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -2463,7 +2463,7 @@ func TestProcessBlockBatch_AlreadyExists(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -2649,7 +2649,7 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	// Use only 1 worker so the tooFarAhead check (workers*2=2) triggers quickly
@@ -2690,7 +2690,7 @@ func TestProcessBlocks_WithNilCallback(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -2734,7 +2734,7 @@ func TestProcessBlocks_FailedBlockInSequence(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -2813,7 +2813,7 @@ func TestProcessBlock_AlreadyExistsBlock(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -2859,7 +2859,7 @@ func TestProcessBlockBatch_ReceiptError(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -2915,7 +2915,7 @@ func TestProcessBlockBatch_ReceiptError(t *testing.T) {
 
 func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue}
+	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(100),
@@ -3037,7 +3037,7 @@ func TestProcessBlocks_CancelDuringRateLimit(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	// Very low rate limit (1 block/min) so cancellation hits during wait
@@ -3080,7 +3080,7 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -3448,7 +3448,7 @@ func TestProcessBlockBatch_RetryExhaustion(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -3498,7 +3498,7 @@ func TestFetchAndProcessBlock_ContextCancelDuringBatch(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -3628,7 +3628,7 @@ func TestFetchAndProcessBlock_SigningQueueFull(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -3728,7 +3728,7 @@ func TestProcessBlockBatch_RetryWithDelay(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -4179,7 +4179,7 @@ func TestProcessBlockBatch_WithTransactionsAndReceipts(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -4254,7 +4254,7 @@ func TestProcessBlockBatch_ReceiptFetchFailure(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -4339,7 +4339,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackIndividual(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	processor := NewConcurrentBlockProcessor(
@@ -4402,7 +4402,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	processor := NewConcurrentBlockProcessor(
@@ -4447,7 +4447,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	processor := NewConcurrentBlockProcessor(
@@ -4492,7 +4492,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackContextCancel(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	processor := NewConcurrentBlockProcessor(
@@ -4540,7 +4540,7 @@ func TestProcessBlocks_ExistingBlockPath(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	processor := NewConcurrentBlockProcessor(
@@ -4786,7 +4786,7 @@ func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	processor := NewConcurrentBlockProcessor(
@@ -4830,7 +4830,7 @@ func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	processor := NewConcurrentBlockProcessor(
@@ -5156,7 +5156,7 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -5193,7 +5193,7 @@ func TestProcessBlockBatch_ReceiptFetchError(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -5254,7 +5254,7 @@ func TestProcessBlockBatch_AlreadyExists_WithSigning(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -5353,7 +5353,7 @@ func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -5458,7 +5458,7 @@ func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	indexer := &ChainIndexer{
@@ -5797,7 +5797,7 @@ func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	// Create two processors that share the same blockHandler
@@ -6235,7 +6235,7 @@ func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	// First, insert the block to make subsequent inserts trigger "already exists"
@@ -6268,7 +6268,7 @@ func TestProcessBlocks_ImmediateCancel(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -6299,7 +6299,7 @@ func TestProcessBlocks_ImmediateCancelWithRateLimit(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	// Rate limited processor
@@ -6408,7 +6408,7 @@ func TestFetchAndProcessBlock_WithTxAndBatchReceipts(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -6550,7 +6550,7 @@ func TestFetchAndProcessBlock_IndividualReceiptSuccess(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
@@ -6842,7 +6842,7 @@ func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	// receiptWorkers=1 means only one goroutine can acquire the semaphore at a time
@@ -7109,7 +7109,7 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 	require.NoError(t, err)
 	defer ethClient.Close()
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100)
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	// Run many concurrent processors on the same block to maximize
