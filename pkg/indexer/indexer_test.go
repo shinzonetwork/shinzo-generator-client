@@ -20,6 +20,8 @@ import (
 	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/chain/evm"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
@@ -807,7 +809,7 @@ func TestGetCurrentBlockAndLastProcessedTime_Consistency(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewConcurrentBlockProcessor(t *testing.T) {
-	p := NewConcurrentBlockProcessor(nil, nil, 4, 8, 60)
+	p := NewConcurrentBlockProcessor(nil, 4, 8, 60)
 	require.NotNil(t, p)
 	assert.Equal(t, 4, p.workers)
 	assert.Equal(t, 8, p.receiptWorkers)
@@ -818,7 +820,7 @@ func TestNewConcurrentBlockProcessor(t *testing.T) {
 }
 
 func TestNewConcurrentBlockProcessor_DefaultValues(t *testing.T) {
-	p := NewConcurrentBlockProcessor(nil, nil, 1, 1, 0)
+	p := NewConcurrentBlockProcessor(nil, 1, 1, 0)
 	require.NotNil(t, p)
 	assert.Equal(t, 1, p.workers)
 	assert.Equal(t, 0, p.blocksPerMinute)
@@ -941,7 +943,7 @@ func TestSignMessages_NilNode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestBlockResult_Fields(t *testing.T) {
-	r := &BlockResult{
+	r := &chain.BlockResult{
 		BlockNum: 42,
 		BlockID:  "bae-123",
 		Success:  true,
@@ -1106,26 +1108,21 @@ func TestProcessBlock_Success_NoTransactions(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
-	require.NoError(t, err)
-	defer ethClient.Close()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
+	cfg := &config.Config{
+		Indexer: config.IndexerConfig{ReceiptWorkers: 2},
 	}
 
 	ctx := context.Background()
-	err = indexer.processBlock(ctx, ethClient, blockHandler, 100)
-	require.NoError(t, err)
+
+	chain := evm.NewEvmChain(cfg, constants.NewCollectionNames(constants.DefaultCollectionPrefix))
+	chain.Init(ctx, td.Node)
+
+	res := chain.FetchAndStoreBlock(ctx, 100)
+	require.NotNil(t, res)
+	require.NoError(t, res.Error)
 
 	// Verify block was stored in DefraDB
-	highest, err := blockHandler.GetHighestBlockNumber(ctx)
+	highest, err := chain.GetHighestStoredBlockNumber(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), highest)
 }
@@ -1147,23 +1144,18 @@ func TestProcessBlock_RPCError_RetriesAndFails(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
-	require.NoError(t, err)
-	defer ethClient.Close()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
+	cfg := &config.Config{
+		Indexer: config.IndexerConfig{ReceiptWorkers: 2},
 	}
 
 	ctx := context.Background()
-	err = indexer.processBlock(ctx, ethClient, blockHandler, 100)
-	assert.Error(t, err)
+	chain := evm.NewEvmChain(cfg, constants.NewCollectionNames(constants.DefaultCollectionPrefix))
+	err := chain.Init(ctx, td.Node)
+	require.NoError(t, err)
+
+	res := chain.FetchAndStoreBlock(ctx, 100)
+	assert.NotNil(t, nil)
+	assert.Error(t, res.Error)
 	assert.Contains(t, err.Error(), "failed to fetch block")
 	assert.Equal(t, DefaultRetryAttempts, callCount)
 }
@@ -1193,54 +1185,56 @@ func TestProcessBlockBatch_WithTransactions(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
-	require.NoError(t, err)
-	defer ethClient.Close()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
+	cfg := &config.Config{
+		Indexer: config.IndexerConfig{ReceiptWorkers: 2},
 	}
 
-	block := &types.Block{
-		Number:     "200",
-		Hash:       "0x0000000000000000000000000000000000000000000000000000000000000002",
-		ParentHash: "0x0000000000000000000000000000000000000000000000000000000000000001",
-		Timestamp:  "1640995200",
-		Miner:      "0x0000000000000000000000000000000000000000",
-		GasLimit:   "8000000",
-		GasUsed:    "21000",
-		Transactions: []types.Transaction{
-			{
-				Hash:             "0x0000000000000000000000000000000000000000000000000000000000000001",
-				BlockNumber:      "200",
-				From:             "0x1234567890123456789012345678901234567890",
-				To:               "0x0987654321098765432109876543210987654321",
-				Value:            "1000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainId:          "1",
-				V:                "27",
-				R:                "0x1234",
-				S:                "0x5678",
+	// TODO(tzdybal): refactor this test
+	/*
+		block := &types.Block{
+			Number:     "200",
+			Hash:       "0x0000000000000000000000000000000000000000000000000000000000000002",
+			ParentHash: "0x0000000000000000000000000000000000000000000000000000000000000001",
+			Timestamp:  "1640995200",
+			Miner:      "0x0000000000000000000000000000000000000000",
+			GasLimit:   "8000000",
+			GasUsed:    "21000",
+			Transactions: []types.Transaction{
+				{
+					Hash:             "0x0000000000000000000000000000000000000000000000000000000000000001",
+					BlockNumber:      "200",
+					From:             "0x1234567890123456789012345678901234567890",
+					To:               "0x0987654321098765432109876543210987654321",
+					Value:            "1000000",
+					Gas:              "21000",
+					GasPrice:         "20000000000",
+					Nonce:            "1",
+					TransactionIndex: 0,
+					Type:             "0",
+					ChainId:          "1",
+					V:                "27",
+					R:                "0x1234",
+					S:                "0x5678",
+				},
 			},
-		},
-	}
+		}
+	*/
 
 	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 200)
-	require.NoError(t, err)
+
+	chain := evm.NewEvmChain(cfg, constants.NewCollectionNames(constants.DefaultCollectionPrefix))
+	chain.Init(ctx, td.Node)
+
+	res := chain.FetchAndStoreBlock(ctx, 200)
+	require.NotNil(t, res)
+	require.NoError(t, res.Error)
+
+	// TODO(tzdybal): it's not possible with chain
+	//err := indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 200)
+	//require.NoError(t, err)
 
 	// Verify the block was stored
-	highest, err := blockHandler.GetHighestBlockNumber(ctx)
+	highest, err := chain.GetHighestStoredBlockNumber(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(200), highest)
 }
@@ -5806,7 +5800,7 @@ func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 
 	// Run both concurrently to try to trigger a transaction conflict
 	var wg sync.WaitGroup
-	results := make([]*BlockResult, 2)
+	results := make([]*chain.BlockResult, 2)
 
 	wg.Add(2)
 	go func() {
@@ -6850,7 +6844,7 @@ func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	resultCh := make(chan *BlockResult, 1)
+	resultCh := make(chan *chain.BlockResult, 1)
 	go func() {
 		resultCh <- p.fetchAndProcessBlock(ctx, 0xddd0)
 	}()
@@ -7115,7 +7109,7 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 	// Run many concurrent processors on the same block to maximize
 	// the chance of hitting a transaction conflict (not already-exists).
 	const numProcessors = 10
-	results := make([]*BlockResult, numProcessors)
+	results := make([]*chain.BlockResult, numProcessors)
 	var wg sync.WaitGroup
 
 	ctx, cancel := context.WithCancel(context.Background())
