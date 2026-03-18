@@ -52,6 +52,7 @@ const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 
 type ChainIndexer struct {
 	cfg                       *config.Config
+	collections               *constants.CollectionNames
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
@@ -94,10 +95,28 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	}
 	return &ChainIndexer{
 		cfg:                       cfg,
+		collections:               constants.NewCollectionNames(chainPrefixFromConfig(cfg)),
 		shouldIndex:               false,
 		isStarted:                 false,
 		hasIndexedAtLeastOneBlock: false,
 	}, nil
+}
+
+// chainPrefixFromConfig returns the collection name prefix for the configured chain.
+// Falls back to the default Ethereum mainnet prefix for backward compatibility.
+func chainPrefixFromConfig(cfg *config.Config) string {
+	if cfg == nil {
+		return constants.DefaultCollectionPrefix
+	}
+	name := cfg.Chain.Name
+	network := cfg.Chain.Network
+	if name == "" {
+		name = "Ethereum"
+	}
+	if network == "" {
+		network = "Mainnet"
+	}
+	return fmt.Sprintf("%s__%s", name, network)
 }
 
 func toAppConfig(cfg *config.Config) *appConfig.Config {
@@ -145,6 +164,8 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		logger.Init(cfg.Logger.Development)
 	}
 
+	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, chainPrefixFromConfig(cfg))
+
 	if !defraStarted {
 		// Use app-sdk to start DefraDB instance with persistent keys
 		// Convert indexer config to app-sdk config
@@ -165,7 +186,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 
 		defraNode, networkHandler, err := appsdk.StartDefraInstance(appCfg,
-			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForBuild()), nil, replicationFilter, constants.AllCollections...)
+			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
 		if err != nil {
 			return fmt.Errorf("Failed to start DefraDB instance with app-sdk: %v", err)
 		}
@@ -196,7 +217,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			return err
 		}
 
-		err = applySchemaViaHTTP(cfg.DefraDB.Url)
+		err = applySchemaViaHTTP(cfg.DefraDB.Url, chainPrefixFromConfig(cfg))
 		if err != nil && !errors.IsErrAlreadyExists(err) {
 			return fmt.Errorf("failed to apply schema to external DefraDB: %v", err)
 		}
@@ -206,7 +227,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		return fmt.Errorf("defraNode is required - external DefraDB via HTTP is no longer supported")
 	}
 
-	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
+	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn, i.collections)
 	if err != nil {
 		return fmt.Errorf("failed to create block handler: %v", err)
 	}
@@ -323,7 +344,10 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 
 		i.pruner.SetQueue(pruneQueue)
-		blockHandler.SetDocIDTracker(&indexerQueueTracker{queue: pruneQueue})
+		blockHandler.SetDocIDTracker(&indexerQueueTracker{
+			queue:       pruneQueue,
+			collections: i.collections,
+		})
 		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 
 		if err := i.pruner.Start(ctx); err != nil {
@@ -693,17 +717,19 @@ func (i *ChainIndexer) updateBlockInfo(blockNum int64) {
 	i.lastProcessedTime = time.Now()
 }
 
+var execCommand = exec.Command
+
 // openBrowser opens the specified URL in the default browser
 func openBrowser(url string) {
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		cmd = execCommand("cmd", "/c", "start", url)
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = execCommand("open", url)
 	default: // linux and others
-		cmd = exec.Command("xdg-open", url)
+		cmd = execCommand("xdg-open", url)
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -713,13 +739,13 @@ func openBrowser(url string) {
 	logger.Sugar.Infof("Opened health page in browser: %s", url)
 }
 
-func applySchemaViaHTTP(defraUrl string) error {
+func applySchemaViaHTTP(defraUrl string, chainPrefix string) error {
 	fmt.Println("Applying schema via HTTP...")
 
-	schema := schema.GetSchema()
+	schemaStr := schema.GetSchemaForChain(chainPrefix)
 	// Apply schema via REST API endpoint
 	schemaURL := fmt.Sprintf("%s/api/v0/schema", defraUrl)
-	resp, err := http.Post(schemaURL, "application/schema", bytes.NewBuffer([]byte(schema)))
+	resp, err := http.Post(schemaURL, "application/schema", bytes.NewBuffer([]byte(schemaStr)))
 	if err != nil {
 		return fmt.Errorf("Failed to send schema: %v", err)
 	}
@@ -784,14 +810,15 @@ func (i *ChainIndexer) GetPrunerMetrics() *pruner.Metrics {
 
 // indexerQueueTracker adapts app-sdk's IndexerQueue to the local DocIDTrackerInterface.
 type indexerQueueTracker struct {
-	queue *pruner.IndexerQueue
+	queue       *pruner.IndexerQueue
+	collections *constants.CollectionNames
 }
 
 func (t *indexerQueueTracker) TrackBlock(_ context.Context, blockNumber int64, result *defra.BlockCreationResult) error {
 	otherDocIDs := map[string][]string{
-		constants.CollectionTransaction:     result.TransactionIDs,
-		constants.CollectionLog:             result.LogIDs,
-		constants.CollectionAccessListEntry: result.AccessListIDs,
+		t.collections.Transaction:     result.TransactionIDs,
+		t.collections.Log:             result.LogIDs,
+		t.collections.AccessListEntry: result.AccessListIDs,
 	}
 	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, otherDocIDs, result.BlockSignatureID)
 }

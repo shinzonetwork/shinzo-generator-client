@@ -1,4 +1,12 @@
 # Default configuration - environment variables will override these
+
+# Chain configuration - identifies which EVM chain to index
+# Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
+# Collection names are derived as: {name}__{network}__Block, etc.
+chain:
+  name: "Ethereum"       # Chain name (env: CHAIN_NAME)
+  network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
+
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
   keyring_secret: "" # over written by env var

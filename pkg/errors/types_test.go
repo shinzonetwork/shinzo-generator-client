@@ -106,13 +106,8 @@ func TestBaseError_Accessors(t *testing.T) {
 }
 
 func TestErrorTypes_ImplementIndexerError(t *testing.T) {
-	base := &baseError{
-		code:    "TEST",
-		message: "test",
-	}
-
-	var _ IndexerError = &NetworkError{baseError: base}
-	var _ IndexerError = &DataError{baseError: base}
-	var _ IndexerError = &StorageError{baseError: base}
-	var _ IndexerError = &SystemError{baseError: base}
+	var _ IndexerError = &NetworkError{}
+	var _ IndexerError = &DataError{}
+	var _ IndexerError = &StorageError{}
+	var _ IndexerError = &SystemError{}
 }

@@ -223,7 +223,7 @@ go build -tags=branchable -o bin/block_poster cmd/block_poster/main.go
 | `config` | 100.0% |
 | `pkg/defra` | 98.6% |
 | `pkg/errors` | 100.0% |
-| `pkg/indexer` | 95.3% |
+| `pkg/indexer` | 95.4% |
 | `pkg/logger` | 100.0% |
 | `pkg/rpc` | 98.3% |
 | `pkg/schema` | 100.0% |

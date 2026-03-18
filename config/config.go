@@ -55,6 +55,12 @@ func (d *DefraDBConfig) Host() string {
 	return d.Url
 }
 
+// ChainConfig represents the EVM chain being indexed
+type ChainConfig struct {
+	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
+	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
+}
+
 // GethConfig represents Geth node configuration
 type GethConfig struct {
 	NodeURL string `yaml:"node_url"`
@@ -81,6 +87,7 @@ type LoggerConfig struct {
 
 // Config represents the main configuration structure
 type Config struct {
+	Chain    ChainConfig     `yaml:"chain"`
 	DefraDB  DefraDBConfig   `yaml:"defradb"`
 	Geth     GethConfig      `yaml:"geth"`
 	Indexer  IndexerConfig   `yaml:"indexer"`
@@ -121,6 +128,12 @@ func LoadConfig(path string) (*Config, error) {
 
 // applyDefaults sets default values for optional configuration
 func applyDefaults(cfg *Config) {
+	if cfg.Chain.Name == "" {
+		cfg.Chain.Name = "Ethereum"
+	}
+	if cfg.Chain.Network == "" {
+		cfg.Chain.Network = "Mainnet"
+	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
 	}
@@ -226,6 +239,14 @@ func applyEnvOverrides(cfg *Config) {
 		if n, err := strconv.Atoi(numL0TablesStall); err == nil {
 			cfg.DefraDB.Store.NumLevelZeroTablesStall = n
 		}
+	}
+
+	// Chain configuration
+	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
+		cfg.Chain.Name = chainName
+	}
+	if chainNetwork := os.Getenv("CHAIN_NETWORK"); chainNetwork != "" {
+		cfg.Chain.Network = chainNetwork
 	}
 
 	// Geth configuration

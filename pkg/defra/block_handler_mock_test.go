@@ -65,6 +65,7 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 	return &BlockHandler{
 		db:            db,
 		maxDocsPerTxn: 1000,
+		collections:   constants.NewCollectionNames(constants.DefaultCollectionPrefix),
 		signBlockFn: func(ctx context.Context, collector *node.BlockCIDCollector) (*node.BlockSignature, error) {
 			return nil, nil // no identity → nil sig
 		},

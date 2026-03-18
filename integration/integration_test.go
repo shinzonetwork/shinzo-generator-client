@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
@@ -20,7 +19,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-const graphqlURL = "http://localhost:9181/api/v0/graphql"
+const graphqlURL = "http://127.0.0.1:9181/api/v0/graphql"
 
 var defraNode *node.Node
 
@@ -43,55 +42,34 @@ func TestMain(m *testing.M) {
 
 	// Start embedded DefraDB directly for mock data testing (no indexer needed)
 	logger.Test("Starting embedded DefraDB for mock data testing...")
-	go func() {
-		ctx := context.Background()
+	ctx := context.Background()
 
-		// Create DefraDB node directly without indexer
-		opts := options.Node().
-			SetDisableAPI(false).
-			SetDisableP2P(true)
-		opts.Store().SetPath("./.defra")
-		opts.HTTP().SetAddress("127.0.0.1:9181")
+	// Create DefraDB node directly without indexer
+	opts := options.Node().
+		SetDisableAPI(false).
+		SetDisableP2P(true)
+	opts.Store().SetPath("./.defra")
+	opts.HTTP().SetAddress("127.0.0.1:9181")
 
-		var err error
-		defraNode, err = node.New(ctx, opts)
-		if err != nil {
-			logger.Sugar.Fatalf("Failed to create DefraDB node: %v", err)
-		}
-
-		err = defraNode.Start(ctx)
-		if err != nil {
-			logger.Sugar.Fatalf("Failed to start DefraDB node: %v", err)
-		}
-
-		// Apply schema to DefraDB
-		err = applySchema(ctx, defraNode)
-		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
-			logger.Sugar.Fatalf("Failed to apply schema: %v", err)
-		}
-
-		logger.Test("DefraDB node started successfully with schema applied")
-	}()
-
-	// Wait for DefraDB to be ready
-	logger.Test("Waiting for DefraDB to be ready...")
-	timeout := time.After(15 * time.Second)
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			logger.Sugar.Error("Timeout waiting for DefraDB to be ready")
-			os.Exit(1)
-		case <-ticker.C:
-			if testDefraDBConnection() {
-				logger.Test("DefraDB is ready!")
-				goto ready
-			}
-		}
+	var err error
+	defraNode, err = node.New(ctx, opts)
+	if err != nil {
+		logger.Sugar.Fatalf("Failed to create DefraDB node: %v", err)
 	}
-ready:
+
+	// node.Start returns only after the HTTP API is healthy (calls HealthCheck internally)
+	err = defraNode.Start(ctx)
+	if err != nil {
+		logger.Sugar.Fatalf("Failed to start DefraDB node: %v", err)
+	}
+
+	// Apply schema synchronously — no race with mock data insertion
+	err = applySchema(ctx, defraNode)
+	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+		logger.Sugar.Fatalf("Failed to apply schema: %v", err)
+	}
+
+	logger.Test("DefraDB node started successfully with schema applied")
 
 	// Insert mock test data
 	logger.Test("Inserting mock test data...")
@@ -207,29 +185,6 @@ func MakeQuery(t *testing.T, queryPath string, query string, args map[string]any
 	return result
 }
 
-func testDefraDBConnection() bool {
-	// Use the same introspection query as waitForDefra.go
-	query := `{"query":"{ __schema { types { name } } }"}`
-
-	client := &http.Client{
-		Timeout: 2 * time.Second,
-	}
-
-	req, err := http.NewRequest("POST", "http://localhost:9181/api/v0/graphql", strings.NewReader(query))
-	if err != nil {
-		return false
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode == 200
-}
-
 func insertMockData() error {
 	// Store DocIDs for relationship establishment
 	var block1DocID, block2DocID, tx1DocID, tx2DocID string
@@ -271,7 +226,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal block1 mutation: %v", err)
 	}
 
-	resp, err := http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err := http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("block1 creation failed: %v", err)
 	}
@@ -345,7 +300,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal block2 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("block2 creation failed: %v", err)
 	}
@@ -420,7 +375,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal tx1 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("tx1 creation failed: %v", err)
 	}
@@ -495,7 +450,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal tx2 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("tx2 creation failed: %v", err)
 	}
@@ -561,7 +516,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal log1 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("log1 creation failed: %v", err)
 	}
@@ -617,7 +572,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal log2 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("log2 creation failed: %v", err)
 	}

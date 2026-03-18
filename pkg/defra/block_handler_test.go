@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 
 func TestNewBlockHandler_NilNode(t *testing.T) {
 	// Test that nil node returns error
-	handler, err := NewBlockHandler(nil, 1000)
+	handler, err := NewBlockHandler(nil, 1000, nil)
 	if err == nil {
 		t.Error("Expected error for nil node, got nil")
 	}
@@ -345,7 +345,7 @@ func TestWaitForDefraDB_InvalidRequestURL(t *testing.T) {
 
 // mockDocIDTracker is a simple mock implementing DocIDTrackerInterface
 type mockDocIDTracker struct {
-	trackedBlocks []int64
+	trackedBlocks  []int64
 	trackedResults []*BlockCreationResult
 }
 
@@ -418,14 +418,14 @@ func TestNewBlockHandler_ZeroMaxDocs(t *testing.T) {
 	// by verifying both the nil-node error path and the default logic.
 
 	// With nil node, verify the error is returned regardless of maxDocsPerTxn
-	_, err := NewBlockHandler(nil, 0)
-	require.Error(t, err, "NewBlockHandler(nil, 0) should return error")
+	_, err := NewBlockHandler(nil, 0, nil)
+	require.Error(t, err, "NewBlockHandler(nil, 0, nil) should return error")
 
-	_, err = NewBlockHandler(nil, -1)
-	require.Error(t, err, "NewBlockHandler(nil, -1) should return error")
+	_, err = NewBlockHandler(nil, -1, nil)
+	require.Error(t, err, "NewBlockHandler(nil, -1, nil) should return error")
 
-	_, err = NewBlockHandler(nil, -100)
-	require.Error(t, err, "NewBlockHandler(nil, -100) should return error")
+	_, err = NewBlockHandler(nil, -100, nil)
+	require.Error(t, err, "NewBlockHandler(nil, -100, nil) should return error")
 }
 
 // ---------------------------------------------------------------------------
@@ -451,10 +451,7 @@ func TestBlockCreationResult_Fields(t *testing.T) {
 }
 
 func TestBlockCreationResult_EmptySlices(t *testing.T) {
-	result := &BlockCreationResult{
-		BlockID:     "block-0",
-		BlockNumber: 0,
-	}
+	result := &BlockCreationResult{}
 
 	assert.Nil(t, result.TransactionIDs, "TransactionIDs should be nil when not set")
 	assert.Nil(t, result.LogIDs, "LogIDs should be nil when not set")
