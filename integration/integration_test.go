@@ -607,6 +607,6 @@ func insertMockData() error {
 func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
 
-	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchema())
+	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchemaForChain(constants.DefaultCollectionPrefix))
 	return err
 }
