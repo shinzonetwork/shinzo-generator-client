@@ -1,10 +1,15 @@
 sudo tee ~/docker-compose.yml <<'EOF'
+networks:
+  shinzo-net:
+    driver: bridge
+
 services:
   shinzo-indexer:
     image: ghcr.io/shinzonetwork/shinzo-indexer-client:v0.5.5
     container_name: shinzo-indexer
     restart: unless-stopped
-    network_mode: host
+    networks:
+      - shinzo-net
     mem_limit: 16g
     mem_reservation: 13g
     user: "1003:1006"
