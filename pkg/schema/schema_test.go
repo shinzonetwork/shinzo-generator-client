@@ -9,6 +9,7 @@ import (
 )
 
 func TestGetSchema(t *testing.T) {
+t.Parallel()
 	s := GetSchema()
 	if s == "" {
 		t.Fatal("GetSchema() returned empty string")

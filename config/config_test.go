@@ -9,6 +9,7 @@ import (
 )
 
 func TestLoadConfig_ValidYAML(t *testing.T) {
+t.Parallel()
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
@@ -60,6 +61,7 @@ logger:
 }
 
 func TestLoadConfig_InvalidPath(t *testing.T) {
+t.Parallel()
 	_, err := LoadConfig("/nonexistent/path/config.yaml")
 	if err == nil {
 		t.Error("Expected error for nonexistent config file")
@@ -67,6 +69,7 @@ func TestLoadConfig_InvalidPath(t *testing.T) {
 }
 
 func TestLoadConfig_InvalidYAML(t *testing.T) {
+t.Parallel()
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "invalid_config.yaml")
 
@@ -121,6 +124,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 }
 
 func TestDefraDBConfig_Host(t *testing.T) {
+t.Parallel()
 	cfg := &DefraDBConfig{Url: "http://localhost:9181"}
 	if cfg.Host() != "http://localhost:9181" {
 		t.Errorf("Host() = %q, want %q", cfg.Host(), "http://localhost:9181")
@@ -128,6 +132,7 @@ func TestDefraDBConfig_Host(t *testing.T) {
 }
 
 func TestApplyDefaults_AllZeroValues(t *testing.T) {
+t.Parallel()
 	cfg := &Config{}
 	applyDefaults(cfg)
 
@@ -149,6 +154,7 @@ func TestApplyDefaults_AllZeroValues(t *testing.T) {
 }
 
 func TestApplyDefaults_PresetValuesPreserved(t *testing.T) {
+t.Parallel()
 	cfg := &Config{}
 	cfg.Indexer.ConcurrentBlocks = 4
 	cfg.Indexer.ReceiptWorkers = 8
@@ -176,6 +182,7 @@ func TestApplyDefaults_PresetValuesPreserved(t *testing.T) {
 }
 
 func TestValidateConfig_NegativeStartHeight(t *testing.T) {
+t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
 	cfg.Indexer.StartHeight = -1
@@ -190,6 +197,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 }
 
 func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
+t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = false
 	cfg.DefraDB.Url = ""
@@ -201,6 +209,7 @@ func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
 }
 
 func TestValidateConfig_Valid(t *testing.T) {
+t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
 	cfg.Indexer.StartHeight = 0

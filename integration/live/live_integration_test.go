@@ -245,6 +245,7 @@ func hasLiveBlocks() bool {
 
 // TestLiveEthereumConnection tests that the indexer can connect to real Ethereum
 func TestLiveEthereumConnection(t *testing.T) {
+t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
@@ -261,6 +262,7 @@ func TestLiveEthereumConnection(t *testing.T) {
 
 // TestLiveGetLatestBlocks tests querying latest blocks from live data
 func TestLiveGetLatestBlocks(t *testing.T) {
+t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
@@ -308,6 +310,7 @@ func TestLiveGetLatestBlocks(t *testing.T) {
 
 // TestLiveGetTransactions tests querying transactions from live data
 func TestLiveGetTransactions(t *testing.T) {
+t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
@@ -358,6 +361,7 @@ func TestLiveGetTransactions(t *testing.T) {
 
 // TestLiveBlockTransactionRelationship tests the relationship between blocks and transactions in live data
 func TestLiveBlockTransactionRelationship(t *testing.T) {
+t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
@@ -416,6 +420,7 @@ func TestLiveBlockTransactionRelationship(t *testing.T) {
 
 // TestLiveIndexerPerformance tests the performance of live indexing
 func TestLiveIndexerPerformance(t *testing.T) {
+t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
