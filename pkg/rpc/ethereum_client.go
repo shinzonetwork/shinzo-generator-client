@@ -140,8 +140,8 @@ type apiKeyTransport struct {
 
 func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, req.URL.String())
-	logger.Sugar.Debugf("Setting X-goog-api-key header: %s", t.apiKey[:10]+"...")
-	req.Header.Set("X-goog-api-key", t.apiKey)
+	logger.Sugar.Debugf("Setting X-Api-Key header: %s", t.apiKey[:10]+"...")
+	req.Header.Set("X-Api-Key", t.apiKey)
 
 	// Log request headers (excluding sensitive data)
 	logger.Sugar.Debugf("Request headers: Content-Type=%s, User-Agent=%s",
