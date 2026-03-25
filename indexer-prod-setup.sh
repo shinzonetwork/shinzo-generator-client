@@ -65,7 +65,6 @@ http {
     return 301 https://$host:443$request_uri;
   }
 
-  # HTTPS server with self-signed SSL
   server {
     listen 443 ssl;
     server_name _;
@@ -89,7 +88,7 @@ http {
       proxy_pass http://shinzo-indexer:8080/health;
     }
 
-    # Registration information [OPTIONAL] -- You may want to keep this private.
+    # Registration information
     location = /registration {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/registration;

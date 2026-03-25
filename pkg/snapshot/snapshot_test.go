@@ -38,6 +38,7 @@ func TestMain(m *testing.M) {
 // ---------------------------------------------------------------------------
 
 func TestConfigSetDefaults_EmptyConfig(t *testing.T) {
+
 	cfg := Config{}
 	cfg.SetDefaults()
 
@@ -47,6 +48,7 @@ func TestConfigSetDefaults_EmptyConfig(t *testing.T) {
 }
 
 func TestConfigSetDefaults_PresetValuesPreserved(t *testing.T) {
+
 	cfg := Config{
 		Dir:             "/custom/dir",
 		BlocksPerFile:   500,
@@ -60,30 +62,35 @@ func TestConfigSetDefaults_PresetValuesPreserved(t *testing.T) {
 }
 
 func TestConfigSetDefaults_ZeroBlocksPerFile(t *testing.T) {
+
 	cfg := Config{BlocksPerFile: 0}
 	cfg.SetDefaults()
 	assert.Equal(t, int64(1000), cfg.BlocksPerFile)
 }
 
 func TestConfigSetDefaults_NegativeBlocksPerFile(t *testing.T) {
+
 	cfg := Config{BlocksPerFile: -5}
 	cfg.SetDefaults()
 	assert.Equal(t, int64(1000), cfg.BlocksPerFile)
 }
 
 func TestConfigSetDefaults_ZeroIntervalSeconds(t *testing.T) {
+
 	cfg := Config{IntervalSeconds: 0}
 	cfg.SetDefaults()
 	assert.Equal(t, 60, cfg.IntervalSeconds)
 }
 
 func TestConfigSetDefaults_NegativeIntervalSeconds(t *testing.T) {
+
 	cfg := Config{IntervalSeconds: -10}
 	cfg.SetDefaults()
 	assert.Equal(t, 60, cfg.IntervalSeconds)
 }
 
 func TestConfigSetDefaults_EnabledFieldUnaffected(t *testing.T) {
+
 	cfg := Config{Enabled: true}
 	cfg.SetDefaults()
 	assert.True(t, cfg.Enabled)
@@ -98,6 +105,7 @@ func TestConfigSetDefaults_EnabledFieldUnaffected(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNew_ReturnsNonNil(t *testing.T) {
+
 	cfg := &Config{Dir: "/tmp/test", BlocksPerFile: 100, IntervalSeconds: 10}
 	s := New(cfg, nil)
 
@@ -105,6 +113,7 @@ func TestNew_ReturnsNonNil(t *testing.T) {
 }
 
 func TestNew_FieldsSetCorrectly(t *testing.T) {
+
 	cfg := &Config{
 		Enabled:         true,
 		Dir:             "/tmp/snapshots",
@@ -121,6 +130,7 @@ func TestNew_FieldsSetCorrectly(t *testing.T) {
 }
 
 func TestNew_StopChanIsOpen(t *testing.T) {
+
 	cfg := &Config{Dir: "/tmp/test"}
 	s := New(cfg, nil)
 
@@ -146,12 +156,14 @@ func newTestSnapshotter(t *testing.T) (*Snapshotter, string) {
 }
 
 func TestListSnapshots_EmptyDirectory(t *testing.T) {
+
 	s, _ := newTestSnapshotter(t)
 	infos := s.ListSnapshots()
 	assert.Empty(t, infos)
 }
 
 func TestListSnapshots_ValidSnapshotFiles(t *testing.T) {
+
 	s, dir := newTestSnapshotter(t)
 
 	// Create valid snapshot files
@@ -181,6 +193,7 @@ func TestListSnapshots_ValidSnapshotFiles(t *testing.T) {
 }
 
 func TestListSnapshots_SizeAndModTime(t *testing.T) {
+
 	s, dir := newTestSnapshotter(t)
 
 	content := []byte("some snapshot content here")
@@ -197,6 +210,7 @@ func TestListSnapshots_SizeAndModTime(t *testing.T) {
 }
 
 func TestListSnapshots_BadNamingSkipped(t *testing.T) {
+
 	s, dir := newTestSnapshotter(t)
 
 	// Files that don't match the expected pattern
@@ -223,6 +237,7 @@ func TestListSnapshots_BadNamingSkipped(t *testing.T) {
 }
 
 func TestListSnapshots_SortedByStartBlock(t *testing.T) {
+
 	s, dir := newTestSnapshotter(t)
 
 	// Create files in reverse order
@@ -244,6 +259,7 @@ func TestListSnapshots_SortedByStartBlock(t *testing.T) {
 }
 
 func TestListSnapshots_DirectoryDoesNotExist(t *testing.T) {
+
 	cfg := &Config{Dir: "/nonexistent/path/snapshots"}
 	s := New(cfg, nil)
 	infos := s.ListSnapshots()
@@ -255,6 +271,7 @@ func TestListSnapshots_DirectoryDoesNotExist(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetSnapshotPath_ValidFile(t *testing.T) {
+
 	s, dir := newTestSnapshotter(t)
 
 	fname := "snapshot_1000_1999.kvsnap.gz"
@@ -266,12 +283,14 @@ func TestGetSnapshotPath_ValidFile(t *testing.T) {
 }
 
 func TestGetSnapshotPath_FileDoesNotExist(t *testing.T) {
+
 	s, _ := newTestSnapshotter(t)
 	result := s.GetSnapshotPath("snapshot_9999_10998.kvsnap.gz")
 	assert.Equal(t, "", result)
 }
 
 func TestGetSnapshotPath_PathTraversal(t *testing.T) {
+
 	s, _ := newTestSnapshotter(t)
 
 	traversalAttempts := []string{
@@ -289,6 +308,7 @@ func TestGetSnapshotPath_PathTraversal(t *testing.T) {
 }
 
 func TestGetSnapshotPath_BaseFilenameOnly(t *testing.T) {
+
 	s, dir := newTestSnapshotter(t)
 
 	// Create a file
@@ -302,6 +322,7 @@ func TestGetSnapshotPath_BaseFilenameOnly(t *testing.T) {
 }
 
 func TestGetSnapshotPath_EmptyFilename(t *testing.T) {
+
 	s, _ := newTestSnapshotter(t)
 	// filepath.Base("") returns ".", which != "", so it should return ""
 	result := s.GetSnapshotPath("")
@@ -313,6 +334,7 @@ func TestGetSnapshotPath_EmptyFilename(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetMetrics_InitialState(t *testing.T) {
+
 	cfg := &Config{Enabled: true, Dir: "/tmp/test"}
 	s := New(cfg, nil)
 
@@ -323,6 +345,7 @@ func TestGetMetrics_InitialState(t *testing.T) {
 }
 
 func TestGetMetrics_DisabledConfig(t *testing.T) {
+
 	cfg := &Config{Enabled: false, Dir: "/tmp/test"}
 	s := New(cfg, nil)
 
@@ -331,6 +354,7 @@ func TestGetMetrics_DisabledConfig(t *testing.T) {
 }
 
 func TestGetMetrics_AfterManualUpdate(t *testing.T) {
+
 	cfg := &Config{Enabled: true, Dir: "/tmp/test"}
 	s := New(cfg, nil)
 
@@ -350,6 +374,7 @@ func TestGetMetrics_AfterManualUpdate(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestStartStop_CreatesDirectory(t *testing.T) {
+
 	dir := filepath.Join(t.TempDir(), "nested", "snapshots")
 	cfg := &Config{
 		Enabled:         true,
@@ -374,6 +399,7 @@ func TestStartStop_CreatesDirectory(t *testing.T) {
 }
 
 func TestStartStop_CleanShutdown(t *testing.T) {
+
 	dir := t.TempDir()
 	cfg := &Config{
 		Enabled:         true,
@@ -405,6 +431,7 @@ func TestStartStop_CleanShutdown(t *testing.T) {
 }
 
 func TestStartStop_ContextCancellation(t *testing.T) {
+
 	dir := t.TempDir()
 	cfg := &Config{
 		Enabled:         true,
@@ -437,6 +464,7 @@ func TestStartStop_ContextCancellation(t *testing.T) {
 }
 
 func TestStart_ScanExistingSnapshots(t *testing.T) {
+
 	dir := t.TempDir()
 	cfg := &Config{
 		Enabled:         true,
@@ -475,6 +503,7 @@ func TestStart_ScanExistingSnapshots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestComputeSnapshotMerkleRoot_EmptyInput(t *testing.T) {
+
 	result := ComputeSnapshotMerkleRoot(nil)
 	assert.Nil(t, result)
 
@@ -483,6 +512,7 @@ func TestComputeSnapshotMerkleRoot_EmptyInput(t *testing.T) {
 }
 
 func TestComputeSnapshotMerkleRoot_SingleRoot(t *testing.T) {
+
 	root := []byte("test merkle root data")
 	result := ComputeSnapshotMerkleRoot([][]byte{root})
 	require.NotNil(t, result)
@@ -493,6 +523,7 @@ func TestComputeSnapshotMerkleRoot_SingleRoot(t *testing.T) {
 }
 
 func TestComputeSnapshotMerkleRoot_TwoRoots(t *testing.T) {
+
 	root1 := []byte("root one")
 	root2 := []byte("root two")
 
@@ -510,6 +541,7 @@ func TestComputeSnapshotMerkleRoot_TwoRoots(t *testing.T) {
 }
 
 func TestComputeSnapshotMerkleRoot_ThreeRoots_OddCount(t *testing.T) {
+
 	root1 := []byte("root one")
 	root2 := []byte("root two")
 	root3 := []byte("root three")
@@ -539,6 +571,7 @@ func TestComputeSnapshotMerkleRoot_ThreeRoots_OddCount(t *testing.T) {
 }
 
 func TestComputeSnapshotMerkleRoot_FourRoots(t *testing.T) {
+
 	roots := make([][]byte, 4)
 	for i := range roots {
 		roots[i] = []byte{byte(i + 1), byte(i + 10), byte(i + 20)}
@@ -574,6 +607,7 @@ func TestComputeSnapshotMerkleRoot_FourRoots(t *testing.T) {
 }
 
 func TestComputeSnapshotMerkleRoot_Deterministic(t *testing.T) {
+
 	roots := [][]byte{
 		[]byte("block sig root 1"),
 		[]byte("block sig root 2"),
@@ -587,6 +621,7 @@ func TestComputeSnapshotMerkleRoot_Deterministic(t *testing.T) {
 }
 
 func TestComputeSnapshotMerkleRoot_DifferentOrder_DifferentResult(t *testing.T) {
+
 	root1 := []byte("alpha")
 	root2 := []byte("beta")
 
@@ -658,6 +693,7 @@ func TestExtractBlockSigMerkleRoots_PlainJSONL(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_GzipFile(t *testing.T) {
+
 	dir := t.TempDir()
 
 	mr1 := hexRoot("gzip_root_data")
@@ -677,6 +713,7 @@ func TestExtractBlockSigMerkleRoots_GzipFile(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_EmptyFile(t *testing.T) {
+
 	dir := t.TempDir()
 	p := writeJSONLFile(t, dir, "empty.jsonl", []string{})
 
@@ -686,6 +723,7 @@ func TestExtractBlockSigMerkleRoots_EmptyFile(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_EmptyGzipFile(t *testing.T) {
+
 	dir := t.TempDir()
 	p := writeGzipJSONLFile(t, dir, "empty.jsonl.gz", []string{})
 
@@ -695,6 +733,7 @@ func TestExtractBlockSigMerkleRoots_EmptyGzipFile(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_NonBlockSigEntriesSkipped(t *testing.T) {
+
 	dir := t.TempDir()
 
 	mr := hexRoot("valid_root")
@@ -717,6 +756,7 @@ func TestExtractBlockSigMerkleRoots_NonBlockSigEntriesSkipped(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_InvalidJSONSkipped(t *testing.T) {
+
 	dir := t.TempDir()
 
 	mr := hexRoot("good_root")
@@ -739,6 +779,7 @@ func TestExtractBlockSigMerkleRoots_InvalidJSONSkipped(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_EmptyMerkleRoot(t *testing.T) {
+
 	dir := t.TempDir()
 
 	lines := []string{
@@ -754,6 +795,7 @@ func TestExtractBlockSigMerkleRoots_EmptyMerkleRoot(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_InvalidHexSkipped(t *testing.T) {
+
 	dir := t.TempDir()
 
 	mr := hexRoot("valid_root")
@@ -774,6 +816,7 @@ func TestExtractBlockSigMerkleRoots_InvalidHexSkipped(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_NilData(t *testing.T) {
+
 	dir := t.TempDir()
 
 	lines := []string{
@@ -789,12 +832,14 @@ func TestExtractBlockSigMerkleRoots_NilData(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_FileNotFound(t *testing.T) {
+
 	roots, err := extractBlockSigMerkleRoots("/nonexistent/path/file.jsonl")
 	assert.Error(t, err)
 	assert.Nil(t, roots)
 }
 
 func TestExtractBlockSigMerkleRoots_MultipleValidRootsInOrder(t *testing.T) {
+
 	dir := t.TempDir()
 
 	mrs := make([]string, 5)
@@ -829,6 +874,7 @@ func TestExtractBlockSigMerkleRoots_MultipleValidRootsInOrder(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_NoBlockSigsInSnapshot(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// Create a snapshot with no block_signature entries
@@ -856,6 +902,7 @@ func TestVerifySnapshotWithSig_NoBlockSigsInSnapshot(t *testing.T) {
 }
 
 func TestVerifySnapshotWithSig_MerkleRootMismatch(t *testing.T) {
+
 	dir := t.TempDir()
 
 	mr := hexRoot("actual_root_data")
@@ -884,6 +931,7 @@ func TestVerifySnapshotWithSig_MerkleRootMismatch(t *testing.T) {
 }
 
 func TestVerifySnapshotWithSig_FieldsPropagated(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// No block sigs -> quick error path, but fields should be set
@@ -909,6 +957,7 @@ func TestVerifySnapshotWithSig_FieldsPropagated(t *testing.T) {
 }
 
 func TestVerifySnapshotWithSig_MatchingMerkleRootButBadSignatureHex(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// Build a snapshot with a known root, compute the expected merkle root
@@ -944,6 +993,7 @@ func TestVerifySnapshotWithSig_MatchingMerkleRootButBadSignatureHex(t *testing.T
 }
 
 func TestVerifySnapshotWithSig_UnsupportedSignatureType(t *testing.T) {
+
 	dir := t.TempDir()
 
 	rootData := bytes.Repeat([]byte{0xCD}, 32)
@@ -977,6 +1027,7 @@ func TestVerifySnapshotWithSig_UnsupportedSignatureType(t *testing.T) {
 }
 
 func TestVerifySnapshotWithSig_BadMerkleRootHex(t *testing.T) {
+
 	dir := t.TempDir()
 
 	rootData := bytes.Repeat([]byte{0xEF}, 32)
@@ -1010,6 +1061,7 @@ func TestVerifySnapshotWithSig_BadMerkleRootHex(t *testing.T) {
 }
 
 func TestVerifySnapshotWithSig_SnapshotFileNotFound(t *testing.T) {
+
 	sig := &SnapshotSignatureData{
 		SnapshotFile: "missing.jsonl",
 		StartBlock:   1000,
@@ -1028,6 +1080,7 @@ func TestVerifySnapshotWithSig_SnapshotFileNotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshot_MissingSigFile(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// Create snapshot file without corresponding .sig.json
@@ -1042,6 +1095,7 @@ func TestVerifySnapshot_MissingSigFile(t *testing.T) {
 }
 
 func TestVerifySnapshot_InvalidSigJSON(t *testing.T) {
+
 	dir := t.TempDir()
 
 	snapshotPath := filepath.Join(dir, "snapshot_1000_1999.jsonl.gz")
@@ -1060,6 +1114,7 @@ func TestVerifySnapshot_InvalidSigJSON(t *testing.T) {
 }
 
 func TestVerifySnapshot_ValidSigFileButNoBlockSigs(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// Create a gzip'd JSONL file with no block_signature entries
@@ -1092,6 +1147,7 @@ func TestVerifySnapshot_ValidSigFileButNoBlockSigs(t *testing.T) {
 }
 
 func TestVerifySnapshot_SidecarPathDerivation(t *testing.T) {
+
 	// The sidecar path is derived by trimming .jsonl.gz and adding .sig.json.
 	// Verify this derivation with a specific filename.
 	dir := t.TempDir()
@@ -1129,6 +1185,7 @@ func TestVerifySnapshot_SidecarPathDerivation(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestScanExisting_NoFiles(t *testing.T) {
+
 	dir := t.TempDir()
 	cfg := &Config{Dir: dir}
 	s := New(cfg, nil)
@@ -1139,6 +1196,7 @@ func TestScanExisting_NoFiles(t *testing.T) {
 }
 
 func TestScanExisting_FindsHighestBlock(t *testing.T) {
+
 	dir := t.TempDir()
 	cfg := &Config{Dir: dir}
 
@@ -1160,6 +1218,7 @@ func TestScanExisting_FindsHighestBlock(t *testing.T) {
 }
 
 func TestScanExisting_MalformedFilesIgnored(t *testing.T) {
+
 	dir := t.TempDir()
 	cfg := &Config{Dir: dir}
 
@@ -1181,6 +1240,7 @@ func TestScanExisting_MalformedFilesIgnored(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSnapshotSignatureData_JSONRoundTrip(t *testing.T) {
+
 	original := SnapshotSignatureData{
 		Version:             1,
 		SnapshotFile:        "snapshot_1000_1999.kvsnap.gz",
@@ -1206,6 +1266,7 @@ func TestSnapshotSignatureData_JSONRoundTrip(t *testing.T) {
 }
 
 func TestSnapshotSignatureData_OmitEmptyBlockSigRoots(t *testing.T) {
+
 	sig := SnapshotSignatureData{
 		Version:      1,
 		SnapshotFile: "test.kvsnap.gz",
@@ -1223,6 +1284,7 @@ func TestSnapshotSignatureData_OmitEmptyBlockSigRoots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifyResult_JSONRoundTrip(t *testing.T) {
+
 	original := VerifyResult{
 		Valid:           true,
 		SnapshotFile:    "snapshot.jsonl.gz",
@@ -1246,6 +1308,7 @@ func TestVerifyResult_JSONRoundTrip(t *testing.T) {
 }
 
 func TestVerifyResult_OmitEmptyError(t *testing.T) {
+
 	result := VerifyResult{Valid: true}
 	data, err := json.Marshal(result)
 	require.NoError(t, err)
@@ -1263,6 +1326,7 @@ func TestVerifyResult_OmitEmptyError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestMetrics_JSONSerialization(t *testing.T) {
+
 	m := Metrics{
 		Enabled:           true,
 		LastSnapshotBlock: 9999,
@@ -1284,6 +1348,7 @@ func TestMetrics_JSONSerialization(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSnapshotInfo_JSONSerialization(t *testing.T) {
+
 	now := time.Now().UTC().Truncate(time.Second)
 	info := SnapshotInfo{
 		Filename:   "snapshot_1000_1999.kvsnap.gz",
@@ -1311,6 +1376,7 @@ func TestSnapshotInfo_JSONSerialization(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestComputeSnapshotMerkleRoot_LargeNumberOfRoots(t *testing.T) {
+
 	// Verify it handles a large number of roots without panicking
 	roots := make([][]byte, 1000)
 	for i := range roots {
@@ -1323,6 +1389,7 @@ func TestComputeSnapshotMerkleRoot_LargeNumberOfRoots(t *testing.T) {
 }
 
 func TestComputeSnapshotMerkleRoot_PowerOfTwoRoots(t *testing.T) {
+
 	// Power-of-two count means no odd-element promotions
 	roots := make([][]byte, 8)
 	for i := range roots {
@@ -1339,6 +1406,7 @@ func TestComputeSnapshotMerkleRoot_PowerOfTwoRoots(t *testing.T) {
 }
 
 func TestGetSnapshotPath_DotFile(t *testing.T) {
+
 	s, dir := newTestSnapshotter(t)
 
 	fname := ".hidden_snapshot.kvsnap.gz"
@@ -1350,6 +1418,7 @@ func TestGetSnapshotPath_DotFile(t *testing.T) {
 }
 
 func TestListSnapshots_LargeBlockNumbers(t *testing.T) {
+
 	s, dir := newTestSnapshotter(t)
 
 	fname := "snapshot_23700000_23700999.kvsnap.gz"
@@ -1363,6 +1432,7 @@ func TestListSnapshots_LargeBlockNumbers(t *testing.T) {
 }
 
 func TestExtractBlockSigMerkleRoots_InvalidGzipFile(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// Write non-gzip content to a .gz file
@@ -1506,6 +1576,7 @@ func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBl
 // ---------------------------------------------------------------------------
 
 func TestGetBlockNumber_EmptyDB(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	cfg := &Config{Dir: t.TempDir(), BlocksPerFile: 1000}
 	s := New(cfg, td.Node)
@@ -1522,6 +1593,7 @@ func TestGetBlockNumber_EmptyDB(t *testing.T) {
 }
 
 func TestGetBlockNumber_AfterInserts(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102) // blocks 100, 101, 102
 
@@ -1539,6 +1611,7 @@ func TestGetBlockNumber_AfterInserts(t *testing.T) {
 }
 
 func TestGetBlockNumber_SingleBlock(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 500, 500)
 
@@ -1556,6 +1629,7 @@ func TestGetBlockNumber_SingleBlock(t *testing.T) {
 }
 
 func TestGetBlockNumber_NonSequentialBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
@@ -1587,6 +1661,7 @@ func TestGetBlockNumber_NonSequentialBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQueryDocIDs_EmptyDB(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	cfg := &Config{Dir: t.TempDir(), BlocksPerFile: 1000}
 	s := New(cfg, td.Node)
@@ -1598,6 +1673,7 @@ func TestQueryDocIDs_EmptyDB(t *testing.T) {
 }
 
 func TestQueryDocIDs_WithBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102) // 3 blocks
 
@@ -1617,6 +1693,7 @@ func TestQueryDocIDs_WithBlocks(t *testing.T) {
 }
 
 func TestQueryDocIDs_PartialRange(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 105) // blocks 100-105
 
@@ -1631,6 +1708,7 @@ func TestQueryDocIDs_PartialRange(t *testing.T) {
 }
 
 func TestQueryDocIDs_Transactions(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 200, 202) // 3 blocks, each with 1 tx
 
@@ -1644,6 +1722,7 @@ func TestQueryDocIDs_Transactions(t *testing.T) {
 }
 
 func TestQueryDocIDs_Logs(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 300, 301) // 2 blocks, each with 1 tx and 1 log
 
@@ -1657,6 +1736,7 @@ func TestQueryDocIDs_Logs(t *testing.T) {
 }
 
 func TestQueryDocIDs_OutOfRange(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 
@@ -1675,6 +1755,7 @@ func TestQueryDocIDs_OutOfRange(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_CreatesFile(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 1000, 1002)
 
@@ -1695,6 +1776,7 @@ func TestCreateKVSnapshot_CreatesFile(t *testing.T) {
 }
 
 func TestCreateKVSnapshot_HeaderValid(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 2000, 2004)
 
@@ -1741,6 +1823,7 @@ func TestCreateKVSnapshot_HeaderValid(t *testing.T) {
 }
 
 func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
+
 	// Setup first DefraDB node and insert blocks
 	td1 := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td1, 1000, 1004) // 5 blocks
@@ -1786,6 +1869,7 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 }
 
 func TestCreateKVSnapshot_EmptyRange(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	// Don't insert any blocks
 
@@ -1810,6 +1894,7 @@ func TestCreateKVSnapshot_EmptyRange(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestImportKV_FileNotFound(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -1820,6 +1905,7 @@ func TestImportKV_FileNotFound(t *testing.T) {
 }
 
 func TestImportKV_InvalidGzip(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -1834,6 +1920,7 @@ func TestImportKV_InvalidGzip(t *testing.T) {
 }
 
 func TestImportKV_InvalidMagic(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -1872,6 +1959,7 @@ func TestImportKV_InvalidMagic(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetBlockSigMerkleRoots_EmptyDB(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -1882,6 +1970,7 @@ func TestGetBlockSigMerkleRoots_EmptyDB(t *testing.T) {
 }
 
 func TestGetBlockSigMerkleRoots_WithBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102) // 3 blocks, each creates a BlockSignature
 	ctx := context.Background()
@@ -1896,6 +1985,7 @@ func TestGetBlockSigMerkleRoots_WithBlocks(t *testing.T) {
 }
 
 func TestGetBlockSigMerkleRoots_OutOfRange(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 	ctx := context.Background()
@@ -1911,6 +2001,7 @@ func TestGetBlockSigMerkleRoots_OutOfRange(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQuerySnapshotSignatures_EmptyDB(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -1925,6 +2016,7 @@ func TestQuerySnapshotSignatures_EmptyDB(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -1972,6 +2064,7 @@ func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
 }
 
 func TestCreateSnapshotSignatureDoc_MultipleDocs(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -2009,6 +2102,7 @@ func TestCreateSnapshotSignatureDoc_MultipleDocs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_NoBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	snapshotDir := t.TempDir()
 	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
@@ -2026,6 +2120,7 @@ func TestCheckAndSnapshot_NoBlocks(t *testing.T) {
 }
 
 func TestCheckAndSnapshot_InsufficientBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	// Insert only 5 blocks at 1000-1004
@@ -2049,6 +2144,7 @@ func TestCheckAndSnapshot_InsufficientBlocks(t *testing.T) {
 }
 
 func TestCheckAndSnapshot_SmallBlocksPerFile(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	// Insert blocks 3-7 (5 blocks). We start at 3 because checkAndSnapshot
@@ -2085,6 +2181,7 @@ func TestCheckAndSnapshot_SmallBlocksPerFile(t *testing.T) {
 }
 
 func TestCheckAndSnapshot_MultipleRounds(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	// Insert blocks 10-15 (6 blocks) with blocks_per_file=2.
@@ -2129,6 +2226,7 @@ func TestCheckAndSnapshot_MultipleRounds(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
+
 	// Create source node with enough blocks for one snapshot.
 	// Starting at 100 avoids the lowest==0 early return in checkAndSnapshot.
 	td1 := testutils.SetupTestDefraDB(t)
@@ -2182,6 +2280,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQueryDocIDs_ChunkedQuery(t *testing.T) {
+
 	// queryChunkSize is 100, so inserting 5 blocks at high numbers
 	// ensures the chunking logic is exercised even in a small range.
 	td := testutils.SetupTestDefraDB(t)
@@ -2207,6 +2306,7 @@ func TestQueryDocIDs_ChunkedQuery(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithTransactionsAndLogs(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	// Each block inserted by insertTestBlocks has 1 tx and 1 log
 	insertTestBlocks(t, td, 500, 502)
@@ -2247,6 +2347,7 @@ var (
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_GapHandling(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	// Insert blocks 1000-1004 with blocks_per_file=5
@@ -2287,6 +2388,7 @@ func writeKVSnapGz(t *testing.T, dir, name string, writeContent func(gw *gzip.Wr
 }
 
 func TestImportKV_TruncatedHeaderLength(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -2304,6 +2406,7 @@ func TestImportKV_TruncatedHeaderLength(t *testing.T) {
 }
 
 func TestImportKV_InvalidHeaderJSON(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -2326,6 +2429,7 @@ func TestImportKV_InvalidHeaderJSON(t *testing.T) {
 }
 
 func TestImportKV_TruncatedHeaderBody(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -2351,6 +2455,7 @@ func TestImportKV_TruncatedHeaderBody(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_InvalidMerkleRootHex(t *testing.T) {
+
 	dir := t.TempDir()
 
 	rootData := bytes.Repeat([]byte{0xAA}, 32)
@@ -2371,6 +2476,7 @@ func TestVerifySnapshotWithSig_InvalidMerkleRootHex(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_ValidSignature_Ed25519(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// Generate a real Ed25519 key pair
@@ -2415,6 +2521,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Ed25519(t *testing.T) {
 }
 
 func TestVerifySnapshotWithSig_ValidSignature_Secp256k1(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// Generate a real Secp256k1 key pair
@@ -2460,6 +2567,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Secp256k1(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_WrongSignature(t *testing.T) {
+
 	dir := t.TempDir()
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
@@ -2506,6 +2614,7 @@ func TestVerifySnapshotWithSig_WrongSignature(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
+
 	dir := t.TempDir()
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
@@ -2548,6 +2657,7 @@ func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
+
 	dir := t.TempDir()
 
 	rootData := bytes.Repeat([]byte{0x11}, 32)
@@ -2616,6 +2726,7 @@ func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExtractBlockSigMerkleRoots_TruncatedGzipCausesReaderErr(t *testing.T) {
+
 	dir := t.TempDir()
 
 	// Create a valid gzip file and then truncate it mid-stream
@@ -2659,6 +2770,7 @@ func TestExtractBlockSigMerkleRoots_TruncatedGzipCausesReaderErr(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignMerkleRoot_NoIdentityInContext(t *testing.T) {
+
 	ctx := context.Background()
 	merkleRoot := bytes.Repeat([]byte{0xAA}, 32)
 
@@ -2668,6 +2780,7 @@ func TestSignMerkleRoot_NoIdentityInContext(t *testing.T) {
 }
 
 func TestSignMerkleRoot_Ed25519(t *testing.T) {
+
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
 
@@ -2689,6 +2802,7 @@ func TestSignMerkleRoot_Ed25519(t *testing.T) {
 }
 
 func TestSignMerkleRoot_Secp256k1(t *testing.T) {
+
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
 	require.NoError(t, err)
 
@@ -2714,6 +2828,7 @@ func TestSignMerkleRoot_Secp256k1(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_NoRoots(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -2726,6 +2841,7 @@ func TestSignSnapshotWithRoots_NoRoots(t *testing.T) {
 }
 
 func TestSignSnapshotWithRoots_NoIdentity(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background() // No identity in context
 
@@ -2738,6 +2854,7 @@ func TestSignSnapshotWithRoots_NoIdentity(t *testing.T) {
 }
 
 func TestSignSnapshotWithRoots_WithIdentity(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
@@ -2773,6 +2890,7 @@ func TestSignSnapshotWithRoots_WithIdentity(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 2000, 2002)
 
@@ -2806,6 +2924,7 @@ func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_GapSkipAhead(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	// Insert blocks 20-29 with blocks_per_file=5
@@ -2845,6 +2964,7 @@ func TestCheckAndSnapshot_GapSkipAhead(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_CreateSnapshotError(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	// Insert blocks 10-14
@@ -2877,6 +2997,7 @@ func TestCheckAndSnapshot_CreateSnapshotError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestStart_MkdirAllError(t *testing.T) {
+
 	// Use a path that can't be created (e.g., under a file, not a directory)
 	tmpFile := filepath.Join(t.TempDir(), "afile")
 	err := os.WriteFile(tmpFile, []byte("data"), 0644)
@@ -2902,6 +3023,7 @@ func TestStart_MkdirAllError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_OsCreateError(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 
@@ -2919,6 +3041,7 @@ func TestCreateKVSnapshot_OsCreateError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQueryDocIDs_GQLError(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	cfg := &Config{Dir: t.TempDir(), BlocksPerFile: 1000}
@@ -2936,6 +3059,7 @@ func TestQueryDocIDs_GQLError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoop_StopsOnStopChan(t *testing.T) {
+
 	dir := t.TempDir()
 	cfg := &Config{
 		Enabled:         true,
@@ -2968,6 +3092,7 @@ func TestLoop_StopsOnStopChan(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignMerkleRoot_IdentityNotFull(t *testing.T) {
+
 	// Create a context with a non-full identity (just a DID)
 	baseIdent := identity.FromDID("did:key:z6Mk123")
 	ctx := identity.WithContext(context.Background(), immutable.Some(baseIdent))
@@ -2983,6 +3108,7 @@ func TestSignMerkleRoot_IdentityNotFull(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -3023,6 +3149,7 @@ func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQuerySnapshotSignatures_EmptySnapshotFileSkipped(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -3054,6 +3181,7 @@ func TestQuerySnapshotSignatures_EmptySnapshotFileSkipped(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestImportKV_ValidHeaderEmptyKVs(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -3098,6 +3226,7 @@ func TestImportKV_ValidHeaderEmptyKVs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_TmpFileCleanedOnError(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	snapshotDir := filepath.Join(t.TempDir(), "readonly_dir")
@@ -3140,6 +3269,7 @@ func TestCreateKVSnapshot_TmpFileCleanedOnError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_LowestNonZeroHighestZero(t *testing.T) {
+
 	// This is structurally unreachable: if lowest > 0, highest >= lowest.
 	// But we test the general flow where both are 0 (empty DB).
 	td := testutils.SetupTestDefraDB(t)
@@ -3161,6 +3291,7 @@ func TestCheckAndSnapshot_LowestNonZeroHighestZero(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_ContinuationFromLastSnapshot(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 10, 19) // 10 blocks
 
@@ -3190,6 +3321,7 @@ func TestCheckAndSnapshot_ContinuationFromLastSnapshot(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetBlockNumber_ReturnsZeroForEmptyDB(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	cfg := &Config{Dir: t.TempDir(), BlocksPerFile: 1000}
 	s := New(cfg, td.Node)
@@ -3212,6 +3344,7 @@ func TestGetBlockNumber_ReturnsZeroForEmptyDB(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
+
 	td1 := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td1, 100, 109) // 10 blocks
 
@@ -3249,6 +3382,7 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestScanExisting_NonExistentDir(t *testing.T) {
+
 	cfg := &Config{Dir: "/nonexistent/path/snapshots"}
 	s := New(cfg, nil)
 	s.scanExisting()
@@ -3263,6 +3397,7 @@ func TestScanExisting_NonExistentDir(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestListSnapshots_StatErrorSkipsFile(t *testing.T) {
+
 	// This is hard to trigger naturally since Glob returns existing files.
 	// But if a file is deleted between Glob and Stat, it would be skipped.
 	// We test this indirectly by verifying the function handles file system races.
@@ -3283,6 +3418,7 @@ func TestListSnapshots_StatErrorSkipsFile(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestKVSnapshotHeader_JSONRoundTrip(t *testing.T) {
+
 	header := kvSnapshotHeader{
 		Magic:               "DFKV",
 		Version:             1,
@@ -3476,6 +3612,7 @@ func TestQueryDocIDs_BlockSignature(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestImportKV_HeaderWithBlockSigMerkleRoots(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -3601,6 +3738,7 @@ func TestLoop_ContextCancellation(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoop_ErrorLogging(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 10, 14)
 
@@ -3657,6 +3795,7 @@ func TestLoop_ErrorLogging(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_CleanupDeferOnError(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 
@@ -3691,6 +3830,7 @@ func TestCreateKVSnapshot_CleanupDeferOnError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_ContinuesAfterSigRootsError(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	// Insert blocks with no block signatures
 	insertTestBlocks(t, td, 900, 902)
@@ -3719,6 +3859,7 @@ func TestCreateKVSnapshot_ContinuesAfterSigRootsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_ComputeRootFails(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -3752,6 +3893,7 @@ func TestSignSnapshotWithRoots_ComputeRootFails(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetBlockNumber_NumberFieldTypes(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 42, 42)
 
@@ -3769,6 +3911,7 @@ func TestGetBlockNumber_NumberFieldTypes(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignMerkleRoot_IdentityIsPublicKeyHex(t *testing.T) {
+
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
 
@@ -3831,6 +3974,7 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 // ---------------------------------------------------------------------------
 
 func TestGetBlockSigMerkleRoots_WithBlockSignatures(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -3857,6 +4001,7 @@ func TestGetBlockSigMerkleRoots_WithBlockSignatures(t *testing.T) {
 }
 
 func TestGetBlockSigMerkleRoots_WithInvalidMerkleRootHex(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -3874,6 +4019,7 @@ func TestGetBlockSigMerkleRoots_WithInvalidMerkleRootHex(t *testing.T) {
 }
 
 func TestGetBlockSigMerkleRoots_WithEmptyMerkleRoot(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -3895,6 +4041,7 @@ func TestGetBlockSigMerkleRoots_WithEmptyMerkleRoot(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 500, 502)
 
@@ -3953,6 +4100,7 @@ func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_FullFlowWithBlockSigs(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 600, 602)
 
@@ -4004,6 +4152,7 @@ func TestSignSnapshotWithRoots_FullFlowWithBlockSigs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 700, 702)
 
@@ -4047,6 +4196,7 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignMerkleRoot_UnsupportedKeyType(t *testing.T) {
+
 	// Generate a secp256r1 key, which is not supported by signMerkleRoot
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256r1)
 	require.NoError(t, err)
@@ -4065,6 +4215,7 @@ func TestSignMerkleRoot_UnsupportedKeyType(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_UnsupportedKeyType(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256r1)
@@ -4084,6 +4235,7 @@ func TestSignSnapshotWithRoots_UnsupportedKeyType(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignMerkleRoot_ProducesVerifiableSignature(t *testing.T) {
+
 	for _, keyType := range []crypto.KeyType{crypto.KeyTypeEd25519, crypto.KeyTypeSecp256k1} {
 		t.Run(string(keyType), func(t *testing.T) {
 			fullIdent, err := identity.Generate(keyType)
@@ -4133,6 +4285,7 @@ func TestSignMerkleRoot_ProducesVerifiableSignature(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 50, 54)
 
@@ -4170,6 +4323,7 @@ func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestImportKV_CorruptKVData(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -4209,6 +4363,7 @@ func TestImportKV_CorruptKVData(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -4279,6 +4434,7 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 // ---------------------------------------------------------------------------
 
 func TestGetBlockSigMerkleRoots_ViaIdentityInsertedBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	ctx, _ := insertTestBlocksWithIdentity(t, td, 100, 102)
 
@@ -4298,6 +4454,7 @@ func TestGetBlockSigMerkleRoots_ViaIdentityInsertedBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	identCtx, _ := insertTestBlocksWithIdentity(t, td, 200, 204)
 
@@ -4352,6 +4509,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	identCtx, _ := insertTestBlocksWithIdentity(t, td, 50, 54)
 
@@ -4380,6 +4538,7 @@ func TestCheckAndSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetBlockNumber_WithIdentityBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	_, _ = insertTestBlocksWithIdentity(t, td, 300, 304)
 
@@ -4397,6 +4556,7 @@ func TestGetBlockNumber_WithIdentityBlocks(t *testing.T) {
 }
 
 func TestQueryDocIDs_WithIdentityBlocks(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	_, _ = insertTestBlocksWithIdentity(t, td, 400, 402)
 
@@ -4425,6 +4585,7 @@ func TestQueryDocIDs_WithIdentityBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetBlockNumber_ClosedNode(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 
@@ -4443,6 +4604,7 @@ func TestGetBlockNumber_ClosedNode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_ClosedNode(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 
@@ -4462,6 +4624,7 @@ func TestCheckAndSnapshot_ClosedNode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQueryDocIDs_InvalidCollection(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 
 	cfg := &Config{Dir: t.TempDir(), BlocksPerFile: 1000}
@@ -4478,6 +4641,7 @@ func TestQueryDocIDs_InvalidCollection(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_ExportError(t *testing.T) {
+
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 
@@ -4502,6 +4666,7 @@ func TestCreateKVSnapshot_ExportError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_InvalidSignatureValueHex(t *testing.T) {
+
 	dir := t.TempDir()
 
 	root := []byte("valid_root_data")
@@ -4539,6 +4704,7 @@ func TestVerifySnapshotWithSig_InvalidSignatureValueHex(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
+
 	dir := t.TempDir()
 
 	rootData := []byte("test_root")
@@ -4584,6 +4750,7 @@ func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_FullyValid(t *testing.T) {
+
 	dir := t.TempDir()
 
 	rootData := []byte("block_sig_root_data")
@@ -4630,6 +4797,7 @@ func TestVerifySnapshotWithSig_FullyValid(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_SignatureInvalid_NoError(t *testing.T) {
+
 	dir := t.TempDir()
 
 	rootData := []byte("block_sig_root_data_2")

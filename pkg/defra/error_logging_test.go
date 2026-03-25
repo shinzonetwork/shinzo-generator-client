@@ -11,6 +11,7 @@ import (
 
 // TestErrorLoggingPatterns demonstrates how to use structured error logging in tests
 func TestErrorLoggingPatterns(t *testing.T) {
+t.Parallel()
 	// Set up test logger with buffer
 	testLogger := testutils.NewTestLogger(t)
 
@@ -130,6 +131,7 @@ func TestErrorLoggingPatterns(t *testing.T) {
 
 // TestRetryLogicWithErrorLogging demonstrates testing retry logic with proper error logging
 func TestRetryLogicWithErrorLogging(t *testing.T) {
+t.Parallel()
 	testLogger := testutils.NewTestLogger(t)
 
 	// Simulate the retry logic from main.go
@@ -210,6 +212,7 @@ func TestRetryLogicWithErrorLogging(t *testing.T) {
 
 // TestBlockHandlerErrorLogging shows how to integrate this pattern into existing tests
 func TestBlockHandlerErrorLogging(t *testing.T) {
+t.Parallel()
 	testLogger := testutils.NewTestLogger(t)
 
 	// Create a block handler with nil node to trigger the error path

@@ -14,6 +14,7 @@ import (
 // TestMerkleRootComputation verifies that the merkle root computation
 // matches between the indexer and the host verification logic.
 func TestMerkleRootComputation(t *testing.T) {
+t.Parallel()
 	// Create some test CIDs (simulating what DefraDB would generate)
 	testData := [][]byte{
 		[]byte("test document 1"),
@@ -57,6 +58,7 @@ func TestMerkleRootComputation(t *testing.T) {
 
 // TestMerkleRootWithOddNumberOfCIDs tests merkle root with odd number of CIDs
 func TestMerkleRootWithOddNumberOfCIDs(t *testing.T) {
+t.Parallel()
 	testData := [][]byte{
 		[]byte("doc 1"),
 		[]byte("doc 2"),
@@ -92,6 +94,7 @@ func TestMerkleRootWithOddNumberOfCIDs(t *testing.T) {
 
 // TestMerkleRootWithSingleCID tests merkle root with single CID
 func TestMerkleRootWithSingleCID(t *testing.T) {
+t.Parallel()
 	hash, err := multihash.Sum([]byte("single doc"), multihash.SHA2_256, -1)
 	if err != nil {
 		t.Fatalf("Failed to create multihash: %v", err)
@@ -112,6 +115,7 @@ func TestMerkleRootWithSingleCID(t *testing.T) {
 
 // TestMerkleRootDeterminism verifies that merkle root is deterministic regardless of input order
 func TestMerkleRootDeterminism(t *testing.T) {
+t.Parallel()
 	testData := [][]byte{
 		[]byte("alpha"),
 		[]byte("beta"),
@@ -154,6 +158,7 @@ func TestMerkleRootDeterminism(t *testing.T) {
 
 // TestEmptyCIDs verifies behavior with empty CID list
 func TestEmptyCIDs(t *testing.T) {
+t.Parallel()
 	indexerRoot := computeMerkleRootIndexer([]gocid.Cid{})
 	hostRoot := computeMerkleRootHost([]string{})
 
@@ -169,6 +174,7 @@ func TestEmptyCIDs(t *testing.T) {
 
 // TestLargeBatch tests with a larger batch of CIDs (simulating a real block)
 func TestLargeBatch(t *testing.T) {
+t.Parallel()
 	// Simulate a block with 100 documents (block + txs + logs + ALEs)
 	numDocs := 100
 	testData := make([][]byte, numDocs)

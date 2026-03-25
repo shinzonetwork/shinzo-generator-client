@@ -94,6 +94,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestGraphQLConnection(t *testing.T) {
+t.Parallel()
 	logger.Test("Testing GraphQL connection")
 	resp, err := http.Post(graphqlURL, "application/json", bytes.NewBuffer([]byte(`{"query":"query { __typename }"}`)))
 	if err != nil {
