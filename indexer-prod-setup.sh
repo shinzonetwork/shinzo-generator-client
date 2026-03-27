@@ -37,8 +37,10 @@ services:
     image: nginx:alpine
     ports:
       - "8080:8080"
+      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ~/ssl:/etc/nginx/ssl:ro
     depends_on:
       - shinzo-indexer
     networks:
@@ -55,12 +57,29 @@ http {
   # Only allow this origin for CORS
   map $http_origin $cors_origin {
     default "";
-    "https://*.shinzo.network" $http_origin;
+    "~^https://[^/]+\.shinzo\.network$" $http_origin;
   }
 
+  # HTTP server - redirect to HTTPS
   server {
     listen 8080;
     server_name _;
+    return 301 https://$host:443$request_uri;
+  }
+
+  # HTTPS server with self-signed SSL
+  server {
+    listen 443 ssl;
+    server_name _;
+
+    # Self-signed SSL certificate paths
+    ssl_certificate /etc/nginx/ssl/nginx.crt;
+    ssl_certificate_key /etc/nginx/ssl/nginx.key;
+
+    # SSL settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
 
     # CORS headers for ALL responses from this server
     add_header 'Access-Control-Allow-Origin' $cors_origin always;
@@ -69,24 +88,18 @@ http {
     add_header 'Access-Control-Max-Age' 3600 always;
     add_header 'Vary' 'Origin' always;
 
-    # Generic preflight handler (OPTIONS to any path)
-    location / {
-      if ($request_method = OPTIONS) {
-        return 204;
-      }
-
-      proxy_pass http://shinzo-indexer:9181;
-      proxy_set_header Indexer $indexer;
-    }
-
-    # Health endpoint
+    # Health endpoint only
     location = /health {
       if ($request_method = OPTIONS) {
         return 204;
       }
 
       proxy_pass http://shinzo-indexer:8080/health;
-      proxy_set_header Indexer $indexer;
+    }
+
+    # Return 404 for all other paths
+    location / {
+      return 404;
     }
   }
 }
