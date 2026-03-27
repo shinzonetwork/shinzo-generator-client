@@ -105,5 +105,5 @@ type Error struct {
 }
 
 type DefraDoc struct {
-	JSON interface{} `json:"json"`
+	JSON any `json:"json"`
 }

@@ -162,10 +162,10 @@ func waitForAnyBlock(timeout time.Duration) bool {
 						body, err := io.ReadAll(resp.Body)
 						resp.Body.Close()
 						if err == nil {
-							var result map[string]interface{}
+							var result map[string]any
 							if json.Unmarshal(body, &result) == nil {
-								if data, ok := result["data"].(map[string]interface{}); ok {
-									if block, ok := data[constants.CollectionBlock].(map[string]interface{}); ok {
+								if data, ok := result["data"].(map[string]any); ok {
+									if block, ok := data[constants.CollectionBlock].(map[string]any); ok {
 										if count, ok := block["_count"].(float64); ok && count > 0 {
 											logger.Test(fmt.Sprintf("✅ Found %v blocks indexed at %s", count, testURL))
 											liveDefraURL = testURL
@@ -229,17 +229,17 @@ func hasLiveBlocks() bool {
 		return false
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return false
 	}
 
-	data, ok := result["data"].(map[string]interface{})
+	data, ok := result["data"].(map[string]any)
 	if !ok {
 		return false
 	}
 
-	blocks, ok := data[constants.CollectionBlock].([]interface{})
+	blocks, ok := data[constants.CollectionBlock].([]any)
 	return ok && len(blocks) > 0
 }
 
@@ -278,17 +278,17 @@ func TestLiveGetLatestBlocks(t *testing.T) {
 		t.Fatalf("GraphQL query failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
 
-	data, ok := result["data"].(map[string]interface{})
+	data, ok := result["data"].(map[string]any)
 	if !ok {
 		t.Fatal("No data in response")
 	}
 
-	blocks, ok := data[constants.CollectionBlock].([]interface{})
+	blocks, ok := data[constants.CollectionBlock].([]any)
 	if !ok || len(blocks) == 0 {
 		t.Fatal("No blocks returned from live query")
 	}
@@ -296,7 +296,7 @@ func TestLiveGetLatestBlocks(t *testing.T) {
 	logger.Testf("✓ Successfully queried %d live blocks", len(blocks))
 
 	// Validate block structure
-	firstBlock := blocks[0].(map[string]interface{})
+	firstBlock := blocks[0].(map[string]any)
 	requiredFields := []string{"number", "hash", "timestamp", "gasUsed", "gasLimit", "miner"}
 
 	for _, field := range requiredFields {
@@ -325,17 +325,17 @@ func TestLiveGetTransactions(t *testing.T) {
 		t.Fatalf("Transaction query failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("Failed to decode transaction response: %v", err)
 	}
 
-	data, ok := result["data"].(map[string]interface{})
+	data, ok := result["data"].(map[string]any)
 	if !ok {
 		t.Fatal("No data in transaction response")
 	}
 
-	transactions, ok := data[constants.CollectionTransaction].([]interface{})
+	transactions, ok := data[constants.CollectionTransaction].([]any)
 	if !ok {
 		logger.Test("No transactions found in live data (this may be normal if blocks have no transactions)")
 		return
@@ -345,7 +345,7 @@ func TestLiveGetTransactions(t *testing.T) {
 
 	if len(transactions) > 0 {
 		// Validate transaction structure
-		firstTx := transactions[0].(map[string]interface{})
+		firstTx := transactions[0].(map[string]any)
 		requiredFields := []string{"hash", "blockNumber", "from", "to", "value", "gas", "gasPrice"}
 
 		for _, field := range requiredFields {
@@ -376,26 +376,26 @@ func TestLiveBlockTransactionRelationship(t *testing.T) {
 		t.Fatalf("Block-transaction query failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("Failed to decode block-transaction response: %v", err)
 	}
 
-	data, ok := result["data"].(map[string]interface{})
+	data, ok := result["data"].(map[string]any)
 	if !ok {
 		t.Fatal("No data in block-transaction response")
 	}
 
-	blocks, ok := data[constants.CollectionBlock].([]interface{})
+	blocks, ok := data[constants.CollectionBlock].([]any)
 	if !ok || len(blocks) == 0 {
 		t.Fatal("No blocks returned from live block-transaction query")
 	}
 
-	block := blocks[0].(map[string]interface{})
+	block := blocks[0].(map[string]any)
 	blockNumber := block["number"]
 
 	// Check if block has transactions
-	transactions, hasTransactions := block["transactions"].([]interface{})
+	transactions, hasTransactions := block["transactions"].([]any)
 	if !hasTransactions {
 		logger.Test("Block has no transactions (this may be normal)")
 		return
@@ -405,7 +405,7 @@ func TestLiveBlockTransactionRelationship(t *testing.T) {
 
 	// Validate that transaction blockNumbers match the block number
 	for i, tx := range transactions {
-		txMap := tx.(map[string]interface{})
+		txMap := tx.(map[string]any)
 		txBlockNumber := txMap["blockNumber"]
 
 		if txBlockNumber != blockNumber {
@@ -458,17 +458,17 @@ func getLiveBlockCount() int {
 		return 0
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return 0
 	}
 
-	data, ok := result["data"].(map[string]interface{})
+	data, ok := result["data"].(map[string]any)
 	if !ok {
 		return 0
 	}
 
-	blocks, ok := data[constants.CollectionBlock].([]interface{})
+	blocks, ok := data[constants.CollectionBlock].([]any)
 	if !ok {
 		return 0
 	}

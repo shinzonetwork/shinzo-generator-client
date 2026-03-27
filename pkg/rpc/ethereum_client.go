@@ -190,14 +190,30 @@ func (c *EthereumClient) getBlockByNumberRaw(ctx context.Context, blockNumber *b
 		return nil, fmt.Errorf("HTTP URL not available for raw JSON-RPC")
 	}
 
-	// Prepare JSON-RPC request
-	blockNumHex := fmt.Sprintf("0x%x", blockNumber)
-	payload := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "eth_getBlockByNumber",
-		"params":  []interface{}{blockNumHex, true}, // true = include full transaction details
-		"id":      1,
-	}
+	// Try progressively older blocks if transaction type errors occur
+	for retries := 0; retries < 8; retries++ {
+		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
+		if err != nil {
+			if errors.IsErrUnsupportedTxType(err) {
+
+				if retries < 7 {
+					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks
+					blocksBack := initialBlocksBack * (1 << uint(retries+1))
+					targetBlockNumber = big.NewInt(1).Sub(latestHeader.Number, big.NewInt(int64(blocksBack)))
+					logger.Sugar.Warnf("Retry %d: Transaction type error with Erigon, going back %d blocks total...",
+						retries+1, blocksBack)
+
+					// Add progressive delay to prevent API rate limiting
+					time.Sleep(time.Duration(retries+1) * time.Second)
+					continue
+				} else {
+					logger.Sugar.Errorf("Failed after %d retries due to transaction type compatibility with Erigon", retries+1)
+					return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
+				}
+			}
+			// For non-transaction-type errors, fail immediately
+			return nil, fmt.Errorf("failed to get block: %w", err)
+		}
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
@@ -387,6 +403,23 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 	return c.convertGethReceipt(receipt), nil
+}
+
+// GetBlockReceipts fetches all receipts for a block in a single RPC call.
+func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*types.TransactionReceipt, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, fmt.Errorf("no client available")
+	}
+	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
+	}
+	result := make([]*types.TransactionReceipt, len(receipts))
+	for i, receipt := range receipts {
+		result[i] = c.convertGethReceipt(receipt)
+	}
+	return result, nil
 }
 
 // convertGethReceipt converts go-ethereum receipt to our custom receipt type
@@ -708,11 +741,9 @@ func (c *EthereumClient) Close() error {
 // Prioritizes WebSocket for real-time blockchain data streaming
 func (c *EthereumClient) getPreferredClient() *ethclient.Client {
 	if c.wsClient != nil {
-		logger.Sugar.Debug("Using WebSocket client for real-time blockchain streaming")
 		return c.wsClient
 	}
 	if c.httpClient != nil {
-		logger.Sugar.Debug("Using HTTP client with API key authentication (WebSocket unavailable)")
 		return c.httpClient
 	}
 

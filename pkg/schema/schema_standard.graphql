@@ -1,5 +1,8 @@
 type Arbitrum__Mainnet__Block {
-    baseFeePerGas: String
+    hash: String
+    number: Int
+    timestamp: String
+    parentHash: String
     difficulty: String
     extraData: String
     gasLimit: String
@@ -21,10 +24,39 @@ type Arbitrum__Mainnet__Block {
     transactions: [Arbitrum__Mainnet__Transaction] @relation(name: "block_transactions")
 }
 
+# BlockSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
+# Created in the same transaction as the block data, arrives via P2P together
+type Arbitrum__Mainnet__BlockSignature {
+    blockNumber: Int
+    blockHash: String
+    merkleRoot: String
+    cidCount: Int
+    cids: [String]
+    signatureType: String
+    signatureIdentity: String
+    signatureValue: String
+    createdAt: String
+}
+
+# SnapshotSignature seals a snapshot file with a Merkle root over per-block block
+# signature Merkle roots. Used for cross-indexer attestation and snapshot exchange.
+type Arbitrum__Mainnet__SnapshotSignature {
+    startBlock: Int
+    endBlock: Int
+    merkleRoot: String
+    blockCount: Int
+    signatureType: String
+    signatureIdentity: String
+    signatureValue: String
+    snapshotFile: String
+    createdAt: String
+    blockSigMerkleRoots: [String]
+}
+
 type Arbitrum__Mainnet__Transaction {
-    # Transaction fields
-    blockHash: String @index
-    blockNumber: Int @index
+    hash: String
+    blockHash: String
+    blockNumber: Int
     from: String
     gas: String
     gasPrice: String
@@ -50,7 +82,7 @@ type Arbitrum__Mainnet__Transaction {
     timeboosted: Boolean
     logsBloom: String
     # Relationships
-    block: Arbitrum__Mainnet__Block @index @relation(name: "block_transactions")
+    block: Arbitrum__Mainnet__Block @relation(name: "block_transactions")
     logs: [Arbitrum__Mainnet__Log] @relation(name: "transaction_logs")
 }
 
@@ -65,5 +97,6 @@ type Arbitrum__Mainnet__Log {
     logIndex: Int @index
     removed: Boolean
     # Relationships
-    transaction: Arbitrum__Mainnet__Transaction @index @relation(name: "transaction_logs")
+    block: Arbitrum__Mainnet__Block @relation(name: "block_logs")
+    transaction: Arbitrum__Mainnet__Transaction @relation(name: "transaction_logs")
 }

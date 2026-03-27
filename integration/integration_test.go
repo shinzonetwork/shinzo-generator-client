@@ -11,16 +11,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
-	defrahttp "github.com/sourcenetwork/defradb/http"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
 
-const graphqlURL = "http://localhost:9181/api/v0/graphql"
+const graphqlURL = "http://127.0.0.1:9181/api/v0/graphql"
 
 var defraNode *node.Node
 
@@ -33,7 +32,7 @@ func TestMain(m *testing.M) {
 	logger.Test("Cleaning up existing integration DefraDB data...")
 	cleanupPaths := []string{
 		"./.defra",
-		"./.defra/data",
+		"./.defra",
 	}
 	for _, path := range cleanupPaths {
 		if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
@@ -43,56 +42,34 @@ func TestMain(m *testing.M) {
 
 	// Start embedded DefraDB directly for mock data testing (no indexer needed)
 	logger.Test("Starting embedded DefraDB for mock data testing...")
-	go func() {
-		ctx := context.Background()
+	ctx := context.Background()
 
-		// Create DefraDB node directly without indexer
-		options := []node.Option{
-			node.WithDisableAPI(false),
-			node.WithDisableP2P(true),
-			node.WithStorePath("./.defra/data"),
-			defrahttp.WithAddress("127.0.0.1:9181"),
-		}
+	// Create DefraDB node directly without indexer
+	opts := options.Node().
+		SetDisableAPI(false).
+		SetDisableP2P(true)
+	opts.Store().SetPath("./.defra")
+	opts.HTTP().SetAddress("127.0.0.1:9181")
 
-		var err error
-		defraNode, err = node.New(ctx, options...)
-		if err != nil {
-			logger.Sugar.Fatalf("Failed to create DefraDB node: %v", err)
-		}
-
-		err = defraNode.Start(ctx)
-		if err != nil {
-			logger.Sugar.Fatalf("Failed to start DefraDB node: %v", err)
-		}
-
-		// Apply schema to DefraDB
-		err = applySchema(ctx, defraNode)
-		if err != nil && !strings.Contains(err.Error(), "collection already exists") {
-			logger.Sugar.Fatalf("Failed to apply schema: %v", err)
-		}
-
-		logger.Test("DefraDB node started successfully with schema applied")
-	}()
-
-	// Wait for DefraDB to be ready
-	logger.Test("Waiting for DefraDB to be ready...")
-	timeout := time.After(15 * time.Second)
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			logger.Sugar.Error("Timeout waiting for DefraDB to be ready")
-			os.Exit(1)
-		case <-ticker.C:
-			if testDefraDBConnection() {
-				logger.Test("DefraDB is ready!")
-				goto ready
-			}
-		}
+	var err error
+	defraNode, err = node.New(ctx, opts)
+	if err != nil {
+		logger.Sugar.Fatalf("Failed to create DefraDB node: %v", err)
 	}
-ready:
+
+	// node.Start returns only after the HTTP API is healthy (calls HealthCheck internally)
+	err = defraNode.Start(ctx)
+	if err != nil {
+		logger.Sugar.Fatalf("Failed to start DefraDB node: %v", err)
+	}
+
+	// Apply schema synchronously — no race with mock data insertion
+	err = applySchema(ctx, defraNode)
+	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+		logger.Sugar.Fatalf("Failed to apply schema: %v", err)
+	}
+
+	logger.Test("DefraDB node started successfully with schema applied")
 
 	// Insert mock test data
 	logger.Test("Inserting mock test data...")
@@ -127,7 +104,7 @@ func TestGraphQLConnection(t *testing.T) {
 		t.Fatalf("Unexpected status code: %d", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal(body, &result); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
@@ -136,8 +113,8 @@ func TestGraphQLConnection(t *testing.T) {
 	}
 }
 
-func postGraphQLQuery(t *testing.T, query string, variables map[string]interface{}) map[string]interface{} {
-	payload := map[string]interface{}{"query": query}
+func postGraphQLQuery(t *testing.T, query string, variables map[string]any) map[string]any {
+	payload := map[string]any{"query": query}
 	if variables != nil {
 		payload["variables"] = variables
 	}
@@ -151,7 +128,7 @@ func postGraphQLQuery(t *testing.T, query string, variables map[string]interface
 		t.Fatalf("Unexpected status code: %d", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal(body, &result); err != nil {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
@@ -199,7 +176,7 @@ func loadGraphQLQuery(filename, queryName string) (string, error) {
 	return query, nil
 }
 
-func MakeQuery(t *testing.T, queryPath string, query string, args map[string]interface{}) map[string]interface{} {
+func MakeQuery(t *testing.T, queryPath string, query string, args map[string]any) map[string]any {
 	query, err := loadGraphQLQuery(queryPath, query)
 	if err != nil {
 		t.Errorf("Failed to load query %v", err)
@@ -208,35 +185,12 @@ func MakeQuery(t *testing.T, queryPath string, query string, args map[string]int
 	return result
 }
 
-func testDefraDBConnection() bool {
-	// Use the same introspection query as waitForDefra.go
-	query := `{"query":"{ __schema { types { name } } }"}`
-
-	client := &http.Client{
-		Timeout: 2 * time.Second,
-	}
-
-	req, err := http.NewRequest("POST", "http://localhost:9181/api/v0/graphql", strings.NewReader(query))
-	if err != nil {
-		return false
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode == 200
-}
-
 func insertMockData() error {
 	// Store DocIDs for relationship establishment
 	var block1DocID, block2DocID, tx1DocID, tx2DocID string
 
 	// Create Block 1
-	block1Mutation := map[string]interface{}{
+	block1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionBlock) + `
 				hash: "0x1000001000000000000000000000000000000000000000000000000000000001"
@@ -272,7 +226,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal block1 mutation: %v", err)
 	}
 
-	resp, err := http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err := http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("block1 creation failed: %v", err)
 	}
@@ -288,7 +242,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to read block1 response: %v", err)
 	}
 
-	var block1Resp map[string]interface{}
+	var block1Resp map[string]any
 	if err := json.Unmarshal(body, &block1Resp); err != nil {
 		return fmt.Errorf("failed to parse block1 response: %v", err)
 	}
@@ -298,9 +252,9 @@ func insertMockData() error {
 	}
 
 	// Extract Block 1 DocID
-	if data, ok := block1Resp["data"].(map[string]interface{}); ok {
-		if createBlock, ok := data[fmt.Sprintf("create_%s", constants.CollectionBlock)].([]interface{}); ok && len(createBlock) > 0 {
-			if blockData, ok := createBlock[0].(map[string]interface{}); ok {
+	if data, ok := block1Resp["data"].(map[string]any); ok {
+		if createBlock, ok := data[fmt.Sprintf("create_%s", constants.CollectionBlock)].([]any); ok && len(createBlock) > 0 {
+			if blockData, ok := createBlock[0].(map[string]any); ok {
 				if docID, ok := blockData["_docID"].(string); ok {
 					block1DocID = docID
 					logger.Testf("Block 1 created with DocID: %s", block1DocID)
@@ -310,7 +264,7 @@ func insertMockData() error {
 	}
 
 	// Create Block 2
-	block2Mutation := map[string]interface{}{
+	block2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionBlock) + `
 				hash: "0x1000002000000000000000000000000000000000000000000000000000000002"
@@ -346,7 +300,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal block2 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("block2 creation failed: %v", err)
 	}
@@ -362,7 +316,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to read block2 response: %v", err)
 	}
 
-	var block2Resp map[string]interface{}
+	var block2Resp map[string]any
 	if err := json.Unmarshal(body, &block2Resp); err != nil {
 		return fmt.Errorf("failed to parse block2 response: %v", err)
 	}
@@ -372,9 +326,9 @@ func insertMockData() error {
 	}
 
 	// Extract Block 2 DocID
-	if data, ok := block2Resp["data"].(map[string]interface{}); ok {
-		if createBlock, ok := data[fmt.Sprintf("create_%s", constants.CollectionBlock)].([]interface{}); ok && len(createBlock) > 0 {
-			if blockData, ok := createBlock[0].(map[string]interface{}); ok {
+	if data, ok := block2Resp["data"].(map[string]any); ok {
+		if createBlock, ok := data[fmt.Sprintf("create_%s", constants.CollectionBlock)].([]any); ok && len(createBlock) > 0 {
+			if blockData, ok := createBlock[0].(map[string]any); ok {
 				if docID, ok := blockData["_docID"].(string); ok {
 					block2DocID = docID
 					logger.Testf("Block 2 created with DocID: %s", block2DocID)
@@ -384,7 +338,7 @@ func insertMockData() error {
 	}
 
 	// Create Transaction 1 with relationship to Block 1
-	tx1Mutation := map[string]interface{}{
+	tx1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionTransaction) + fmt.Sprintf(`
 				hash: "0x2000001000000000000000000000000000000000000000000000000000000001"
@@ -421,7 +375,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal tx1 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("tx1 creation failed: %v", err)
 	}
@@ -437,7 +391,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to read tx1 response: %v", err)
 	}
 
-	var tx1Resp map[string]interface{}
+	var tx1Resp map[string]any
 	if err := json.Unmarshal(body, &tx1Resp); err != nil {
 		return fmt.Errorf("failed to parse tx1 response: %v", err)
 	}
@@ -447,9 +401,9 @@ func insertMockData() error {
 	}
 
 	// Extract Transaction 1 DocID
-	if data, ok := tx1Resp["data"].(map[string]interface{}); ok {
-		if createTx, ok := data[fmt.Sprintf("create_%s", constants.CollectionTransaction)].([]interface{}); ok && len(createTx) > 0 {
-			if txData, ok := createTx[0].(map[string]interface{}); ok {
+	if data, ok := tx1Resp["data"].(map[string]any); ok {
+		if createTx, ok := data[fmt.Sprintf("create_%s", constants.CollectionTransaction)].([]any); ok && len(createTx) > 0 {
+			if txData, ok := createTx[0].(map[string]any); ok {
 				if docID, ok := txData["_docID"].(string); ok {
 					tx1DocID = docID
 					logger.Testf("Transaction 1 created with DocID: %s", tx1DocID)
@@ -459,7 +413,7 @@ func insertMockData() error {
 	}
 
 	// Create Transaction 2 with relationship to Block 2
-	tx2Mutation := map[string]interface{}{
+	tx2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionTransaction) + fmt.Sprintf(`
 				hash: "0x2000002000000000000000000000000000000000000000000000000000000002"
@@ -496,7 +450,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal tx2 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("tx2 creation failed: %v", err)
 	}
@@ -512,7 +466,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to read tx2 response: %v", err)
 	}
 
-	var tx2Resp map[string]interface{}
+	var tx2Resp map[string]any
 	if err := json.Unmarshal(body, &tx2Resp); err != nil {
 		return fmt.Errorf("failed to parse tx2 response: %v", err)
 	}
@@ -522,9 +476,9 @@ func insertMockData() error {
 	}
 
 	// Extract Transaction 2 DocID
-	if data, ok := tx2Resp["data"].(map[string]interface{}); ok {
-		if createTx, ok := data[fmt.Sprintf("create_%s", constants.CollectionTransaction)].([]interface{}); ok && len(createTx) > 0 {
-			if txData, ok := createTx[0].(map[string]interface{}); ok {
+	if data, ok := tx2Resp["data"].(map[string]any); ok {
+		if createTx, ok := data[fmt.Sprintf("create_%s", constants.CollectionTransaction)].([]any); ok && len(createTx) > 0 {
+			if txData, ok := createTx[0].(map[string]any); ok {
 				if docID, ok := txData["_docID"].(string); ok {
 					tx2DocID = docID
 					logger.Testf("Transaction 2 created with DocID: %s", tx2DocID)
@@ -534,7 +488,7 @@ func insertMockData() error {
 	}
 
 	// Create Log 1 for Transaction 1
-	log1Mutation := map[string]interface{}{
+	log1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionLog) + fmt.Sprintf(`
 				address: "0x4000000000000000000000000000000000000001"
@@ -562,7 +516,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal log1 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("log1 creation failed: %v", err)
 	}
@@ -578,7 +532,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to read log1 response: %v", err)
 	}
 
-	var log1Resp map[string]interface{}
+	var log1Resp map[string]any
 	if err := json.Unmarshal(body, &log1Resp); err != nil {
 		return fmt.Errorf("failed to parse log1 response: %v", err)
 	}
@@ -590,7 +544,7 @@ func insertMockData() error {
 	logger.Testf("Log 1 created successfully: %s", string(body))
 
 	// Create Log 2 for Transaction 2
-	log2Mutation := map[string]interface{}{
+	log2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionLog) + fmt.Sprintf(`
 				address: "0x4000000000000000000000000000000000000002"
@@ -618,7 +572,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to marshal log2 mutation: %v", err)
 	}
 
-	resp, err = http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
+	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("log2 creation failed: %v", err)
 	}
@@ -634,7 +588,7 @@ func insertMockData() error {
 		return fmt.Errorf("failed to read log2 response: %v", err)
 	}
 
-	var log2Resp map[string]interface{}
+	var log2Resp map[string]any
 	if err := json.Unmarshal(body, &log2Resp); err != nil {
 		return fmt.Errorf("failed to parse log2 response: %v", err)
 	}
@@ -647,32 +601,6 @@ func insertMockData() error {
 	logger.Test("Mock data with relationships and logs inserted successfully!")
 
 	return nil
-}
-
-func hasBlocks() bool {
-	query := `{"query":"query { Block(limit: 1) { number } }"}`
-	resp, err := http.Post("http://localhost:9181/api/v0/graphql", "application/json", bytes.NewBuffer([]byte(query)))
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return false
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false
-	}
-
-	data, ok := result["data"].(map[string]interface{})
-	if !ok {
-		return false
-	}
-
-	blocks, ok := data[constants.CollectionBlock].([]interface{})
-	return ok && len(blocks) > 0
 }
 
 // applySchema applies the GraphQL schema to DefraDB node

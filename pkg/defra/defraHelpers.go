@@ -20,9 +20,6 @@ func GetPortFromUrl(url string) int {
 
 	// Extract port by splitting on colon and taking the last part
 	parts := strings.Split(url, ":")
-	if len(parts) < 2 {
-		return -1
-	}
 
 	// Get the last part (port) and remove any trailing path
 	portStr := parts[len(parts)-1]

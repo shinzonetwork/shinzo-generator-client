@@ -1,10 +1,19 @@
 # Default configuration - environment variables will override these
+
+# Chain configuration - identifies which EVM chain to index
+# Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
+# Collection names are derived as: {name}__{network}__Block, etc.
+chain:
+  name: "Ethereum"       # Chain name (env: CHAIN_NAME)
+  network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
+
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
   keyring_secret: "" # over written by env var
   embedded: true
   p2p:
     enabled: true
+    accept_incoming: false          # Accept incoming P2P documents. false = reject all (indexer is source of truth).
     bootstrap_peers: []
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
@@ -13,12 +22,20 @@ defradb:
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
     path: "./.defra"
-
+    # Badger memory configuration
+    block_cache_mb: 512  # Block cache size
+    memtable_mb: 64      # Memtable size
+    index_cache_mb: 256   # Index cache size
+    # Badger compaction configuration
+    num_compactors: 4              # Number of compaction workers
+    # num_level_zero_tables: 10      # L0 tables before compaction starts
+    # num_level_zero_tables_stall: 30  # L0 tables that trigger write stalls
+    # Badger value log configuration
+    value_log_file_size_mb: 128      # Size of each vlog file (smaller = more effective GC)
 geth:
   node_url: "${GETH_RPC_URL}"  # Fallback
   ws_url: "${GETH_WS_URL}"
   api_key: "${GETH_API_KEY}"
-
 indexer:
   start_height: 420000000
   concurrent_blocks: 6     # Number of blocks to process concurrently (default: 1)
@@ -28,4 +45,15 @@ indexer:
 
 logger:
   development: false
-
+  level: "error"
+pruner:
+  enabled: true             # Set to true to enable automatic pruning
+  max_blocks: 1000          # Number of blocks to retain
+  prune_threshold: 1        # Trigger pruning when exceeding max_blocks by this amount
+  interval_seconds: 30      # How often to check and prune
+  prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
+snapshot:
+  enabled: true             # Set to true to enable automatic snapshots before pruning
+  dir: "./.defra/snapshots" # Directory to store snapshot files
+  blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
+  interval_seconds: 30      # How often to check and create snapshots

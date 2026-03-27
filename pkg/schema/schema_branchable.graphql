@@ -1,6 +1,6 @@
 type Ethereum__Mainnet__Block @branchable {
-    hash: String @index(unique: true)
-    number: Int @index
+    hash: String
+    number: Int
     timestamp: String
     parentHash: String
     difficulty: String
@@ -23,10 +23,39 @@ type Ethereum__Mainnet__Block @branchable {
     transactions: [Ethereum__Mainnet__Transaction] @relation(name: "block_transactions")
 }
 
+# BlockSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
+# Created in the same transaction as the block data, arrives via P2P together
+type Ethereum__Mainnet__BlockSignature @branchable {
+    blockNumber: Int
+    blockHash: String
+    merkleRoot: String
+    cidCount: Int
+    cids: [String]
+    signatureType: String
+    signatureIdentity: String
+    signatureValue: String
+    createdAt: String
+}
+
+# SnapshotSignature seals a snapshot file with a Merkle root over per-block block
+# signature Merkle roots. Used for cross-indexer attestation and snapshot exchange.
+type Ethereum__Mainnet__SnapshotSignature @branchable {
+    startBlock: Int
+    endBlock: Int
+    merkleRoot: String
+    blockCount: Int
+    signatureType: String
+    signatureIdentity: String
+    signatureValue: String
+    snapshotFile: String
+    createdAt: String
+    blockSigMerkleRoots: [String]
+}
+
 type Ethereum__Mainnet__Transaction @branchable {
-    hash: String @index(unique: true)
-    blockHash: String @index
-    blockNumber: Int @index
+    hash: String
+    blockHash: String
+    blockNumber: Int
     from: String
     to: String
     value: String
@@ -37,7 +66,7 @@ type Ethereum__Mainnet__Transaction @branchable {
     maxPriorityFeePerGas: String
     input: String
     nonce: String
-    transactionIndex: Int @index
+    transactionIndex: Int
     type: String
     chainId: String
     v: String
@@ -47,29 +76,29 @@ type Ethereum__Mainnet__Transaction @branchable {
     cumulativeGasUsed: String
     effectiveGasPrice: String
     # Relationships
-    block: Ethereum__Mainnet__Block @index @relation(name: "block_transactions")
+    block: Ethereum__Mainnet__Block @relation(name: "block_transactions")
     logs: [Ethereum__Mainnet__Log] @relation(name: "transaction_logs")
     accessList: [Ethereum__Mainnet__AccessListEntry] @relation(name: "transaction_accessList")
 }
 
 type Ethereum__Mainnet__AccessListEntry @branchable {
     address: String
+    blockNumber: Int
     storageKeys: [String]
-    transaction: Ethereum__Mainnet__Transaction @index @relation(name: "transaction_accessList")
+    transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_accessList")
 }
 
 type Ethereum__Mainnet__Log @branchable {
     address: String
     topics: [String]
     data: String
-    transactionHash: String @index
-    blockHash: String @index
-    blockNumber: Int @index
-    transactionIndex: Int @index
-    logIndex: Int @index
+    transactionHash: String
+    blockHash: String
+    blockNumber: Int
+    transactionIndex: Int
+    logIndex: Int
     removed: String
     # Relationships
-    block: Ethereum__Mainnet__Block @index @relation(name: "block_logs")
-    transaction: Ethereum__Mainnet__Transaction @index @relation(name: "transaction_logs")
+    block: Ethereum__Mainnet__Block @relation(name: "block_logs")
+    transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_logs")
 }
-

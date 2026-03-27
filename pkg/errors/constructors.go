@@ -158,7 +158,7 @@ func newBaseError(code, message string, severity Severity, retryable RetryBehavi
 		Component: component,
 		Operation: operation,
 		Timestamp: time.Now(),
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	// Apply context options
@@ -195,10 +195,10 @@ func WithTxHash(txHash string) ContextOption {
 }
 
 // WithMetadata adds arbitrary metadata to error context
-func WithMetadata(key string, value interface{}) ContextOption {
+func WithMetadata(key string, value any) ContextOption {
 	return func(ctx *ErrorContext) {
 		if ctx.Metadata == nil {
-			ctx.Metadata = make(map[string]interface{})
+			ctx.Metadata = make(map[string]any)
 		}
 		ctx.Metadata[key] = value
 	}

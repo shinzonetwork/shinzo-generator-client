@@ -91,7 +91,7 @@ func CreateErrorServer(statusCode int, errorMessage string) *httptest.Server {
 
 // CreateRPCNodeResponse creates a standard JSON-RPC response
 // result: the result data (can be nil for null responses)
-func CreateRPCNodeResponse(result interface{}) string {
+func CreateRPCNodeResponse(result any) string {
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		// Fallback to "null" if marshaling fails

@@ -3,13 +3,15 @@ package indexer
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
+	"math/big"
 	"sync"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 )
 
 // BlockResult holds the result of processing a block
@@ -20,44 +22,81 @@ type BlockResult struct {
 	Error    error
 }
 
+// signingJob holds the data needed to sign an existing block in the background
+type signingJob struct {
+	blockNum     int64
+	blockHash    string
+	block        *types.Block
+	transactions []*types.Transaction
+	receipts     []*types.TransactionReceipt
+}
+
 // ConcurrentBlockProcessor processes multiple blocks concurrently
 type ConcurrentBlockProcessor struct {
-	blockHandler *defra.BlockHandler
-	workers      int
-	resultChan   chan *BlockResult
-	pendingMu    sync.Mutex
-	pending      map[int64]*BlockResult
-	nextToCommit int64
+	blockHandler    *defra.BlockHandler
+	ethClient       *rpc.EthereumClient
+	workers         int
+	receiptWorkers  int
+	blocksPerMinute int
+	resultChan      chan *BlockResult
+	pendingMu       sync.Mutex
+	pending         map[int64]*BlockResult
+	nextToCommit    int64
+	signingChan     chan signingJob
 }
 
 // NewConcurrentBlockProcessor creates a new concurrent processor
-func NewConcurrentBlockProcessor(blockHandler *defra.BlockHandler, workers int) *ConcurrentBlockProcessor {
+func NewConcurrentBlockProcessor(
+	blockHandler *defra.BlockHandler,
+	ethClient *rpc.EthereumClient,
+	workers int,
+	receiptWorkers int,
+	blocksPerMinute int,
+) *ConcurrentBlockProcessor {
 	return &ConcurrentBlockProcessor{
-		blockHandler: blockHandler,
-		workers:      workers,
-		resultChan:   make(chan *BlockResult, workers*2),
-		pending:      make(map[int64]*BlockResult),
+		blockHandler:    blockHandler,
+		ethClient:       ethClient,
+		workers:         workers,
+		receiptWorkers:  receiptWorkers,
+		blocksPerMinute: blocksPerMinute,
+		resultChan:      make(chan *BlockResult, workers*2),
+		pending:         make(map[int64]*BlockResult),
+		signingChan:     make(chan signingJob, 64),
 	}
 }
 
-// ProcessBlocks processes prefetched blocks concurrently while maintaining order
+// ProcessBlocks processes blocks concurrently while maintaining commit order.
 func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	ctx context.Context,
-	prefetcher *BlockPrefetcher,
 	startBlock int64,
 	onBlockProcessed func(blockNum int64),
 ) error {
 	p.nextToCommit = startBlock
 
+	// Start background signing worker for existing blocks
+	var signingWg sync.WaitGroup
+	signingWg.Go(func() {
+		for job := range p.signingChan {
+			if ctx.Err() != nil {
+				continue // drain channel
+			}
+			if _, err := p.blockHandler.CreateBlockSignatureForExistingBlock(
+				ctx, job.blockNum, job.blockHash, job.block, job.transactions, job.receipts,
+			); err != nil {
+				logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", job.blockNum, err)
+			}
+		}
+	})
+
 	var wg sync.WaitGroup
-	workChan := make(chan *PrefetchedBlock, p.workers)
+	workChan := make(chan int64, p.workers*2)
 
 	for i := 0; i < p.workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for prefetched := range workChan {
-				result := p.processBlock(ctx, prefetched)
+			for blockNum := range workChan {
+				result := p.fetchAndProcessBlock(ctx, blockNum)
 				select {
 				case p.resultChan <- result:
 				case <-ctx.Done():
@@ -68,9 +107,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	}
 
 	var collectWg sync.WaitGroup
-	collectWg.Add(1)
-	go func() {
-		defer collectWg.Done()
+	collectWg.Go(func() {
 		for result := range p.resultChan {
 			p.pendingMu.Lock()
 			p.pending[result.BlockNum] = result
@@ -80,6 +117,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 				if !ok {
 					break
 				}
+
 				delete(p.pending, p.nextToCommit)
 
 				if next.Success {
@@ -98,87 +136,204 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 			}
 			p.pendingMu.Unlock()
 		}
-	}()
+	})
 
-	// Start requesting blocks after the ones already seeded by the prefetcher
-	nextBlockToRequest := startBlock + int64(prefetcher.bufferSize)
-	processedCount := 0
+	shutdown := func() {
+		close(workChan)
+		wg.Wait()
+		close(p.resultChan)
+		collectWg.Wait()
+		close(p.signingChan)
+		signingWg.Wait()
+	}
+
+	nextBlock := startBlock
+
+	var minInterval time.Duration
+	if p.blocksPerMinute > 0 {
+		minInterval = time.Minute / time.Duration(p.blocksPerMinute)
+		logger.Sugar.Infof("Rate limiting enabled: %d blocks/minute (interval: %v)", p.blocksPerMinute, minInterval)
+	}
+
+	lastDispatch := time.Now().Add(-minInterval)
 
 	for {
+		if minInterval > 0 {
+			elapsed := time.Since(lastDispatch)
+			if elapsed < minInterval {
+				select {
+				case <-ctx.Done():
+					shutdown()
+					return ctx.Err()
+				case <-time.After(minInterval - elapsed):
+				}
+			}
+		}
+
+		// Don't dispatch too far ahead of what's been committed
+		p.pendingMu.Lock()
+		maxAhead := int64(p.workers * 2)
+		tooFarAhead := nextBlock-p.nextToCommit >= maxAhead
+		p.pendingMu.Unlock()
+
+		if tooFarAhead {
+			select {
+			case <-ctx.Done():
+				shutdown()
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				continue
+			}
+		}
+
 		select {
 		case <-ctx.Done():
-			close(workChan)
-			wg.Wait()
-			close(p.resultChan)
-			collectWg.Wait()
+			shutdown()
 			return ctx.Err()
-		default:
-			prefetched := prefetcher.GetNext()
-			if prefetched == nil {
-				continue
-			}
-
-			if prefetched.Error != nil {
-				if strings.Contains(prefetched.Error.Error(), "not found") ||
-					strings.Contains(prefetched.Error.Error(), "does not exist") {
-					logger.Sugar.Infof("Block %d not available yet, waiting...", prefetched.BlockNum)
-					time.Sleep(3 * time.Second)
-					prefetcher.RequestBlock(prefetched.BlockNum)
-					continue
-				}
-				p.resultChan <- &BlockResult{
-					BlockNum: prefetched.BlockNum,
-					Error:    prefetched.Error,
-				}
-				prefetcher.RequestBlock(prefetched.BlockNum)
-				continue
-			}
-
-			select {
-			case workChan <- prefetched:
-				processedCount++
-				prefetcher.RequestBlock(nextBlockToRequest)
-				nextBlockToRequest++
-			case <-ctx.Done():
-				close(workChan)
-				wg.Wait()
-				close(p.resultChan)
-				collectWg.Wait()
-				return ctx.Err()
-			}
+		case workChan <- nextBlock:
+			lastDispatch = time.Now()
+			nextBlock++
 		}
 	}
 }
 
-// processBlock processes a single prefetched block with retry on transaction conflicts
-func (p *ConcurrentBlockProcessor) processBlock(ctx context.Context, prefetched *PrefetchedBlock) *BlockResult {
-	result := &BlockResult{BlockNum: prefetched.BlockNum}
+// fetchAndProcessBlock fetches a block with receipts and processes it
+func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blockNum int64) *BlockResult {
+	result := &BlockResult{BlockNum: blockNum}
+
+	var block *types.Block
+	var err error
+
+	// For "not found" (block not on chain yet), retry indefinitely with backoff.
+	// For other RPC errors, retry up to 3 times.
+	otherErrors := 0
+	for {
+		if ctx.Err() != nil {
+			result.Error = ctx.Err()
+			return result
+		}
+
+		block, err = p.ethClient.GetBlockByNumber(ctx, big.NewInt(blockNum))
+		if err == nil {
+			break
+		}
+		if errors.IsErrNotFound(err) {
+			logger.Sugar.Infof("Block %d not available yet, waiting...", blockNum)
+			select {
+			case <-ctx.Done():
+				result.Error = ctx.Err()
+				return result
+			case <-time.After(3 * time.Second):
+			}
+			continue
+		}
+		otherErrors++
+		if otherErrors >= 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			result.Error = ctx.Err()
+			return result
+		case <-time.After(time.Duration(otherErrors) * 500 * time.Millisecond):
+		}
+	}
+	if err != nil {
+		result.Error = fmt.Errorf("failed to fetch block: %w", err)
+		return result
+	}
+
+	transactions := make([]*types.Transaction, len(block.Transactions))
+	for i := range block.Transactions {
+		transactions[i] = &block.Transactions[i]
+	}
+
+	var validReceipts []*types.TransactionReceipt
+	batchReceipts, batchErr := p.ethClient.GetBlockReceipts(ctx, big.NewInt(blockNum))
+	if batchErr == nil {
+		validReceipts = batchReceipts
+	} else {
+		if ctx.Err() == nil {
+			logger.Sugar.Debugf("Block %d: eth_getBlockReceipts not available, falling back to individual fetches: %v", blockNum, batchErr)
+		}
+
+		receipts := make([]*types.TransactionReceipt, len(block.Transactions))
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, p.receiptWorkers)
+
+		for i, tx := range block.Transactions {
+			wg.Add(1)
+			go func(idx int, txHash string) {
+				defer wg.Done()
+
+				select {
+				case sem <- struct{}{}:
+					defer func() { <-sem }()
+				case <-ctx.Done():
+					return
+				}
+
+				receipt, err := p.ethClient.GetTransactionReceipt(ctx, txHash)
+				if err != nil {
+					if ctx.Err() == nil {
+						logger.Sugar.Warnf("Failed to fetch receipt for tx %s: %v", txHash, err)
+					}
+					return
+				}
+				receipts[idx] = receipt
+			}(i, tx.Hash)
+		}
+		wg.Wait()
+
+		validReceipts = make([]*types.TransactionReceipt, 0, len(receipts))
+		for _, r := range receipts {
+			if r != nil {
+				validReceipts = append(validReceipts, r)
+			}
+		}
+	}
 
 	const maxRetries = 3
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		blockID, err := p.blockHandler.CreateBlockBatch(
-			ctx,
-			prefetched.Block,
-			prefetched.Transactions,
-			prefetched.Receipts,
-		)
+	for attempt := range maxRetries {
+		if ctx.Err() != nil {
+			result.Error = ctx.Err()
+			return result
+		}
+
+		blockID, err := p.blockHandler.CreateBlockBatch(ctx, block, transactions, validReceipts)
 		if err == nil {
 			result.Success = true
 			result.BlockID = blockID
 			return result
 		}
 
-		if strings.Contains(err.Error(), "already exists") {
+		if errors.IsErrAlreadyExists(err) {
+			// Block exists via P2P — enqueue signing in background so indexing isn't blocked
+			select {
+			case p.signingChan <- signingJob{
+				blockNum:     blockNum,
+				blockHash:    block.Hash,
+				block:        block,
+				transactions: transactions,
+				receipts:     validReceipts,
+			}:
+			default:
+				logger.Sugar.Warnf("Block %d: signing queue full, skipping block signature", blockNum)
+			}
 			result.Success = true
 			result.BlockID = "existing"
 			return result
 		}
 
-		// Retry on transaction conflict
-		if strings.Contains(err.Error(), "transaction conflict") {
+		if errors.IsErrTransactionConflict(err) {
 			if attempt < maxRetries-1 {
-				logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", prefetched.BlockNum, attempt+1, maxRetries)
-				time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond) // 50ms, 100ms, 150ms backoff
+				logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", blockNum, attempt+1, maxRetries)
+				select {
+				case <-ctx.Done():
+					result.Error = ctx.Err()
+					return result
+				case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
+				}
 				continue
 			}
 		}
@@ -188,16 +343,4 @@ func (p *ConcurrentBlockProcessor) processBlock(ctx context.Context, prefetched 
 	}
 
 	return result
-}
-
-// GetPendingBlocks returns currently pending block numbers (for debugging)
-func (p *ConcurrentBlockProcessor) GetPendingBlocks() []int64 {
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	blocks := make([]int64, 0, len(p.pending))
-	for blockNum := range p.pending {
-		blocks = append(blocks, blockNum)
-	}
-	sort.Slice(blocks, func(i, j int) bool { return blocks[i] < blocks[j] })
-	return blocks
 }
