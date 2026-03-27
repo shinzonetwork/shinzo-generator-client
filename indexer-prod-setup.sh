@@ -54,50 +54,69 @@ sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
 
 http {
-  # Only allow this origin for CORS
   map $http_origin $cors_origin {
     default "";
     "~^https://[^/]+\.shinzo\.network$" $http_origin;
   }
 
-  # HTTP server - redirect to HTTPS
   server {
     listen 8080;
     server_name _;
     return 301 https://$host:443$request_uri;
   }
 
-  # HTTPS server with self-signed SSL
   server {
     listen 443 ssl;
     server_name _;
 
-    # Self-signed SSL certificate paths
     ssl_certificate /etc/nginx/ssl/nginx.crt;
     ssl_certificate_key /etc/nginx/ssl/nginx.key;
 
-    # SSL settings
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
 
-    # CORS headers for ALL responses from this server
     add_header 'Access-Control-Allow-Origin' $cors_origin always;
     add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
     add_header 'Access-Control-Allow-Headers' 'Authorization, Content-Type, Accept, Origin' always;
     add_header 'Access-Control-Max-Age' 3600 always;
     add_header 'Vary' 'Origin' always;
 
-    # Health endpoint only
+    # Health probe
     location = /health {
-      if ($request_method = OPTIONS) {
-        return 204;
-      }
-
+      if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/health;
     }
 
-    # Return 404 for all other paths
+    # Registration information
+    location = /registration {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-indexer:8080/registration;
+    }
+
+    # Basic metrics
+    location = /metrics {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-indexer:8080/metrics;
+    }
+
+    # List available snapshots
+    location = /snapshots {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-indexer:8080/snapshots;
+    }
+
+    # Download a snapshot file - handles /snapshots/:id
+    location ~ ^/snapshots/(.+)$ {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-indexer:8080/snapshots/$1;
+      proxy_buffering off;
+      proxy_read_timeout 300s;
+      proxy_send_timeout 300s;
+      client_max_body_size 0;
+    }
+
+    # Block everything else
     location / {
       return 404;
     }
