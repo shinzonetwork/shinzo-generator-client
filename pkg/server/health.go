@@ -291,7 +291,7 @@ func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Registration data not available", http.StatusServiceUnavailable)
 		return
 	}
-
+	//TODO: make this configurable not sure registration should be hardcoded
 	redirectURL := fmt.Sprintf(
 		"https://registration.shinzo.network/?role=indexer&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
 		registration.Message,
