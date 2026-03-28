@@ -106,6 +106,7 @@ func mockReceipt(txHash string, blockNumber string) *types.TransactionReceipt {
 // ---------------------------------------------------------------------------
 
 func TestNewBlockHandler_WithNode(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
@@ -115,6 +116,7 @@ func TestNewBlockHandler_WithNode(t *testing.T) {
 }
 
 func TestNewBlockHandler_DefaultMaxDocsWithNode(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
 	handler, err := NewBlockHandler(td.Node, 0, nil)
@@ -133,6 +135,7 @@ func TestNewBlockHandler_DefaultMaxDocsWithNode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetPort_WithNode(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	port := GetPort(td.Node)
 	assert.Equal(t, td.Port, port)
@@ -143,6 +146,7 @@ func TestGetPort_WithNode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_SingleTxn_BlockOnly(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -154,6 +158,7 @@ func TestCreateBlockBatch_SingleTxn_BlockOnly(t *testing.T) {
 }
 
 func TestCreateBlockBatch_SingleTxn_WithTransaction(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -168,6 +173,7 @@ func TestCreateBlockBatch_SingleTxn_WithTransaction(t *testing.T) {
 }
 
 func TestCreateBlockBatch_SingleTxn_WithAccessList(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -188,6 +194,7 @@ func TestCreateBlockBatch_SingleTxn_WithAccessList(t *testing.T) {
 }
 
 func TestCreateBlockBatch_NilBlock(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -197,6 +204,7 @@ func TestCreateBlockBatch_NilBlock(t *testing.T) {
 }
 
 func TestCreateBlockBatch_InvalidBlockNumber(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -207,6 +215,7 @@ func TestCreateBlockBatch_InvalidBlockNumber(t *testing.T) {
 }
 
 func TestCreateBlockBatch_DuplicateBlock(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -222,6 +231,7 @@ func TestCreateBlockBatch_DuplicateBlock(t *testing.T) {
 }
 
 func TestCreateBlockBatch_NilDefraNode(t *testing.T) {
+t.Parallel()
 	handler := &BlockHandler{maxDocsPerTxn: 1000}
 	block := mockBlock("0x1")
 	_, err := handler.CreateBlockBatch(context.Background(), block, nil, nil)
@@ -229,6 +239,7 @@ func TestCreateBlockBatch_NilDefraNode(t *testing.T) {
 }
 
 func TestCreateBlockBatch_WithDocIDTracker(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -253,6 +264,7 @@ func TestCreateBlockBatch_WithDocIDTracker(t *testing.T) {
 }
 
 func TestCreateBlockBatch_NilTransaction(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -268,6 +280,7 @@ func TestCreateBlockBatch_NilTransaction(t *testing.T) {
 }
 
 func TestCreateBlockBatch_NilReceipt(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -287,6 +300,7 @@ func TestCreateBlockBatch_NilReceipt(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	// Set very low maxDocsPerTxn to force batched mode
 	handler, err := NewBlockHandler(td.Node, 2, nil)
@@ -304,6 +318,7 @@ func TestCreateBlockBatch_BatchedMode(t *testing.T) {
 }
 
 func TestCreateBlockBatch_BatchedMode_WithTracker(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil)
 	require.NoError(t, err)
@@ -330,6 +345,7 @@ func TestCreateBlockBatch_BatchedMode_WithTracker(t *testing.T) {
 }
 
 func TestCreateBlockBatch_BatchedMode_DuplicateBlock(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil)
 	require.NoError(t, err)
@@ -352,6 +368,7 @@ func TestCreateBlockBatch_BatchedMode_DuplicateBlock(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetHighestBlockNumber_EmptyDB(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -361,6 +378,7 @@ func TestGetHighestBlockNumber_EmptyDB(t *testing.T) {
 }
 
 func TestGetHighestBlockNumber_AfterInserts(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -385,6 +403,7 @@ func TestGetHighestBlockNumber_AfterInserts(t *testing.T) {
 }
 
 func TestGetHighestBlockNumber_NonSequential(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -407,6 +426,7 @@ func TestGetHighestBlockNumber_NonSequential(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_MultipleTransactionsNoReceipts(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -425,6 +445,7 @@ func TestCreateBlockBatch_MultipleTransactionsNoReceipts(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode_WithAccessList(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
 	require.NoError(t, err)
@@ -470,6 +491,7 @@ func ctxWithIdentity(t *testing.T) context.Context {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_BlockOnly(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -482,6 +504,7 @@ func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_BlockOnly(t *testing.T) 
 }
 
 func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_FullBlock(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -503,6 +526,7 @@ func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_FullBlock(t *testing.T) 
 }
 
 func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_AndTracker(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -527,6 +551,7 @@ func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_AndTracker(t *testing.T)
 }
 
 func TestCreateBlockBatch_SingleTxn_DuplicateWithIdentity(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -547,6 +572,7 @@ func TestCreateBlockBatch_SingleTxn_DuplicateWithIdentity(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode_WithSigningIdentity(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched mode
 	require.NoError(t, err)
@@ -564,6 +590,7 @@ func TestCreateBlockBatch_BatchedMode_WithSigningIdentity(t *testing.T) {
 }
 
 func TestCreateBlockBatch_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched mode
 	require.NoError(t, err)
@@ -599,6 +626,7 @@ func TestCreateBlockBatch_BatchedMode_WithSigningIdentity_AndTracker(t *testing.
 }
 
 func TestCreateBlockBatch_BatchedMode_DuplicateWithIdentity(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched mode
 	require.NoError(t, err)
@@ -622,6 +650,7 @@ func TestCreateBlockBatch_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode_NilTransactionsInBatch(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
 	require.NoError(t, err)
@@ -642,6 +671,7 @@ func TestCreateBlockBatch_BatchedMode_NilTransactionsInBatch(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode_NilReceipts(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
 	require.NoError(t, err)
@@ -662,6 +692,7 @@ func TestCreateBlockBatch_BatchedMode_NilReceipts(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode_ManyLogs(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
 	require.NoError(t, err)
@@ -725,6 +756,7 @@ func TestCreateBlockBatch_BatchedMode_ManyLogs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockSignatureForExistingBlock_NilDefraNode(t *testing.T) {
+t.Parallel()
 	handler := &BlockHandler{maxDocsPerTxn: 1000}
 	_, err := handler.CreateBlockSignatureForExistingBlock(
 		context.Background(), 100, "0xhash", mockBlock("0x64"), nil, nil,
@@ -734,6 +766,7 @@ func TestCreateBlockSignatureForExistingBlock_NilDefraNode(t *testing.T) {
 }
 
 func TestCreateBlockSignatureForExistingBlock_Success(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -757,6 +790,7 @@ func TestCreateBlockSignatureForExistingBlock_Success(t *testing.T) {
 }
 
 func TestCreateBlockSignatureForExistingBlock_WithAccessList(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -785,6 +819,7 @@ func TestCreateBlockSignatureForExistingBlock_WithAccessList(t *testing.T) {
 }
 
 func TestCreateBlockSignatureForExistingBlock_NilTransactionsAndReceipts(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -805,6 +840,7 @@ func TestCreateBlockSignatureForExistingBlock_NilTransactionsAndReceipts(t *test
 }
 
 func TestCreateBlockSignatureForExistingBlock_NilTxInList(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -827,6 +863,7 @@ func TestCreateBlockSignatureForExistingBlock_NilTxInList(t *testing.T) {
 }
 
 func TestCreateBlockSignatureForExistingBlock_NoIdentity(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -850,6 +887,7 @@ func TestCreateBlockSignatureForExistingBlock_NoIdentity(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetHighestBlockNumber_SingleBlock(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -864,6 +902,7 @@ func TestGetHighestBlockNumber_SingleBlock(t *testing.T) {
 }
 
 func TestGetHighestBlockNumber_LargeBlockNumber(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -883,6 +922,7 @@ func TestGetHighestBlockNumber_LargeBlockNumber(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_SingleTxn_TxWithNoMatchingReceipt(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)
@@ -902,6 +942,7 @@ func TestCreateBlockBatch_SingleTxn_TxWithNoMatchingReceipt(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
 	require.NoError(t, err)
@@ -922,6 +963,7 @@ func TestCreateBlockBatch_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode_ManyAccessListEntries(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
 	require.NoError(t, err)
@@ -954,6 +996,7 @@ func TestCreateBlockBatch_BatchedMode_ManyAccessListEntries(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateBlockBatch_BatchedMode_TransactionsMultipleBatches(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1, nil) // force batched with batchSize=1
 	require.NoError(t, err)
@@ -979,6 +1022,7 @@ func TestCreateBlockBatch_BatchedMode_TransactionsMultipleBatches(t *testing.T) 
 // ---------------------------------------------------------------------------
 
 func TestGetHighestBlockNumber_ThreeBlocksDescOrder(t *testing.T) {
+t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	handler, err := NewBlockHandler(td.Node, 1000, nil)
 	require.NoError(t, err)

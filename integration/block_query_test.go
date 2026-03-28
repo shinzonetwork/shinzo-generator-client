@@ -69,10 +69,12 @@ func getLatestBlockNumber(t *testing.T) int {
 }
 
 func TestGetHighestBlockNumber(t *testing.T) {
+t.Parallel()
 	_ = getLatestBlockNumber(t) // Just check we can get it
 }
 
 func TestGetLatestBlocks(t *testing.T) {
+t.Parallel()
 	result := MakeQuery(t, blockQueryPath, "GetLatestBlocks", nil)
 	blockList, ok := result["data"].(map[string]any)[constants.CollectionBlock].([]any)
 	if !ok {
@@ -93,6 +95,7 @@ func TestGetLatestBlocks(t *testing.T) {
 }
 
 func TestGetBlockWithTransactions(t *testing.T) {
+t.Parallel()
 	blockNumber := getLatestBlockNumber(t)
 	variables := map[string]any{"blockNumber": blockNumber}
 	result := MakeQuery(t, blockQueryPath, "GetBlockWithTransactions", variables)

@@ -21,6 +21,7 @@ import (
 )
 
 func TestTruncateID(t *testing.T) {
+t.Parallel()
 	t.Run("empty string returns empty", func(t *testing.T) {
 		result := truncateID("")
 		assert.Equal(t, "", result)
@@ -47,6 +48,7 @@ func TestTruncateID(t *testing.T) {
 }
 
 func TestVerifySnapshots(t *testing.T) {
+t.Parallel()
 	t.Run("no args returns usage error", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		err := verifySnapshots(nil, &stdout, &stderr)
@@ -133,6 +135,7 @@ func TestVerifySnapshots(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
+t.Parallel()
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
 		err := run([]string{"verify"})
 		require.Error(t, err)
@@ -384,6 +387,7 @@ func computeMerkleRoot(roots [][]byte) []byte {
 }
 
 func TestVerifySnapshots_ValidSnapshot(t *testing.T) {
+t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate an Ed25519 key pair for signing
@@ -439,6 +443,7 @@ func TestVerifySnapshots_ValidSnapshot(t *testing.T) {
 }
 
 func TestVerifySnapshots_MerkleRootMismatch(t *testing.T) {
+t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a snapshot with known block sig merkle roots
@@ -475,6 +480,7 @@ func TestVerifySnapshots_MerkleRootMismatch(t *testing.T) {
 }
 
 func TestVerifySnapshots_AllValid_ReturnsNil(t *testing.T) {
+t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate an Ed25519 key pair
@@ -516,6 +522,7 @@ func TestVerifySnapshots_AllValid_ReturnsNil(t *testing.T) {
 }
 
 func TestMain_ErrorExitsNonZero(t *testing.T) {
+t.Parallel()
 	// Use the subprocess test pattern: re-invoke the test binary with a
 	// sentinel environment variable, then verify the exit code.
 	if os.Getenv("TEST_MAIN_EXIT") == "1" {
@@ -543,6 +550,7 @@ func TestMain_ErrorExitsNonZero(t *testing.T) {
 }
 
 func TestMain_VerifyValidSnapshot(t *testing.T) {
+t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate key and create valid snapshot (same as above)

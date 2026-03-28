@@ -1,45 +1,34 @@
-# This workflow will run 'go test' on the project when creating a PR (or trying to push to) main
-name: Go Test CI
+name: Tests
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
+    
     steps:
-    - name: Check out code
-      uses: actions/checkout@v4
-
+    - uses: actions/checkout@v4
+    
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.23'
         cache: true
-
+    
     - name: Get CPU count
       id: cpu
-      run: echo "count=$(sysctl -n hw.ncpu)" >> $GITHUB_OUTPUT
-
+      run: echo "count=$(nproc)" >> $GITHUB_OUTPUT
+    
     - name: Run tests
-      env:
-        GETH_RPC_URL: ${{ secrets.GETH_RPC_URL }}
-        GETH_WS_URL: ${{ secrets.GETH_WS_URL }}
-        GETH_API_KEY: ${{ secrets.GETH_API_KEY }}
-        DEFRADB_URL: http://localhost:9181
-        LOG_LEVEL: error
       run: |
         go test -v -race -coverprofile=coverage.out -covermode=atomic \
           -parallel ${{ steps.cpu.outputs.count }} \
           ./...
-
+    
     - name: Upload coverage
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.out
         flags: unittests
         name: codecov-umbrella
-      continue-on-error: true
