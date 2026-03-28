@@ -140,8 +140,9 @@ type apiKeyTransport struct {
 
 func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, req.URL.String())
-	logger.Sugar.Debugf("Setting X-Api-Key header: %s", t.apiKey[:10]+"...")
-	req.Header.Set("X-Api-Key", t.apiKey)
+	headerName := getAPIKeyHeaderName(req.URL.String())
+	logger.Sugar.Debugf("Setting %s header: %s", headerName, maskAPIKey(t.apiKey, t.apiKey))
+	req.Header.Set(headerName, t.apiKey)
 
 	// Log request headers (excluding sensitive data)
 	logger.Sugar.Debugf("Request headers: Content-Type=%s, User-Agent=%s",
@@ -577,38 +578,46 @@ func (c *EthereumClient) getPreferredClient() *ethclient.Client {
 	return nil
 }
 
-// createWebSocketWithHeaders creates a WebSocket connection with API key for GCP authentication
+// createWebSocketWithHeaders creates a WebSocket connection with API key header for GCP authentication
 func createWebSocketWithHeaders(wsURL, apiKey string) (*ethclient.Client, error) {
-	// GCP WebSocket endpoints may support API key as query parameter
-	// Try multiple approaches for WebSocket authentication
-
 	ctx := context.Background()
 
-	// Approach 1: Try with API key as query parameter
-	wsURLWithKey := wsURL
-	if strings.Contains(wsURL, "?") {
-		wsURLWithKey = wsURL + "&key=" + apiKey
-	} else {
-		wsURLWithKey = wsURL + "?key=" + apiKey
-	}
-
-	logger.Sugar.Debugf("Trying WebSocket with API key parameter: %s", wsURLWithKey)
-	rpcClient, err := ethrpc.DialOptions(ctx, wsURLWithKey)
+	// Determine which header name to use based on the URL
+	headerName := getAPIKeyHeaderName(wsURL)
+	
+	// Create http.Header with API key
+	headers := http.Header{}
+	headers.Set(headerName, apiKey)
+	
+	// Create custom dialer with API key header
+	logger.Sugar.Debugf("Creating WebSocket with %s header", headerName)
+	rpcClient, err := ethrpc.DialOptions(ctx, wsURL, 
+		ethrpc.WithHeaders(headers),
+	)
+	
 	if err != nil {
-		// Approach 2: Try with different parameter name
-		if strings.Contains(wsURL, "?") {
-			wsURLWithKey = wsURL + "&api_key=" + apiKey
-		} else {
-			wsURLWithKey = wsURL + "?api_key=" + apiKey
-		}
-
-		logger.Sugar.Debugf("Trying WebSocket with api_key parameter: %s", wsURLWithKey)
-		rpcClient, err = ethrpc.DialOptions(ctx, wsURLWithKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to dial WebSocket with API key: %w", err)
-		}
+		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, err)
 	}
 
-	// Create ethclient from the RPC client
+	logger.Sugar.Infof("WebSocket connection established successfully with %s header", headerName)
 	return ethclient.NewClient(rpcClient), nil
+}
+
+// getAPIKeyHeaderName determines which API key header to use based on the URL
+func getAPIKeyHeaderName(url string) string {
+	// GCP Blockchain Node Engine uses X-goog-api-key
+	if strings.Contains(url, "googleapis.com") || strings.Contains(url, "gcp") {
+		return "X-goog-api-key"
+	}
+	// Default to X-Api-Key for custom setups
+	return "X-Api-Key"
+}
+
+// maskAPIKey masks the API key in URLs for logging
+func maskAPIKey(url, apiKey string) string {
+	if apiKey == "" || len(apiKey) < 8 {
+		return url
+	}
+	masked := apiKey[:4] + "****" + apiKey[len(apiKey)-4:]
+	return strings.ReplaceAll(url, apiKey, masked)
 }
