@@ -315,7 +315,7 @@ func TestRegistrationAppHandler_Redirect(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/registration-app", nil)
 	hs.registrationAppHandler(rec, req)
 	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-	assert.Contains(t, rec.Header().Get("Location"), "register.shinzo.network")
+	assert.Contains(t, rec.Header().Get("Location"), "registration.shinzo.network")
 	assert.Contains(t, rec.Header().Get("Location"), "0xpubkey123")
 }
 
@@ -585,18 +585,6 @@ func TestNormalizeHex(t *testing.T) {
 			assert.Equal(t, tt.expected, normalizeHex(tt.input))
 		})
 	}
-}
-
-// --- getBuildTags / getSchemaType ---
-
-func TestGetBuildTags(t *testing.T) {
-	result := getBuildTags()
-	assert.Equal(t, "standard", result) // default build
-}
-
-func TestGetSchemaType(t *testing.T) {
-	result := getSchemaType()
-	assert.Equal(t, "non-branchable", result) // default build
 }
 
 // --- getHealthStatusPageHTML ---
@@ -877,18 +865,6 @@ func TestSnapshotImportHandler_InvalidGzipFile(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Contains(t, resp["error"], "gzip")
-}
-
-// --- buildTagsFor / schemaTypeFor ---
-
-func TestBuildTagsFor(t *testing.T) {
-	assert.Equal(t, "standard", buildTagsFor(false))
-	assert.Equal(t, "branchable", buildTagsFor(true))
-}
-
-func TestSchemaTypeFor(t *testing.T) {
-	assert.Equal(t, "non-branchable", schemaTypeFor(false))
-	assert.Equal(t, "branchable", schemaTypeFor(true))
 }
 
 // --- snapshotsListHandler with files (covers loop body) ---

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -182,8 +181,6 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		DefraDBConnected: hs.checkDefraDB(),
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
-		BuildTags:        getBuildTags(),
-		SchemaType:       getSchemaType(),
 	}
 
 	if hs.indexer != nil {
@@ -294,9 +291,9 @@ func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Registration data not available", http.StatusServiceUnavailable)
 		return
 	}
-
+	//TODO: make this configurable not sure registration should be hardcoded
 	redirectURL := fmt.Sprintf(
-		"https://register.shinzo.network/?role=indexer&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
+		"https://registration.shinzo.network/?role=indexer&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
 		registration.Message,
 		registration.PeerIDRegistration.PeerID,
 		registration.PeerIDRegistration.SignedPeerMsg,
@@ -526,30 +523,6 @@ func normalizeHex(s string) string {
 		return "0x" + s[2:]
 	}
 	return "0x" + s
-}
-
-// getBuildTags returns the build tags used to compile the binary
-func getBuildTags() string {
-	return buildTagsFor(schema.IsBranchable())
-}
-
-func buildTagsFor(branchable bool) string {
-	if branchable {
-		return "branchable"
-	}
-	return "standard"
-}
-
-// getSchemaType returns the schema type based on build tags
-func getSchemaType() string {
-	return schemaTypeFor(schema.IsBranchable())
-}
-
-func schemaTypeFor(branchable bool) string {
-	if branchable {
-		return "branchable"
-	}
-	return "non-branchable"
 }
 
 // getHealthStatusPageHTML reads the HTML file from disk at runtime, falling back to embedded version
