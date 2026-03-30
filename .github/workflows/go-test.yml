@@ -22,7 +22,7 @@ jobs:
 
     - name: Get CPU count
       id: cpu
-      run: echo "count=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 4)" >> $GITHUB_OUTPUT
+      run: echo "count=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 2)" >> $GITHUB_OUTPUT
 
     - name: Run tests
       env:
@@ -32,9 +32,7 @@ jobs:
         DEFRADB_URL: http://localhost:9181
         LOG_LEVEL: error
       run: |
-        go test -v -race -coverprofile=coverage.out -covermode=atomic \
-          -parallel=${{ steps.cpu.outputs.count }} \
-          ./...
+        go test -parallel=${{ steps.cpu.outputs.count  }} ./...
 
     - name: Upload coverage
       uses: codecov/codecov-action@v4
