@@ -2101,8 +2101,8 @@ github.com/pion/datachannel v1.5.10/go.mod h1:p/jJfC9arb29W7WrxyKbepTU20CFgyx5oL
 github.com/pion/dtls/v2 v2.2.7/go.mod h1:8WiMkebSHFD0T+dIU+UeBaoV7kDhOW5oDCzZ7WZ/F9s=
 github.com/pion/dtls/v2 v2.2.12 h1:KP7H5/c1EiVAAKUmXyCzPiQe5+bCJrpOeKg/L05dunk=
 github.com/pion/dtls/v2 v2.2.12/go.mod h1:d9SYc9fch0CqK90mRk1dC7AkzzpwJj6u2GU3u+9pqFE=
-github.com/pion/dtls/v3 v3.0.7 h1:bItXtTYYhZwkPFk4t1n3Kkf5TDrfj6+4wG+CZR8uI9Q=
-github.com/pion/dtls/v3 v3.0.7/go.mod h1:uDlH5VPrgOQIw59irKYkMudSFprY9IEFCqz/eTz16f8=
+github.com/pion/dtls/v3 v3.0.11 h1:zqn8YhoAU7d9whsWLhNiQlbB8QdpJj8XQVSc5ImUons=
+github.com/pion/dtls/v3 v3.0.11/go.mod h1:YEmmBYIoBsY3jmG56dsziTv/Lca9y4Om83370CXfqJ8=
 github.com/pion/ice/v4 v4.0.10 h1:P59w1iauC/wPk9PdY8Vjl4fOFL5B+USq1+xbDcN6gT4=
 github.com/pion/ice/v4 v4.0.10/go.mod h1:y3M18aPhIxLlcO/4dn9X8LzLLSma84cx6emMSu14FGw=
 github.com/pion/interceptor v0.1.41 h1:NpvX3HgWIukTf2yTBVjVGFXtpSpWgXjqz7IIpu7NsOw=
@@ -2136,6 +2136,8 @@ github.com/pion/transport/v2 v2.2.10 h1:ucLBLE8nuxiHfvkFKnkDQRYWYfp8ejf4YBOPfaQp
 github.com/pion/transport/v2 v2.2.10/go.mod h1:sq1kSLWs+cHW9E+2fJP95QudkzbK7wscs8yYgQToO5E=
 github.com/pion/transport/v3 v3.0.8 h1:oI3myyYnTKUSTthu/NZZ8eu2I5sHbxbUNNFW62olaYc=
 github.com/pion/transport/v3 v3.0.8/go.mod h1:+c2eewC5WJQHiAA46fkMMzoYZSuGzA/7E2FPrOYHctQ=
+github.com/pion/transport/v4 v4.0.1 h1:sdROELU6BZ63Ab7FrOLn13M6YdJLY20wldXW2Cu2k8o=
+github.com/pion/transport/v4 v4.0.1/go.mod h1:nEuEA4AD5lPdcIegQDpVLgNoDGreqM/YqmEx3ovP4jM=
 github.com/pion/turn/v4 v4.1.1 h1:9UnY2HB99tpDyz3cVVZguSxcqkJ1DsTSZ+8TGruh4fc=
 github.com/pion/turn/v4 v4.1.1/go.mod h1:2123tHk1O++vmjI5VSD0awT50NywDAq5A2NNNU4Jjs8=
 github.com/pion/webrtc/v4 v4.1.4 h1:/gK1ACGHXQmtyVVbJFQDxNoODg4eSRiFLB7t9r9pg8M=
@@ -2285,8 +2287,6 @@ github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNX
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 h1:n661drycOFuPLCN3Uc8sB6B/s6Z4t2xvBgU1htSHuq8=
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3/go.mod h1:A0bzQcvG0E7Rwjx0REVgAGH58e96+X0MeOfepqsbeW4=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260226160102-0ae94d37513b h1:XKMxxAGN5c5hSxcj4eVvNdrnWCzABNU/tH9d5gLT6P4=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260226160102-0ae94d37513b/go.mod h1:yOdSyuw/h50AuMZvNVnQ1oK0Fq4a2DQ68X5CH+oyJI8=
 github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260325173318-87784b9925c2 h1:uT0YOjaxeHwe69/dSAYQMG/r9S4+swfevOdyoKifeOg=
 github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260325173318-87784b9925c2/go.mod h1:jPCm2FVOLt3u6McMDxaE37Jputno2iIFxxJzc4bx8Q4=
 github.com/shirou/gopsutil v3.21.11+incompatible h1:+1+c1VGhc88SSonWP6foOcLhvnKlUeu/erjjvaPEYiI=
@@ -2338,8 +2338,6 @@ github.com/sourcenetwork/corekv/namespace v0.3.1 h1:XllaUw6cteZkJYC5tgcJ40c6hIMh
 github.com/sourcenetwork/corekv/namespace v0.3.1/go.mod h1:uidxEQZsJ1eqecq1Zn5NipnFAgxL+VyXB6bPGziBewk=
 github.com/sourcenetwork/corelog v0.0.8 h1:jCo0mFBpWrfhUCGzzN3uUtPGyQv3jnITdPO1s2ME3RY=
 github.com/sourcenetwork/corelog v0.0.8/go.mod h1:cMabHgs3kARgYTQeQYSOmaGGP8XMU6sZrHd8LFrL3zA=
-github.com/sourcenetwork/defradb v0.20.1-0.20260226155958-94d678704115 h1:PmQuD0TerR2ohZ/7ApmDGQ6FTibiOlsBjUU0nIyNXDM=
-github.com/sourcenetwork/defradb v0.20.1-0.20260226155958-94d678704115/go.mod h1:xiKVpr9CguJ7gtlb4viaTAzsikrBxtIaNdKSrbFikW4=
 github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60 h1:iOt0ljPIkfAz9j8+HyX3J9n4feNN36SZUUgLBWu2RtQ=
 github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60/go.mod h1:xiKVpr9CguJ7gtlb4viaTAzsikrBxtIaNdKSrbFikW4=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 h1:620zKV4rOn7U5j/WsPkk4SFj0z9/pVV4bBx0BpZQgro=
