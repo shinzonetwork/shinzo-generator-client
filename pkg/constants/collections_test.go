@@ -5,6 +5,7 @@ import (
 )
 
 func TestCollectionConstants(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		constant string
@@ -28,6 +29,7 @@ func TestCollectionConstants(t *testing.T) {
 }
 
 func TestAllCollections(t *testing.T) {
+t.Parallel()
 	if AllCollections == nil {
 		t.Fatal("AllCollections should not be nil")
 	}

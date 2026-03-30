@@ -81,6 +81,7 @@ func simpleRPCServer() *httptest.Server {
 // --- NewEthereumClient ---
 
 func TestNewEthereumClient_HTTPOnly(t *testing.T) {
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -94,6 +95,7 @@ func TestNewEthereumClient_HTTPOnly(t *testing.T) {
 }
 
 func TestNewEthereumClient_WithAPIKey(t *testing.T) {
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -106,11 +108,13 @@ func TestNewEthereumClient_WithAPIKey(t *testing.T) {
 }
 
 func TestNewEthereumClient_InvalidHTTP(t *testing.T) {
+	t.Parallel()
 	_, err := NewEthereumClient("invalid-url", "", "")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_InvalidHTTPWithAPIKey(t *testing.T) {
+	t.Parallel()
 	_, err := NewEthereumClient("invalid-url", "", "test-api-key")
 	assert.Error(t, err)
 }
