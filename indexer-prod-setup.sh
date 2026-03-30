@@ -36,8 +36,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "8080:8080"
-      - "443:443"
+      - "443:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl:/etc/nginx/ssl:ro
@@ -62,19 +61,6 @@ http {
   server {
     listen 8080;
     server_name _;
-    return 301 https://$host:443$request_uri;
-  }
-
-  server {
-    listen 443 ssl;
-    server_name _;
-
-    ssl_certificate /etc/nginx/ssl/nginx.crt;
-    ssl_certificate_key /etc/nginx/ssl/nginx.key;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
 
     add_header 'Access-Control-Allow-Origin' $cors_origin always;
     add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
@@ -82,31 +68,26 @@ http {
     add_header 'Access-Control-Max-Age' 3600 always;
     add_header 'Vary' 'Origin' always;
 
-    # Health probe
     location = /health {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/health;
     }
 
-    # Registration information
     location = /registration {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/registration;
     }
 
-    # Basic metrics
     location = /metrics {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/metrics;
     }
 
-    # List available snapshots
     location = /snapshots {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/snapshots;
     }
 
-    # Download a snapshot file - handles /snapshots/:id
     location ~ ^/snapshots/(.+)$ {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/snapshots/$1;
@@ -116,7 +97,6 @@ http {
       client_max_body_size 0;
     }
 
-    # Block everything else
     location / {
       return 404;
     }
