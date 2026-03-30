@@ -22,7 +22,7 @@ jobs:
 
     - name: Get CPU count
       id: cpu
-      run: echo "count=$(sysctl -n hw.ncpu)" >> $GITHUB_OUTPUT
+      run: echo "count=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 4)" >> $GITHUB_OUTPUT
 
     - name: Run tests
       env:
@@ -33,7 +33,7 @@ jobs:
         LOG_LEVEL: error
       run: |
         go test -v -race -coverprofile=coverage.out -covermode=atomic \
-          -parallel ${{ steps.cpu.outputs.count }} \
+          -parallel=${{ steps.cpu.outputs.count }} \
           ./...
 
     - name: Upload coverage

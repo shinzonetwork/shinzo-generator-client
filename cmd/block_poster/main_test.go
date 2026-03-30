@@ -522,7 +522,6 @@ t.Parallel()
 }
 
 func TestMain_ErrorExitsNonZero(t *testing.T) {
-t.Parallel()
 	// Use the subprocess test pattern: re-invoke the test binary with a
 	// sentinel environment variable, then verify the exit code.
 	if os.Getenv("TEST_MAIN_EXIT") == "1" {
@@ -550,7 +549,6 @@ t.Parallel()
 }
 
 func TestMain_VerifyValidSnapshot(t *testing.T) {
-t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate key and create valid snapshot (same as above)

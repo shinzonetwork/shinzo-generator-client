@@ -84,7 +84,6 @@ t.Parallel()
 }
 
 func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
-t.Parallel()
 	tests := []struct {
 		name        string
 		embedded    bool
@@ -221,7 +220,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_DefraDBUrl(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("DEFRADB_URL", "http://custom:9181")
 	applyEnvOverrides(cfg)
@@ -231,7 +229,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_DefraDBHost_WithPort(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	// DEFRADB_URL must be unset for HOST to take effect
 	t.Setenv("DEFRADB_URL", "")
@@ -244,7 +241,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_DefraDBHost_WithoutPort(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("DEFRADB_URL", "")
 	t.Setenv("DEFRADB_HOST", "myhost")
@@ -256,7 +252,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_DefraDBKeyringSecret(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("DEFRADB_KEYRING_SECRET", "mysecret")
 	applyEnvOverrides(cfg)
@@ -266,7 +261,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_P2PConfig(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("DEFRADB_P2P_ENABLED", "true")
 	t.Setenv("DEFRADB_P2P_LISTEN_ADDR", "/ip4/0.0.0.0/tcp/9999")
@@ -285,7 +279,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_P2P_InvalidBool(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("DEFRADB_P2P_ENABLED", "not_a_bool")
 	t.Setenv("DEFRADB_P2P_ACCEPT_INCOMING", "invalid")
@@ -301,7 +294,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_StoreConfig(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("DEFRADB_STORE_PATH", "/custom/path")
 	t.Setenv("DEFRADB_BLOCK_CACHE_MB", "256")
@@ -336,7 +328,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_StoreConfig_InvalidValues(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("DEFRADB_BLOCK_CACHE_MB", "not_a_number")
 	t.Setenv("DEFRADB_MEMTABLE_MB", "invalid")
@@ -359,7 +350,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_GethConfig(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("GETH_RPC_URL", "http://geth:8545")
 	t.Setenv("GETH_WS_URL", "ws://geth:8546")
@@ -378,7 +368,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_IndexerConfig(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("INDEXER_START_HEIGHT", "5000")
 	t.Setenv("INDEXER_CONCURRENT_BLOCKS", "16")
@@ -413,7 +402,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_IndexerConfig_InvalidValues(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	cfg.Indexer.StartHeight = 1000
 	t.Setenv("INDEXER_START_HEIGHT", "not_a_number")
@@ -431,7 +419,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_LoggerConfig(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("LOGGER_DEBUG", "true")
 	applyEnvOverrides(cfg)
@@ -442,7 +429,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_LoggerConfig_Invalid(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("LOGGER_DEBUG", "not_a_bool")
 	applyEnvOverrides(cfg)
@@ -453,7 +439,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_PrunerConfig(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("PRUNER_ENABLED", "true")
 	t.Setenv("PRUNER_MAX_BLOCKS", "1000")
@@ -476,7 +461,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_PrunerConfig_Invalid(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("PRUNER_ENABLED", "invalid")
 	t.Setenv("PRUNER_MAX_BLOCKS", "not_num")
@@ -490,7 +474,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_SnapshotConfig(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("SNAPSHOT_ENABLED", "true")
 	t.Setenv("SNAPSHOT_DIR", "/custom/snapshots")
@@ -513,7 +496,6 @@ t.Parallel()
 }
 
 func TestApplyEnvOverrides_SnapshotConfig_Invalid(t *testing.T) {
-t.Parallel()
 	cfg := &Config{}
 	t.Setenv("SNAPSHOT_ENABLED", "notbool")
 	t.Setenv("SNAPSHOT_BLOCKS_PER_FILE", "invalid")
@@ -526,7 +508,6 @@ t.Parallel()
 }
 
 func TestLoadConfig_EnvironmentOverrides_Integration(t *testing.T) {
-t.Parallel()
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
@@ -554,7 +535,6 @@ indexer:
 }
 
 func TestLoadConfig_InvalidEnvironmentValues(t *testing.T) {
-t.Parallel()
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
