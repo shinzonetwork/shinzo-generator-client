@@ -21,7 +21,6 @@ import (
 )
 
 func TestTruncateID(t *testing.T) {
-t.Parallel()
 	t.Run("empty string returns empty", func(t *testing.T) {
 		result := truncateID("")
 		assert.Equal(t, "", result)
@@ -48,7 +47,6 @@ t.Parallel()
 }
 
 func TestVerifySnapshots(t *testing.T) {
-t.Parallel()
 	t.Run("no args returns usage error", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		err := verifySnapshots(nil, &stdout, &stderr)
@@ -135,7 +133,6 @@ t.Parallel()
 }
 
 func TestRun(t *testing.T) {
-t.Parallel()
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
 		err := run([]string{"verify"})
 		require.Error(t, err)
@@ -216,6 +213,9 @@ logger:
 	t.Run("valid config with external defra fails at StartIndexing", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
+		t.Setenv("DEFRADB_URL", "http://127.0.0.1:1")
+		t.Setenv("DEFRADB_HOST", "")
+		t.Setenv("DEFRADB_PORT", "")
 
 		// Embedded=false means useExternalDefra=true, so StartIndexing(true) is called.
 		// WaitForDefraDB will fail because the URL is unreachable.
@@ -256,6 +256,9 @@ logger:
 	t.Run("signal handling shuts down gracefully", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
+		t.Setenv("DEFRADB_URL", "http://198.51.100.1:1")
+		t.Setenv("DEFRADB_HOST", "")
+		t.Setenv("DEFRADB_PORT", "")
 
 		// Use external DefraDB with a non-routable TEST-NET-2 (RFC 5737) address.
 		// TCP SYN to this IP gets no response, so WaitForDefraDB's HTTP client
@@ -387,7 +390,7 @@ func computeMerkleRoot(roots [][]byte) []byte {
 }
 
 func TestVerifySnapshots_ValidSnapshot(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate an Ed25519 key pair for signing
@@ -443,7 +446,7 @@ t.Parallel()
 }
 
 func TestVerifySnapshots_MerkleRootMismatch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a snapshot with known block sig merkle roots
@@ -480,7 +483,7 @@ t.Parallel()
 }
 
 func TestVerifySnapshots_AllValid_ReturnsNil(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate an Ed25519 key pair
