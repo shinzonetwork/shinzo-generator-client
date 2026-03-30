@@ -2287,8 +2287,6 @@ github.com/sergi/go-diff v1.1.0/go.mod h1:STckp+ISIX8hZLjrqAeVduY0gWCT9IjLuqbuNX
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 h1:n661drycOFuPLCN3Uc8sB6B/s6Z4t2xvBgU1htSHuq8=
 github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3/go.mod h1:A0bzQcvG0E7Rwjx0REVgAGH58e96+X0MeOfepqsbeW4=
 github.com/shazow/go-diff v0.0.0-20160112020656-b6b7b6733b8c/go.mod h1:/PevMnwAxekIXwN8qQyfc5gl2NlkB3CQlkizAbOkeBs=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260226160102-0ae94d37513b h1:XKMxxAGN5c5hSxcj4eVvNdrnWCzABNU/tH9d5gLT6P4=
-github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260226160102-0ae94d37513b/go.mod h1:yOdSyuw/h50AuMZvNVnQ1oK0Fq4a2DQ68X5CH+oyJI8=
 github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260325173318-87784b9925c2 h1:uT0YOjaxeHwe69/dSAYQMG/r9S4+swfevOdyoKifeOg=
 github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260325173318-87784b9925c2/go.mod h1:jPCm2FVOLt3u6McMDxaE37Jputno2iIFxxJzc4bx8Q4=
 github.com/shirou/gopsutil v3.21.11+incompatible h1:+1+c1VGhc88SSonWP6foOcLhvnKlUeu/erjjvaPEYiI=
@@ -2340,8 +2338,6 @@ github.com/sourcenetwork/corekv/namespace v0.3.1 h1:XllaUw6cteZkJYC5tgcJ40c6hIMh
 github.com/sourcenetwork/corekv/namespace v0.3.1/go.mod h1:uidxEQZsJ1eqecq1Zn5NipnFAgxL+VyXB6bPGziBewk=
 github.com/sourcenetwork/corelog v0.0.8 h1:jCo0mFBpWrfhUCGzzN3uUtPGyQv3jnITdPO1s2ME3RY=
 github.com/sourcenetwork/corelog v0.0.8/go.mod h1:cMabHgs3kARgYTQeQYSOmaGGP8XMU6sZrHd8LFrL3zA=
-github.com/sourcenetwork/defradb v0.20.1-0.20260226155958-94d678704115 h1:PmQuD0TerR2ohZ/7ApmDGQ6FTibiOlsBjUU0nIyNXDM=
-github.com/sourcenetwork/defradb v0.20.1-0.20260226155958-94d678704115/go.mod h1:xiKVpr9CguJ7gtlb4viaTAzsikrBxtIaNdKSrbFikW4=
 github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60 h1:iOt0ljPIkfAz9j8+HyX3J9n4feNN36SZUUgLBWu2RtQ=
 github.com/sourcenetwork/defradb v0.20.1-0.20260324203720-98437e4f0d60/go.mod h1:xiKVpr9CguJ7gtlb4viaTAzsikrBxtIaNdKSrbFikW4=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 h1:620zKV4rOn7U5j/WsPkk4SFj0z9/pVV4bBx0BpZQgro=
