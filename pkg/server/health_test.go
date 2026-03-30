@@ -315,7 +315,7 @@ func TestRegistrationAppHandler_Redirect(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/registration-app", nil)
 	hs.registrationAppHandler(rec, req)
 	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-	assert.Contains(t, rec.Header().Get("Location"), "register.shinzo.network")
+	assert.Contains(t, rec.Header().Get("Location"), "registration.shinzo.network")
 	assert.Contains(t, rec.Header().Get("Location"), "0xpubkey123")
 }
 

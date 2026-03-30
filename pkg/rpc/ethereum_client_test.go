@@ -81,6 +81,7 @@ func simpleRPCServer() *httptest.Server {
 // --- NewEthereumClient ---
 
 func TestNewEthereumClient_HTTPOnly(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -94,6 +95,7 @@ func TestNewEthereumClient_HTTPOnly(t *testing.T) {
 }
 
 func TestNewEthereumClient_WithAPIKey(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -106,16 +108,19 @@ func TestNewEthereumClient_WithAPIKey(t *testing.T) {
 }
 
 func TestNewEthereumClient_InvalidHTTP(t *testing.T) {
+t.Parallel()
 	_, err := NewEthereumClient("invalid-url", "", "")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_InvalidHTTPWithAPIKey(t *testing.T) {
+t.Parallel()
 	_, err := NewEthereumClient("invalid-url", "", "test-api-key")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_InvalidWebSocket_FallsBackToHTTP(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -127,6 +132,7 @@ func TestNewEthereumClient_InvalidWebSocket_FallsBackToHTTP(t *testing.T) {
 }
 
 func TestNewEthereumClient_InvalidWS_WithAPIKey_FallsBackToHTTP(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -136,16 +142,19 @@ func TestNewEthereumClient_InvalidWS_WithAPIKey_FallsBackToHTTP(t *testing.T) {
 }
 
 func TestNewEthereumClient_NoEndpoints(t *testing.T) {
+t.Parallel()
 	_, err := NewEthereumClient("", "", "")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_OnlyInvalidWS_NoHTTP(t *testing.T) {
+t.Parallel()
 	_, err := NewEthereumClient("", "ws://invalid:9999", "")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_OnlyInvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
+t.Parallel()
 	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345")
 	assert.Error(t, err)
 }
@@ -153,6 +162,7 @@ func TestNewEthereumClient_OnlyInvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
 // --- apiKeyTransport ---
 
 func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
+t.Parallel()
 	var receivedAPIKey string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAPIKey = r.Header.Get("X-goog-api-key")
@@ -175,6 +185,7 @@ func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 }
 
 func TestApiKeyTransport_RoundTrip_Failure(t *testing.T) {
+t.Parallel()
 	transport := &apiKeyTransport{
 		apiKey: "my-api-key-1234567890",
 		base:   http.DefaultTransport,
@@ -187,6 +198,7 @@ func TestApiKeyTransport_RoundTrip_Failure(t *testing.T) {
 // --- getPreferredClient ---
 
 func TestGetPreferredClient_WSAvailable(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -204,6 +216,7 @@ func TestGetPreferredClient_WSAvailable(t *testing.T) {
 }
 
 func TestGetPreferredClient_OnlyHTTP(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -216,6 +229,7 @@ func TestGetPreferredClient_OnlyHTTP(t *testing.T) {
 }
 
 func TestGetPreferredClient_NoneAvailable(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	result := client.getPreferredClient()
 	assert.Nil(t, result)
@@ -224,36 +238,42 @@ func TestGetPreferredClient_NoneAvailable(t *testing.T) {
 // --- Methods with nil client ---
 
 func TestGetNetworkID_NilClient(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetNetworkID(context.Background())
 	assert.Error(t, err)
 }
 
 func TestGetLatestBlockNumber_NilClient(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetLatestBlockNumber(context.Background())
 	assert.Error(t, err)
 }
 
 func TestGetLatestBlock_NilClient(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetLatestBlock(context.Background())
 	assert.Error(t, err)
 }
 
 func TestGetBlockByNumber_NilClient(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetBlockByNumber(context.Background(), big.NewInt(1))
 	assert.Error(t, err)
 }
 
 func TestGetTransactionReceipt_NilClient(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetTransactionReceipt(context.Background(), "0xabc")
 	assert.Error(t, err)
 }
 
 func TestGetBlockReceipts_NilClient(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetBlockReceipts(context.Background(), big.NewInt(1))
 	assert.Error(t, err)
@@ -262,6 +282,7 @@ func TestGetBlockReceipts_NilClient(t *testing.T) {
 // --- convertGethBlock ---
 
 func TestConvertGethBlock(t *testing.T) {
+t.Parallel()
 	header := &ethtypes.Header{
 		Number:      big.NewInt(1234567),
 		ParentHash:  common.HexToHash("0xparent"),
@@ -291,12 +312,14 @@ func TestConvertGethBlock(t *testing.T) {
 }
 
 func TestConvertGethBlock_NilBlock(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	result := client.convertGethBlock(nil)
 	assert.Nil(t, result)
 }
 
 func TestConvertGethBlock_WithBaseFee(t *testing.T) {
+t.Parallel()
 	header := &ethtypes.Header{
 		Number:   big.NewInt(100),
 		BaseFee:  big.NewInt(1000000000),
@@ -312,6 +335,7 @@ func TestConvertGethBlock_WithBaseFee(t *testing.T) {
 }
 
 func TestConvertGethBlock_WithoutBaseFee(t *testing.T) {
+t.Parallel()
 	header := &ethtypes.Header{
 		Number:   big.NewInt(100),
 		GasLimit: 8000000,
@@ -328,6 +352,7 @@ func TestConvertGethBlock_WithoutBaseFee(t *testing.T) {
 // --- convertTransaction ---
 
 func TestConvertTransaction(t *testing.T) {
+t.Parallel()
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), []byte("test data"))
 	header := &ethtypes.Header{Number: big.NewInt(1234567)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
@@ -343,6 +368,7 @@ func TestConvertTransaction(t *testing.T) {
 }
 
 func TestConvertTransaction_ContractCreation(t *testing.T) {
+t.Parallel()
 	tx := ethtypes.NewContractCreation(1, big.NewInt(0), 21000, big.NewInt(20000000000), []byte("contract bytecode"))
 	header := &ethtypes.Header{Number: big.NewInt(1234567)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
@@ -355,6 +381,7 @@ func TestConvertTransaction_ContractCreation(t *testing.T) {
 }
 
 func TestConvertTransaction_EIP1559(t *testing.T) {
+t.Parallel()
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
 
@@ -386,6 +413,7 @@ func TestConvertTransaction_EIP1559(t *testing.T) {
 }
 
 func TestConvertTransaction_AccessList(t *testing.T) {
+t.Parallel()
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
 
@@ -425,12 +453,14 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 // --- convertGethReceipt ---
 
 func TestConvertGethReceipt_Nil(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	result := client.convertGethReceipt(nil)
 	assert.Nil(t, result)
 }
 
 func TestConvertGethReceipt_Success(t *testing.T) {
+t.Parallel()
 	receipt := &ethtypes.Receipt{
 		Status:            ethtypes.ReceiptStatusSuccessful,
 		CumulativeGasUsed: 21000,
@@ -453,6 +483,7 @@ func TestConvertGethReceipt_Success(t *testing.T) {
 }
 
 func TestConvertGethReceipt_FailedStatus(t *testing.T) {
+t.Parallel()
 	receipt := &ethtypes.Receipt{
 		Status:      ethtypes.ReceiptStatusFailed,
 		TxHash:      common.HexToHash("0xtxhash"),
@@ -468,6 +499,7 @@ func TestConvertGethReceipt_FailedStatus(t *testing.T) {
 }
 
 func TestConvertGethReceipt_ContractCreation(t *testing.T) {
+t.Parallel()
 	contractAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	receipt := &ethtypes.Receipt{
 		Status:          ethtypes.ReceiptStatusSuccessful,
@@ -485,6 +517,7 @@ func TestConvertGethReceipt_ContractCreation(t *testing.T) {
 }
 
 func TestConvertGethReceipt_WithLogs(t *testing.T) {
+t.Parallel()
 	receipt := &ethtypes.Receipt{
 		Status:      ethtypes.ReceiptStatusSuccessful,
 		TxHash:      common.HexToHash("0xtxhash"),
@@ -515,6 +548,7 @@ func TestConvertGethReceipt_WithLogs(t *testing.T) {
 // --- convertGethLog ---
 
 func TestConvertGethLog(t *testing.T) {
+t.Parallel()
 	log := &ethtypes.Log{
 		Address:     common.HexToAddress("0xcontract"),
 		Topics:      []common.Hash{common.HexToHash("0xtopic1"), common.HexToHash("0xtopic2")},
@@ -541,6 +575,7 @@ func TestConvertGethLog(t *testing.T) {
 // --- helper functions ---
 
 func TestGetToAddress(t *testing.T) {
+t.Parallel()
 	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	tx := ethtypes.NewTransaction(1, to, big.NewInt(1000), 21000, big.NewInt(20000000000), []byte("data"))
 	assert.Equal(t, to.Hex(), getToAddress(tx))
@@ -550,23 +585,27 @@ func TestGetToAddress(t *testing.T) {
 }
 
 func TestGetBaseFeePerGas_Nil(t *testing.T) {
+t.Parallel()
 	header := &ethtypes.Header{Number: big.NewInt(100)}
 	block := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 	assert.Equal(t, "", getBaseFeePerGas(block))
 }
 
 func TestGetBaseFeePerGas_Set(t *testing.T) {
+t.Parallel()
 	header := &ethtypes.Header{Number: big.NewInt(100), BaseFee: big.NewInt(1000)}
 	block := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 	assert.Equal(t, "1000", getBaseFeePerGas(block))
 }
 
 func TestGetMaxFeePerGas_LegacyTx(t *testing.T) {
+t.Parallel()
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
 	assert.Equal(t, "", getMaxFeePerGas(tx))
 }
 
 func TestGetMaxFeePerGas_DynamicFeeTx(t *testing.T) {
+t.Parallel()
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(1),
 		GasFeeCap: big.NewInt(2000000000),
@@ -578,11 +617,13 @@ func TestGetMaxFeePerGas_DynamicFeeTx(t *testing.T) {
 }
 
 func TestGetMaxPriorityFeePerGas_LegacyTx(t *testing.T) {
+t.Parallel()
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
 	assert.Equal(t, "", getMaxPriorityFeePerGas(tx))
 }
 
 func TestGetMaxPriorityFeePerGas_DynamicFeeTx(t *testing.T) {
+t.Parallel()
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(1),
 		GasFeeCap: big.NewInt(2000000000),
@@ -594,6 +635,7 @@ func TestGetMaxPriorityFeePerGas_DynamicFeeTx(t *testing.T) {
 }
 
 func TestGetChainId_LegacyTx(t *testing.T) {
+t.Parallel()
 	// Legacy transactions derive chain ID from signature; for unsigned legacy txs
 	// ChainId() returns a derived value, not nil
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
@@ -603,6 +645,7 @@ func TestGetChainId_LegacyTx(t *testing.T) {
 }
 
 func TestGetChainId_Set(t *testing.T) {
+t.Parallel()
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(137),
 		GasFeeCap: big.NewInt(2000000000),
@@ -614,22 +657,26 @@ func TestGetChainId_Set(t *testing.T) {
 }
 
 func TestGetContractAddress_Empty(t *testing.T) {
+t.Parallel()
 	receipt := &ethtypes.Receipt{ContractAddress: common.Address{}}
 	assert.Equal(t, "", getContractAddress(receipt))
 }
 
 func TestGetContractAddress_Set(t *testing.T) {
+t.Parallel()
 	addr := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	receipt := &ethtypes.Receipt{ContractAddress: addr}
 	assert.Equal(t, addr.Hex(), getContractAddress(receipt))
 }
 
 func TestGetReceiptStatus_Success(t *testing.T) {
+t.Parallel()
 	receipt := &ethtypes.Receipt{Status: ethtypes.ReceiptStatusSuccessful}
 	assert.Equal(t, "1", getReceiptStatus(receipt))
 }
 
 func TestGetReceiptStatus_Failed(t *testing.T) {
+t.Parallel()
 	receipt := &ethtypes.Receipt{Status: ethtypes.ReceiptStatusFailed}
 	assert.Equal(t, "0", getReceiptStatus(receipt))
 }
@@ -637,6 +684,7 @@ func TestGetReceiptStatus_Failed(t *testing.T) {
 // --- GetFromAddress ---
 
 func TestGetFromAddress(t *testing.T) {
+t.Parallel()
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), []byte("data"))
 
 	// Unsigned transaction - should fail gracefully
@@ -648,6 +696,7 @@ func TestGetFromAddress(t *testing.T) {
 }
 
 func TestGetFromAddress_SignedEIP155(t *testing.T) {
+t.Parallel()
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
@@ -670,6 +719,7 @@ func TestGetFromAddress_SignedEIP155(t *testing.T) {
 }
 
 func TestGetFromAddress_SignedDynamicFee(t *testing.T) {
+t.Parallel()
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
@@ -696,12 +746,14 @@ func TestGetFromAddress_SignedDynamicFee(t *testing.T) {
 // --- Close ---
 
 func TestClose_NilClients(t *testing.T) {
+t.Parallel()
 	client := &EthereumClient{}
 	err := client.Close()
 	assert.NoError(t, err)
 }
 
 func TestClose_WithHTTPClient(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -715,6 +767,7 @@ func TestClose_WithHTTPClient(t *testing.T) {
 // --- RPC methods with mock server ---
 
 func TestGetLatestBlockNumber_Success(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -754,6 +807,7 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 }
 
 func TestGetNetworkID_Success(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "net_version":
@@ -808,6 +862,7 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 }
 
 func TestGetBlockByNumber_Success(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -829,6 +884,7 @@ func TestGetBlockByNumber_Success(t *testing.T) {
 }
 
 func TestGetBlockByNumber_Error(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -850,6 +906,7 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 // --- GetTransactionReceipt with mock server ---
 
 func TestGetTransactionReceipt_Success(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getTransactionReceipt":
@@ -886,6 +943,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 }
 
 func TestGetTransactionReceipt_Error(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getTransactionReceipt":
@@ -907,6 +965,7 @@ func TestGetTransactionReceipt_Error(t *testing.T) {
 // --- GetBlockReceipts with mock server ---
 
 func TestGetBlockReceipts_Success(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockReceipts":
@@ -942,6 +1001,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 }
 
 func TestGetBlockReceipts_Error(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockReceipts":
@@ -963,6 +1023,7 @@ func TestGetBlockReceipts_Error(t *testing.T) {
 // --- GetLatestBlock with mock server ---
 
 func TestGetLatestBlock_Success(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -986,6 +1047,7 @@ func TestGetLatestBlock_Success(t *testing.T) {
 }
 
 func TestGetLatestBlock_HeaderError(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("connection refused")
 	})
@@ -1001,6 +1063,7 @@ func TestGetLatestBlock_HeaderError(t *testing.T) {
 }
 
 func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
+t.Parallel()
 	callCount := 0
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
@@ -1028,6 +1091,7 @@ func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
 }
 
 func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
+t.Parallel()
 	callCount := 0
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
@@ -1057,6 +1121,7 @@ func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
 // --- GetLatestBlockNumber error path ---
 
 func TestGetLatestBlockNumber_Error(t *testing.T) {
+t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -1079,6 +1144,7 @@ func TestGetLatestBlockNumber_Error(t *testing.T) {
 // --- convertGethBlock with failed transaction conversion ---
 
 func TestConvertGethBlock_WithUncles(t *testing.T) {
+t.Parallel()
 	parentHeader := &ethtypes.Header{Number: big.NewInt(99)}
 	uncleHeader := &ethtypes.Header{Number: big.NewInt(98)}
 
@@ -1101,6 +1167,7 @@ func TestConvertGethBlock_WithUncles(t *testing.T) {
 // --- Close with both clients ---
 
 func TestClose_WithBothClients(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -1117,6 +1184,7 @@ func TestClose_WithBothClients(t *testing.T) {
 // --- GetFromAddress pre-EIP-155 (Homestead signer) ---
 
 func TestGetFromAddress_HomesteadSigner(t *testing.T) {
+t.Parallel()
 	key, expectedAddr := defaultTestKey()
 
 	inner := &ethtypes.LegacyTx{
@@ -1139,6 +1207,7 @@ func TestGetFromAddress_HomesteadSigner(t *testing.T) {
 }
 
 func TestGetFromAddress_FrontierSigner(t *testing.T) {
+t.Parallel()
 	key, expectedAddr := defaultTestKey()
 
 	inner := &ethtypes.LegacyTx{
@@ -1163,6 +1232,7 @@ func TestGetFromAddress_FrontierSigner(t *testing.T) {
 // --- convertTransaction with signed legacy (exercises fromAddr != nil path) ---
 
 func TestConvertTransaction_SignedLegacy(t *testing.T) {
+t.Parallel()
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
@@ -1191,6 +1261,7 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 // --- GetLatestBlock with unsupported tx type error ---
 
 func TestGetLatestBlock_UnsupportedTxType_Exhausted(t *testing.T) {
+t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping slow retry test")
 	}
@@ -1218,6 +1289,7 @@ func TestGetLatestBlock_UnsupportedTxType_Exhausted(t *testing.T) {
 }
 
 func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
+t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping slow retry test")
 	}
@@ -1250,6 +1322,7 @@ func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
 // --- convertGethBlock with failed tx conversion (warn+continue path) ---
 
 func TestConvertGethBlock_FailedTxConversion(t *testing.T) {
+t.Parallel()
 	header := &ethtypes.Header{
 		Number:   big.NewInt(100),
 		GasLimit: 8000000,
@@ -1287,6 +1360,7 @@ func TestConvertGethBlock_FailedTxConversion(t *testing.T) {
 // --- convertTransaction fromAddr == nil path ---
 
 func TestConvertTransaction_NilFromAddr(t *testing.T) {
+t.Parallel()
 	// A transaction where GetFromAddress returns nil, nil is not normally possible
 	// with go-ethereum types, but the code handles it. We test via an unsigned
 	// legacy tx which takes the error path with zero address fallback.
@@ -1305,6 +1379,7 @@ func TestConvertTransaction_NilFromAddr(t *testing.T) {
 // --- GetFromAddress all signers fail ---
 
 func TestGetFromAddress_AllSignersFail(t *testing.T) {
+t.Parallel()
 	// Create a DynamicFeeTx with a non-zero chain ID but completely invalid signature
 	// so that all post-EIP-155 signers fail
 	inner := &ethtypes.DynamicFeeTx{
@@ -1329,6 +1404,7 @@ func TestGetFromAddress_AllSignersFail(t *testing.T) {
 // --- NewEthereumClient WebSocket without API key (invalid, falls back to HTTP) ---
 
 func TestNewEthereumClient_InvalidWS_NoAPIKey_FallsBackToHTTP(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -1342,6 +1418,7 @@ func TestNewEthereumClient_InvalidWS_NoAPIKey_FallsBackToHTTP(t *testing.T) {
 // --- convertTransaction with BlobTx (default switch case) ---
 
 func TestConvertTransaction_BlobTx(t *testing.T) {
+t.Parallel()
 	// BlobTx has type 3 which exercises the default case in the gasPrice switch
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
@@ -1378,6 +1455,7 @@ func TestConvertTransaction_BlobTx(t *testing.T) {
 // --- getChainId nil check ---
 
 func TestGetChainId_NilChainID(t *testing.T) {
+t.Parallel()
 	// BlobTx with a nil ChainID field to test the nil check in getChainId.
 	// This is an edge case that shouldn't happen in practice, but the code guards against it.
 	// An unsigned BlobTx with ChainID left nil will still return non-nil from tx.ChainId()
@@ -1403,6 +1481,7 @@ func TestGetChainId_NilChainID(t *testing.T) {
 // --- createWebSocketWithHeaders URL with existing query parameter ---
 
 func TestCreateWebSocketWithHeaders_URLWithQueryParam(t *testing.T) {
+t.Parallel()
 	// Test the branch where the WS URL already contains "?" (query string),
 	// so the function appends with "&" instead of "?"
 	_, err := createWebSocketWithHeaders("ws://invalid-host:9999?existing=param", "test-api-key")
@@ -1411,6 +1490,7 @@ func TestCreateWebSocketWithHeaders_URLWithQueryParam(t *testing.T) {
 }
 
 func TestCreateWebSocketWithHeaders_URLWithoutQueryParam(t *testing.T) {
+t.Parallel()
 	// Test the branch where the WS URL has no query string,
 	// so the function appends with "?" for both key= and api_key=
 	_, err := createWebSocketWithHeaders("ws://invalid-host:9999", "test-api-key")
@@ -1458,6 +1538,7 @@ func newWSMockServer() *httptest.Server {
 }
 
 func TestCreateWebSocketWithHeaders_Success(t *testing.T) {
+t.Parallel()
 	// Start a real WebSocket server to exercise the success path
 	server := newWSMockServer()
 	defer server.Close()
@@ -1472,6 +1553,7 @@ func TestCreateWebSocketWithHeaders_Success(t *testing.T) {
 }
 
 func TestCreateWebSocketWithHeaders_SuccessWithQueryParam(t *testing.T) {
+t.Parallel()
 	// Test the success path when the URL already contains "?"
 	server := newWSMockServer()
 	defer server.Close()
@@ -1485,6 +1567,7 @@ func TestCreateWebSocketWithHeaders_SuccessWithQueryParam(t *testing.T) {
 }
 
 func TestNewEthereumClient_WSSuccess_WithAPIKey(t *testing.T) {
+t.Parallel()
 	// HTTP server for the HTTP client
 	httpServer := simpleRPCServer()
 	defer httpServer.Close()
@@ -1504,6 +1587,7 @@ func TestNewEthereumClient_WSSuccess_WithAPIKey(t *testing.T) {
 }
 
 func TestNewEthereumClient_WSSuccess_NoAPIKey(t *testing.T) {
+t.Parallel()
 	// HTTP server for the HTTP client
 	httpServer := simpleRPCServer()
 	defer httpServer.Close()
@@ -1523,6 +1607,7 @@ func TestNewEthereumClient_WSSuccess_NoAPIKey(t *testing.T) {
 }
 
 func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
+t.Parallel()
 	// Test the path where createWebSocketWithHeaders fails (rejects URLs with
 	// query params) but the standard ethclient.Dial fallback succeeds.
 	// This exercises lines 83-96 in NewEthereumClient.
@@ -1580,6 +1665,7 @@ func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
 // --- NewEthereumClient WS with API key, both approaches fail, no HTTP ---
 
 func TestNewEthereumClient_InvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
+t.Parallel()
 	// WS with API key fails completely and there's no HTTP fallback
 	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345")
 	assert.Error(t, err)
@@ -1588,6 +1674,7 @@ func TestNewEthereumClient_InvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
 // --- NewEthereumClient WS with API key where URL has query param, falls back to HTTP ---
 
 func TestNewEthereumClient_InvalidWSWithQueryParam_WithAPIKey_FallsBackToHTTP(t *testing.T) {
+t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
@@ -1601,6 +1688,7 @@ func TestNewEthereumClient_InvalidWSWithQueryParam_WithAPIKey_FallsBackToHTTP(t 
 // --- convertGethBlock with a block containing a BlobTx ---
 
 func TestConvertGethBlock_WithBlobTx(t *testing.T) {
+t.Parallel()
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
 
@@ -1642,6 +1730,7 @@ func TestConvertGethBlock_WithBlobTx(t *testing.T) {
 // --- GetFromAddress pre-EIP-155 where both Homestead and Frontier fail ---
 
 func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
+t.Parallel()
 	// Create a legacy tx with V=27 (pre-EIP-155 marker) and R=0, S=0.
 	// deriveChainId(27) returns 0, so ChainId().Sign() == 0, entering the pre-EIP-155 path.
 	// Both HomesteadSigner and FrontierSigner will fail to recover a sender
@@ -1667,6 +1756,7 @@ func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
 // --- convertTransaction where GetFromAddress errors (zero address fallback) ---
 
 func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
+t.Parallel()
 	// Unsigned legacy tx triggers GetFromAddress error, which falls back to zero address
 	inner := &ethtypes.LegacyTx{
 		Nonce:    0,
@@ -1690,6 +1780,7 @@ func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 // --- GetFromAddress FrontierSigner fallback (high-s value) ---
 
 func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
+t.Parallel()
 	// Craft a pre-EIP-155 tx where HomesteadSigner rejects (s > secp256k1HalfN)
 	// but FrontierSigner accepts. We sign normally, then flip s to s' = N - s
 	// and adjust v, producing a valid but "non-canonical" signature.
