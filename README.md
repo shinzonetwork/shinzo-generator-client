@@ -1,44 +1,28 @@
 # Shinzo Network Blockchain Indexer
 
-A high-performance blockchain indexing solution built with Source Network, DefraDB, and LensVM.
+Pulls Ethereum blocks, transactions, logs, and access list entries into a local database queryable over GraphQL. Runs as a node on the Shinzo P2P network.
 
-## Architecture
+See the [Shinzo Network docs](https://docs.shinzo.network) for context on what the network is and why you'd want to run an indexer.
 
-- **GoLang**: High-performance indexing engine with concurrent processing
-- **DefraDB**: Decentralized P2P datastore for blockchain data storage and querying
+## Table of contents
 
-- **Managed Blockchain Node**: Dual WebSocket/HTTP connections to Google Cloud managed Ethereum nodes
-- **Uber Zap**: Structured logging with global logger integration
-- **GraphQL**: Flexible query interface for indexed blockchain data
-- **Viper Configuration**: YAML-based configuration with environment variable overrides
+- [Hardware requirements](#hardware-requirements)
+- [Prerequisites](#prerequisites)
+- [Quick start (Docker)](#quick-start-docker)
+- [Configuration reference](#configuration-reference)
+- [Choosing a start height](#choosing-a-start-height)
+- [Bootstrapping from a snapshot](#bootstrapping-from-a-snapshot)
+- [Node registration](#node-registration)
+- [Monitoring](#monitoring)
+- [Querying indexed data](#querying-indexed-data)
+- [Building from source](#building-from-source)
+- [Further reading](#further-reading)
+- [Contributing](#contributing)
+- [License](#license)
 
-### Recent Improvements
+## Hardware requirements
 
-- **Enhanced Error Handling**: Production-ready error system with categorization, retry logic, and structured context
-- **Logger Stabilization**: Global logger initialization with proper test support and no file dependencies
-- **Schema Updates**: Removed Event entity, added AccessListEntry support for EIP-2930 transactions
-- **Test Suite Fixes**: Resolved all logger-related panics and GraphQL response parsing issues
-- **Smart Retry Logic**: Intelligent retry behavior based on error types and severity
-
-## Features
-
-- Real-time blockchain data indexing
-- GraphQL API for querying indexed data
-- Support for blocks, transactions, logs, and access list entries
-- Bi-directional relationships between blockchain entities
-- Deterministic document IDs
-- Graceful shutdown handling
-- Concurrent indexing with duplicate block protection
-- **Comprehensive Error Handling System**:
-  - Categorized error types (Network, Data, Storage, System)
-  - Severity levels (Info, Warning, Error, Critical)
-  - Smart retry logic with exponential backoff
-  - Structured error context and logging
-  - Production-ready monitoring and alerting
-- Global logger integration with Uber Zap
-- Context-aware error reporting with block numbers and transaction hashes
-
-## Hardware Recommendations
+While these requirements are pretty solid, they're subject to change.
 
 | Component | Minimum | Recommended |
 | --- | --- | --- |
@@ -49,355 +33,180 @@ A high-performance blockchain indexing solution built with Source Network, Defra
 
 ## Prerequisites
 
-- Go 1.24+
-- Ethereum node with JSON-RPC and WebSocket access (GCP Managed Blockchain Node recommended)
+- A self-hosted Ethereum node with JSON-RPC (HTTP) and WebSocket endpoints.
+- Docker and Docker Compose.
 
-## Setup
+> Support for managed node providers (Alchemy, Infura, GCP Blockchain Node Engine) is likely possible, but has not been tested yet.
 
-1. **Set up Ethereum Node Access**:
-   - Use a local or deployed Geth Ethereum Node
-   - Note the JSON-RPC and WebSocket endpoints  
-   - Configure API key authentication if required
+## Quick start
 
-## Installation
+This method uses Docker. However, you can always [build from source](#building-from-source) if you'd prefer.
 
 1. Clone the repository:
-   ```bash
-   git clone https://github.com/shinzonetwork/indexer.git
-   cd indexer
+
+   ```shell
+   git clone https://github.com/shinzonetwork/shinzo-indexer-client.git
+   cd shinzo-indexer-client
    ```
 
-2. Install Go dependencies:
-   ```bash
-   go mod download
+1. Create your environment file:
+
+   ```shell
+   cp .env.sample .env
    ```
 
-3. Create environment variables:
-   ```bash
-   cat >> .env << EOF
-   GETH_RPC_URL=<your-geth-node-url>
-   GETH_WS_URL=<your-geth-ws-url>
-   GETH_API_KEY=<your-geth-api-key>
-   
-   # DefraDB Configuration
-   DEFRADB_URL=http://localhost:9181 || empty for embedded defradb
-   DEFRADB_KEYRING_SECRET=<your-defradb-keyring-secret>
-   DEFRADB_PLAYGROUND=true
-   DEFRADB_P2P_ENABLED=true
-   DEFRADB_P2P_BOOTSTRAP_PEERS=[]
-   DEFRADB_P2P_LISTEN_ADDR="/ip4/127.0.0.1/tcp/9171"
-   
-   # Indexer Configuration
-   INDEXER_START_HEIGHT=23000000
-   
-   # Logger Configuration
-   LOGGER_DEBUG=true
-   EOF
+   Open `.env` and fill in the values:
+
+   ```shell
+   # Both endpoints are required
+   GETH_RPC_URL=http://your-node:8545
+   GETH_WS_URL=ws://your-node:8546
+
+   # API key for your node, if it requires one
+   GETH_API_KEY=your-api-key
+
+   # Block height to start indexing from (see "Choosing a start height" below)
+   INDEXER_START_HEIGHT=21000000
+
+   # Encrypts the local database keyring. Any random string works.
+   # Generate one with: openssl rand -hex 32
+   # Don't change this after first run or your node will lose its identity.
+   DEFRADB_KEYRING_SECRET=your-secret-here
    ```
 
-## Configuration
+1. Pull and start the indexer:
 
-1. The configuration uses `config/config.yaml` with environment variable overrides:
-   ```yaml
-   # Default configuration - environment variables will override these
-   defradb:
-     url: ""  # Empty = embedded DefraDB
-     keyring_secret: ""
-     playground: true
-     p2p:
-       enabled: true
-       bootstrap_peers: []
-       listen_addr: "/ip4/0.0.0.0/tcp/9171"
-     store:
-       path: "./.defra"
-   
-   geth:
-     node_url: "<your-geth-node-url>"  #  blockchain node
-     ws_url: "<your-geth-ws-url>"
-     api_key: "<your-geth-api-key>"    # Recommend using a .env file
-   
-   indexer:
-     start_height: 23500000
-   logger:
-     development: true
+   ```shell
+   docker pull ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+   docker-compose up -d
    ```
 
-## Production Deployment
+1. Check it's running:
 
-1. SSH into your VM
-2. Paste the contents of `indexer-prod-setup.sh` into the terminal and press Enter — this creates the `docker-compose.yml` with your configuration
-3. Paste the contents of `indexer-prod.sh` into the terminal and press Enter — this installs Docker, sets up data directories, and starts the indexer
-
-The indexer should now be up and running.
-
-## How to Run (Development)
-
-### Using Makefile (Recommended)
-```bash
-# Build the indexer (standard version - non-branchable schema)
-make build
-
-# Build with branchable schema support
-make build TAGS=branchable
-
-# Start the indexer
-make start
-
-# Or build and run in one step
-go run cmd/block_poster/main.go
-
-# Build and run with branchable schema
-go run -tags=branchable cmd/block_poster/main.go
-```
-
-### Build Tags
-
-The indexer supports build tags to control schema behavior:
-
-- **Standard Build** (default): Uses non-branchable schema for parallel processing
-- **Branchable Build** (`TAGS=branchable`): Uses branchable schema for sequential processing
-
-```bash
-# Standard build (parallel processing)
-make build
-
-# Branchable build (sequential processing)
-make build TAGS=branchable
-
-# Docker builds
-docker build -t shinzo-indexer:standard .
-docker build --build-arg BUILD_TAGS=branchable -t shinzo-indexer:branchable .
-```
-
-### Docker Images
-Two separate Docker images are built and published:
-
-- **Standard Image**: `ghcr.io/shinzonetwork/indexer:standard` - Non-branchable schema
-- **Branchable Image**: `ghcr.io/shinzonetwork/indexer:branchable` - Branchable schema
-
-```bash
-# Pull and run standard version
-docker pull ghcr.io/shinzonetwork/indexer:standard
-docker run -d --name shinzo-indexer-standard ghcr.io/shinzonetwork/indexer:standard
-
-# Pull and run branchable version
-docker pull ghcr.io/shinzonetwork/indexer:branchable
-docker run -d --name shinzo-indexer-branchable ghcr.io/shinzonetwork/indexer:branchable
-```
-
-### Using Docker (Alternative)
-```bash
-# Build and run with Docker Compose
-docker-compose up --build
-```
-### Manual Build
-```bash
-# Build binary (standard version)
-go build -o bin/block_poster cmd/block_poster/main.go
-
-# Build binary with branchable schema
-go build -tags=branchable -o bin/block_poster cmd/block_poster/main.go
-
-# Run binary
-./bin/block_poster
-```
-
-### Available Makefile Targets
-- `make build` - Build the indexer binary (standard version)
-- `make build TAGS=branchable` - Build with branchable schema
-- `make start` - Start the indexer
-- `make test` - Run all tests with summary
-- `make integration-test` - Run integration tests (mock + live)
-- `make test-local` - Run local indexer tests with Geth endpoint
-- `make geth-status` - Check Geth node connectivity and block number
-- `make coverage` - Generate test coverage report
-- `make clean` - Clean build artifacts
-- `make stop` - Stop all services
-- `make help` - Show all available targets with descriptions
-
-## Test Coverage
-
-| Package | Coverage |
-| --- | --- |
-| `cmd/block_poster` | 98.0% |
-| `config` | 100.0% |
-| `pkg/defra` | 98.6% |
-| `pkg/errors` | 100.0% |
-| `pkg/indexer` | 95.4% |
-| `pkg/logger` | 100.0% |
-| `pkg/rpc` | 98.3% |
-| `pkg/schema` | 100.0% |
-| `pkg/server` | 99.0% |
-| `pkg/snapshot` | 86.6% |
-| `pkg/utils` | 100.0% |
-| **Total** | **95.6%** |
-
-Run `make coverage` to generate an HTML coverage report.
-
-## Testing
-
-### Unit Tests
-To run unit tests, you can run `make test` or simply `go test ./...` per standard go.
-
-### Integration Tests
-```bash
-make integration-test
-```
-This runs both mock tests (fast) and live tests (if environment variables are set). No external dependencies required - uses embedded DefraDB.
-
-### Live Integration Tests with  Endpoint
-To run live integration tests with your  managed blockchain node:
-
-1. **Set up environment variables**:
-   ```bash
-   export GETH_RPC_URL=<your-geth-node-url>
-   export GETH_WS_URL=<your-geth-ws-url>
-   export GETH_API_KEY=<your-geth-api-key>
-```
-
-2. **Or use a .env file**:
-   ```bash
-   # Create .env file
-   cat > .env << EOF
-   # Ethereum Node Configuration
-   GETH_RPC_URL=<your-geth-node-url>
-   GETH_WS_URL=<your-geth-ws-url>
-   GETH_API_KEY=<your-geth-api-key>
-   
-   # DefraDB Configuration (optional - uses embedded by default)
-   DEFRADB_KEYRING_SECRET=<your-defradb-keyring-secret>
-   
-   # Indexer Configuration
-   INDEXER_START_HEIGHT=23500000
-   EOF
+   ```shell
+   curl http://localhost:8080/health
    ```
 
-2. **Test  node connectivity**:
-   ```bash
-   make geth-status
+   You should get back a JSON response with `"status": "healthy"` and a `current_block` that increments over time.
+
+## Configuration reference
+
+Most of these you won't need to change. The required ones are in the quick start above; the rest are here if you want to fine tune your indexer.
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `GETH_RPC_URL` | Yes | — | HTTP JSON-RPC endpoint of your Ethereum node. |
+| `GETH_WS_URL` | Yes | — | WebSocket endpoint of your Ethereum node. |
+| `GETH_API_KEY` | No | — | API key sent as `X-Api-Key` header (GCP nodes get `X-goog-api-key` automatically). |
+| `DEFRADB_KEYRING_SECRET` | Yes | — | Any random string. Keep it consistent across restarts. |
+| `INDEXER_START_HEIGHT` | Yes | `0` | Block to start indexing from. `0` auto-detects the chain tip. |
+| `DEFRADB_P2P_ENABLED` | No | `true` | Share data with the Shinzo P2P network. |
+| `DEFRADB_P2P_LISTEN_ADDR` | No | `/ip4/0.0.0.0/tcp/9171` | P2P listen address. |
+| `DEFRADB_STORE_PATH` | No | `./.defra` | Where the local database is stored. |
+| `INDEXER_CONCURRENT_BLOCKS` | No | `1` | Blocks to process in parallel. |
+| `INDEXER_BLOCKS_PER_MINUTE` | No | `60` | Rate limit for block processing. |
+| `INDEXER_HEALTH_SERVER_PORT` | No | `8080` | Port for the health/metrics HTTP server. |
+| `PRUNER_ENABLED` | No | `true` | Remove old blocks from the local DB after snapshotting. |
+| `PRUNER_MAX_BLOCKS` | No | `1000` | How many blocks to keep locally before pruning. |
+| `SNAPSHOT_ENABLED` | No | `true` | Write snapshot files before pruning. |
+| `SNAPSHOT_DIR` | No | `./.defra/snapshots` | Where snapshot files are written. |
+| `LOGGER_DEBUG` | No | `false` | Verbose debug logging. |
+
+Every available option is in `config/config.yaml` and `config/config.go`.
+
+## Choosing a start height
+
+`INDEXER_START_HEIGHT` controls where indexing begins.
+
+Setting it to `0` auto-detects the current chain tip and starts there (minus a small buffer). Your node starts contributing to the network within seconds. This is fine if you don't need historical data.
+
+Set it to a specific block number if you want to catch up from a known point. The further back you go, the longer the catch-up takes. Starting from block 0 (genesis) is technically possible but will take an extremely long time on a full Ethereum history.
+
+For most people, the right move is to [bootstrap from a snapshot](#bootstrapping-from-a-snapshot (see below)) and set `INDEXER_START_HEIGHT` to the first block after the snapshot ends.
+
+## Bootstrapping from a snapshot
+
+Running indexers on the Shinzo Network export snapshot files that cover ranges of historical blocks. You can import one to skip re-indexing that history yourself.
+
+1. List available snapshots from a peer node:
+
+   ```shell
+   curl http://<peer-node>:8080/snapshots
    ```
 
-3. **Run local tests**:
-   ```bash
-   ./test_local.sh
+   The response lists available snapshot files with their block ranges and cryptographic signatures, e.g. `snapshot_21000000_21000999.kvsnap.gz`.
+
+1. Import a snapshot into your running indexer:
+
+   ```shell
+   # TODO: confirm the correct end-to-end workflow for importing a snapshot from a remote peer.
+   # The import endpoint below exists and works, but the steps for getting a file
+   # from a peer node into the local snapshot directory need to be verified and documented.
+   curl -X POST "http://localhost:8080/snapshots/import?file=snapshot_21000000_21000999.kvsnap.gz"
    ```
-   
-   Or use the Makefile target:
-   ```bash
-   make test-local
-   ```
 
-This will run the indexer tests locally with your  managed blockchain node, providing comprehensive diagnostics and avoiding public node limitations.
+1. Set `INDEXER_START_HEIGHT` to the block after the snapshot's end block, then restart.
 
-## Data Model
+Each snapshot is signed by the node that produced it. The indexer verifies the signature on import. To verify a snapshot file manually:
 
-### Schema Variants
-
-The indexer supports two schema variants based on build tags:
-
-#### Standard Schema (Default)
-- **Processing**: Parallel transaction processing for better performance
-- **Use Case**: High-throughput indexing where transaction order doesn't affect data consistency
-- **Entities**: Block, Transaction, Log, AccessListEntry without @branchable directive
-
-#### Branchable Schema (`TAGS=branchable`)
-- **Processing**: Sequential transaction processing for data consistency
-- **Use Case**: Scenarios requiring strict transaction ordering and conflict prevention
-- **Entities**: Same entities with @branchable directive for DefraDB branchable collections
-
-### Entities and Relationships
-- **Block**
-  - Primary key: `hash` (unique index)
-  - Secondary index: `number`
-  - Has many transactions (`block_transactions`)
-- **Transaction**
-  - Primary key: `hash` (unique index)
-  - Secondary indices: `blockHash`, `blockNumber`
-  - Belongs to block (`block_transactions`)
-  - Has many logs (`transaction_logs`)
-- **Log**
-  - Indices: `blockNumber`
-  - Belongs to block and transaction
-- **AccessListEntry**
-  - Belongs to transaction
-  - Contains address and storage keys
-
-**Note**: The Event entity was removed from the schema in recent updates.
-
-### Relationship Definitions
-
-DefraDB relationships use the `@relation(name: "relationship_name")` syntax. Example:
-
-```graphql
-type Block {
-  transactions: [Transaction] @relation(name: "block_transactions")
-}
-
-type Transaction {
-  block: Block @relation(name: "block_transactions")
-}
+```shell
+./bin/block_poster verify snapshot_21000000_21000999.kvsnap.gz
 ```
 
-## Error Handling System
+## Node registration
 
-Shinzo implements a comprehensive error handling system designed for production-ready distributed blockchain indexing:
+Each indexer gets a unique cryptographic identity from its keyring. You must register to participate in the Shinzo Network.
 
-### Error Types
-- **NetworkError**: RPC/HTTP communication issues (often retryable)
-- **DataError**: Parsing/validation failures (usually non-retryable)
-- **StorageError**: Database operation failures (sometimes retryable)
-- **SystemError**: Critical system-level failures (requires attention)
+Once the indexer is running, open this URL in your browser:
 
-### Severity Levels
-- **Info**: Informational messages
-- **Warning**: Issues that don't stop processing
-- **Error**: Significant issues requiring attention
-- **Critical**: Severe issues that may require immediate action
-
-### Retry Behavior
-- **NonRetryable**: Errors that should not be retried (e.g., data validation)
-- **Retryable**: Simple retry without backoff
-- **RetryableWithBackoff**: Exponential backoff retry for network issues
-
-### Structured Context
-All errors include rich context:
-- Component and operation names
-- Block numbers and transaction hashes when applicable
-- Timestamps and error codes
-- Underlying error chains
-- Metadata for debugging
-
-### Smart Retry Logic
-The system implements intelligent retry logic:
-```go
-if errors.IsRetryable(err) {
-    retryDelay := errors.GetRetryDelay(err, retryAttempts)
-    time.Sleep(retryDelay)
-    // Retry operation
-}
+```
+http://localhost:8080/registration-app
 ```
 
-### Logging Strategy
+It redirects to [registration.shinzo.network](https://registration.shinzo.network) with your node's signed credentials pre-filled. Complete the form there.
 
-The indexer uses Uber Zap for structured logging:
-- Global logger initialization via `logger.Init()` | `logger.InitConsoleOnly()` | `logger.InitWithFiles()`
-- Context-aware error logging with `logger.LogError()`
-- Structured fields for monitoring and debugging
-- Different log levels based on error severity
-- No file output during tests (stdout/stderr only)
+To fetch the raw credentials (public key and signed messages) without the redirect:
 
-### Querying Data
+```shell
+curl http://localhost:8080/registration
+```
 
-Access indexed data through DefraDB's GraphQL API at `http://localhost:9181/api/v0/graphql`
+> Changing `DEFRADB_KEYRING_SECRET` gives your node a different identity. If you change it, you'll need to register again.
 
-Example query:
+## Monitoring
+
+Port `8080` by default, configurable via `INDEXER_HEALTH_SERVER_PORT`.
+
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/health` | GET | Status, current block, uptime, P2P peer info. Returns HTML for browsers, JSON with `Accept: application/json`. |
+| `/metrics` | GET | Current block, last processed time, uptime (JSON). |
+| `/registration` | GET | Node public key and signed registration credentials (JSON). |
+| `/registration-app` | GET | Redirects to the registration site with credentials pre-filled. |
+| `/snapshots` | GET | Lists available snapshot files with block ranges and signatures (JSON). |
+| `/snapshots/{filename}` | GET | Downloads a snapshot file. |
+| `/snapshots/import` | POST | Imports a snapshot: `?file=snapshot_X_Y.kvsnap.gz`. |
+
+To watch indexing progress:
+
+```shell
+watch -n 10 'curl -s -H "Accept: application/json" http://localhost:8080/health | python3 -m json.tool | grep current_block'
+```
+
+## Querying indexed data
+
+Data is available at `http://localhost:9181/api/v0/graphql`. Fetch a block with its transactions, logs, and access list entries:
+
 ```graphql
 {
-  Block(filter: { number: { _eq: 18100003 } }) {
+  Ethereum__Mainnet__Block(filter: { number: { _eq: 21000000 } }) {
     hash
     number
+    timestamp
     transactions {
       hash
+      from
+      to
       value
       gasPrice
       accessList {
@@ -406,60 +215,76 @@ Example query:
       }
       logs {
         logIndex
-        data
         address
         topics
+        data
       }
     }
   }
 }
 ```
 
-## Documentation Links
+Fetch recent transactions from an address:
 
-- [DefraDB Documentation](https://github.com/sourcenetwork/defradb)
-- [Source Network Documentation](https://docs.sourcenetwork.io)
-- [Geth Documentation](https://geth.ethereum.org/docs/)
+```graphql
+{
+  Ethereum__Mainnet__Transaction(
+    filter: { from: { _eq: "0xYourAddress" } }
+    order: { blockNumber: DESC }
+    limit: 10
+  ) {
+    hash
+    blockNumber
+    to
+    value
+  }
+}
+```
 
-## Development Status
+The schema covers `Block`, `Transaction`, `Log`, and `AccessListEntry` with bidirectional relations. See `pkg/schema/schema.graphql` for the full definition.
 
-### ✅ Completed (Phase 1)
-- **Error System**: Comprehensive IndexerError system with NetworkError, DataError, StorageError, and SystemError types
-- **Logger Integration**: Global Zap logger with structured logging and test compatibility
-- **Main Application**: Smart retry logic and structured error handling in block_poster
-- **Test Stability**: All test suites pass without logger panics or GraphQL parsing issues
+## Building from source
 
-### 🔧 In Progress (Phase 2)
-- **RPC Client**: Enhanced network error handling with timeout and retry logic
-- **Type Conversions**: Improved data parsing error reporting
+Most operators should just use Docker. If you need to build from source, you'll need Go 1.24+, Wasmtime v15, and Wasmer v4.2.5 (the embedded database requires them).
 
-### 📋 Planned (Phase 3)
-- **Advanced Logging**: Additional helper functions for error analysis
-- **Monitoring Integration**: Metrics and alerting based on error codes
-- **Performance Optimizations**: Error handling performance improvements
+```shell
+go mod download
+make build
+make start
 
-### Key Benefits Achieved
-1. **Operational Excellence**: Clear retry guidance for different error types
-2. **Observability**: Structured error logging with context and codes
-3. **Debugging**: Rich context (block numbers, tx hashes, metadata)
-4. **Reliability**: Smart retry logic based on error characteristics
-5. **Maintainability**: Consistent error handling patterns across codebase
+# or in one step
+go run cmd/block_poster/main.go
+```
+
+Makefile targets:
+
+| Target | Description |
+| --- | --- |
+| `make build` | Build the indexer binary. |
+| `make start` | Run the built binary. |
+| `make test` | Run all unit tests. |
+| `make integration-test` | Run integration tests (mock + live). |
+| `make geth-status` | Check Ethereum node connectivity. |
+| `make coverage` | Generate HTML test coverage report. |
+| `make clean` | Remove build artifacts. |
+| `make stop` | Stop running indexer processes. |
+
+There's also a `branchable` build tag that switches to sequential block processing with DefraDB's branchable collections. It's an internal option not intended for general use.
+
+```shell
+make build TAGS=branchable
+```
+
+## Further reading
+
+- [Shinzo Network documentation](https://docs.shinzo.network)
+- [DefraDB documentation](https://github.com/sourcenetwork/defradb)
+- [Geth documentation](https://geth.ethereum.org/docs/)
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-- Use the new error system for all error handling
-- Follow structured logging patterns with context
-- Include retry logic based on error types
-- Write tests that work with the global logger
-- Document significant error handling changes in commit messages
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+1. Create an issue in this repo explaining the change you're intending to make. PRs without an associated issue will be closed. This is to mitigate spam PRs somewhat.
+1. Fork the repository.
+1. Create a feature branch: `git checkout -b feature/your-feature`
+1. Commit your changes: `git commit -m 'Add your feature'`
+1. Push and open a pull request.
