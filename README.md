@@ -76,7 +76,7 @@ This method uses Docker. However, you can always [build from source](#building-f
 1. Pull and start the indexer:
 
    ```shell
-   docker pull ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+   docker pull ghcr.io/shinzonetwork/shinzo-indexer-client:latest
    docker-compose up -d
    ```
 
