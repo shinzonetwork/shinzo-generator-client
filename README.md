@@ -36,7 +36,6 @@ While these requirements are pretty solid, they're subject to change.
 - A self-hosted Ethereum node with JSON-RPC (HTTP) and WebSocket endpoints.
 - Docker and Docker Compose.
 
-> Support for managed node providers (Alchemy, Infura, GCP Blockchain Node Engine) is likely possible, but has not been tested yet.
 
 ## Quick start
 
