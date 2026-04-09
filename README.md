@@ -35,6 +35,7 @@ While these requirements are pretty solid, they're subject to change.
 
 - A self-hosted Ethereum node with JSON-RPC (HTTP) and WebSocket endpoints.
 - Docker and Docker Compose.
+- Go v1.24 or higher
 
 
 ## Quick start
