@@ -606,7 +606,7 @@ func createWebSocketWithHeaders(wsURL, apiKey string) (*ethclient.Client, error)
 // getAPIKeyHeaderName determines which API key header to use based on the URL
 func getAPIKeyHeaderName(url string) string {
 	// GCP Blockchain Node Engine uses X-goog-api-key
-	if strings.Contains(url, "googleapis.com") || strings.Contains(url, "gcp") {
+	if strings.Contains(url, "googleapis.com") || strings.Contains(url, "gcp") || strings.Contains(url, "blockchainnodeengine.com") {
 		return "X-goog-api-key"
 	}
 	// Default to X-Api-Key for custom setups
