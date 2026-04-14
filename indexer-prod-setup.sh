@@ -48,8 +48,6 @@ services:
     restart: unless-stopped
 EOF
 
-&&
-
 sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
 
