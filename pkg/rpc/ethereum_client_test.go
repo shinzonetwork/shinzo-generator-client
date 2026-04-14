@@ -164,8 +164,12 @@ func TestNewEthereumClient_OnlyInvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
 func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 	t.Parallel()
 	var receivedAPIKey string
+	headerName := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedAPIKey = r.Header.Get("X-goog-api-key")
+		if headerName == "" {
+			headerName = getAPIKeyHeaderName(r.URL.String())
+		}
+		receivedAPIKey = r.Header.Get(headerName)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 	}))
@@ -180,6 +184,9 @@ func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
+	if headerName == "" {
+		headerName = getAPIKeyHeaderName(server.URL)
+	}
 	assert.Equal(t, "my-api-key-1234567890", receivedAPIKey)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
