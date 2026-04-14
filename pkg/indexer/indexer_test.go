@@ -1164,7 +1164,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1206,7 +1206,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1253,7 +1253,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1331,7 +1331,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1580,7 +1580,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1612,7 +1612,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1639,7 +1639,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1675,7 +1675,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1721,7 +1721,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -1775,7 +1775,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2165,7 +2165,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2271,7 +2271,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2350,7 +2350,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2393,7 +2393,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2427,7 +2427,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2465,7 +2465,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2501,7 +2501,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2550,7 +2550,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2741,7 +2741,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2783,7 +2783,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2828,7 +2828,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2910,7 +2910,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -2957,7 +2957,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -3141,7 +3141,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -3185,7 +3185,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -3559,7 +3559,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -3610,7 +3610,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -3744,7 +3744,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -3846,7 +3846,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4303,7 +4303,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4379,7 +4379,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4465,7 +4465,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4529,7 +4529,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4575,7 +4575,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4621,7 +4621,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4670,7 +4670,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4923,7 +4923,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -4968,7 +4968,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -5299,7 +5299,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -5337,7 +5337,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -5399,7 +5399,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -5500,7 +5500,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -5606,7 +5606,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -5949,7 +5949,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -6393,7 +6393,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -6427,7 +6427,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -6459,7 +6459,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -6571,7 +6571,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -6716,7 +6716,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -7013,7 +7013,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 
@@ -7283,7 +7283,7 @@ t.Parallel()
 	})
 	defer rpcServer.Close()
 
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "")
+	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer ethClient.Close()
 

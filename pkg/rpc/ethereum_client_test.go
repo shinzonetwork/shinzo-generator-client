@@ -85,7 +85,7 @@ func TestNewEthereumClient_HTTPOnly(t *testing.T) {
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -99,7 +99,7 @@ func TestNewEthereumClient_WithAPIKey(t *testing.T) {
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "test-api-key-12345")
+	client, err := NewEthereumClient(server.URL, "", "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -109,13 +109,13 @@ func TestNewEthereumClient_WithAPIKey(t *testing.T) {
 
 func TestNewEthereumClient_InvalidHTTP(t *testing.T) {
 	t.Parallel()
-	_, err := NewEthereumClient("invalid-url", "", "")
+	_, err := NewEthereumClient("invalid-url", "", "", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_InvalidHTTPWithAPIKey(t *testing.T) {
 	t.Parallel()
-	_, err := NewEthereumClient("invalid-url", "", "test-api-key")
+	_, err := NewEthereumClient("invalid-url", "", "test-api-key", "X-Api-Key")
 	assert.Error(t, err)
 }
 
@@ -124,7 +124,7 @@ func TestNewEthereumClient_InvalidWebSocket_FallsBackToHTTP(t *testing.T) {
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "ws://invalid-websocket-url:9999", "")
+	client, err := NewEthereumClient(server.URL, "ws://invalid-websocket-url:9999", "", "X-Api-Key")
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 	assert.NotNil(t, client.httpClient)
@@ -136,26 +136,26 @@ func TestNewEthereumClient_InvalidWS_WithAPIKey_FallsBackToHTTP(t *testing.T) {
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "ws://invalid-ws:9999", "test-api-key-12345")
+	client, err := NewEthereumClient(server.URL, "ws://invalid-ws:9999", "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 }
 
 func TestNewEthereumClient_NoEndpoints(t *testing.T) {
 	t.Parallel()
-	_, err := NewEthereumClient("", "", "")
+	_, err := NewEthereumClient("", "", "", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_OnlyInvalidWS_NoHTTP(t *testing.T) {
 	t.Parallel()
-	_, err := NewEthereumClient("", "ws://invalid:9999", "")
+	_, err := NewEthereumClient("", "ws://invalid:9999", "", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_OnlyInvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
 	t.Parallel()
-	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345")
+	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345", "X-Api-Key")
 	assert.Error(t, err)
 }
 
@@ -164,11 +164,8 @@ func TestNewEthereumClient_OnlyInvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
 func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 	t.Parallel()
 	var receivedAPIKey string
-	headerName := ""
+	headerName := "X-Api-Key"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if headerName == "" {
-			headerName = getAPIKeyHeaderName(r.URL.String())
-		}
 		receivedAPIKey = r.Header.Get(headerName)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
@@ -176,17 +173,15 @@ func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 	defer server.Close()
 
 	transport := &apiKeyTransport{
-		apiKey: "my-api-key-1234567890",
-		base:   http.DefaultTransport,
+		apiKey:       "my-api-key-1234567890",
+		apiKeyHeader: "X-Api-Key",
+		base:         http.DefaultTransport,
 	}
 	client := &http.Client{Transport: transport}
 	resp, err := client.Get(server.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if headerName == "" {
-		headerName = getAPIKeyHeaderName(server.URL)
-	}
 	assert.Equal(t, "my-api-key-1234567890", receivedAPIKey)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
@@ -194,8 +189,9 @@ func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 func TestApiKeyTransport_RoundTrip_Failure(t *testing.T) {
 	t.Parallel()
 	transport := &apiKeyTransport{
-		apiKey: "my-api-key-1234567890",
-		base:   http.DefaultTransport,
+		apiKey:       "my-api-key-1234567890",
+		apiKeyHeader: "X-Api-Key",
+		base:         http.DefaultTransport,
 	}
 	client := &http.Client{Transport: transport}
 	_, err := client.Get("http://192.0.2.1:9999") // non-routable
@@ -209,7 +205,7 @@ func TestGetPreferredClient_WSAvailable(t *testing.T) {
 	server := simpleRPCServer()
 	defer server.Close()
 
-	httpClient, err := NewEthereumClient(server.URL, "", "")
+	httpClient, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 
 	// Simulate both clients
@@ -227,7 +223,7 @@ func TestGetPreferredClient_OnlyHTTP(t *testing.T) {
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 
 	result := client.getPreferredClient()
@@ -764,7 +760,7 @@ func TestClose_WithHTTPClient(t *testing.T) {
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 
 	err = client.Close()
@@ -803,7 +799,7 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -825,7 +821,7 @@ func TestGetNetworkID_Success(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -880,7 +876,7 @@ func TestGetBlockByNumber_Success(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -902,7 +898,7 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -939,7 +935,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -961,7 +957,7 @@ func TestGetTransactionReceipt_Error(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -997,7 +993,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1019,7 +1015,7 @@ func TestGetBlockReceipts_Error(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1043,7 +1039,7 @@ func TestGetLatestBlock_Success(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1060,7 +1056,7 @@ func TestGetLatestBlock_HeaderError(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1088,7 +1084,7 @@ func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1116,7 +1112,7 @@ func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1139,7 +1135,7 @@ func TestGetLatestBlockNumber_Error(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1178,7 +1174,7 @@ func TestClose_WithBothClients(t *testing.T) {
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 
 	// Set wsClient to a copy of httpClient for testing
@@ -1286,7 +1282,7 @@ func TestGetLatestBlock_UnsupportedTxType_Exhausted(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1317,7 +1313,7 @@ func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1416,7 +1412,7 @@ func TestNewEthereumClient_InvalidWS_NoAPIKey_FallsBackToHTTP(t *testing.T) {
 	defer server.Close()
 
 	// WS is invalid but HTTP works — should succeed with HTTP only
-	client, err := NewEthereumClient(server.URL, "ws://invalid-ws-url:9999", "")
+	client, err := NewEthereumClient(server.URL, "ws://invalid-ws-url:9999", "", "X-Api-Key")
 	require.NoError(t, err)
 	assert.NotNil(t, client.httpClient)
 	assert.Nil(t, client.wsClient)
@@ -1491,7 +1487,7 @@ func TestCreateWebSocketWithHeaders_URLWithQueryParam(t *testing.T) {
 	t.Parallel()
 	// Test the branch where the WS URL already contains "?" (query string),
 	// so the function appends with "&" instead of "?"
-	_, err := createWebSocketWithHeaders("ws://invalid-host:9999?existing=param", "test-api-key")
+	_, err := createWebSocketWithHeaders("ws://invalid-host:9999?existing=param", "test-api-key", "X-Api-Key")
 	// Connection will fail, but we exercise the URL construction path with "&key=" and "&api_key="
 	assert.Error(t, err)
 }
@@ -1500,7 +1496,7 @@ func TestCreateWebSocketWithHeaders_URLWithoutQueryParam(t *testing.T) {
 	t.Parallel()
 	// Test the branch where the WS URL has no query string,
 	// so the function appends with "?" for both key= and api_key=
-	_, err := createWebSocketWithHeaders("ws://invalid-host:9999", "test-api-key")
+	_, err := createWebSocketWithHeaders("ws://invalid-host:9999", "test-api-key", "X-Api-Key")
 	assert.Error(t, err)
 }
 
@@ -1553,7 +1549,7 @@ func TestCreateWebSocketWithHeaders_Success(t *testing.T) {
 	// Convert http://... to ws://...
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := createWebSocketWithHeaders(wsURL, "test-api-key")
+	client, err := createWebSocketWithHeaders(wsURL, "test-api-key", "X-Api-Key")
 	require.NoError(t, err)
 	require.NotNil(t, client)
 	client.Close()
@@ -1567,7 +1563,7 @@ func TestCreateWebSocketWithHeaders_SuccessWithQueryParam(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "?existing=param"
 
-	client, err := createWebSocketWithHeaders(wsURL, "test-api-key")
+	client, err := createWebSocketWithHeaders(wsURL, "test-api-key", "X-Api-Key")
 	require.NoError(t, err)
 	require.NotNil(t, client)
 	client.Close()
@@ -1585,7 +1581,7 @@ func TestNewEthereumClient_WSSuccess_WithAPIKey(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
 
-	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345")
+	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1605,7 +1601,7 @@ func TestNewEthereumClient_WSSuccess_NoAPIKey(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
 
-	client, err := NewEthereumClient(httpServer.URL, wsURL, "")
+	client, err := NewEthereumClient(httpServer.URL, wsURL, "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1660,7 +1656,7 @@ func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
 
-	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345")
+	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1674,7 +1670,7 @@ func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
 func TestNewEthereumClient_InvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
 	t.Parallel()
 	// WS with API key fails completely and there's no HTTP fallback
-	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345")
+	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345", "X-Api-Key")
 	assert.Error(t, err)
 }
 
@@ -1686,7 +1682,7 @@ func TestNewEthereumClient_InvalidWSWithQueryParam_WithAPIKey_FallsBackToHTTP(t 
 	defer server.Close()
 
 	// WS URL contains "?" to exercise the "&key=" path in createWebSocketWithHeaders
-	client, err := NewEthereumClient(server.URL, "ws://invalid:9999?param=value", "test-api-key-12345")
+	client, err := NewEthereumClient(server.URL, "ws://invalid:9999?param=value", "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	assert.NotNil(t, client.httpClient)
 	assert.Nil(t, client.wsClient)
