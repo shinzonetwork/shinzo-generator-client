@@ -234,7 +234,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	logger.Sugar.Infof("Using direct DB access for embedded DefraDB (maxDocsPerTxn=%d)", cfg.Indexer.MaxDocsPerTxn)
 
 	// Connect to Ethereum client early — needed for latest block query and indexing
-	client, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey)
+	client, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey, cfg.Geth.APIKeyType)
 	if err != nil {
 		logCtx := errors.LogContext(err)
 		logger.Sugar.With(logCtx).Fatalf("Failed to connect to Ethereum client: %v", err)
