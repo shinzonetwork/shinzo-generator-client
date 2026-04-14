@@ -35,8 +35,8 @@ While these requirements are pretty solid, they're subject to change.
 
 - A self-hosted Ethereum node with JSON-RPC (HTTP) and WebSocket endpoints.
 - Docker and Docker Compose.
+- Go v1.24 or higher
 
-> Support for managed node providers (Alchemy, Infura, GCP Blockchain Node Engine) is likely possible, but has not been tested yet.
 
 ## Quick start
 
@@ -56,28 +56,35 @@ This method uses Docker. However, you can always [build from source](#building-f
    ```
 
    Open `.env` and fill in the values:
-
+   
    ```shell
    # Both endpoints are required
    GETH_RPC_URL=http://your-node:8545
    GETH_WS_URL=ws://your-node:8546
-
+   
    # API key for your node, if it requires one
    GETH_API_KEY=your-api-key
-
+   
    # Block height to start indexing from (see "Choosing a start height" below)
    INDEXER_START_HEIGHT=21000000
-
+   
    # Encrypts the local database keyring. Any random string works.
    # Generate one with: openssl rand -hex 32
    # Don't change this after first run or your node will lose its identity.
    DEFRADB_KEYRING_SECRET=your-secret-here
+   DEFRADB_URL=                            # Keep it empty for embedded DefraDB
+   DEFRADB_KEYRING_SECRET=<pick_a_password>
+   
+   # DEFRADB_PLAYGROUND=true
+   # DEFRADB_P2P_ENABLED=true
+   # DEFRADB_P2P_BOOTSTRAP_PEERS=[]
+   # DEFRADB_P2P_LISTEN_ADDR="/ip4/127.0.0.1/tcp/9171"
    ```
 
 1. Pull and start the indexer:
 
    ```shell
-   docker pull ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+   docker pull ghcr.io/shinzonetwork/shinzo-indexer-client:latest
    docker-compose up -d
    ```
 
