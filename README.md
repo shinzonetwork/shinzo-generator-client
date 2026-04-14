@@ -155,15 +155,28 @@ Each snapshot is signed by the node that produced it. The indexer verifies the s
 
 ## Node registration
 
-Each indexer gets a unique cryptographic identity from its keyring. You must register to participate in the Shinzo Network.
+Registering your node is a two-step process:
 
-Once the indexer is running, open this URL in your browser:
+1. Get added to the allowlist.
+1. Register your indexer.
 
-```
+### Allowlist
+
+Before attempting to register your indexer, contact the Shinzo team to add your node to the _allowlist_:
+
+1. Join the [Shinzo Discord](https://discord.gg/shinzo).
+1. Visit the `#indexers` and look for instructions on how to add yourself to the _allowlist_.
+1. Once submitted, your indexer ID will be added to [the list](https://github.com/shinzonetwork/web/blob/f14b1b94d3a2b298f0947c0bf572bf09eb5667b5/apps/webapp/src/shared/lib/constants/indexer-whitelist.ts).
+
+### Register
+
+Each indexer gets a unique cryptographic identity from its keyring. You must register to participate in the Shinzo Network. Once the indexer is running, open this URL in your browser:
+
+```plaintext
 http://localhost:8080/registration-app
 ```
 
-It redirects to [registration.shinzo.network](https://registration.shinzo.network) with your node's signed credentials pre-filled. Complete the form there.
+This link redirects to [registration.shinzo.network](https://registration.shinzo.network) with your node's signed credentials pre-filled. Complete the form there.
 
 To fetch the raw credentials (public key and signed messages) without the redirect:
 
