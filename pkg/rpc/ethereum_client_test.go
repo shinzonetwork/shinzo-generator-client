@@ -182,9 +182,6 @@ func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	if headerName == "" {
-		headerName = getAPIKeyHeaderName(server.URL)
-	}
 	assert.Equal(t, "my-api-key-1234567890", receivedAPIKey)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
