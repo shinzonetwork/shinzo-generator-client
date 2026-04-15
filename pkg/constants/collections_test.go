@@ -5,7 +5,7 @@ import (
 )
 
 func TestCollectionConstants(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name     string
 		constant string
@@ -14,7 +14,6 @@ t.Parallel()
 		{"Block", CollectionBlock, "Ethereum__Mainnet__Block"},
 		{"Transaction", CollectionTransaction, "Ethereum__Mainnet__Transaction"},
 		{"Log", CollectionLog, "Ethereum__Mainnet__Log"},
-		{"AccessListEntry", CollectionAccessListEntry, "Ethereum__Mainnet__AccessListEntry"},
 		{"BlockSignature", CollectionBlockSignature, "Ethereum__Mainnet__BlockSignature"},
 		{"SnapshotSignature", CollectionSnapshotSignature, "Ethereum__Mainnet__SnapshotSignature"},
 	}
@@ -29,7 +28,7 @@ t.Parallel()
 }
 
 func TestAllCollections(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if AllCollections == nil {
 		t.Fatal("AllCollections should not be nil")
 	}
@@ -41,7 +40,6 @@ t.Parallel()
 	expected := []string{
 		CollectionBlock,
 		CollectionTransaction,
-		CollectionAccessListEntry,
 		CollectionLog,
 		CollectionBlockSignature,
 		CollectionSnapshotSignature,

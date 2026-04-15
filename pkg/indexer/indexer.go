@@ -816,9 +816,8 @@ type indexerQueueTracker struct {
 
 func (t *indexerQueueTracker) TrackBlock(_ context.Context, blockNumber int64, result *defra.BlockCreationResult) error {
 	otherDocIDs := map[string][]string{
-		t.collections.Transaction:     result.TransactionIDs,
-		t.collections.Log:             result.LogIDs,
-		t.collections.AccessListEntry: result.AccessListIDs,
+		t.collections.Transaction: result.TransactionIDs,
+		t.collections.Log:         result.LogIDs,
 	}
 	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, otherDocIDs, result.BlockSignatureID)
 }
