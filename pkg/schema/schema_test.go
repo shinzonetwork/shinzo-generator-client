@@ -6,15 +6,18 @@ package schema
 import (
 	"strings"
 	"testing"
+
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
 func TestGetSchema(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	s := GetSchema()
 	if s == "" {
 		t.Fatal("GetSchema() returned empty string")
 	}
-	if !strings.Contains(s, "Ethereum__Mainnet__Block") {
-		t.Error("schema should contain Ethereum__Mainnet__Block type")
+	expectedType := constants.DefaultCollectionPrefix + "__Block"
+	if !strings.Contains(s, expectedType) {
+		t.Errorf("schema should contain %s type", expectedType)
 	}
 }
