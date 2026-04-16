@@ -1,5 +1,5 @@
 query GetAllTransactionLogs($txHash: String!) {
-  Ethereum__Mainnet__Log(filter: { transactionHash: { _eq: $txHash } }) {
+  Ethereum__Testnet__Log(filter: { transactionHash: { _eq: $txHash } }) {
     address
     topics
     data
@@ -10,7 +10,7 @@ query GetAllTransactionLogs($txHash: String!) {
 }
 
 query GetAllBlockLogs($blockHash: String!) {
-  Ethereum__Mainnet__Log(filter: { blockHash: { _eq: $blockHash } }) {
+  Ethereum__Testnet__Log(filter: { blockHash: { _eq: $blockHash } }) {
     address
     topics
     data
@@ -20,7 +20,7 @@ query GetAllBlockLogs($blockHash: String!) {
 }
 
 query GetAllLogsByTopic($topic: String!) {
-  Ethereum__Mainnet__Log(filter: { topics: { _any: { _eq: $topic } } }) {
+  Ethereum__Testnet__Log(filter: { topics: { _any: { _eq: $topic } } }) {
     address
     topics
     data

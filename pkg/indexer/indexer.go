@@ -103,7 +103,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 }
 
 // chainPrefixFromConfig returns the collection name prefix for the configured chain.
-// Falls back to the default Ethereum mainnet prefix for backward compatibility.
+// Falls back to the default Ethereum Testnet prefix for backward compatibility.
 func chainPrefixFromConfig(cfg *config.Config) string {
 	if cfg == nil {
 		return constants.DefaultCollectionPrefix
@@ -114,7 +114,7 @@ func chainPrefixFromConfig(cfg *config.Config) string {
 		name = "Ethereum"
 	}
 	if network == "" {
-		network = "Mainnet"
+		network = "Testnet"
 	}
 	return fmt.Sprintf("%s__%s", name, network)
 }
@@ -336,7 +336,17 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	}
 
 	if cfg.Pruner.Enabled && i.defraNode != nil {
-		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode)
+		// Pass collection config to pruner so it uses the correct chain prefix
+		collectionConfig := pruner.CollectionConfig{
+			BlockCollection:  i.collections.Block,
+			BlockNumberField: "number",
+			DependentCollections: []string{
+				i.collections.BlockSignature,
+				i.collections.Log,
+				i.collections.Transaction,
+			},
+		}
+		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, collectionConfig)
 
 		// pruneQueue was already created and loaded in the resume logic above
 		if pruneQueue == nil {

@@ -5,7 +5,7 @@
 # Collection names are derived as: {name}__{network}__Block, etc.
 chain:
   name: "Ethereum"       # Chain name (env: CHAIN_NAME)
-  network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
+  network: "Testnet"     # Network name (env: CHAIN_NETWORK)
 
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
@@ -36,7 +36,7 @@ geth:
   node_url: "${GETH_RPC_URL}"  # Fallback
   ws_url: "${GETH_WS_URL}"
   api_key: "${GETH_API_KEY}"
-  api_key_type: "X-Api-Key"
+  api_key_type: "X-goog-api-key"
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
   concurrent_blocks: 1      # Number of blocks to process concurrently
