@@ -3948,7 +3948,7 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 	txn, err := td.Node.DB.NewBlindWriteTxn()
 	require.NoError(t, err)
 
-	col, err := txn.GetCollectionByName(ctx, "Ethereum__Seplolia__BlockSignature")
+	col, err := txn.GetCollectionByName(ctx, "Ethereum__Testnet__BlockSignature")
 	require.NoError(t, err)
 
 	data := map[string]any{
