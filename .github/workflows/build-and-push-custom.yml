@@ -1,4 +1,4 @@
-name: Build and Push
+name: Build and Push Custom Network
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ env:
 
 jobs:
   # Job 1: Build and push standard image (standard)
-  build-and-push-tag:
+  build-and-push-custom:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,13 +42,13 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:custom-testnet
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:custom-network-testnet
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   # Job 2: Build summary
   build-summary:
-    needs: [build-and-push-tag]
+    needs: [build-and-push-custom]
     runs-on: ubuntu-latest
     steps:
       - name: Build summary
@@ -57,4 +57,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| Custom Testnet | ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:custom-testnet" >> $GITHUB_STEP_SUMMARY
+          echo "| Custom Network | ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:custom-network-testnet" >> $GITHUB_STEP_SUMMARY
