@@ -133,7 +133,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Chain.Name = "Ethereum"
 	}
 	if cfg.Chain.Network == "" {
-		cfg.Chain.Network = "Mainnet"
+		cfg.Chain.Network = "Testnet"
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8

@@ -11,12 +11,12 @@ func TestCollectionConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"Block", CollectionBlock, "Ethereum__Sepolia__Block"},
-		{"Transaction", CollectionTransaction, "Ethereum__Sepolia__Transaction"},
-		{"Log", CollectionLog, "Ethereum__Sepolia__Log"},
-		{"AccessListEntry", CollectionAccessListEntry, "Ethereum__Sepolia__AccessListEntry"},
-		{"BlockSignature", CollectionBlockSignature, "Ethereum__Sepolia__BlockSignature"},
-		{"SnapshotSignature", CollectionSnapshotSignature, "Ethereum__Sepolia__SnapshotSignature"},
+		{"Block", CollectionBlock, "Ethereum__Testnet__Block"},
+		{"Transaction", CollectionTransaction, "Ethereum__Testnet__Transaction"},
+		{"Log", CollectionLog, "Ethereum__Testnet__Log"},
+		{"AccessListEntry", CollectionAccessListEntry, "Ethereum__Testnet__AccessListEntry"},
+		{"BlockSignature", CollectionBlockSignature, "Ethereum__Testnet__BlockSignature"},
+		{"SnapshotSignature", CollectionSnapshotSignature, "Ethereum__Testnet__SnapshotSignature"},
 	}
 
 	for _, tt := range tests {

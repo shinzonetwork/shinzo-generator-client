@@ -14,7 +14,7 @@ func TestGetSchema(t *testing.T) {
 	if s == "" {
 		t.Fatal("GetSchema() returned empty string")
 	}
-	if !strings.Contains(s, "Ethereum__Sepolia__Block") {
-		t.Error("schema should contain Ethereum__Sepolia__Block type")
+	if !strings.Contains(s, "Ethereum__Testnet__Block") {
+		t.Error("schema should contain Ethereum__Testnet__Block type")
 	}
 }

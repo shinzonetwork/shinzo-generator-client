@@ -1,4 +1,4 @@
-type Ethereum__Sepolia__Block {
+type Ethereum__Testnet__Block {
     hash: String
     number: Int
     timestamp: String
@@ -20,12 +20,12 @@ type Ethereum__Sepolia__Block {
     mixHash: String
     uncles: [String]
     # Relationships
-    transactions: [Ethereum__Sepolia__Transaction] @relation(name: "block_transactions")
+    transactions: [Ethereum__Testnet__Transaction] @relation(name: "block_transactions")
 }
 
 # BlockSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
 # Created in the same transaction as the block data, arrives via P2P together
-type Ethereum__Sepolia__BlockSignature {
+type Ethereum__Testnet__BlockSignature {
     blockNumber: Int
     blockHash: String
     merkleRoot: String
@@ -39,7 +39,7 @@ type Ethereum__Sepolia__BlockSignature {
 
 # SnapshotSignature seals a snapshot file with a Merkle root over per-block block
 # signature Merkle roots. Used for cross-indexer attestation and snapshot exchange.
-type Ethereum__Sepolia__SnapshotSignature {
+type Ethereum__Testnet__SnapshotSignature {
     startBlock: Int
     endBlock: Int
     merkleRoot: String
@@ -52,7 +52,7 @@ type Ethereum__Sepolia__SnapshotSignature {
     blockSigMerkleRoots: [String]
 }
 
-type Ethereum__Sepolia__Transaction {
+type Ethereum__Testnet__Transaction {
     hash: String
     blockHash: String
     blockNumber: Int
@@ -76,19 +76,19 @@ type Ethereum__Sepolia__Transaction {
     cumulativeGasUsed: String
     effectiveGasPrice: String
     # Relationships
-    block: Ethereum__Sepolia__Block @relation(name: "block_transactions")
-    logs: [Ethereum__Sepolia__Log] @relation(name: "transaction_logs")
-    accessList: [Ethereum__Sepolia__AccessListEntry] @relation(name: "transaction_accessList")
+    block: Ethereum__Testnet__Block @relation(name: "block_transactions")
+    logs: [Ethereum__Testnet__Log] @relation(name: "transaction_logs")
+    accessList: [Ethereum__Testnet__AccessListEntry] @relation(name: "transaction_accessList")
 }
 
-type Ethereum__Sepolia__AccessListEntry {
+type Ethereum__Testnet__AccessListEntry {
     address: String
     blockNumber: Int
     storageKeys: [String]
-    transaction: Ethereum__Sepolia__Transaction @relation(name: "transaction_accessList")
+    transaction: Ethereum__Testnet__Transaction @relation(name: "transaction_accessList")
 }
 
-type Ethereum__Sepolia__Log {
+type Ethereum__Testnet__Log {
     address: String
     topics: [String]
     data: String
@@ -99,6 +99,6 @@ type Ethereum__Sepolia__Log {
     logIndex: Int
     removed: String
     # Relationships
-    block: Ethereum__Sepolia__Block @relation(name: "block_logs")
-    transaction: Ethereum__Sepolia__Transaction @relation(name: "transaction_logs")
+    block: Ethereum__Testnet__Block @relation(name: "block_logs")
+    transaction: Ethereum__Testnet__Transaction @relation(name: "transaction_logs")
 }

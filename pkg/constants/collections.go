@@ -3,7 +3,7 @@ package constants
 import "fmt"
 
 // Default collection prefix for backward compatibility
-const DefaultCollectionPrefix = "Ethereum__Sepolia"
+const DefaultCollectionPrefix = "Ethereum__Testnet"
 
 // CollectionNames holds the dynamically generated collection names for a chain.
 type CollectionNames struct {
