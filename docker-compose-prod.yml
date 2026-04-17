@@ -1,0 +1,50 @@
+# Use this to deploy to a vm with nginx reverse proxy.
+# This file users the root user 
+# user: "0:0" for docker permissions.
+
+networks:
+  shinzo-net:
+    driver: bridge
+
+services:
+  shinzo-indexer:
+    image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+    user: "0:0"
+    container_name: shinzo-indexer
+    restart: unless-stopped
+    networks:
+      - shinzo-net
+    mem_limit: 16g
+    mem_reservation: 13g
+    ports:
+      - "9171:9171"
+    volumes:
+      - ~/data/defradb:/app/.defra
+      - ~/data/lens:/app/.defra/lens
+    environment:
+      - GETH_RPC_URL=https://json-rpc.aouzyll7wj7e9xe4g7t82w88c.blockchainnodeengine.com
+      - GETH_WS_URL=wss://ws.aouzyll7wj7e9xe4g7t82w88c.blockchainnodeengine.com
+      - GETH_API_KEY=<YOUR_API_KEY_HERE>
+      - INDEXER_START_HEIGHT=0
+      - DEFRADB_KEYRING_SECRET=pingpong
+      - GOMEMLIMIT=14GiB
+      - SNAPSHOT_ENABLED=false
+      - LOG_LEVEL=error
+      - LOG_SOURCE=false
+      - LOG_STACKTRACE=false
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "3"
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ~/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - shinzo-indexer
+    networks:
+      - shinzo-net
+    restart: unless-stopped
