@@ -17,12 +17,12 @@ import (
 
 // kvSnapshotHeader is written at the start of a .kvsnap.gz file.
 type kvSnapshotHeader struct {
-	Magic                string   `json:"magic"`
-	Version              int      `json:"version"`
-	StartBlock           int64    `json:"start_block"`
-	EndBlock             int64    `json:"end_block"`
-	CreatedAt            string   `json:"created_at"`
-	BlockSigMerkleRoots  []string `json:"block_sig_merkle_roots,omitempty"`
+	Magic               string   `json:"magic"`
+	Version             int      `json:"version"`
+	StartBlock          int64    `json:"start_block"`
+	EndBlock            int64    `json:"end_block"`
+	CreatedAt           string   `json:"created_at"`
+	BlockSigMerkleRoots []string `json:"block_sig_merkle_roots,omitempty"`
 }
 
 // createKVSnapshot exports raw Badger KV pairs for a block range to a binary file.

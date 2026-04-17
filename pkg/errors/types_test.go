@@ -6,7 +6,7 @@ import (
 )
 
 func TestSeverity_String(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		severity Severity
 		expected string
@@ -28,7 +28,7 @@ t.Parallel()
 }
 
 func TestRetryBehavior_String(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		behavior RetryBehavior
 		expected string
@@ -49,7 +49,7 @@ t.Parallel()
 }
 
 func TestBaseError_Error_WithUnderlying(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	underlying := fmt.Errorf("connection refused")
 	e := &baseError{
 		code:       "TEST_CODE",
@@ -63,7 +63,7 @@ t.Parallel()
 }
 
 func TestBaseError_Error_WithoutUnderlying(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	e := &baseError{
 		code:    "TEST_CODE",
 		message: "test message",
@@ -75,7 +75,7 @@ t.Parallel()
 }
 
 func TestBaseError_Accessors(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	underlying := fmt.Errorf("wrapped")
 	ctx := ErrorContext{
 		Component: "test",
@@ -111,7 +111,7 @@ t.Parallel()
 }
 
 func TestErrorTypes_ImplementIndexerError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	var _ IndexerError = &NetworkError{}
 	var _ IndexerError = &DataError{}
 	var _ IndexerError = &StorageError{}

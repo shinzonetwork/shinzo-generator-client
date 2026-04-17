@@ -25,9 +25,9 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockBlockDB struct {
-	newTxnFn    func() (client.Txn, error)
-	initCtxFn   func(ctx context.Context, txn client.Txn) context.Context
-	execReqFn   func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult
+	newTxnFn  func() (client.Txn, error)
+	initCtxFn func(ctx context.Context, txn client.Txn) context.Context
+	execReqFn func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult
 }
 
 func (m *mockBlockDB) NewBlindWriteTxn() (client.Txn, error) {
@@ -145,7 +145,7 @@ func testReceipt() *types.TransactionReceipt {
 // =========================================================================
 
 func TestSingleTxn_NewBlindWriteTxn_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		newTxnFn: func() (client.Txn, error) {
 			return nil, fmt.Errorf("txn error")
@@ -159,7 +159,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_GetCollection_Block_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).
 		Return(nil, fmt.Errorf("no such collection"))
@@ -174,7 +174,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_GetCollection_Tx_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -191,7 +191,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_GetCollection_Log_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -208,7 +208,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_GetCollection_ALE_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -226,7 +226,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_GetCollection_BlockSig_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -245,7 +245,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_BuildBlockDocument_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Empty version collection → buildBlockDocument fails because fields don't exist
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
@@ -265,7 +265,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_BlockCreate_NonDuplicateError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 
 	txn := mocks.NewTxn(t)
@@ -289,7 +289,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_BuildTxDocument_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
@@ -314,7 +314,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_CreateManyTx_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
@@ -340,7 +340,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_BuildLogDocument_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
@@ -368,7 +368,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_CreateManyLogs_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
@@ -397,7 +397,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_BuildALEDocument_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
@@ -427,7 +427,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_CreateManyALE_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
@@ -458,7 +458,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_SignBlock_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -480,7 +480,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_VerifyBlockSig_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -506,7 +506,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_VerifyBlockSig_False(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -532,7 +532,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_BuildBlockSigDoc_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -559,7 +559,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_CreateBlockSig_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -587,7 +587,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_Commit_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -606,7 +606,7 @@ t.Parallel()
 }
 
 func TestSingleTxn_TrackBlock_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -630,7 +630,7 @@ t.Parallel()
 // =========================================================================
 
 func TestBatched_NewTxn_Initial_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		newTxnFn: func() (client.Txn, error) {
 			return nil, fmt.Errorf("txn error")
@@ -648,7 +648,7 @@ t.Parallel()
 }
 
 func TestBatched_GetCollection_Block_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).
 		Return(nil, fmt.Errorf("no block col"))
@@ -664,7 +664,7 @@ t.Parallel()
 }
 
 func TestBatched_BuildBlockDoc_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -680,7 +680,7 @@ t.Parallel()
 }
 
 func TestBatched_BlockCreate_NonDuplicateError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
@@ -701,7 +701,7 @@ t.Parallel()
 }
 
 func TestBatched_BlockCommit_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -717,7 +717,7 @@ t.Parallel()
 }
 
 func TestBatched_TxBatch_NewTxn_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 	blockTxn := mocks.NewTxn(t)
@@ -746,7 +746,7 @@ t.Parallel()
 }
 
 func TestBatched_TxBatch_GetCollection_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -778,7 +778,7 @@ t.Parallel()
 }
 
 func TestBatched_TxBatch_BuildTxDoc_Warn(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -818,7 +818,7 @@ t.Parallel()
 }
 
 func TestBatched_TxBatch_CreateMany_NonDupError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -860,7 +860,7 @@ t.Parallel()
 }
 
 func TestBatched_TxBatch_Commit_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -898,7 +898,7 @@ t.Parallel()
 }
 
 func TestBatched_SignBlock_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -931,7 +931,7 @@ t.Parallel()
 }
 
 func TestBatched_VerifyBlockSig_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -968,7 +968,7 @@ t.Parallel()
 }
 
 func TestBatched_VerifyBlockSig_False(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1004,7 +1004,7 @@ t.Parallel()
 }
 
 func TestBatched_SigTxn_NewTxn_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1029,7 +1029,7 @@ t.Parallel()
 }
 
 func TestBatched_SigNil_Discard(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1058,7 +1058,7 @@ t.Parallel()
 }
 
 func TestBatched_GetSigCollection_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1094,7 +1094,7 @@ t.Parallel()
 }
 
 func TestBatched_BuildSigDoc_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1129,7 +1129,7 @@ t.Parallel()
 }
 
 func TestBatched_CreateSigDoc_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1165,7 +1165,7 @@ t.Parallel()
 }
 
 func TestBatched_SigCommit_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1199,7 +1199,7 @@ t.Parallel()
 }
 
 func TestBatched_TrackBlock_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1232,7 +1232,7 @@ t.Parallel()
 // =========================================================================
 
 func TestExistingSig_NewTmpTxn_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		newTxnFn: func() (client.Txn, error) { return nil, fmt.Errorf("txn error") },
 	}
@@ -1244,7 +1244,7 @@ t.Parallel()
 }
 
 func TestExistingSig_GetBlockCol_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).
 		Return(nil, fmt.Errorf("no block col"))
@@ -1259,7 +1259,7 @@ t.Parallel()
 }
 
 func TestExistingSig_GetTxCol_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -1275,7 +1275,7 @@ t.Parallel()
 }
 
 func TestExistingSig_GetLogCol_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -1292,7 +1292,7 @@ t.Parallel()
 }
 
 func TestExistingSig_GetALECol_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -1310,7 +1310,7 @@ t.Parallel()
 }
 
 func TestExistingSig_BuildBlockDoc_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txn := mocks.NewTxn(t)
 	cols := emptyVersionCollections(t) // empty version → build fails
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
@@ -1328,7 +1328,7 @@ t.Parallel()
 }
 
 func TestExistingSig_BuildTxDoc_Continue(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1365,7 +1365,7 @@ t.Parallel()
 }
 
 func TestExistingSig_CIDRetry_CollectError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1398,7 +1398,7 @@ t.Parallel()
 }
 
 func TestExistingSig_CIDRetry_InsufficientCIDs(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1433,7 +1433,7 @@ t.Parallel()
 }
 
 func TestExistingSig_CIDRetry_TxnError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1460,7 +1460,7 @@ t.Parallel()
 }
 
 func TestExistingSig_SigningTxn_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1498,7 +1498,7 @@ t.Parallel()
 }
 
 func TestExistingSig_CollectCIDsForSigning_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 	collectCount := 0
@@ -1544,7 +1544,7 @@ t.Parallel()
 }
 
 func TestExistingSig_SignBlock_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1588,7 +1588,7 @@ t.Parallel()
 }
 
 func TestExistingSig_NilBlockSig(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1630,7 +1630,7 @@ t.Parallel()
 }
 
 func TestExistingSig_GetSigCol_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1676,7 +1676,7 @@ t.Parallel()
 }
 
 func TestExistingSig_BuildSigDoc_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1723,7 +1723,7 @@ t.Parallel()
 }
 
 func TestExistingSig_CreateSigDoc_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1771,7 +1771,7 @@ t.Parallel()
 }
 
 func TestExistingSig_Commit_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -1821,7 +1821,7 @@ t.Parallel()
 // =========================================================================
 
 func TestGetHighestBlockNumber_GQLError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -1838,7 +1838,7 @@ t.Parallel()
 }
 
 func TestGetHighestBlockNumber_DataCastFailure(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -1853,7 +1853,7 @@ t.Parallel()
 }
 
 func TestGetHighestBlockNumber_MapSliceBranch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -1875,7 +1875,7 @@ t.Parallel()
 }
 
 func TestGetHighestBlockNumber_MapSlice_Empty(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -1894,7 +1894,7 @@ t.Parallel()
 }
 
 func TestGetHighestBlockNumber_DefaultBranch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -1913,7 +1913,7 @@ t.Parallel()
 }
 
 func TestGetHighestBlockNumber_Int64Branch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -1935,7 +1935,7 @@ t.Parallel()
 }
 
 func TestGetHighestBlockNumber_IntBranch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -1957,7 +1957,7 @@ t.Parallel()
 }
 
 func TestGetHighestBlockNumber_InvalidNumberType(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -1978,7 +1978,7 @@ t.Parallel()
 }
 
 func TestGetHighestBlockNumber_InvalidFormat(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -2106,7 +2106,7 @@ func (v *realCollectionVersions) sigColWithCreate(t *testing.T, createErr error)
 
 // TestSingleTxn_TrackBlock_WithALEs covers the aleIDs loop (lines 342-344)
 func TestSingleTxn_TrackBlock_WithALEs(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
@@ -2135,7 +2135,7 @@ t.Parallel()
 // --- Batched: Log batch error paths ---
 
 func TestBatched_LogBatch_NewTxn_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2178,7 +2178,7 @@ t.Parallel()
 }
 
 func TestBatched_LogBatch_GetCollection_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2225,7 +2225,7 @@ t.Parallel()
 }
 
 func TestBatched_LogBatch_BuildDoc_Warn(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2273,7 +2273,7 @@ t.Parallel()
 }
 
 func TestBatched_LogBatch_CreateMany_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2323,7 +2323,7 @@ t.Parallel()
 }
 
 func TestBatched_LogBatch_Commit_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2372,7 +2372,7 @@ t.Parallel()
 // --- Batched: ALE batch error paths ---
 
 func TestBatched_ALEBatch_NewTxn_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2414,7 +2414,7 @@ t.Parallel()
 }
 
 func TestBatched_ALEBatch_GetCollection_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2460,7 +2460,7 @@ t.Parallel()
 }
 
 func TestBatched_ALEBatch_BuildDoc_Warn(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2507,7 +2507,7 @@ t.Parallel()
 }
 
 func TestBatched_ALEBatch_CreateMany_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2556,7 +2556,7 @@ t.Parallel()
 }
 
 func TestBatched_ALEBatch_Commit_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2607,7 +2607,7 @@ t.Parallel()
 // --- Batched: "already exists" duplicate paths ---
 
 func TestBatched_TxBatch_CreateMany_DuplicateError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2647,7 +2647,7 @@ t.Parallel()
 }
 
 func TestBatched_LogBatch_CreateMany_DuplicateError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2696,7 +2696,7 @@ t.Parallel()
 }
 
 func TestBatched_ALEBatch_CreateMany_DuplicateError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2746,7 +2746,7 @@ t.Parallel()
 // --- GetHighestBlockNumber: []any empty ---
 
 func TestGetHighestBlockNumber_AnySlice_Empty(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	db := &mockBlockDB{
 		execReqFn: func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 			return &client.RequestResult{
@@ -2767,7 +2767,7 @@ t.Parallel()
 // --- Batched: tracker with data (covers batched tracker loop) ---
 
 func TestBatched_TrackBlock_WithData(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2807,7 +2807,7 @@ t.Parallel()
 // --- CreateBlockSignatureForExistingBlock: CID retry backoff path ---
 
 func TestExistingSig_CIDRetry_BackoffPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 	collectCount := 0
@@ -2862,7 +2862,7 @@ t.Parallel()
 
 // TestExistingSig_BuildLogDoc_Continue covers the log build error continue path (line 556-557).
 func TestExistingSig_BuildLogDoc_Continue(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2903,7 +2903,7 @@ t.Parallel()
 // TestExistingSig_CIDRetry_TxnError_Backoff covers the backoff path when
 // NewBlindWriteTxn fails on a non-last attempt (lines 592-594).
 func TestExistingSig_CIDRetry_TxnError_Backoff(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 
@@ -2934,7 +2934,7 @@ t.Parallel()
 // TestExistingSig_CIDRetry_CollectError_Backoff covers the backoff path when
 // collectDocCIDsFn fails on a non-last attempt (lines 603-605).
 func TestExistingSig_CIDRetry_CollectError_Backoff(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 

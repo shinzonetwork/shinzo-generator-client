@@ -52,7 +52,7 @@ func (errTestSignFailed) Error() string { return "sign failed" }
 // --- NewHealthServer ---
 
 func TestNewHealthServer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(8080, nil, "http://localhost:9181")
 	assert.NotNil(t, hs)
 	assert.NotNil(t, hs.mux)
@@ -63,7 +63,7 @@ t.Parallel()
 // --- SetSnapshotter ---
 
 func TestSetSnapshotter(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	s := &snapshot.Snapshotter{}
 	hs.SetSnapshotter(s)
@@ -73,7 +73,7 @@ t.Parallel()
 // --- healthHandler ---
 
 func TestHealthHandler_MethodNotAllowed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/health", nil)
@@ -82,7 +82,7 @@ t.Parallel()
 }
 
 func TestHealthHandler_HTMLResponse(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -93,7 +93,7 @@ t.Parallel()
 }
 
 func TestHealthHandler_JSONResponse_NilIndexer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -107,7 +107,7 @@ t.Parallel()
 }
 
 func TestHealthHandler_JSONResponse_HealthyIndexer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		healthy:       true,
 		currentBlock:  100,
@@ -128,7 +128,7 @@ t.Parallel()
 }
 
 func TestHealthHandler_JSONResponse_UnhealthyIndexer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		healthy:       false,
 		currentBlock:  50,
@@ -147,7 +147,7 @@ t.Parallel()
 }
 
 func TestHealthHandler_DefaultJSON_NoAcceptHeader(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -161,7 +161,7 @@ t.Parallel()
 // --- registrationHandler ---
 
 func TestRegistrationHandler_MethodNotAllowed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/registration", nil)
@@ -170,7 +170,7 @@ t.Parallel()
 }
 
 func TestRegistrationHandler_NilIndexer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/registration", nil)
@@ -179,7 +179,7 @@ t.Parallel()
 }
 
 func TestRegistrationHandler_StaleLastProcessed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		healthy:       true,
 		currentBlock:  100,
@@ -198,7 +198,7 @@ t.Parallel()
 }
 
 func TestRegistrationHandler_ZeroLastProcessed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Zero time should NOT trigger "not ready" (time.Since(zero) > 5min is true but IsZero check protects)
 	mock := &mockHealthChecker{
 		healthy:       true,
@@ -214,7 +214,7 @@ t.Parallel()
 }
 
 func TestRegistrationHandler_P2PError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		healthy:       true,
 		currentBlock:  100,
@@ -229,7 +229,7 @@ t.Parallel()
 }
 
 func TestRegistrationHandler_WithSignedRegistration(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		healthy:       true,
 		currentBlock:  42,
@@ -262,7 +262,7 @@ t.Parallel()
 }
 
 func TestRegistrationHandler_SignError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		healthy:       true,
 		currentBlock:  1,
@@ -284,7 +284,7 @@ t.Parallel()
 }
 
 func TestRegistrationHandler_DefraDBDisconnected(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// External URL that fails to connect
 	mock := &mockHealthChecker{
 		healthy:       true,
@@ -303,7 +303,7 @@ t.Parallel()
 // --- registrationAppHandler ---
 
 func TestRegistrationAppHandler_NilIndexer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/registration-app", nil)
@@ -312,7 +312,7 @@ t.Parallel()
 }
 
 func TestRegistrationAppHandler_SignError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		signErr: errTestSignFailed{},
 	}
@@ -324,7 +324,7 @@ t.Parallel()
 }
 
 func TestRegistrationAppHandler_Redirect(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		defraReg: DefraPKRegistration{PublicKey: "pubkey123", SignedPKMsg: "signed123"},
 		peerReg:  PeerIDRegistration{PeerID: "peer123", SignedPeerMsg: "signedpeer123"},
@@ -341,7 +341,7 @@ t.Parallel()
 // --- metricsHandler ---
 
 func TestMetricsHandler_MethodNotAllowed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/metrics", nil)
@@ -350,7 +350,7 @@ t.Parallel()
 }
 
 func TestMetricsHandler_NilIndexer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
@@ -363,7 +363,7 @@ t.Parallel()
 }
 
 func TestMetricsHandler_WithIndexer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	mock := &mockHealthChecker{
 		currentBlock:  200,
 		lastProcessed: time.Now(),
@@ -382,7 +382,7 @@ t.Parallel()
 // --- rootHandler ---
 
 func TestRootHandler_RootPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -395,7 +395,7 @@ t.Parallel()
 }
 
 func TestRootHandler_NotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
@@ -406,7 +406,7 @@ t.Parallel()
 // --- snapshotsListHandler ---
 
 func TestSnapshotsListHandler_MethodNotAllowed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/snapshots", nil)
@@ -415,7 +415,7 @@ t.Parallel()
 }
 
 func TestSnapshotsListHandler_NilSnapshotter(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/snapshots", nil)
@@ -424,7 +424,7 @@ t.Parallel()
 }
 
 func TestSnapshotsListHandler_EmptyList(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 
@@ -444,7 +444,7 @@ t.Parallel()
 // --- snapshotDownloadHandler ---
 
 func TestSnapshotDownloadHandler_MethodNotAllowed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/snapshots/test.gz", nil)
@@ -453,7 +453,7 @@ t.Parallel()
 }
 
 func TestSnapshotDownloadHandler_NilSnapshotter(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/snapshots/test.gz", nil)
@@ -462,7 +462,7 @@ t.Parallel()
 }
 
 func TestSnapshotDownloadHandler_EmptyFilename(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 
@@ -477,7 +477,7 @@ t.Parallel()
 }
 
 func TestSnapshotDownloadHandler_FileNotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 
@@ -491,7 +491,7 @@ t.Parallel()
 }
 
 func TestSnapshotDownloadHandler_FileFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	// Create a file matching snapshot naming
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
@@ -513,7 +513,7 @@ t.Parallel()
 // --- snapshotImportHandler ---
 
 func TestSnapshotImportHandler_MethodNotAllowed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/snapshots/import", nil)
@@ -522,7 +522,7 @@ t.Parallel()
 }
 
 func TestSnapshotImportHandler_NilDefraNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/snapshots/import", nil)
@@ -535,25 +535,25 @@ t.Parallel()
 // --- checkDefraDB ---
 
 func TestCheckDefraDB_EmptyURL(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := &HealthServer{defraURL: ""}
 	assert.True(t, hs.checkDefraDB())
 }
 
 func TestCheckDefraDB_Localhost(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := &HealthServer{defraURL: "http://localhost:9181"}
 	assert.True(t, hs.checkDefraDB())
 }
 
 func TestCheckDefraDB_Loopback(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := &HealthServer{defraURL: "http://127.0.0.1:9181"}
 	assert.True(t, hs.checkDefraDB())
 }
 
 func TestCheckDefraDB_ExternalSuccess(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Use IPv6 loopback listener to avoid the localhost/127.0.0.1 shortcut
 	listener, err := net.Listen("tcp", "[::1]:0")
 	require.NoError(t, err)
@@ -570,7 +570,7 @@ t.Parallel()
 }
 
 func TestCheckDefraDB_ExternalBadRequest(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	listener, err := net.Listen("tcp", "[::1]:0")
 	require.NoError(t, err)
 
@@ -586,13 +586,13 @@ t.Parallel()
 }
 
 func TestCheckDefraDB_ExternalFailure(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := &HealthServer{defraURL: "http://192.0.2.1:9181"} // Non-routable
 	assert.False(t, hs.checkDefraDB())
 }
 
 func TestCheckDefraDB_ExternalServerError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	listener, err := net.Listen("tcp", "[::1]:0")
 	require.NoError(t, err)
 
@@ -610,7 +610,7 @@ t.Parallel()
 // --- normalizeHex ---
 
 func TestNormalizeHex(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -632,7 +632,7 @@ t.Parallel()
 // --- getHealthStatusPageHTML ---
 
 func TestGetHealthStatusPageHTML_FromDisk(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	// The file exists at pkg/server/health_status_page.html relative to project root
 	// When tests run from pkg/server/, it should find it
@@ -641,7 +641,7 @@ t.Parallel()
 }
 
 func TestGetHealthStatusPageHTML_EmbeddedFallback(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Override the disk path AND change working directory so ./health_status_page.html also won't be found
 	originalPath := healthStatusPagePath
 	healthStatusPagePath = "/nonexistent/path.html"
@@ -660,7 +660,7 @@ t.Parallel()
 // --- Start / Stop ---
 
 func TestStartStop(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	// Use port 0 for auto-assignment
 	hs.server.Addr = ":0"
@@ -688,7 +688,7 @@ t.Parallel()
 // --- SetDefraNode ---
 
 func TestSetDefraNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	assert.Nil(t, hs.defraNode)
 	n := &node.Node{}
@@ -699,7 +699,7 @@ t.Parallel()
 // --- snapshotsListHandler with defraNode (QuerySnapshotSignatures error path) ---
 
 func TestSnapshotsListHandler_WithDefraNode_QueryError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// When defraNode is set but DB is nil, QuerySnapshotSignatures will panic.
 	// We set defraNode to nil (no signatures branch) and verify the non-signature path.
 	// This test covers the path where defraNode is set but query fails.
@@ -727,7 +727,7 @@ t.Parallel()
 // --- snapshotDownloadHandler edge cases ---
 
 func TestSnapshotDownloadHandler_FileDeletedBeforeOpen(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Simulate a file that exists during GetSnapshotPath but is deleted before os.Open
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz")
@@ -749,7 +749,7 @@ t.Parallel()
 }
 
 func TestSnapshotDownloadHandler_FileOpenError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Create a file, then make it unreadable to trigger os.Open error
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz")
@@ -773,7 +773,7 @@ t.Parallel()
 // --- snapshotImportHandler extended coverage ---
 
 func TestSnapshotImportHandler_NilSnapshotter(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// defraNode is set but snapshotter is nil
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
@@ -786,7 +786,7 @@ t.Parallel()
 }
 
 func TestSnapshotImportHandler_MissingFileParam(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 
@@ -802,7 +802,7 @@ t.Parallel()
 }
 
 func TestSnapshotImportHandler_FileNotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 
@@ -849,7 +849,7 @@ func writeTestKVSnapshot(t *testing.T, dir string, start, end int64) string {
 }
 
 func TestSnapshotImportHandler_ImportError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Create a valid-looking snapshot file but defraNode.DB is nil,
 	// so ImportKV will panic when calling defraNode.DB.ImportRawKVs.
 	// We catch the panic to verify the handler reaches the ImportKV call.
@@ -880,7 +880,7 @@ func (f *failWriter) WriteHeader(statusCode int)  { f.code = statusCode }
 func (f *failWriter) Write(b []byte) (int, error) { return 0, fmt.Errorf("simulated write error") }
 
 func TestSnapshotDownloadHandler_CopyError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
 	os.WriteFile(testFile, []byte("test snapshot data"), 0644)
@@ -899,7 +899,7 @@ t.Parallel()
 }
 
 func TestSnapshotImportHandler_InvalidGzipFile(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Create a file that exists but is not valid gzip — ImportKV returns error
 	tempDir := t.TempDir()
 	filename := "snapshot_0_50.kvsnap.gz"
@@ -925,7 +925,7 @@ t.Parallel()
 // --- snapshotsListHandler with files (covers loop body) ---
 
 func TestSnapshotsListHandler_WithFiles(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	// Create snapshot files matching naming convention
 	os.WriteFile(filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz"), []byte("data1"), 0644)
@@ -956,7 +956,7 @@ t.Parallel()
 // --- snapshotsListHandler with query error (covers L379-381 warn log) ---
 
 func TestSnapshotsListHandler_QuerySigError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	os.WriteFile(filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz"), []byte("data"), 0644)
 
@@ -981,7 +981,7 @@ t.Parallel()
 // --- snapshotImportHandler success path (covers L489-493) ---
 
 func TestSnapshotImportHandler_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	defraNode := td.Node
 

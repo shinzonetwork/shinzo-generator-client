@@ -14,16 +14,16 @@ import (
 
 // VerifyResult holds the result of a snapshot verification.
 type VerifyResult struct {
-	Valid             bool   `json:"valid"`
-	SnapshotFile      string `json:"snapshot_file"`
-	StartBlock        int64  `json:"start_block"`
-	EndBlock          int64  `json:"end_block"`
-	BlockCount        int    `json:"block_count"`
-	BlockSigsFound    int    `json:"block_sigs_found"`
-	MerkleRootMatch   bool   `json:"merkle_root_match"`
-	SignatureValid    bool   `json:"signature_valid"`
-	SignerIdentity    string `json:"signer_identity"`
-	Error             string `json:"error,omitempty"`
+	Valid           bool   `json:"valid"`
+	SnapshotFile    string `json:"snapshot_file"`
+	StartBlock      int64  `json:"start_block"`
+	EndBlock        int64  `json:"end_block"`
+	BlockCount      int    `json:"block_count"`
+	BlockSigsFound  int    `json:"block_sigs_found"`
+	MerkleRootMatch bool   `json:"merkle_root_match"`
+	SignatureValid  bool   `json:"signature_valid"`
+	SignerIdentity  string `json:"signer_identity"`
+	Error           string `json:"error,omitempty"`
 }
 
 // VerifySnapshot verifies a snapshot file against its sidecar signature.

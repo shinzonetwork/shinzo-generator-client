@@ -21,6 +21,21 @@ import (
 //go:embed health_status_page.html
 var embeddedHealthStatusPageHTML string
 
+const (
+	// RegistrationAppBaseURL is the base URL for the Shinzo Network registration app.
+	// TODO: Make this configurable via config file.
+	RegistrationAppBaseURL = "https://registration.shinzo.network/"
+
+	// RegistrationMessage is the message used for indexer registration signing.
+	RegistrationMessage = "Shinzo Network Indexer registration"
+
+	// HealthCheckStaleThreshold is the duration after which a last-processed time is considered stale.
+	HealthCheckStaleThreshold = 5 * time.Minute
+
+	// DefraDBCheckTimeout is the timeout for checking DefraDB connectivity.
+	DefraDBCheckTimeout = 5 * time.Second
+)
+
 var (
 	healthStatusPagePath = filepath.Join("pkg", "server", "health_status_page.html")
 )
@@ -207,11 +222,10 @@ func (hs *HealthServer) getRegistrationData() (*DisplayRegistration, error) {
 		return nil, fmt.Errorf("indexer not available")
 	}
 
-	const registrationMessage = "Shinzo Network Indexer registration"
-	defraReg, peerReg, signErr := hs.indexer.SignMessages(registrationMessage)
+	defraReg, peerReg, signErr := hs.indexer.SignMessages(RegistrationMessage)
 	registration := &DisplayRegistration{
 		Enabled: signErr == nil,
-		Message: normalizeHex(hex.EncodeToString([]byte(registrationMessage))),
+		Message: normalizeHex(hex.EncodeToString([]byte(RegistrationMessage))),
 	}
 	if signErr != nil {
 		return registration, signErr
@@ -241,7 +255,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 	ready := true
 	if hs.indexer != nil {
 		lastProcessed := hs.indexer.GetLastProcessedTime()
-		if time.Since(lastProcessed) > 5*time.Minute && !lastProcessed.IsZero() {
+		if time.Since(lastProcessed) > HealthCheckStaleThreshold && !lastProcessed.IsZero() {
 			ready = false
 		}
 	}
@@ -291,9 +305,9 @@ func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Registration data not available", http.StatusServiceUnavailable)
 		return
 	}
-	//TODO: make this configurable not sure registration should be hardcoded
 	redirectURL := fmt.Sprintf(
-		"https://registration.shinzo.network/?role=indexer&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
+		"%s?role=indexer&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
+		RegistrationAppBaseURL,
 		registration.Message,
 		registration.PeerIDRegistration.PeerID,
 		registration.PeerIDRegistration.SignedPeerMsg,
@@ -502,7 +516,7 @@ func (hs *HealthServer) checkDefraDB() bool {
 		return true
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: DefraDBCheckTimeout}
 	resp, err := client.Get(hs.defraURL + "/api/v0/graphql")
 	if err != nil {
 		return false

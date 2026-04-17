@@ -7,7 +7,7 @@ import (
 )
 
 func TestNumberToHex(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    int64
@@ -30,7 +30,7 @@ t.Parallel()
 }
 
 func TestNumberToHex_UnsignedTypes(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Run("uint8", func(t *testing.T) {
 		got := NumberToHex(uint8(255))
 		if got != "0xff" {
@@ -54,7 +54,7 @@ t.Parallel()
 }
 
 func TestHexToInt(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name      string
 		input     string

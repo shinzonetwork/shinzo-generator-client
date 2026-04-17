@@ -297,15 +297,10 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		logger.Sugar.Infof("No existing blocks, starting from %d (chain tip: %d)", cfg.Indexer.StartHeight, chainTip)
 	}
 
-	// create indexing bool
 	i.shouldIndex = true
-
-	// Reuse the block handler created earlier for processing
-	// (blockHandler was already created above for the block check)
 
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
-	// Get starting block number
 	nextBlockToProcess := int64(cfg.Indexer.StartHeight)
 
 	if cfg.Indexer.HealthServerPort > 0 {
@@ -388,9 +383,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			err := i.processBlock(ctx, client, blockHandler, nextBlockToProcess)
 			if err != nil {
 				if errors.IsErrNotFound(err) {
-					// Block doesn't exist yet (we're ahead of the chain) - wait 3 seconds and try again
-					logger.Sugar.Infof("Block %d not available yet (ahead of chain), waiting 3s before retry...", nextBlockToProcess)
-					time.Sleep(3 * time.Second)
+					// Block doesn't exist yet (we're ahead of the chain)
+					logger.Sugar.Infof("Block %d not available yet (ahead of chain), waiting before retry...", nextBlockToProcess)
+					time.Sleep(BlockNotFoundRetryDelay)
 					continue
 				} else if errors.IsErrAlreadyExists(err) {
 					// Block already processed, move to next
@@ -405,14 +400,13 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 					i.hasIndexedAtLeastOneBlock = true
 					continue
 				} else {
-					// Other error - retry in 3 seconds
-					logger.Sugar.Errorf("Failed to process block %d: %v, retrying in 3s", nextBlockToProcess, err)
-					time.Sleep(3 * time.Second)
+					// Other error - retry after delay
+					logger.Sugar.Errorf("Failed to process block %d: %v, retrying...", nextBlockToProcess, err)
+					time.Sleep(BlockNotFoundRetryDelay)
 					continue
 				}
 			}
 
-			// Success! Move to next block (Step 3: increment by 1 and repeat)
 			logger.Sugar.Infof("Successfully processed block %d", nextBlockToProcess)
 			nextBlockToProcess++
 			i.hasIndexedAtLeastOneBlock = true

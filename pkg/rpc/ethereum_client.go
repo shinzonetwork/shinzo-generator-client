@@ -18,6 +18,18 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 )
 
+const (
+	// InitialBlocksBack is the number of blocks behind chain tip to start fetching.
+	// This avoids transaction type compatibility issues with Erigon nodes.
+	InitialBlocksBack = 100
+
+	// MaxErigonRetries is the maximum number of retries for Erigon compatibility issues.
+	MaxErigonRetries = 8
+
+	// ZeroAddress is the Ethereum zero address used as fallback for unsigned transactions.
+	ZeroAddress = "0x0000000000000000000000000000000000000000"
+)
+
 // EthereumClient wraps both JSON-RPC and fallback HTTP client
 type EthereumClient struct {
 	httpClient   *ethclient.Client
@@ -178,22 +190,21 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, erro
 
 	// For GCP Erigon nodes, start with blocks that are significantly behind
 	// to avoid transaction type compatibility issues
-	const initialBlocksBack = 100
-	targetBlockNumber := big.NewInt(1).Sub(latestHeader.Number, big.NewInt(initialBlocksBack))
+	targetBlockNumber := big.NewInt(1).Sub(latestHeader.Number, big.NewInt(InitialBlocksBack))
 	logger.Sugar.Infof("Latest block: %s, targeting block: %s (%d blocks behind for Erigon compatibility)",
-		latestHeader.Number.String(), targetBlockNumber.String(), initialBlocksBack)
+		latestHeader.Number.String(), targetBlockNumber.String(), InitialBlocksBack)
 
 	var gethBlock *ethtypes.Block
 
 	// Try progressively older blocks if transaction type errors occur
-	for retries := 0; retries < 8; retries++ {
+	for retries := 0; retries < MaxErigonRetries; retries++ {
 		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
 		if err != nil {
 			if errors.IsErrUnsupportedTxType(err) {
 
-				if retries < 7 {
+				if retries < MaxErigonRetries-1 {
 					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks
-					blocksBack := initialBlocksBack * (1 << uint(retries+1))
+					blocksBack := InitialBlocksBack * (1 << uint(retries+1))
 					targetBlockNumber = big.NewInt(1).Sub(latestHeader.Number, big.NewInt(int64(blocksBack)))
 					logger.Sugar.Warnf("Retry %d: Transaction type error with Erigon, going back %d blocks total...",
 						retries+1, blocksBack)
@@ -414,11 +425,11 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 	if err != nil {
 		// For unsigned transactions or other errors, use zero address
 		logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), err)
-		fromAddrStr = "0x0000000000000000000000000000000000000000"
+		fromAddrStr = ZeroAddress
 	} else if fromAddr != nil {
 		fromAddrStr = fromAddr.Hex()
 	} else {
-		fromAddrStr = "0x0000000000000000000000000000000000000000"
+		fromAddrStr = ZeroAddress
 	}
 	toAddr := getToAddress(tx)
 

@@ -12,7 +12,7 @@ import (
 )
 
 func TestInitConsoleOnly_Development(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	if Sugar == nil {
 		t.Fatal("Sugar should not be nil after InitConsoleOnly(true)")
@@ -20,7 +20,7 @@ t.Parallel()
 }
 
 func TestInitConsoleOnly_Production(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(false)
 	if Sugar == nil {
 		t.Fatal("Sugar should not be nil after InitConsoleOnly(false)")
@@ -88,7 +88,7 @@ func TestInit(t *testing.T) {
 }
 
 func TestCustomLevelEncoder_TestLevel(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	enc := &testArrayEncoder{}
 	customLevelEncoder(TestLevel, enc)
 
@@ -101,7 +101,7 @@ t.Parallel()
 }
 
 func TestCustomLevelEncoder_DefaultLevel(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	enc := &testArrayEncoder{}
 	customLevelEncoder(zapcore.InfoLevel, enc)
 
@@ -112,7 +112,7 @@ t.Parallel()
 }
 
 func TestCustomLevelEncoder_AllLevels(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	levels := []zapcore.Level{
 		zapcore.DebugLevel,
 		zapcore.WarnLevel,
@@ -129,7 +129,7 @@ t.Parallel()
 }
 
 func TestTest_NilSugar(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	oldSugar := Sugar
 	Sugar = nil
 	defer func() { Sugar = oldSugar }()
@@ -139,14 +139,14 @@ t.Parallel()
 }
 
 func TestTest_WithSugar(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	// Should not panic
 	Test("test message")
 }
 
 func TestTestf_NilSugar(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	oldSugar := Sugar
 	Sugar = nil
 	defer func() { Sugar = oldSugar }()
@@ -156,14 +156,14 @@ t.Parallel()
 }
 
 func TestTestf_WithSugar(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	// Should not panic
 	Testf("test %s %d", "message", 42)
 }
 
 func TestLogError_CriticalSeverity(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	err := errors.NewDBConnectionFailed("defra", "Connect", "", fmt.Errorf("connection refused"))
 	// Should not panic
@@ -171,21 +171,21 @@ t.Parallel()
 }
 
 func TestLogError_ErrorSeverity(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	err := errors.NewRPCTimeout("rpc", "GetBlock", "", fmt.Errorf("timeout"))
 	LogError(err, "rpc timeout")
 }
 
 func TestLogError_WarningSeverity(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	err := errors.NewRateLimited("rpc", "GetBlock", "", fmt.Errorf("429"))
 	LogError(err, "rate limited")
 }
 
 func TestLogError_InfoSeverity(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	err := &mockInfoError{}
 	LogError(err, "info level log")
@@ -205,7 +205,7 @@ func (e *mockInfoError) Context() errors.ErrorContext {
 func (e *mockInfoError) Unwrap() error { return nil }
 
 func TestLogError_WithBlockNumberAndTxHash(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	blockNum := int64(42)
 	txHash := "0xabc123"
@@ -217,21 +217,21 @@ t.Parallel()
 }
 
 func TestLogError_WithCustomFields(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	err := errors.NewRPCTimeout("rpc", "GetBlock", "", fmt.Errorf("timeout"))
 	LogError(err, "rpc timeout", zap.Int("attempt", 3), zap.String("endpoint", "localhost"))
 }
 
 func TestLogError_NonIndexerError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	err := fmt.Errorf("standard error")
 	LogError(err, "something failed")
 }
 
 func TestLogError_NonIndexerError_WithFields(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	InitConsoleOnly(true)
 	err := fmt.Errorf("standard error")
 	LogError(err, "something failed", zap.String("context", "test"))

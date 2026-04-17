@@ -14,6 +14,26 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 )
 
+const (
+	// BlockNotFoundRetryDelay is the delay before retrying when a block is not yet available on chain.
+	BlockNotFoundRetryDelay = 3 * time.Second
+
+	// RPCErrorRetryBaseDelay is the base delay for retrying RPC errors (multiplied by attempt number).
+	RPCErrorRetryBaseDelay = 500 * time.Millisecond
+
+	// MaxRPCRetries is the maximum number of retries for non-"not found" RPC errors.
+	MaxRPCRetries = 3
+
+	// TransactionConflictRetryBaseDelay is the base delay for retrying transaction conflicts.
+	TransactionConflictRetryBaseDelay = 50 * time.Millisecond
+
+	// SigningQueueSize is the buffer size for the background block signing channel.
+	SigningQueueSize = 64
+
+	// DispatchThrottleDelay is the delay when the processor is too far ahead of committed blocks.
+	DispatchThrottleDelay = 100 * time.Millisecond
+)
+
 // BlockResult holds the result of processing a block
 type BlockResult struct {
 	BlockNum int64
@@ -61,7 +81,7 @@ func NewConcurrentBlockProcessor(
 		blocksPerMinute: blocksPerMinute,
 		resultChan:      make(chan *BlockResult, workers*2),
 		pending:         make(map[int64]*BlockResult),
-		signingChan:     make(chan signingJob, 64),
+		signingChan:     make(chan signingJob, SigningQueueSize),
 	}
 }
 
@@ -181,7 +201,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 			case <-ctx.Done():
 				shutdown()
 				return ctx.Err()
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(DispatchThrottleDelay):
 				continue
 			}
 		}
@@ -223,19 +243,19 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 			case <-ctx.Done():
 				result.Error = ctx.Err()
 				return result
-			case <-time.After(3 * time.Second):
+			case <-time.After(BlockNotFoundRetryDelay):
 			}
 			continue
 		}
 		otherErrors++
-		if otherErrors >= 3 {
+		if otherErrors >= MaxRPCRetries {
 			break
 		}
 		select {
 		case <-ctx.Done():
 			result.Error = ctx.Err()
 			return result
-		case <-time.After(time.Duration(otherErrors) * 500 * time.Millisecond):
+		case <-time.After(time.Duration(otherErrors) * RPCErrorRetryBaseDelay):
 		}
 	}
 	if err != nil {
@@ -293,8 +313,7 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 		}
 	}
 
-	const maxRetries = 3
-	for attempt := range maxRetries {
+	for attempt := range MaxRPCRetries {
 		if ctx.Err() != nil {
 			result.Error = ctx.Err()
 			return result
@@ -326,13 +345,13 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 		}
 
 		if errors.IsErrTransactionConflict(err) {
-			if attempt < maxRetries-1 {
-				logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", blockNum, attempt+1, maxRetries)
+			if attempt < MaxRPCRetries-1 {
+				logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", blockNum, attempt+1, MaxRPCRetries)
 				select {
 				case <-ctx.Done():
 					result.Error = ctx.Err()
 					return result
-				case <-time.After(time.Duration(attempt+1) * 50 * time.Millisecond):
+				case <-time.After(time.Duration(attempt+1) * TransactionConflictRetryBaseDelay):
 				}
 				continue
 			}
