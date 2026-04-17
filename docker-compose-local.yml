@@ -19,7 +19,7 @@ services:
       # Indexer Configuration
       - INDEXER_START_HEIGHT=${INDEXER_START_HEIGHT:-0}
     
-    # volumes:
+    # volumes: # Uncomment to use external volumes
     #   # DefraDB data
     #   - /mnt/defradb-data:/app/.defra 
     #   # Logs
