@@ -1,8 +1,6 @@
 name: Build and Push
 
 on:
-  push:
-    branches: [main, develop]
   workflow_dispatch:
 
 concurrency:
