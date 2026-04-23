@@ -93,4 +93,6 @@ jobs:
           echo "- \`${{ inputs.chain }}-${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ inputs.chain }}-sha-${{ steps.version.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ inputs.chain }}-${{ inputs.network }}\`" >> $GITHUB_STEP_SUMMARY
-          ${{ steps.version.outputs.is-develop == 'true' && echo '- `'${inputs.chain}'-standard`' >> $GITHUB_STEP_SUMMARY || true }}
+          if [[ "${{ steps.version.outputs.is-develop }}" == "true" ]]; then
+            echo "- \`${{ inputs.chain }}-standard\`" >> $GITHUB_STEP_SUMMARY
+          fi
