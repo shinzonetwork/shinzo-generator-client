@@ -361,9 +361,8 @@ func TestConvertTransaction(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	assert.Equal(t, tx.Hash().Hex(), localTx.Hash)
 	assert.Equal(t, gethBlock.Number().String(), localTx.BlockNumber)
 	assert.Equal(t, tx.To().Hex(), localTx.To)
@@ -377,9 +376,8 @@ func TestConvertTransaction_ContractCreation(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	assert.Equal(t, "", localTx.To)
 }
 
@@ -407,12 +405,11 @@ func TestConvertTransaction_EIP1559(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	assert.Equal(t, "2000000000", localTx.MaxFeePerGas)
 	assert.Equal(t, "1000000000", localTx.MaxPriorityFeePerGas)
-	assert.Equal(t, "1", localTx.ChainId)
+	assert.Equal(t, "1", localTx.ChainID)
 }
 
 func TestConvertTransaction_AccessList(t *testing.T) {
@@ -446,9 +443,8 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	assert.Len(t, localTx.AccessList, 1)
 	assert.Len(t, localTx.AccessList[0].StorageKeys, 2)
 }
@@ -642,7 +638,7 @@ func TestGetChainId_LegacyTx(t *testing.T) {
 	// Legacy transactions derive chain ID from signature; for unsigned legacy txs
 	// ChainId() returns a derived value, not nil
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
-	result := getChainId(tx)
+	result := getChainID(tx)
 	// Just verify it returns a non-empty string (the exact value depends on go-ethereum internals)
 	assert.NotEmpty(t, result)
 }
@@ -656,7 +652,7 @@ func TestGetChainId_Set(t *testing.T) {
 		Gas:       21000,
 	}
 	tx := ethtypes.NewTx(inner)
-	assert.Equal(t, "137", getChainId(tx))
+	assert.Equal(t, "137", getChainID(tx))
 }
 
 func TestGetContractAddress_Empty(t *testing.T) {
@@ -1255,8 +1251,7 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
-	require.NoError(t, err)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 	assert.Equal(t, expectedAddr.Hex(), localTx.From)
 	assert.Equal(t, "0", localTx.Type)
 }
@@ -1372,9 +1367,8 @@ func TestConvertTransaction_NilFromAddr(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	// Unsigned tx falls through to either zero address from error path or homestead recovery
 	assert.NotEmpty(t, localTx.From)
 }
@@ -1448,18 +1442,17 @@ func TestConvertTransaction_BlobTx(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
-	require.NoError(t, err)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 	assert.Equal(t, fmt.Sprintf("%d", ethtypes.BlobTxType), localTx.Type)
 	// BlobTx.GasPrice() returns GasFeeCap, same as default case
 	assert.NotEmpty(t, localTx.GasPrice)
 }
 
-// --- getChainId nil check ---
+// --- getChainID nil check ---
 
 func TestGetChainId_NilChainID(t *testing.T) {
 	t.Parallel()
-	// BlobTx with a nil ChainID field to test the nil check in getChainId.
+	// BlobTx with a nil ChainID field to test the nil check in getChainID.
 	// This is an edge case that shouldn't happen in practice, but the code guards against it.
 	// An unsigned BlobTx with ChainID left nil will still return non-nil from tx.ChainId()
 	// because go-ethereum returns new(big.Int) for nil. We test the normal path here
@@ -1476,7 +1469,7 @@ func TestGetChainId_NilChainID(t *testing.T) {
 		BlobHashes: []common.Hash{common.HexToHash("0x01")},
 	}
 	tx := ethtypes.NewTx(inner)
-	result := getChainId(tx)
+	result := getChainID(tx)
 	// ChainId() returns big.Int(0) which is "0"
 	assert.Equal(t, "0", result)
 }
@@ -1774,8 +1767,7 @@ func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
-	require.NoError(t, err)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 	// The error path sets fromAddr to zero address
 	assert.Equal(t, "0x0000000000000000000000000000000000000000", localTx.From)
 }

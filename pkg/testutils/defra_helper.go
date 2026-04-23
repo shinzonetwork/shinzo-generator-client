@@ -46,14 +46,15 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 		t.Fatalf("Failed to create DefraDB node: %v", err)
 	}
 
-	if err := defraNode.Start(ctx); err != nil {
+	err = defraNode.Start(ctx)
+	if err != nil {
 		t.Fatalf("Failed to start DefraDB node: %v", err)
 	}
 
 	// Apply schema
 	_, err = defraNode.DB.AddSchema(ctx, schema.GetSchema())
 	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
-		defraNode.Close(ctx)
+		_ = defraNode.Close(ctx)
 		t.Fatalf("Failed to apply schema: %v", err)
 	}
 
@@ -64,7 +65,7 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 	}
 
 	t.Cleanup(func() {
-		defraNode.Close(context.Background())
+		_ = defraNode.Close(context.Background())
 	})
 
 	return td
@@ -78,6 +79,6 @@ func getFreePort(t *testing.T) int {
 		t.Fatalf("Failed to get free port: %v", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
+	_ = listener.Close()
 	return port
 }

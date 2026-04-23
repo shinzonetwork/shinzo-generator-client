@@ -16,6 +16,8 @@ import (
 )
 
 // SnapshotSignatureData holds the cryptographic signature for a snapshot file.
+//
+//nolint:revive // name is intentionally descriptive; renaming would break external references
 type SnapshotSignatureData struct {
 	Version             int      `json:"version"`
 	SnapshotFile        string   `json:"snapshot_file"`
@@ -66,7 +68,7 @@ func ComputeSnapshotMerkleRoot(blockSigMerkleRoots [][]byte) []byte {
 
 // getBlockSigMerkleRoots queries DefraDB for block signature Merkle roots
 // in the given block range, returned sorted by blockNumber ASC.
-func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBlock, endBlock int64) ([][]byte, int, error) {
+func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBlock, endBlock int64) (roots [][]byte, count int, err error) {
 	query := fmt.Sprintf(
 		`query { %s(filter: {blockNumber: {_geq: %d, _leq: %d}}, order: {blockNumber: ASC}) { merkleRoot } }`,
 		constants.CollectionBlockSignature, startBlock, endBlock,
@@ -74,7 +76,7 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 
 	result := defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return nil, 0, fmt.Errorf("query block signatures: %v", result.GQL.Errors[0])
+		return nil, 0, fmt.Errorf("query block signatures: %w", result.GQL.Errors[0])
 	}
 
 	data, ok := result.GQL.Data.(map[string]any)
@@ -101,15 +103,15 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 		return nil, 0, nil
 	}
 
-	roots := make([][]byte, 0, len(docs))
+	roots = make([][]byte, 0, len(docs))
 	for _, doc := range docs {
 		mrStr, ok := doc["merkleRoot"].(string)
 		if !ok || mrStr == "" {
 			continue
 		}
-		mrBytes, err := hex.DecodeString(mrStr)
-		if err != nil {
-			logger.Sugar.Warnf("Snapshot signing: invalid merkleRoot hex %q: %v", mrStr, err)
+		mrBytes, hexErr := hex.DecodeString(mrStr)
+		if hexErr != nil {
+			logger.Sugar.Warnf("Snapshot signing: invalid merkleRoot hex %q: %v", mrStr, hexErr)
 			continue
 		}
 		roots = append(roots, mrBytes)
@@ -203,7 +205,7 @@ func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[str
 
 	result := defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return nil, fmt.Errorf("query snapshot signatures: %v", result.GQL.Errors[0])
+		return nil, fmt.Errorf("query snapshot signatures: %w", result.GQL.Errors[0])
 	}
 
 	data, ok := result.GQL.Data.(map[string]any)

@@ -4,6 +4,7 @@ import (
 	"context"
 	crypto_rand "crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -51,7 +52,7 @@ func TestCreateIndexer(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: "http://localhost:9181",
+			URL: "http://localhost:9181",
 		},
 		Indexer: config.IndexerConfig{
 			StartHeight: 100,
@@ -84,7 +85,7 @@ func TestCreateIndexerWithNilConfig(t *testing.T) {
 func TestIndexerStateManagement(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{Url: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -106,7 +107,7 @@ func TestIndexerStateManagement(t *testing.T) {
 func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{Url: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -122,7 +123,7 @@ func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
 func TestStopIndexing(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{Url: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -199,7 +200,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 				Nonce:            "1",
 				TransactionIndex: 0,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "12345",
 				S:                "67890",
@@ -209,7 +210,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: "http://localhost:9181",
+			URL: "http://localhost:9181",
 		},
 	}
 	indexer, err := CreateIndexer(cfg)
@@ -317,7 +318,7 @@ func TestIndexerConfigHandling(t *testing.T) {
 	// Test with custom config
 	customCfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: "http://localhost:8888",
+			URL: "http://localhost:8888",
 			Store: config.DefraDBStoreConfig{
 				Path: "/tmp/test_defra",
 			},
@@ -337,7 +338,7 @@ func TestIndexerConfigHandling(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, customCfg, indexer.cfg)
-	assert.Equal(t, "http://localhost:8888", indexer.cfg.DefraDB.Url)
+	assert.Equal(t, "http://localhost:8888", indexer.cfg.DefraDB.URL)
 	assert.Equal(t, 500, indexer.cfg.Indexer.StartHeight)
 }
 
@@ -433,7 +434,7 @@ func TestIndexerLifecycle(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: "http://localhost:9181",
+			URL: "http://localhost:9181",
 			Store: config.DefraDBStoreConfig{
 				Path: "/tmp/test_indexer",
 			},
@@ -474,7 +475,7 @@ func TestToAppConfig_ValidConfig(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url:           "http://localhost:9181",
+			URL:           "http://localhost:9181",
 			KeyringSecret: "test-secret-key",
 			P2P: config.DefraDBP2PConfig{
 				Enabled:             true,
@@ -544,7 +545,7 @@ func TestToAppConfig_ReturnsNewInstance(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: "http://localhost:9181",
+			URL: "http://localhost:9181",
 		},
 	}
 
@@ -562,7 +563,7 @@ func TestToAppConfig_ReturnType(t *testing.T) {
 	cfg := &config.Config{}
 	result := toAppConfig(cfg)
 	// Verify the result is the correct app-sdk type
-	var _ *appConfig.Config = result
+	var _ = result
 }
 
 // ---------------------------------------------------------------------------
@@ -1287,7 +1288,7 @@ func TestProcessBlockBatch_WithTransactions(t *testing.T) {
 				Nonce:            "1",
 				TransactionIndex: 0,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "0x1234",
 				S:                "0x5678",
@@ -1365,7 +1366,7 @@ func TestProcessBlockBatch_WithBlockReceipts(t *testing.T) {
 				Nonce:            "1",
 				TransactionIndex: 0,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "0x1234",
 				S:                "0x5678",
@@ -1811,7 +1812,7 @@ func TestStartIndexing_ExternalDefraDB_WaitFails(t *testing.T) {
 	// Point to a non-listening address so WaitForDefraDB fails
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: "http://127.0.0.1:1",
+			URL: "http://127.0.0.1:1",
 		},
 		Logger: config.LoggerConfig{Development: true},
 	}
@@ -1845,7 +1846,7 @@ func TestStartIndexing_ExternalDefraDB_SchemaApplyFails(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: defraServer.URL,
+			URL: defraServer.URL,
 		},
 		Logger: config.LoggerConfig{Development: true},
 	}
@@ -1879,7 +1880,7 @@ func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: defraServer.URL,
+			URL: defraServer.URL,
 		},
 		Logger: config.LoggerConfig{Development: true},
 	}
@@ -1949,7 +1950,7 @@ func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url:           "",
+			URL:           "",
 			KeyringSecret: "test-secret-for-keyring-12345678",
 			P2P: config.DefraDBP2PConfig{
 				Enabled: false,
@@ -2091,7 +2092,7 @@ func TestStartIndexing_Embedded_WithHealthServer(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url:           "http://localhost:9999", // Set Url so healthDefraURL uses config URL branch
+			URL:           "http://localhost:9999", // Set Url so healthDefraURL uses config URL branch
 			KeyringSecret: "test-secret-for-keyring-12345678",
 			P2P:           config.DefraDBP2PConfig{Enabled: false},
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
@@ -2311,7 +2312,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) 
 				Nonce:            "1",
 				TransactionIndex: 0,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "0x1234",
 				S:                "0x5678",
@@ -2996,7 +2997,7 @@ func TestProcessBlockBatch_ReceiptError(t *testing.T) {
 				Nonce:            "1",
 				TransactionIndex: 0,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "0x1234",
 				S:                "0x5678",
@@ -3371,7 +3372,7 @@ func TestStartIndexing_Embedded_SequentialLoop_NotFound(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					// This is GetLatestBlockNumber → always return valid header
 					return fullBlockResponse("0x186b1", nil), nil
 				}
@@ -3454,7 +3455,7 @@ func TestStartIndexing_Embedded_SequentialLoop_OtherError(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					// This is GetLatestBlockNumber → always return valid header
 					return fullBlockResponse("0x186b1", nil), nil
 				}
@@ -3623,9 +3624,9 @@ func TestFetchAndProcessBlock_ContextCancelDuringBatch(t *testing.T) {
 	result1 := p.fetchAndProcessBlock(context.Background(), 0xdead)
 	require.True(t, result1.Success)
 
-	// Second attempt with cancelled context — tests ctx.Err() check in retry loop
+	// Second attempt with canceled context — tests ctx.Err() check in retry loop
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // immediately cancelled
+	cancel() // immediately canceled
 
 	result2 := p.fetchAndProcessBlock(ctx, 0xdead)
 	require.NotNil(t, result2)
@@ -3897,7 +3898,7 @@ func TestStartIndexing_ExternalDefra(t *testing.T) {
 	// Create a config pointing to the test DefraDB as "external"
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url: fmt.Sprintf("http://localhost:%d", td.Port),
+			URL: fmt.Sprintf("http://localhost:%d", td.Port),
 		},
 		Geth: config.GethConfig{NodeURL: "http://localhost:9999"},
 		Indexer: config.IndexerConfig{
@@ -3937,7 +3938,7 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
@@ -4034,7 +4035,7 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
@@ -4129,7 +4130,7 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000
 				}
 			}
@@ -4207,7 +4208,7 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
@@ -4598,7 +4599,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail(t *testing.T) {
 }
 
 // TestFetchAndProcessBlock_ReceiptFallbackContextCancel tests receipt fallback
-// when context is cancelled during individual fetch.
+// when context is canceled during individual fetch.
 func TestFetchAndProcessBlock_ReceiptFallbackContextCancel(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
@@ -4640,7 +4641,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackContextCancel(t *testing.T) {
 	defer cancel()
 
 	result := processor.fetchAndProcessBlock(ctx, 100002)
-	// May succeed (block created without receipts) or fail (ctx cancelled during batch create)
+	// May succeed (block created without receipts) or fail (ctx canceled during batch create)
 	// The important thing is it doesn't hang
 	t.Logf("result: success=%v, error=%v", result.Success, result.Error)
 }
@@ -4787,9 +4788,9 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 		case <-deadline:
 			t.Fatalf("timed out waiting for indexer to start")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
+		case startErr := <-errCh:
+			if startErr != nil {
+				t.Fatalf("StartIndexing failed: %v", startErr)
 			}
 		}
 	}
@@ -4947,7 +4948,7 @@ func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// fetchAndProcessBlock — context cancelled during main dispatch loop
+// fetchAndProcessBlock — context canceled during main dispatch loop
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
@@ -5035,9 +5036,9 @@ func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
 		switch method {
 		case "eth_getBlockByNumber":
 			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
+			if unmarshalErr := json.Unmarshal(params, &rawParams); unmarshalErr == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186a0", nil), nil // 100000
 				}
 			}
@@ -5126,7 +5127,7 @@ func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x5", nil), nil // chain tip = 5
 				}
 			}
@@ -5208,7 +5209,7 @@ func TestStartIndexing_WithOpenBrowser(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186a0", nil), nil
 				}
 			}
@@ -5371,7 +5372,7 @@ func TestProcessBlockBatch_ReceiptFetchError(t *testing.T) {
 				Nonce:            "1",
 				TransactionIndex: 0,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "0x1234",
 				S:                "0x5678",
@@ -5542,7 +5543,7 @@ func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
 				Nonce:            "1",
 				TransactionIndex: 0,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "0x1111111111111111111111111111111111111111111111111111111111111111",
 				S:                "0x2222222222222222222222222222222222222222222222222222222222222222",
@@ -5648,7 +5649,7 @@ func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
 				Nonce:            "0",
 				TransactionIndex: 0,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "0x1111111111111111111111111111111111111111111111111111111111111111",
 				S:                "0x2222222222222222222222222222222222222222222222222222222222222222",
@@ -5664,7 +5665,7 @@ func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
 				Nonce:            "1",
 				TransactionIndex: 1,
 				Type:             "0",
-				ChainId:          "1",
+				ChainID:          "1",
 				V:                "27",
 				R:                "0x3333333333333333333333333333333333333333333333333333333333333333",
 				S:                "0x4444444444444444444444444444444444444444444444444444444444444444",
@@ -5794,9 +5795,9 @@ func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 		case <-deadline:
 			t.Fatalf("timed out waiting for indexer to start")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
+		case startErr := <-errCh:
+			if startErr != nil {
+				t.Fatalf("StartIndexing failed: %v", startErr)
 			}
 		}
 	}
@@ -5843,7 +5844,7 @@ func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
@@ -5885,7 +5886,7 @@ func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
 
 	// Note: StartIndexing uses context.Background() internally.
 	// The sequential loop's ctx.Done() path (line 343-345) only fires if the
-	// context used internally is cancelled. Since StartIndexing creates its
+	// context used internally is canceled. Since StartIndexing creates its
 	// own context.Background(), we can't cancel it from outside.
 	// However, we can test by letting the loop run and stopping via shouldIndex.
 
@@ -6112,7 +6113,7 @@ func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000
 				}
 			}
@@ -6180,7 +6181,7 @@ func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // StartIndexing — health server with empty DefraDB.Url (covers line 280-281)
-// When cfg.DefraDB.Url is empty, healthDefraURL falls through to defraNode port
+// When cfg.DefraDB.URL is empty, healthDefraURL falls through to defraNode port
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
@@ -6200,7 +6201,7 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186a0", nil), nil
 				}
 			}
@@ -6223,7 +6224,7 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url:           "", // Empty URL → health server uses defraNode port
+			URL:           "", // Empty URL → health server uses defraNode port
 			KeyringSecret: "test-secret-for-keyring-12345678",
 			P2P:           config.DefraDBP2PConfig{Enabled: false},
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
@@ -6293,9 +6294,9 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 		switch method {
 		case "eth_getBlockByNumber":
 			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
+			if unmarshalErr := json.Unmarshal(params, &rawParams); unmarshalErr == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186a0", nil), nil
 				}
 			}
@@ -6979,7 +6980,7 @@ func TestOpenBrowser_DarwinHappyPath(t *testing.T) {
 // fetchAndProcessBlock — ctx cancel during individual receipt semaphore wait
 // (covers concurrent_processor.go lines 272-273)
 // Uses receiptWorkers=1 with multiple transactions. The first tx's receipt
-// fetch holds the semaphore while ctx is cancelled, so the second tx hits
+// fetch holds the semaphore while ctx is canceled, so the second tx hits
 // the ctx.Done() branch at line 272.
 // ---------------------------------------------------------------------------
 
@@ -7033,7 +7034,7 @@ func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 	// Wait for the first receipt call to start (semaphore acquired)
 	select {
 	case <-firstReceiptCalled:
-		t.Log("First receipt call started, cancelling context")
+		t.Log("First receipt call started, canceling context")
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for first receipt call")
 	}
@@ -7077,7 +7078,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000
 				}
 			}
@@ -7134,9 +7135,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 		case <-deadline:
 			t.Fatalf("timed out waiting for phase 1 blocks")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing phase 1 failed: %v", err)
+		case startErr := <-errCh:
+			if startErr != nil {
+				t.Fatalf("StartIndexing phase 1 failed: %v", startErr)
 			}
 		}
 	}
@@ -7218,7 +7219,7 @@ func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return nil, fmt.Errorf("rpc connection refused")
 				}
 			}
@@ -7263,7 +7264,7 @@ func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 // fetchAndProcessBlock — transaction conflict with ctx cancel during retry wait
 // (covers concurrent_processor.go lines 332-334)
 // Strategy: Use two processors writing the same block concurrently to trigger
-// conflict, with one having a context that will be cancelled during retry.
+// conflict, with one having a context that will be canceled during retry.
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
@@ -7322,13 +7323,13 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 			successCount++
 		}
 		if r.Error != nil {
-			if r.Error == context.Canceled {
+			if errors.Is(r.Error, context.Canceled) {
 				cancelCount++
 			}
 			t.Logf("  Processor %d: success=%v, err=%v", i, r.Success, r.Error)
 		}
 	}
-	t.Logf("Results: %d success, %d conflicts, %d cancelled", successCount, conflictCount, cancelCount)
+	t.Logf("Results: %d success, %d conflicts, %d canceled", successCount, conflictCount, cancelCount)
 	// At least one should succeed
 	assert.GreaterOrEqual(t, successCount, 1, "at least one should succeed")
 }
@@ -7356,7 +7357,7 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186a0", nil), nil
 				}
 			}
@@ -7459,7 +7460,7 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *test
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
@@ -7553,7 +7554,7 @@ func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists_FromRPC(t *testing.
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if err := json.Unmarshal(rawParams[0], &blockParam); err == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
@@ -7675,9 +7676,9 @@ func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 		case <-deadline:
 			t.Fatalf("timed out waiting for indexer to start")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
+		case startErr := <-errCh:
+			if startErr != nil {
+				t.Fatalf("StartIndexing failed: %v", startErr)
 			}
 		}
 	}

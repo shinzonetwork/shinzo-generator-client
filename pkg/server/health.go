@@ -67,12 +67,14 @@ type P2PInfo struct {
 	PeerInfo []PeerInfo `json:"peers"`
 }
 
+// PeerInfo contains address and identity information for a DefraDB P2P peer.
 type PeerInfo struct {
 	ID        string   `json:"id"`
 	Addresses []string `json:"addresses"`
 	PublicKey string   `json:"public_key,omitempty"`
 }
 
+// DisplayRegistration holds the signed registration data for an indexer node.
 type DisplayRegistration struct {
 	Enabled             bool                `json:"enabled"`
 	Message             string              `json:"message"`
@@ -80,11 +82,13 @@ type DisplayRegistration struct {
 	PeerIDRegistration  PeerIDRegistration  `json:"peer_id_registration,omitempty"`
 }
 
+// DefraPKRegistration holds the public key and signed message for DefraDB PK registration.
 type DefraPKRegistration struct {
 	PublicKey   string `json:"public_key,omitempty"`
 	SignedPKMsg string `json:"signed_pk_message,omitempty"`
 }
 
+// PeerIDRegistration holds the peer ID and signed message for P2P peer registration.
 type PeerIDRegistration struct {
 	PeerID        string `json:"peer_id,omitempty"`
 	SignedPeerMsg string `json:"signed_peer_message,omitempty"`
@@ -186,7 +190,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		htmlContent := hs.getHealthStatusPageHTML()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write(htmlContent)
+		_, _ = w.Write(htmlContent)
 		return
 	}
 	// Serve JSON response
@@ -213,7 +217,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	if response.Status == "unhealthy" {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // getRegistrationData returns the signed registration data for the indexer
@@ -295,7 +299,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // registrationAppHandler redirects to the registration app with registration data as query params
@@ -336,7 +340,7 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // rootHandler handles root requests
@@ -361,7 +365,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // snapshotListEntry extends SnapshotInfo with inline signature data.
@@ -405,7 +409,7 @@ func (hs *HealthServer) snapshotsListHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"snapshots": entries,
 		"count":     len(entries),
 	})
@@ -440,7 +444,7 @@ func (hs *HealthServer) snapshotDownloadHandler(w http.ResponseWriter, r *http.R
 		http.Error(w, "Failed to open file", http.StatusInternalServerError)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	stat, err := f.Stat()
 	if err != nil {
@@ -492,7 +496,7 @@ func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":  err.Error(),
 			"result": result,
 		})
@@ -500,7 +504,7 @@ func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status": "ok",
 		"result": result,
 	})
@@ -521,7 +525,7 @@ func (hs *HealthServer) checkDefraDB() bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest // GraphQL endpoint returns 400 for GET
 }

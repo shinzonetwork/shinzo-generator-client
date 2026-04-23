@@ -188,30 +188,18 @@ func waitForAnyBlock(timeout time.Duration) bool {
 	return false
 }
 
-// testLiveDefraDBConnection tests if DefraDB is responding
-func testLiveDefraDBConnection() bool {
-	if liveDefraURL == "" {
-		return false
-	}
-	resp, err := http.Get(liveDefraURL + "/api/v0/schema")
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == 200
-}
-
-// waitForLiveBlocks waits for live blocks to be indexed
-func waitForLiveBlocks(timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if hasLiveBlocks() {
-			return true
-		}
-		time.Sleep(5 * time.Second) // Check every 5 seconds for live data
-	}
-	return false
-}
+// // testLiveDefraDBConnection tests if DefraDB is responding
+// func testLiveDefraDBConnection() bool {
+// 	if liveDefraURL == "" {
+// 		return false
+// 	}
+// 	resp, err := http.Get(liveDefraURL + "/api/v0/schema")
+// 	if err != nil {
+// 		return false
+// 	}
+// 	defer resp.Body.Close()
+// 	return resp.StatusCode == 200
+// }
 
 // hasLiveBlocks checks if any blocks have been indexed from live Ethereum
 func hasLiveBlocks() bool {
@@ -245,7 +233,7 @@ func hasLiveBlocks() bool {
 
 // TestLiveEthereumConnection tests that the indexer can connect to real Ethereum
 func TestLiveEthereumConnection(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
@@ -262,7 +250,7 @@ t.Parallel()
 
 // TestLiveGetLatestBlocks tests querying latest blocks from live data
 func TestLiveGetLatestBlocks(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
@@ -310,7 +298,7 @@ t.Parallel()
 
 // TestLiveGetTransactions tests querying transactions from live data
 func TestLiveGetTransactions(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
@@ -361,7 +349,7 @@ t.Parallel()
 
 // TestLiveBlockTransactionRelationship tests the relationship between blocks and transactions in live data
 func TestLiveBlockTransactionRelationship(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
@@ -420,7 +408,7 @@ t.Parallel()
 
 // TestLiveIndexerPerformance tests the performance of live indexing
 func TestLiveIndexerPerformance(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}

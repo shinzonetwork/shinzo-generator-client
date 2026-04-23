@@ -1521,7 +1521,7 @@ func testTransaction(seed, blockNumber string) *types.Transaction {
 		Nonce:             "1",
 		TransactionIndex:  0,
 		Type:              "0",
-		ChainId:           "1",
+		ChainID:           "1",
 		V:                 "27",
 		R:                 "0x0000000000000000000000000000000000000000000000000000000000000001",
 		S:                 "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -1650,7 +1650,7 @@ func TestGetBlockNumber_NonSequentialBlocks(t *testing.T) {
 	for _, num := range []int64{10, 50, 30} {
 		hexNum := fmt.Sprintf("0x%x", num)
 		block := testBlock(hexNum)
-		_, err := handler.CreateBlockBatch(ctx, block, nil, nil)
+		_, err = handler.CreateBlockBatch(ctx, block, nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -2751,7 +2751,7 @@ func TestExtractBlockSigMerkleRoots_TruncatedGzipCausesReaderErr(t *testing.T) {
 			"type": "block_signature",
 			"data": map[string]any{"merkleRoot": hex.EncodeToString(bytes.Repeat([]byte{byte(i)}, 32))},
 		})
-		_, err := gw.Write([]byte(line + "\n"))
+		_, err = gw.Write([]byte(line + "\n"))
 		require.NoError(t, err)
 	}
 	require.NoError(t, gw.Close())
@@ -3801,7 +3801,7 @@ func TestLoop_ErrorLogging(t *testing.T) {
 // ---------------------------------------------------------------------------
 // createKVSnapshot: cleanup defer path (committed=false after os.Create succeeds)
 // The defer runs when createKVSnapshot fails AFTER creating the temp file.
-// We can trigger this by having queryDocIDs fail (e.g., cancelled context).
+// We can trigger this by having queryDocIDs fail (e.g., canceled context).
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_CleanupDeferOnError(t *testing.T) {
@@ -3814,12 +3814,12 @@ func TestCreateKVSnapshot_CleanupDeferOnError(t *testing.T) {
 	s := New(cfg, td.Node)
 	s.ctx = context.Background()
 
-	// Use a cancelled context to make the GQL query fail
+	// Use a canceled context to make the GQL query fail
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
 	err := s.createKVSnapshot(ctx, 100, 102)
-	// With a cancelled context, the GQL query or KV export should fail.
+	// With a canceled context, the GQL query or KV export should fail.
 	// The defer should clean up the temp file.
 	if err != nil {
 		// Verify no temp file left behind
@@ -4591,7 +4591,7 @@ func TestQueryDocIDs_WithIdentityBlocks(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getBlockNumber: cancelled context → GQL error (line 291-293)
+// getBlockNumber: canceled context → GQL error (line 291-293)
 // ---------------------------------------------------------------------------
 
 func TestGetBlockNumber_ClosedNode(t *testing.T) {
@@ -4646,7 +4646,7 @@ func TestQueryDocIDs_InvalidCollection(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// createKVSnapshot: ExportDocKVs error via cancelled context
+// createKVSnapshot: ExportDocKVs error via canceled context
 // (kv_snapshot.go error paths in export)
 // ---------------------------------------------------------------------------
 

@@ -64,7 +64,7 @@ func mockTransaction(hash string, blockNumber string) *types.Transaction {
 		Nonce:             "1",
 		TransactionIndex:  0,
 		Type:              "0",
-		ChainId:           "1",
+		ChainID:           "1",
 		V:                 "27",
 		R:                 "0x0000000000000000000000000000000000000000000000000000000000000001",
 		S:                 "0x0000000000000000000000000000000000000000000000000000000000000001",

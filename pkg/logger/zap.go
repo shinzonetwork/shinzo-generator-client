@@ -1,6 +1,7 @@
 package logger
 
 import (
+	stderrors "errors"
 	"os"
 	"path/filepath"
 
@@ -10,6 +11,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// Sugar is the global sugared logger instance.
 var Sugar *zap.SugaredLogger
 
 // Custom log levels for different contexts
@@ -67,7 +69,7 @@ func Init(development bool) {
 	initLogger(development, true)
 }
 
-func initLogger(development bool, enableFiles bool) {
+func initLogger(development, enableFiles bool) {
 	var zapLevel zapcore.Level
 	if development {
 		zapLevel = TestLevel // Show TEST level and above in development mode
@@ -89,19 +91,19 @@ func initLogger(development bool, enableFiles bool) {
 	// Only create log files if enabled
 	if enableFiles {
 		logsDir := "logs"
-		if err := os.MkdirAll(logsDir, 0755); err == nil {
+		if err := os.MkdirAll(logsDir, 0o755); err == nil {
 			// Directory exists or was created successfully
 			logFile := filepath.Join(logsDir, "logfile.log")
 			errorFile := filepath.Join(logsDir, "errorfile.log")
 
 			// Create file writer for all logs
-			if logFileWriter, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err == nil {
+			if logFileWriter, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666); err == nil {
 				// Core for all logs to logfile
 				logFileCore := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), zapcore.AddSync(logFileWriter), zapLevel)
 				cores = append(cores, logFileCore)
 
 				// Create file writer for errors only
-				if errorFileWriter, err := os.OpenFile(errorFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666); err == nil {
+				if errorFileWriter, err := os.OpenFile(errorFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666); err == nil {
 					// Core for ERROR level logs only to errorfile
 					errorCore := zapcore.NewCore(
 						zapcore.NewConsoleEncoder(encoderConfig),
@@ -121,9 +123,10 @@ func initLogger(development bool, enableFiles bool) {
 	Sugar = logger.Sugar()
 }
 
-// New helper function for error logging
+// LogError logs an error with structured fields based on its type.
 func LogError(err error, message string, fields ...zap.Field) {
-	if indexerErr, ok := err.(errors.IndexerError); ok {
+	var indexerErr errors.IndexerError
+	if stderrors.As(err, &indexerErr) {
 		ctx := indexerErr.Context()
 		allFields := []zap.Field{
 			zap.String("error_code", indexerErr.Code()),
@@ -159,7 +162,7 @@ func LogError(err error, message string, fields ...zap.Field) {
 		}
 	} else {
 		// For non-IndexerError, use non-sugared logger with fields
-		logFields := append(fields, zap.Error(err))
-		Sugar.Desugar().Error(message, logFields...)
+		fields = append(fields, zap.Error(err))
+		Sugar.Desugar().Error(message, fields...)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,7 +22,7 @@ import (
 )
 
 func TestTruncateID(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Run("empty string returns empty", func(t *testing.T) {
 		result := truncateID("")
 		assert.Equal(t, "", result)
@@ -48,7 +49,7 @@ t.Parallel()
 }
 
 func TestVerifySnapshots(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Run("no args returns usage error", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		err := verifySnapshots(nil, &stdout, &stderr)
@@ -135,7 +136,7 @@ t.Parallel()
 }
 
 func TestRun(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
 		err := run([]string{"verify"})
 		require.Error(t, err)
@@ -387,7 +388,7 @@ func computeMerkleRoot(roots [][]byte) []byte {
 }
 
 func TestVerifySnapshots_ValidSnapshot(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate an Ed25519 key pair for signing
@@ -443,7 +444,7 @@ t.Parallel()
 }
 
 func TestVerifySnapshots_MerkleRootMismatch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a snapshot with known block sig merkle roots
@@ -480,7 +481,7 @@ t.Parallel()
 }
 
 func TestVerifySnapshots_AllValid_ReturnsNil(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate an Ed25519 key pair
@@ -541,8 +542,8 @@ func TestMain_ErrorExitsNonZero(t *testing.T) {
 
 	// Expect a non-zero exit code
 	require.Error(t, err, "expected non-zero exit code from main() on error")
-	exitErr, ok := err.(*exec.ExitError)
-	require.True(t, ok, "expected *exec.ExitError, got %T", err)
+	var exitErr *exec.ExitError
+	require.True(t, stderrors.As(err, &exitErr), "expected *exec.ExitError, got %T", err)
 	assert.NotEqual(t, 0, exitErr.ExitCode())
 	// The error message should be written to stderr
 	assert.Contains(t, stderr.String(), "failed to load config")

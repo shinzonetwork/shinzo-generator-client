@@ -1,6 +1,7 @@
 package utils
 
 import (
+	stderrors "errors"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
@@ -82,10 +83,7 @@ func TestHexToInt(t *testing.T) {
 				if errors.IsDataError(err) == false && err != nil {
 					// For empty string, the underlying is nil so it's still a DataError
 					var indexerErr errors.IndexerError
-					if ie, ok := err.(errors.IndexerError); ok {
-						indexerErr = ie
-					}
-					if indexerErr != nil && indexerErr.Code() != "INVALID_HEX" {
+					if stderrors.As(err, &indexerErr) && indexerErr.Code() != "INVALID_HEX" {
 						t.Errorf("expected INVALID_HEX error code, got %q", indexerErr.Code())
 					}
 				}

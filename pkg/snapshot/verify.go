@@ -131,7 +131,7 @@ func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open snapshot: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var reader *bufio.Scanner
 	if strings.HasSuffix(snapshotPath, ".gz") {
@@ -139,7 +139,7 @@ func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("gzip reader: %w", err)
 		}
-		defer gr.Close()
+		defer func() { _ = gr.Close() }()
 		reader = bufio.NewScanner(gr)
 	} else {
 		reader = bufio.NewScanner(f)

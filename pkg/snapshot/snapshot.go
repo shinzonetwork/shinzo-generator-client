@@ -42,6 +42,8 @@ func (c *Config) SetDefaults() {
 }
 
 // SnapshotInfo describes a snapshot file on disk.
+//
+//nolint:revive // name is intentionally descriptive; renaming would break external references
 type SnapshotInfo struct {
 	Filename   string    `json:"filename"`
 	StartBlock int64     `json:"start_block"`
@@ -81,7 +83,7 @@ func New(cfg *Config, defraNode *node.Node) *Snapshotter {
 
 // Start begins the background snapshot loop.
 func (s *Snapshotter) Start(ctx context.Context) error {
-	if err := os.MkdirAll(s.cfg.Dir, 0755); err != nil {
+	if err := os.MkdirAll(s.cfg.Dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create snapshot directory: %w", err)
 	}
 

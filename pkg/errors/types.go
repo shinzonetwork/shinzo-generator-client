@@ -109,7 +109,7 @@ type baseError struct {
 	severity   Severity
 	retryable  RetryBehavior
 	context    ErrorContext
-	input_data string
+	inputData string
 	underlying error
 }
 

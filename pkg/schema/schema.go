@@ -8,6 +8,7 @@ import (
 )
 
 //go:embed schema.graphql
+// SchemaGraphQL contains the embedded GraphQL schema definition from schema.graphql.
 var SchemaGraphQL string
 
 // GetSchema returns the GraphQL schema found in `schema.graphql` as a string.

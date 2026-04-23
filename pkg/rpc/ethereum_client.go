@@ -57,7 +57,8 @@ func NewEthereumClient(httpNodeURL, wsURL, apiKey, apiKeyHeader string) (*Ethere
 		if apiKey != "" {
 			logger.Sugar.Infof("Creating HTTP client with API key authentication for %s", httpNodeURL)
 			// Create RPC client with custom headers for API key authentication using modern approach
-			rpcClient, err := ethrpc.DialOptions(context.Background(), httpNodeURL, ethrpc.WithHTTPClient(&http.Client{
+			var rpcClient *ethrpc.Client
+			rpcClient, err = ethrpc.DialOptions(context.Background(), httpNodeURL, ethrpc.WithHTTPClient(&http.Client{
 				Transport: &apiKeyTransport{
 					apiKey:       apiKey,
 					apiKeyHeader: apiKeyHeader,
@@ -375,13 +376,7 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 	transactions := make([]types.Transaction, 0, len(gethBlock.Transactions()))
 
 	for i, tx := range gethBlock.Transactions() {
-		// Skip transaction conversion if it fails (continue with others)
-		localTx, err := c.convertTransaction(tx, gethBlock, i)
-		if err != nil {
-			logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), err)
-			continue
-		}
-
+		localTx := c.convertTransaction(tx, gethBlock, i)
 		transactions = append(transactions, *localTx)
 	}
 
@@ -418,17 +413,18 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 }
 
 // convertTransaction safely converts a single transaction
-func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock *ethtypes.Block, index int) (*types.Transaction, error) {
+func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock *ethtypes.Block, index int) *types.Transaction {
 	// Get transaction details with error handling
-	fromAddr, err := GetFromAddress(tx)
+	fromAddr, fromErr := GetFromAddress(tx)
 	var fromAddrStr string
-	if err != nil {
+	switch {
+	case fromErr != nil:
 		// For unsigned transactions or other errors, use zero address
-		logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), err)
+		logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), fromErr)
 		fromAddrStr = ZeroAddress
-	} else if fromAddr != nil {
+	case fromAddr != nil:
 		fromAddrStr = fromAddr.Hex()
-	} else {
+	default:
 		fromAddrStr = ZeroAddress
 	}
 	toAddr := getToAddress(tx)
@@ -481,7 +477,7 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		Nonce:                fmt.Sprintf("%d", tx.Nonce()),            // string
 		TransactionIndex:     index,                                    // int
 		Type:                 fmt.Sprintf("%d", tx.Type()),             // string
-		ChainId:              getChainId(tx),                           // string
+		ChainID:              getChainID(tx),                           // string
 		AccessList:           accessList,                               // []accessListEntry
 		V:                    v.String(),                               // string
 		R:                    r.String(),                               // string
@@ -489,15 +485,15 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		Status:               true,                                     // Default to true, will be updated from receipt
 	}
 
-	return &localTx, nil
+	return &localTx
 }
 
-// Helper functions for transaction conversion
+// GetFromAddress recovers the sender address from a transaction.
 func GetFromAddress(tx *ethtypes.Transaction) (*common.Address, error) {
-	chainId := tx.ChainId()
+	chainID := tx.ChainId()
 
 	// Handle pre-EIP-155 transactions (before block 2,675,000)
-	if chainId == nil || chainId.Sign() <= 0 {
+	if chainID == nil || chainID.Sign() <= 0 {
 		// Use HomesteadSigner for pre-EIP-155 transactions
 		homesteadSigner := ethtypes.HomesteadSigner{}
 		if from, err := ethtypes.Sender(homesteadSigner, tx); err == nil {
@@ -515,9 +511,9 @@ func GetFromAddress(tx *ethtypes.Transaction) (*common.Address, error) {
 
 	// Try different signers to handle various transaction types (post-EIP-155)
 	signers := []ethtypes.Signer{
-		ethtypes.LatestSignerForChainID(chainId),
-		ethtypes.NewEIP155Signer(chainId),
-		ethtypes.NewLondonSigner(chainId),
+		ethtypes.LatestSignerForChainID(chainID),
+		ethtypes.NewEIP155Signer(chainID),
+		ethtypes.NewLondonSigner(chainID),
 	}
 
 	for _, signer := range signers {
@@ -560,8 +556,8 @@ func getMaxPriorityFeePerGas(tx *ethtypes.Transaction) string {
 	return ""
 }
 
-// getChainId extracts chain ID from transaction
-func getChainId(tx *ethtypes.Transaction) string {
+// getChainID extracts chain ID from transaction
+func getChainID(tx *ethtypes.Transaction) string {
 	if tx.ChainId() == nil {
 		return ""
 	}

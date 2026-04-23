@@ -42,9 +42,9 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 	committed := false
 	defer func() {
 		if !committed {
-			gw.Close()
-			f.Close()
-			os.Remove(tmpPath)
+			_ = gw.Close()
+			_ = f.Close()
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
@@ -122,14 +122,14 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 		return err
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
 	// Atomic rename — past this point, cleanup should not remove the file
 	committed = true
 	if err := os.Rename(tmpPath, filePath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
@@ -160,7 +160,7 @@ func (s *Snapshotter) queryDocIDs(ctx context.Context, collection, blockField st
 
 		result := s.defraNode.DB.ExecRequest(ctx, query)
 		if len(result.GQL.Errors) > 0 {
-			return nil, fmt.Errorf("query %s [%d-%d]: %v", collection, chunkStart, chunkEnd, result.GQL.Errors[0])
+			return nil, fmt.Errorf("query %s [%d-%d]: %w", collection, chunkStart, chunkEnd, result.GQL.Errors[0])
 		}
 
 		data, ok := result.GQL.Data.(map[string]any)

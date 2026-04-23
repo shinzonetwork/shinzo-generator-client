@@ -262,10 +262,10 @@ func TestTruncate(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GetPortFromUrl tests
+// GetPortFromURL tests
 // ---------------------------------------------------------------------------
 
-func TestGetPortFromUrl(t *testing.T) {
+func TestGetPortFromURL(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -288,9 +288,9 @@ func TestGetPortFromUrl(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GetPortFromUrl(tt.url)
+			result := GetPortFromURL(tt.url)
 			assert.Equal(t, tt.expected, result,
-				"GetPortFromUrl(%q) = %d, want %d", tt.url, result, tt.expected)
+				"GetPortFromURL(%q) = %d, want %d", tt.url, result, tt.expected)
 		})
 	}
 }
@@ -512,21 +512,21 @@ func TestMockDocIDTracker_TrackBlock(t *testing.T) {
 	assert.Equal(t, int64(101), tracker.trackedBlocks[1])
 }
 
-// --- GetPortFromUrl edge cases ---
+// --- GetPortFromURL edge cases ---
 
-func TestGetPortFromUrl_NoColons(t *testing.T) {
+func TestGetPortFromURL_NoColons(t *testing.T) {
 	t.Parallel()
 	// URL with no colons at all → fewer than 2 parts
-	assert.Equal(t, -1, GetPortFromUrl("localhost"))
+	assert.Equal(t, -1, GetPortFromURL("localhost"))
 }
 
-func TestGetPortFromUrl_NonNumericPort(t *testing.T) {
+func TestGetPortFromURL_NonNumericPort(t *testing.T) {
 	t.Parallel()
 	// URL with non-numeric port → Atoi fails
-	assert.Equal(t, -1, GetPortFromUrl("http://127.0.0.1:abc"))
+	assert.Equal(t, -1, GetPortFromURL("http://127.0.0.1:abc"))
 }
 
-func TestGetPortFromUrl_LocalhostNonNumericPort(t *testing.T) {
+func TestGetPortFromURL_LocalhostNonNumericPort(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, -1, GetPortFromUrl("http://localhost:notaport"))
+	assert.Equal(t, -1, GetPortFromURL("http://localhost:notaport"))
 }

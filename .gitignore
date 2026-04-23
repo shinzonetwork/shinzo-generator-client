@@ -27,6 +27,8 @@ go.work.sum
 .defra/
 .defra2/
 
+.claude/
+
 .vscode
 .idea
 

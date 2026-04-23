@@ -41,7 +41,7 @@ func CreateMockServer(config MockServerConfig) *httptest.Server {
 
 		w.WriteHeader(config.StatusCode)
 
-		w.Write([]byte(config.ResponseBody))
+		_, _ = w.Write([]byte(config.ResponseBody))
 	}))
 }
 

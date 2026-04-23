@@ -105,7 +105,7 @@ func TestBaseError_Accessors(t *testing.T) {
 	if e.Context().Operation != "TestOp" {
 		t.Errorf("Context().Operation = %q, want %q", e.Context().Operation, "TestOp")
 	}
-	if e.Unwrap() != underlying {
+	if e.Unwrap() != underlying { //nolint:errorlint
 		t.Errorf("Unwrap() = %v, want %v", e.Unwrap(), underlying)
 	}
 }

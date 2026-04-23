@@ -25,29 +25,29 @@ func ImportKV(ctx context.Context, defraNode *node.Node, filePath string) (*Impo
 	if err != nil {
 		return nil, fmt.Errorf("open snapshot: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
 		return nil, fmt.Errorf("gzip reader: %w", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	// Read header (length-prefixed JSON)
 	var lenBuf [4]byte
-	if _, err := io.ReadFull(gr, lenBuf[:]); err != nil {
-		return nil, fmt.Errorf("read header length: %w", err)
+	if _, readErr := io.ReadFull(gr, lenBuf[:]); readErr != nil {
+		return nil, fmt.Errorf("read header length: %w", readErr)
 	}
 	headerLen := binary.BigEndian.Uint32(lenBuf[:])
 
 	headerBytes := make([]byte, headerLen)
-	if _, err := io.ReadFull(gr, headerBytes); err != nil {
-		return nil, fmt.Errorf("read header: %w", err)
+	if _, readErr := io.ReadFull(gr, headerBytes); readErr != nil {
+		return nil, fmt.Errorf("read header: %w", readErr)
 	}
 
 	var header kvSnapshotHeader
-	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return nil, fmt.Errorf("parse header: %w", err)
+	if unmarshalErr := json.Unmarshal(headerBytes, &header); unmarshalErr != nil {
+		return nil, fmt.Errorf("parse header: %w", unmarshalErr)
 	}
 
 	if header.Magic != "DFKV" {

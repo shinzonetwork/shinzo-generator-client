@@ -60,13 +60,13 @@ func WaitForDefraDB(url string) error {
 
 		// Check if response is successful
 		if resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			fmt.Println("Defra is responsive!")
 			return nil
 		}
 		fmt.Printf("Attempt %d failed... Trying again\n", attempt)
 
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		time.Sleep(DefraDBReadyRetryDelay)
 	}
 

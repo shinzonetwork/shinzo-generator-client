@@ -94,7 +94,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestGraphQLConnection(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.Test("Testing GraphQL connection")
 	resp, err := http.Post(graphqlURL, "application/json", bytes.NewBuffer([]byte(`{"query":"query { __typename }"}`)))
 	if err != nil {
@@ -224,12 +224,12 @@ func insertMockData() error {
 	// Execute Block 1 creation and extract DocID
 	jsonData, err := json.Marshal(block1Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal block1 mutation: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	resp, err := http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("block1 creation failed: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 	defer resp.Body.Close()
 
@@ -240,12 +240,12 @@ func insertMockData() error {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read block1 response: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	var block1Resp map[string]any
-	if err := json.Unmarshal(body, &block1Resp); err != nil {
-		return fmt.Errorf("failed to parse block1 response: %v", err)
+	if err = json.Unmarshal(body, &block1Resp); err != nil {
+		return fmt.Errorf(\1%w", err)
 	}
 
 	if errors, hasErrors := block1Resp["errors"]; hasErrors {
@@ -298,28 +298,28 @@ func insertMockData() error {
 	// Execute Block 2 creation and extract DocID
 	jsonData, err = json.Marshal(block2Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal block2 mutation: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("block2 creation failed: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ = io.ReadAll(resp.Body)
 		return fmt.Errorf("block2 creation failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read block2 response: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	var block2Resp map[string]any
-	if err := json.Unmarshal(body, &block2Resp); err != nil {
-		return fmt.Errorf("failed to parse block2 response: %v", err)
+	if err = json.Unmarshal(body, &block2Resp); err != nil {
+		return fmt.Errorf(\1%w", err)
 	}
 
 	if errors, hasErrors := block2Resp["errors"]; hasErrors {
@@ -373,28 +373,28 @@ func insertMockData() error {
 	// Execute Transaction 1 creation
 	jsonData, err = json.Marshal(tx1Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal tx1 mutation: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("tx1 creation failed: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ = io.ReadAll(resp.Body)
 		return fmt.Errorf("tx1 creation failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read tx1 response: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	var tx1Resp map[string]any
-	if err := json.Unmarshal(body, &tx1Resp); err != nil {
-		return fmt.Errorf("failed to parse tx1 response: %v", err)
+	if err = json.Unmarshal(body, &tx1Resp); err != nil {
+		return fmt.Errorf(\1%w", err)
 	}
 
 	if errors, hasErrors := tx1Resp["errors"]; hasErrors {
@@ -448,28 +448,28 @@ func insertMockData() error {
 	// Execute Transaction 2 creation
 	jsonData, err = json.Marshal(tx2Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal tx2 mutation: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("tx2 creation failed: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ = io.ReadAll(resp.Body)
 		return fmt.Errorf("tx2 creation failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read tx2 response: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	var tx2Resp map[string]any
-	if err := json.Unmarshal(body, &tx2Resp); err != nil {
-		return fmt.Errorf("failed to parse tx2 response: %v", err)
+	if err = json.Unmarshal(body, &tx2Resp); err != nil {
+		return fmt.Errorf(\1%w", err)
 	}
 
 	if errors, hasErrors := tx2Resp["errors"]; hasErrors {
@@ -514,28 +514,28 @@ func insertMockData() error {
 	// Execute Log 1 creation
 	jsonData, err = json.Marshal(log1Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal log1 mutation: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("log1 creation failed: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ = io.ReadAll(resp.Body)
 		return fmt.Errorf("log1 creation failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read log1 response: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	var log1Resp map[string]any
-	if err := json.Unmarshal(body, &log1Resp); err != nil {
-		return fmt.Errorf("failed to parse log1 response: %v", err)
+	if err = json.Unmarshal(body, &log1Resp); err != nil {
+		return fmt.Errorf(\1%w", err)
 	}
 
 	if errors, hasErrors := log1Resp["errors"]; hasErrors {
@@ -570,28 +570,28 @@ func insertMockData() error {
 	// Execute Log 2 creation
 	jsonData, err = json.Marshal(log2Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal log2 mutation: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("log2 creation failed: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ = io.ReadAll(resp.Body)
 		return fmt.Errorf("log2 creation failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read log2 response: %v", err)
+		return fmt.Errorf(\1%w", err)
 	}
 
 	var log2Resp map[string]any
-	if err := json.Unmarshal(body, &log2Resp); err != nil {
-		return fmt.Errorf("failed to parse log2 response: %v", err)
+	if err = json.Unmarshal(body, &log2Resp); err != nil {
+		return fmt.Errorf(\1%w", err)
 	}
 
 	if errors, hasErrors := log2Resp["errors"]; hasErrors {

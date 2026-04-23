@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB
@@ -43,7 +44,7 @@ type DefraDBStoreConfig struct {
 
 // DefraDBConfig represents DefraDB configuration
 type DefraDBConfig struct {
-	Url           string             `yaml:"url"`
+	URL           string             `yaml:"url"`
 	KeyringSecret string             `yaml:"keyring_secret"`
 	Embedded      bool               `yaml:"embedded"`
 	P2P           DefraDBP2PConfig   `yaml:"p2p"`
@@ -52,7 +53,7 @@ type DefraDBConfig struct {
 
 // Host returns the DefraDB host URL for backward compatibility
 func (d *DefraDBConfig) Host() string {
-	return d.Url
+	return d.URL
 }
 
 // ChainConfig represents the EVM chain being indexed
@@ -164,8 +165,8 @@ func validateConfig(cfg *Config) error {
 	}
 
 	// When using an external DefraDB instance (embedded=false), a URL is required.
-	// Embedded DefraDB can run on a random port when Url is empty.
-	if !cfg.DefraDB.Embedded && strings.TrimSpace(cfg.DefraDB.Url) == "" {
+	// Embedded DefraDB can run on a random port when URL is empty.
+	if !cfg.DefraDB.Embedded && strings.TrimSpace(cfg.DefraDB.URL) == "" {
 		return fmt.Errorf("external DefraDB requires a non-empty url")
 	}
 	return nil
@@ -174,13 +175,13 @@ func validateConfig(cfg *Config) error {
 // applyEnvOverrides applies environment variable overrides to configuration
 func applyEnvOverrides(cfg *Config) {
 	// DefraDB configuration
-	if defraUrl := os.Getenv("DEFRADB_URL"); defraUrl != "" {
-		cfg.DefraDB.Url = defraUrl
+	if defraURL := os.Getenv("DEFRADB_URL"); defraURL != "" {
+		cfg.DefraDB.URL = defraURL
 	} else if host := os.Getenv("DEFRADB_HOST"); host != "" {
 		if port := os.Getenv("DEFRADB_PORT"); port != "" {
-			cfg.DefraDB.Url = fmt.Sprintf("http://%s:%s", host, port)
+			cfg.DefraDB.URL = fmt.Sprintf("http://%s:%s", host, port)
 		} else {
-			cfg.DefraDB.Url = fmt.Sprintf("http://%s:9181", host)
+			cfg.DefraDB.URL = fmt.Sprintf("http://%s:9181", host)
 		}
 	}
 
@@ -251,16 +252,16 @@ func applyEnvOverrides(cfg *Config) {
 	}
 
 	// Geth configuration
-	if gethRpcUrl := os.Getenv("GETH_RPC_URL"); gethRpcUrl != "" {
-		cfg.Geth.NodeURL = gethRpcUrl
+	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
+		cfg.Geth.NodeURL = gethRPCURL
 	}
 
-	if gethWsUrl := os.Getenv("GETH_WS_URL"); gethWsUrl != "" {
-		cfg.Geth.WsURL = gethWsUrl
+	if gethWsURL := os.Getenv("GETH_WS_URL"); gethWsURL != "" {
+		cfg.Geth.WsURL = gethWsURL
 	}
 
-	if gethApiKey := os.Getenv("GETH_API_KEY"); gethApiKey != "" {
-		cfg.Geth.APIKey = gethApiKey
+	if gethAPIKey := os.Getenv("GETH_API_KEY"); gethAPIKey != "" {
+		cfg.Geth.APIKey = gethAPIKey
 	}
 
 	// Indexer configuration
