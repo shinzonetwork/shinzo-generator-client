@@ -335,8 +335,21 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 	}
 
+	// Start pruner if enabled
 	if cfg.Pruner.Enabled && i.defraNode != nil {
-		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode)
+		// Configure pruner with the block collection and its dependent collections (signatures, logs, etc.)
+		// this is required to override the pruner's default collection names and ensure it prunes all relevant documents for a block when pruning by block number.
+		prunerCollections := pruner.CollectionConfig{
+			BlockCollection:  i.collections.Block,
+			BlockNumberField: "number",
+			DependentCollections: []string{
+				i.collections.BlockSignature,
+				i.collections.AccessListEntry,
+				i.collections.Log,
+				i.collections.Transaction,
+			},
+		}
+		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, prunerCollections)
 
 		// pruneQueue was already created and loaded in the resume logic above
 		if pruneQueue == nil {
