@@ -6,7 +6,7 @@ on:
       chain:
         required: true
         type: string
-      branch:
+      network:
         required: true
         type: string
   workflow_dispatch:
@@ -36,10 +36,20 @@ jobs:
         run: |
           VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
           SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
-          SANITIZED_BRANCH=$(echo '${{ inputs.branch }}' | sed 's/\//-/g')
+          SANITIZED_NETWORK=$(echo '${{ inputs.network }}' | sed 's/\//-/g')
+          # Check branch type
+          IS_DEVELOP=false
+          IS_MAIN=false
+          if [[ "$GITHUB_REF" == "refs/heads/develop" ]] || [[ "$GITHUB_REF_NAME" == "develop" ]]; then
+            IS_DEVELOP=true
+          elif [[ "$GITHUB_REF" == "refs/heads/main" ]] || [[ "$GITHUB_REF_NAME" == "main" ]]; then
+            IS_MAIN=true
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
-          echo "branch=$SANITIZED_BRANCH" >> $GITHUB_OUTPUT
+          echo "network=$SANITIZED_NETWORK" >> $GITHUB_OUTPUT
+          echo "is-develop=$IS_DEVELOP" >> $GITHUB_OUTPUT
+          echo "is-main=$IS_MAIN" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -60,7 +70,9 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-sha-${{ steps.version.outputs.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:branch-${{ steps.version.outputs.branch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-${{ inputs.network }}
+            ${{ steps.version.outputs.is-develop == 'true' && format('{0}/{1}:{2}-standard', env.REGISTRY, env.IMAGE_NAME, inputs.chain) || '' }}
+            ${{ steps.version.outputs.is-main == 'true' && format('{0}/{1}:{2}-latest', env.REGISTRY, env.IMAGE_NAME, inputs.chain) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -73,10 +85,12 @@ jobs:
           echo "| Chain | \`${{ inputs.chain }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| SHA | \`${{ steps.version.outputs.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Branch | \`${{ steps.version.outputs.branch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Network | \`${{ inputs.network }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Is Develop | \`${{ steps.version.outputs.is-develop }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Tags pushed" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ inputs.chain }}-latest\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ inputs.chain }}-${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- \`${{ inputs.chain }}-sha-${{ steps.version.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`branch-${{ steps.version.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ inputs.chain }}-${{ inputs.network }}\`" >> $GITHUB_STEP_SUMMARY
+          ${{ steps.version.outputs.is-develop == 'true' && echo '- `'${inputs.chain}'-standard`' >> $GITHUB_STEP_SUMMARY || true }}
