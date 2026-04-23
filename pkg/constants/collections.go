@@ -9,6 +9,7 @@ const DefaultCollectionPrefix = "Polygon__Mainnet"
 type CollectionNames struct {
 	Block             string
 	Transaction       string
+	AccessListEntry   string
 	Log               string
 	BlockSignature    string
 	SnapshotSignature string
@@ -20,6 +21,7 @@ func NewCollectionNames(prefix string) *CollectionNames {
 		Block:             fmt.Sprintf("%s__Block", prefix),
 		Transaction:       fmt.Sprintf("%s__Transaction", prefix),
 		Log:               fmt.Sprintf("%s__Log", prefix),
+		AccessListEntry:   fmt.Sprintf("%s__AccessListEntry", prefix),
 		BlockSignature:    fmt.Sprintf("%s__BlockSignature", prefix),
 		SnapshotSignature: fmt.Sprintf("%s__SnapshotSignature", prefix),
 	}
@@ -30,6 +32,7 @@ func (c *CollectionNames) AllCollections() []string {
 	return []string{
 		c.Block,
 		c.Transaction,
+		c.AccessListEntry,
 		c.Log,
 		c.BlockSignature,
 		c.SnapshotSignature,
@@ -42,6 +45,7 @@ var (
 	CollectionBlock             = fmt.Sprintf("%s__Block", DefaultCollectionPrefix)
 	CollectionTransaction       = fmt.Sprintf("%s__Transaction", DefaultCollectionPrefix)
 	CollectionLog               = fmt.Sprintf("%s__Log", DefaultCollectionPrefix)
+	CollectionAccessListEntry   = fmt.Sprintf("%s__AccessListEntry", DefaultCollectionPrefix)
 	CollectionBlockSignature    = fmt.Sprintf("%s__BlockSignature", DefaultCollectionPrefix)
 	CollectionSnapshotSignature = fmt.Sprintf("%s__SnapshotSignature", DefaultCollectionPrefix)
 
@@ -49,6 +53,7 @@ var (
 		CollectionBlock,
 		CollectionTransaction,
 		CollectionLog,
+		CollectionAccessListEntry,
 		CollectionBlockSignature,
 		CollectionSnapshotSignature,
 	}

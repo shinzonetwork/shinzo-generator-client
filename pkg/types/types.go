@@ -27,7 +27,6 @@ type Block struct {
 	Timestamp        string        `json:"timestamp"`
 	ParentHash       string        `json:"parentHash"`
 	Difficulty       string        `json:"difficulty"`
-	TotalDifficulty  string        `json:"totalDifficulty"`
 	GasUsed          string        `json:"gasUsed"`
 	GasLimit         string        `json:"gasLimit"`
 	BaseFeePerGas    string        `json:"baseFeePerGas,omitempty"`
@@ -43,6 +42,7 @@ type Block struct {
 	MixHash          string        `json:"mixHash"`
 	Uncles           []string      `json:"uncles"`
 	Transactions     []Transaction `json:"transactions,omitempty"`
+	// TotalDifficulty  string        `json:"totalDifficulty"` // removed from polygon, not available in block object
 }
 
 type Transaction struct {
@@ -65,11 +65,12 @@ type Transaction struct {
 	V                    string            `json:"v"`
 	R                    string            `json:"r"`
 	S                    string            `json:"s"`
-	Status               bool              `json:"status"`
-	GasUsed              string            `json:"gasUsed,omitempty"`
-	CumulativeGasUsed    string            `json:"cumulativeGasUsed,omitempty"`
-	EffectiveGasPrice    string            `json:"effectiveGasPrice,omitempty"`
-	Logs                 []Log             `json:"logs,omitempty"`
+	YParity              string            `json:"yParity,omitempty"`
+	// Status               bool              `json:"status"` 				// removed fields below
+	// GasUsed              string            `json:"gasUsed,omitempty"`	// removed from polygon, not available in transaction object
+	// CumulativeGasUsed 	 string `json:"cumulativeGasUsed,omitempty"`
+	// EffectiveGasPrice 	 string `json:"effectiveGasPrice,omitempty"`
+	Logs []Log `json:"logs,omitempty"`
 }
 
 type Log struct {

@@ -1,10 +1,10 @@
 type Polygon__Mainnet__Block {
+    hash: String   
     extraData: String
     baseFeePerGas: String
     difficulty: String
     gasLimit: String
     gasUsed: String
-    hash: String
     logsBloom: String
     miner: String
     mixHash: String

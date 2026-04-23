@@ -11,11 +11,12 @@ func TestCollectionConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"Block", CollectionBlock, "Ethereum__Mainnet__Block"},
-		{"Transaction", CollectionTransaction, "Ethereum__Mainnet__Transaction"},
-		{"Log", CollectionLog, "Ethereum__Mainnet__Log"},
-		{"BlockSignature", CollectionBlockSignature, "Ethereum__Mainnet__BlockSignature"},
-		{"SnapshotSignature", CollectionSnapshotSignature, "Ethereum__Mainnet__SnapshotSignature"},
+		{"Block", CollectionBlock, "Polygon__Mainnet__Block"},
+		{"Transaction", CollectionTransaction, "Polygon__Mainnet__Transaction"},
+		{"Log", CollectionLog, "Polygon__Mainnet__Log"},
+		{"AccessListEntry", CollectionAccessListEntry, "Polygon__Mainnet__AccessListEntry"},
+		{"BlockSignature", CollectionBlockSignature, "Polygon__Mainnet__BlockSignature"},
+		{"SnapshotSignature", CollectionSnapshotSignature, "Polygon__Mainnet__SnapshotSignature"},
 	}
 
 	for _, tt := range tests {
@@ -41,6 +42,7 @@ func TestAllCollections(t *testing.T) {
 		CollectionBlock,
 		CollectionTransaction,
 		CollectionLog,
+		CollectionAccessListEntry,
 		CollectionBlockSignature,
 		CollectionSnapshotSignature,
 	}

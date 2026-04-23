@@ -1,5 +1,5 @@
 query GetTransactionByHash($txHash: String!) {
-  Ethereum__Mainnet__Transaction(filter: {hash: {_eq: $txHash}}) {
+  Polygon__Mainnet__Transaction(filter: {hash: {_eq: $txHash}}) {
     hash
     blockHash
     blockNumber
@@ -24,7 +24,7 @@ query GetTransactionByHash($txHash: String!) {
 }
 
 query GetTransactionsInvolvingAddress($address: String!) {
-    Ethereum__Mainnet__Transaction(filter: { _or: [
+    Polygon__Mainnet__Transaction(filter: { _or: [
         {from: { _eq: $address }}
         {to: { _eq: $address }}
     ]}) {
@@ -52,7 +52,7 @@ query GetTransactionsInvolvingAddress($address: String!) {
 }
 
 query GetAllTransactionWithTopic($topic: String!) {
-  Ethereum__Mainnet__Log(filter: { topics: { _any: { _eq: $topic } } }) {
+  Polygon__Mainnet__Log(filter: { topics: { _any: { _eq: $topic } } }) {
     address
     topics
     data
