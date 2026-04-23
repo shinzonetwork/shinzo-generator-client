@@ -4,7 +4,7 @@ on:
   workflow_run:
     workflows: ["Go Test CI"]
     types: [completed]
-    branches: [new-chain/polygon]
+    branches: [new-chain/polygon] # trigger event needs to be updated with branch name. 
   workflow_dispatch:
 
 jobs:
@@ -13,5 +13,5 @@ jobs:
     uses: shinzonetwork/shinzo-indexer-client/.github/workflows/build-and-push.yml@main
     with:
       chain: polygon
-      branch: new-chain/polygon
+      network: mainnet
     secrets: inherit
