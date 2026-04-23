@@ -1,14 +1,18 @@
 name: Build and Push
 
 on:
-  workflow_run:
-    workflows: ["Go Test CI"]
-    types: [completed]
-    branches: [main, develop]
+  workflow_call:
+    inputs:
+      chain:
+        required: true
+        type: string
+      branch:
+        required: true
+        type: string
   workflow_dispatch:
 
 concurrency:
-  group: build-production
+  group: build-${{ inputs.chain || 'manual' }}
   cancel-in-progress: false
 
 env:
@@ -16,19 +20,26 @@ env:
   IMAGE_NAME: shinzonetwork/shinzo-indexer-client
 
 jobs:
-  # Job 1: Build and push standard image (standard)
-  build-and-push-standard:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+  build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    steps:
-      - uses: actions/checkout@v6
 
-      - name: Get short SHA
-        id: short_sha
-        run: echo "sha=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for git describe
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+          SANITIZED_BRANCH=$(echo '${{ inputs.branch }}' | sed 's/\//-/g')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "branch=$SANITIZED_BRANCH" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -40,27 +51,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push standard image
+      - name: Build and push image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-sha-${{ steps.version.outputs.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:branch-${{ steps.version.outputs.branch }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Job 2: Build summary
-  build-summary:
-    needs: [build-and-push-standard]
-    runs-on: ubuntu-latest
-    steps:
       - name: Build summary
         run: |
           echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| Standard | ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Chain | \`${{ inputs.chain }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| SHA | \`${{ steps.version.outputs.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ steps.version.outputs.branch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tags pushed" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ inputs.chain }}-latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ inputs.chain }}-${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ inputs.chain }}-sha-${{ steps.version.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`branch-${{ steps.version.outputs.branch }}\`" >> $GITHUB_STEP_SUMMARY
