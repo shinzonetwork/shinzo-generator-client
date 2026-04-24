@@ -49,7 +49,7 @@ A high-performance blockchain indexing solution built with Source Network, Defra
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - Ethereum node with JSON-RPC and WebSocket access (GCP Managed Blockchain Node recommended)
 
 ## Setup

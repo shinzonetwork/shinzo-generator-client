@@ -1,82 +1,67 @@
-name: Build and Push
+name: Build develop images
 
 on:
-  workflow_call:
-    inputs:
-      chain:
-        required: true
-        type: string
-      network:
-        required: true
-        type: string
-  workflow_dispatch:
-
-concurrency:
-  group: build-${{ inputs.chain || 'manual' }}
-  cancel-in-progress: false
+  push:
+    branches:
+      - develop
+      - develop-*-*
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: shinzonetwork/shinzo-indexer-client
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-push:
+  build-image:
+    name: Build image from branch
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # required for git describe
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      - name: Extract version
-        id: version
+      - name: Extract chain and network from branch name
+        id: meta
         run: |
-          VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
-          SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
-          SANITIZED_NETWORK=$(echo '${{ inputs.network }}' | sed 's/\//-/g')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
-          echo "network=$SANITIZED_NETWORK" >> $GITHUB_OUTPUT
+          BRANCH="${{ github.ref_name }}"
+          if [[ "$BRANCH" == "develop" ]]; then
+            echo "chain=base" >> $GITHUB_OUTPUT
+            echo "network=mainnet" >> $GITHUB_OUTPUT
+          else
+            SUFFIX="${BRANCH#develop-}"
+            NETWORK="${SUFFIX##*-}"
+            CHAIN="${SUFFIX%-*}"
+            echo "chain=$CHAIN" >> $GITHUB_OUTPUT
+            echo "network=$NETWORK" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get short SHA
+        id: short_sha
+        run: echo "sha=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v5
+      - name: Build and push
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-sha-${{ steps.version.outputs.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.chain }}-${{ inputs.network }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop-${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop-${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-sha-${{ steps.short_sha.outputs.sha }}
+          build-args: |
+            CHAIN=${{ steps.meta.outputs.chain }}
+            NETWORK=${{ steps.meta.outputs.network }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build summary
-        run: |
-          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Tag | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Chain | \`${{ inputs.chain }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| SHA | \`${{ steps.version.outputs.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Network | \`${{ inputs.network }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Tags pushed" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ inputs.chain }}-latest\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ inputs.chain }}-${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ inputs.chain }}-sha-${{ steps.version.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ inputs.chain }}-${{ inputs.network }}\`" >> $GITHUB_STEP_SUMMARY
