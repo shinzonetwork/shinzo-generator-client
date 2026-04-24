@@ -4,7 +4,7 @@
 # Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
 # Collection names are derived as: {name}__{network}__Block, etc.
 chain:
-  name: "Ethereum"       # Chain name (env: CHAIN_NAME)
+  name: "Polygon"       # Chain name (env: CHAIN_NAME)
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
 
 defradb:

@@ -14,8 +14,8 @@ func GetSchema() string {
 }
 
 // GetSchemaForChain returns the schema with collection names adapted for the given chain prefix.
-// It replaces the default "Ethereum__Mainnet" prefix with the provided one.
+// It replaces the default "Polygon__Mainnet" prefix with the provided one.
 func GetSchemaForChain(prefix string) string {
-	s := GetSchema();
-	return strings.ReplaceAll(s, "Ethereum__Mainnet", prefix)
+	s := GetSchema()
+	return strings.ReplaceAll(s, "Polygon__Mainnet", prefix)
 }

@@ -37,18 +37,18 @@ import (
 // TestIndexing_StartDefraFirst is now replaced by mock-based integration tests
 // See ./integration/ directory for comprehensive integration tests with mock data
 func TestIndexing_StartDefraFirst(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'make test' for full test suite")
 }
 
 func TestIndexing(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'make test' for full test suite")
 }
 
 // TestCreateIndexer tests the indexer creation
 func TestCreateIndexer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			Url: "http://localhost:9181",
@@ -71,7 +71,7 @@ t.Parallel()
 
 // TestCreateIndexerWithNilConfig tests indexer creation with nil config
 func TestCreateIndexerWithNilConfig(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer, err := CreateIndexer(nil)
 
 	assert.Error(t, err)
@@ -82,7 +82,7 @@ t.Parallel()
 
 // TestIndexerStateManagement tests the state management methods
 func TestIndexerStateManagement(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{Url: "http://localhost:9181"},
 	}
@@ -104,7 +104,7 @@ t.Parallel()
 
 // TestGetDefraDBPortWithEmbeddedNode tests port retrieval with embedded node
 func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{Url: "http://localhost:9181"},
 	}
@@ -120,7 +120,7 @@ t.Parallel()
 
 // TestStopIndexing tests the stop indexing functionality
 func TestStopIndexing(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{Url: "http://localhost:9181"},
 	}
@@ -144,7 +144,7 @@ t.Parallel()
 
 // TestConfigLoading tests configuration loading
 func TestConfigLoading(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Test that configuration is required
 	indexer := &ChainIndexer{cfg: nil}
 	err := indexer.StartIndexing(true)
@@ -154,7 +154,7 @@ t.Parallel()
 
 // TestConstants tests the defined constants
 func TestConstants(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	assert.Equal(t, 10, DefaultBlocksToIndexAtOnce)
 	assert.Equal(t, 3, DefaultRetryAttempts)
 	assert.Equal(t, 15*time.Second, DefaultSchemaWaitTimeout)
@@ -165,7 +165,7 @@ t.Parallel()
 
 // TestConvertGethBlockToDefraBlock tests block conversion
 func TestConvertGethBlockToDefraBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Create a mock geth block
@@ -178,7 +178,6 @@ t.Parallel()
 		GasLimit:         "8000000",
 		GasUsed:          "21000",
 		Difficulty:       "1000000",
-		TotalDifficulty:  "5000000",
 		Nonce:            "0x1234567890abcdef",
 		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
 		LogsBloom:        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
@@ -237,7 +236,6 @@ t.Parallel()
 		ReceiptsRoot:     gethBlock.ReceiptsRoot,
 		Miner:            gethBlock.Miner,
 		Difficulty:       gethBlock.Difficulty,
-		TotalDifficulty:  gethBlock.TotalDifficulty,
 		ExtraData:        gethBlock.ExtraData,
 		Size:             gethBlock.Size,
 		GasLimit:         gethBlock.GasLimit,
@@ -259,7 +257,7 @@ t.Parallel()
 
 // TestConvertGethBlockToDefraBlockWithEmptyTransactions tests block conversion with no transactions
 func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	gethBlock := &types.Block{
@@ -285,7 +283,6 @@ t.Parallel()
 		ReceiptsRoot:     gethBlock.ReceiptsRoot,
 		Miner:            gethBlock.Miner,
 		Difficulty:       gethBlock.Difficulty,
-		TotalDifficulty:  gethBlock.TotalDifficulty,
 		ExtraData:        gethBlock.ExtraData,
 		Size:             gethBlock.Size,
 		GasLimit:         gethBlock.GasLimit,
@@ -301,7 +298,7 @@ t.Parallel()
 
 // TestCreateIndexerWithNilConfigError tests that CreateIndexer fails immediately with nil config
 func TestCreateIndexerWithNilConfigError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// This should fail immediately when creating the indexer
 	indexer, err := CreateIndexer(nil)
 
@@ -313,7 +310,7 @@ t.Parallel()
 
 // TestIndexerConfigHandling tests configuration handling
 func TestIndexerConfigHandling(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Test with custom config
 	customCfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
@@ -343,7 +340,7 @@ t.Parallel()
 
 // TestRequiredPeersInitialization tests required peers initialization
 func TestRequiredPeersInitialization(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	assert.NotNil(t, requiredPeers)
 	assert.IsType(t, []string{}, requiredPeers)
 	// Currently empty by design, but should be a valid slice
@@ -368,7 +365,7 @@ func (m *MockBlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, er
 
 // TestBlockProcessingLogic tests the block processing logic with mocked dependencies
 func TestBlockProcessingLogic(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Create test block
@@ -408,7 +405,6 @@ t.Parallel()
 		ReceiptsRoot:     testBlock.ReceiptsRoot,
 		Miner:            testBlock.Miner,
 		Difficulty:       testBlock.Difficulty,
-		TotalDifficulty:  testBlock.TotalDifficulty,
 		ExtraData:        testBlock.ExtraData,
 		Size:             testBlock.Size,
 		GasLimit:         testBlock.GasLimit,
@@ -430,7 +426,7 @@ t.Parallel()
 
 // TestIndexerLifecycle tests the complete indexer lifecycle
 func TestIndexerLifecycle(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			Url: "http://localhost:9181",
@@ -465,13 +461,13 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestToAppConfig_NilInput(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	result := toAppConfig(nil)
 	assert.Nil(t, result, "toAppConfig(nil) should return nil")
 }
 
 func TestToAppConfig_ValidConfig(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			Url:           "http://localhost:9181",
@@ -524,7 +520,7 @@ t.Parallel()
 }
 
 func TestToAppConfig_EmptyConfig(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{}
 
 	result := toAppConfig(cfg)
@@ -541,7 +537,7 @@ t.Parallel()
 }
 
 func TestToAppConfig_ReturnsNewInstance(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			Url: "http://localhost:9181",
@@ -558,7 +554,7 @@ t.Parallel()
 }
 
 func TestToAppConfig_ReturnType(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &config.Config{}
 	result := toAppConfig(cfg)
 	// Verify the result is the correct app-sdk type
@@ -570,13 +566,13 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestIsHealthy_NotStarted(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{isStarted: false}
 	assert.False(t, indexer.IsHealthy(), "should be unhealthy when not started")
 }
 
 func TestIsHealthy_StartedNeverProcessed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{
 		isStarted:         true,
 		lastProcessedTime: time.Time{}, // zero time = never processed
@@ -585,7 +581,7 @@ t.Parallel()
 }
 
 func TestIsHealthy_StartedRecentlyProcessed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{
 		isStarted:         true,
 		lastProcessedTime: time.Now().Add(-1 * time.Minute), // 1 minute ago
@@ -594,7 +590,7 @@ t.Parallel()
 }
 
 func TestIsHealthy_StartedStale(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{
 		isStarted:         true,
 		lastProcessedTime: time.Now().Add(-11 * time.Minute), // 11 minutes ago
@@ -603,7 +599,7 @@ t.Parallel()
 }
 
 func TestIsHealthy_StartedExactlyAtThreshold(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Right at the 10-minute boundary (slightly under)
 	indexer := &ChainIndexer{
 		isStarted:         true,
@@ -617,20 +613,20 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetCurrentBlock_DefaultValue(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 	assert.Equal(t, int64(0), indexer.GetCurrentBlock(), "default currentBlock should be 0")
 }
 
 func TestGetCurrentBlock_AfterUpdateBlockInfo(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 	indexer.updateBlockInfo(12345)
 	assert.Equal(t, int64(12345), indexer.GetCurrentBlock())
 }
 
 func TestGetCurrentBlock_AfterMultipleUpdates(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 	indexer.updateBlockInfo(100)
 	indexer.updateBlockInfo(200)
@@ -643,13 +639,13 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetLastProcessedTime_DefaultValue(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 	assert.True(t, indexer.GetLastProcessedTime().IsZero(), "default lastProcessedTime should be zero")
 }
 
 func TestGetLastProcessedTime_AfterUpdateBlockInfo(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 	before := time.Now()
 	indexer.updateBlockInfo(100)
@@ -666,7 +662,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestUpdateBlockInfo_UpdatesCurrentBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 
 	indexer.updateBlockInfo(42)
@@ -677,7 +673,7 @@ t.Parallel()
 }
 
 func TestUpdateBlockInfo_UpdatesLastProcessedTime(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 
 	before := time.Now()
@@ -691,7 +687,7 @@ t.Parallel()
 }
 
 func TestUpdateBlockInfo_CanDecrease(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// updateBlockInfo does not enforce monotonically increasing block numbers
 	indexer := &ChainIndexer{}
 
@@ -703,7 +699,7 @@ t.Parallel()
 }
 
 func TestUpdateBlockInfo_ZeroBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 	indexer.updateBlockInfo(0)
 	assert.Equal(t, int64(0), indexer.currentBlock)
@@ -711,7 +707,7 @@ t.Parallel()
 }
 
 func TestUpdateBlockInfo_NegativeBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 	indexer.updateBlockInfo(-1)
 	assert.Equal(t, int64(-1), indexer.currentBlock, "updateBlockInfo does not reject negative block numbers")
@@ -722,7 +718,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPrunerMetrics_NilPruner(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{pruner: nil}
 	metrics := indexer.GetPrunerMetrics()
 	assert.Nil(t, metrics, "GetPrunerMetrics should return nil when pruner is nil")
@@ -733,7 +729,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestExtractPublicKeyFromPeerID_InvalidPeerID(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	result := extractPublicKeyFromPeerID("not-a-valid-peer-id")
@@ -741,7 +737,7 @@ t.Parallel()
 }
 
 func TestExtractPublicKeyFromPeerID_EmptyString(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	result := extractPublicKeyFromPeerID("")
@@ -749,7 +745,7 @@ t.Parallel()
 }
 
 func TestExtractPublicKeyFromPeerID_ValidPeerID(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Generate a real Ed25519 key pair and derive a peer ID
@@ -775,7 +771,7 @@ t.Parallel()
 }
 
 func TestExtractPublicKeyFromPeerID_DifferentKeysProduceDifferentResults(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	priv1, _, err := crypto.GenerateEd25519Key(nil)
@@ -799,7 +795,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetDefraDBPort_NilDefraNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{defraNode: nil}
 	assert.Equal(t, -1, indexer.GetDefraDBPort(), "nil defraNode should return -1")
 }
@@ -809,7 +805,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestIsHealthy_AfterUpdateBlockInfo(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Verify that updateBlockInfo makes an indexer with isStarted=true healthy
 	indexer := &ChainIndexer{isStarted: true}
 
@@ -823,7 +819,7 @@ t.Parallel()
 }
 
 func TestGetCurrentBlockAndLastProcessedTime_Consistency(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 
 	// Both should start at zero values
@@ -851,7 +847,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestNewConcurrentBlockProcessor(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	p := NewConcurrentBlockProcessor(nil, nil, 4, 8, 60)
 	require.NotNil(t, p)
 	assert.Equal(t, 4, p.workers)
@@ -863,7 +859,7 @@ t.Parallel()
 }
 
 func TestNewConcurrentBlockProcessor_DefaultValues(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	p := NewConcurrentBlockProcessor(nil, nil, 1, 1, 0)
 	require.NotNil(t, p)
 	assert.Equal(t, 1, p.workers)
@@ -875,7 +871,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestApplySchemaViaHTTP_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/v0/schema", r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
@@ -888,7 +884,7 @@ t.Parallel()
 }
 
 func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("schema error"))
@@ -901,7 +897,7 @@ t.Parallel()
 }
 
 func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	err := applySchemaViaHTTP("http://127.0.0.1:1", constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
 }
@@ -911,7 +907,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_NilNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{defraNode: nil}
 	info, err := indexer.GetPeerInfo()
 	assert.NoError(t, err)
@@ -923,7 +919,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetNodePublicKey_NilNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{
 		defraNode: nil,
 		cfg:       &config.Config{},
@@ -933,7 +929,7 @@ t.Parallel()
 }
 
 func TestGetPeerPublicKey_NilNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{
 		defraNode: nil,
 		cfg:       &config.Config{},
@@ -947,7 +943,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStopIndexing_WithEmbeddedNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
 	indexer := &ChainIndexer{
@@ -969,7 +965,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetDefraDBPort_WithEmbeddedNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
 	indexer := &ChainIndexer{defraNode: td.Node}
@@ -982,7 +978,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestSignMessages_NilNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{
 		defraNode: nil,
 		cfg:       &config.Config{},
@@ -996,7 +992,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestBlockResult_Fields(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	r := &BlockResult{
 		BlockNum: 42,
 		BlockID:  "bae-123",
@@ -1014,7 +1010,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestOpenBrowser_InvalidURL(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
 	execCommand = func(name string, arg ...string) *exec.Cmd {
@@ -1146,7 +1142,7 @@ func fullBlockResponseWithTx(number string) map[string]any {
 // ---------------------------------------------------------------------------
 
 func TestProcessBlock_Success_NoTransactions(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1189,7 +1185,7 @@ t.Parallel()
 }
 
 func TestProcessBlock_RPCError_RetriesAndFails(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1228,7 +1224,7 @@ t.Parallel()
 }
 
 func TestProcessBlockBatch_WithTransactions(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1306,7 +1302,7 @@ t.Parallel()
 }
 
 func TestProcessBlockBatch_WithBlockReceipts(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1388,7 +1384,7 @@ func fakeDocID(seed int) string {
 }
 
 func TestTrackBlock_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	queue := pruner.NewIndexerQueue()
 	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
@@ -1396,7 +1392,6 @@ t.Parallel()
 		BlockID:          fakeDocID(1),
 		TransactionIDs:   []string{fakeDocID(2), fakeDocID(3)},
 		LogIDs:           []string{fakeDocID(4)},
-		AccessListIDs:    []string{fakeDocID(5)},
 		BlockSignatureID: fakeDocID(6),
 	}
 
@@ -1406,7 +1401,7 @@ t.Parallel()
 }
 
 func TestTrackBlock_MultipleBlocks(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	queue := pruner.NewIndexerQueue()
 	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
@@ -1422,7 +1417,7 @@ t.Parallel()
 }
 
 func TestTrackBlock_EmptyResult(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	queue := pruner.NewIndexerQueue()
 	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
@@ -1436,7 +1431,7 @@ t.Parallel()
 }
 
 func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	queue := pruner.NewIndexerQueue()
 	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
@@ -1444,18 +1439,16 @@ t.Parallel()
 		BlockID:          fakeDocID(1),
 		TransactionIDs:   []string{fakeDocID(2)},
 		LogIDs:           []string{fakeDocID(3)},
-		AccessListIDs:    []string{fakeDocID(4)},
 		BlockSignatureID: fakeDocID(5),
 	}
 
-	// The tracker maps to constants.CollectionTransaction, CollectionLog, CollectionAccessListEntry
+	// The tracker maps to constants.CollectionTransaction, CollectionLog
 	err := tracker.TrackBlock(context.Background(), 100, result)
 	require.NoError(t, err)
 
 	// Verify the constants are used (they should match what pruner expects)
 	assert.NotEmpty(t, constants.CollectionTransaction)
 	assert.NotEmpty(t, constants.CollectionLog)
-	assert.NotEmpty(t, constants.CollectionAccessListEntry)
 }
 
 // ---------------------------------------------------------------------------
@@ -1463,7 +1456,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPrunerMetrics_WithPruner(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
 	p := pruner.NewPruner(&pruner.Config{
@@ -1482,7 +1475,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStopIndexing_WithSnapshotter(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	dir := t.TempDir()
@@ -1512,7 +1505,7 @@ t.Parallel()
 }
 
 func TestStopIndexing_WithPruner(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1534,7 +1527,7 @@ t.Parallel()
 }
 
 func TestStopIndexing_WithHealthServer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	hs := NewHealthServerForTest(t)
@@ -1563,7 +1556,7 @@ func NewHealthServerForTest(t *testing.T) *server.HealthServer {
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_Success_NoTx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1597,7 +1590,7 @@ t.Parallel()
 }
 
 func TestFetchAndProcessBlock_RPCError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1629,7 +1622,7 @@ t.Parallel()
 }
 
 func TestFetchAndProcessBlock_ContextCancelled(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1658,7 +1651,7 @@ t.Parallel()
 }
 
 func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1701,7 +1694,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlocks_ContextCancel(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1755,7 +1748,7 @@ t.Parallel()
 }
 
 func TestProcessBlocks_WithRateLimit_ContextCancel(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -1805,7 +1798,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_ExternalDefraDB_WaitFails(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Point to a non-listening address so WaitForDefraDB fails
@@ -1823,7 +1816,7 @@ t.Parallel()
 }
 
 func TestStartIndexing_ExternalDefraDB_SchemaApplyFails(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Mock DefraDB server: GraphQL introspection succeeds (for WaitForDefraDB)
@@ -1857,7 +1850,7 @@ t.Parallel()
 }
 
 func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Mock DefraDB server: GraphQL introspection succeeds, schema returns
@@ -1935,7 +1928,7 @@ func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 }
 
 func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -2020,7 +2013,7 @@ t.Parallel()
 
 // TestStartIndexing_Embedded_WithConfiguredStartHeight tests the configuredHeight > 0 branch.
 func TestStartIndexing_Embedded_WithConfiguredStartHeight(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -2078,7 +2071,7 @@ t.Parallel()
 
 // TestStartIndexing_Embedded_WithHealthServer tests the health server branch.
 func TestStartIndexing_Embedded_WithHealthServer(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -2143,7 +2136,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2201,7 +2194,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_WithEmbeddedNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2220,7 +2213,7 @@ t.Parallel()
 }
 
 func TestGetPeerInfo_WithEmbeddedNodeAndNetworkHandler(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2246,7 +2239,7 @@ t.Parallel()
 // goroutine paths directly (since fetchAndProcessBlock goes through go-ethereum which
 // validates transaction roots).
 func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2326,7 +2319,7 @@ t.Parallel()
 
 // TestFetchAndProcessBlock_NotFoundThenSuccess tests the not-found retry path.
 func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2371,7 +2364,7 @@ t.Parallel()
 
 // TestFetchAndProcessBlock_OtherRPCErrorRetry tests other (non-not-found) error retry.
 func TestFetchAndProcessBlock_OtherRPCErrorRetry(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2410,7 +2403,7 @@ t.Parallel()
 
 // TestFetchAndProcessBlock_TransactionConflict tests the transaction conflict retry path.
 func TestFetchAndProcessBlock_TransactionConflict(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2450,7 +2443,7 @@ t.Parallel()
 // TestFetchAndProcessBlock_ContextCancelledDuringNotFound tests cancellation
 // during the not-found wait loop.
 func TestFetchAndProcessBlock_ContextCancelledDuringNotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2486,7 +2479,7 @@ t.Parallel()
 // TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry tests cancellation
 // during the non-not-found retry backoff.
 func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2524,7 +2517,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_AlreadyExists(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2596,7 +2589,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestSignMessages_WithEmbeddedNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2616,7 +2609,7 @@ t.Parallel()
 }
 
 func TestSignMessages_WithEmbeddedNode_KeyringSetup(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -2648,7 +2641,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestOpenBrowser_ValidURL(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
 	execCommand = func(name string, arg ...string) *exec.Cmd {
@@ -2664,7 +2657,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStopIndexing_WithAllComponents(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2717,7 +2710,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlocks_TooFarAhead(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2763,7 +2756,7 @@ t.Parallel()
 }
 
 func TestProcessBlocks_WithNilCallback(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2804,7 +2797,7 @@ t.Parallel()
 
 // TestProcessBlocks_FailedBlockInSequence tests a block that fails during processing.
 func TestProcessBlocks_FailedBlockInSequence(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2858,7 +2851,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestExtractPublicKeyFromPeerID_Secp256k1Key(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Generate a Secp256k1 key pair — different key type exercises more of the extraction path
@@ -2878,7 +2871,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetDefraDBPort_Consistency(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
 	indexer := &ChainIndexer{defraNode: td.Node}
@@ -2893,7 +2886,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlock_AlreadyExistsBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -2940,7 +2933,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_ReceiptError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3016,7 +3009,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	queue := pruner.NewIndexerQueue()
 	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
@@ -3024,7 +3017,6 @@ t.Parallel()
 		BlockID:          fakeDocID(100),
 		TransactionIDs:   []string{fakeDocID(101), fakeDocID(102)},
 		LogIDs:           []string{fakeDocID(103), fakeDocID(104), fakeDocID(105)},
-		AccessListIDs:    []string{fakeDocID(106)},
 		BlockSignatureID: fakeDocID(107),
 	}
 
@@ -3035,7 +3027,6 @@ t.Parallel()
 	// Verify collection names contain expected substrings
 	assert.Contains(t, constants.CollectionTransaction, "Transaction")
 	assert.Contains(t, constants.CollectionLog, "Log")
-	assert.Contains(t, constants.CollectionAccessListEntry, "AccessListEntry")
 }
 
 // ---------------------------------------------------------------------------
@@ -3043,7 +3034,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	indexer := &ChainIndexer{}
 	var wg sync.WaitGroup
 
@@ -3068,7 +3059,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestMockRPCServer_VariousEndpoints(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	srv := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_blockNumber":
@@ -3094,7 +3085,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFullBlockResponse_WithTransactions(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txs := []any{
 		map[string]any{
 			"hash":  "0x123",
@@ -3109,7 +3100,7 @@ t.Parallel()
 }
 
 func TestFullBlockResponse_NilTransactions(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	block := fullBlockResponse("0x200", nil)
 	assert.Equal(t, "0x200", block["number"])
 	txList := block["transactions"].([]any)
@@ -3121,7 +3112,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlocks_CancelDuringRateLimit(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3166,7 +3157,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3208,7 +3199,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_Embedded_SequentialLoop(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -3283,7 +3274,7 @@ t.Parallel()
 // in the sequential loop. The first block succeeds, the second is the same block
 // (already exists), triggering the already-exists path.
 func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -3355,7 +3346,7 @@ t.Parallel()
 
 // TestStartIndexing_Embedded_SequentialLoop_NotFound tests the not-found branch.
 func TestStartIndexing_Embedded_SequentialLoop_NotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -3438,7 +3429,7 @@ t.Parallel()
 
 // TestStartIndexing_Embedded_SequentialLoop_OtherError tests the generic error branch.
 func TestStartIndexing_Embedded_SequentialLoop_OtherError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -3523,7 +3514,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3548,7 +3539,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_RetryExhaustion(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3593,7 +3584,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ContextCancelDuringBatch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3642,7 +3633,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestOpenBrowser_NonEmptyURL(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
 	execCommand = func(name string, arg ...string) *exec.Cmd {
@@ -3658,7 +3649,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestSignMessages_FullFlow(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
@@ -3703,7 +3694,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_WithSelfInfo(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3727,7 +3718,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_SigningQueueFull(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3779,7 +3770,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestSignMessages_WithIdentity(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -3836,7 +3827,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_RetryWithDelay(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3889,7 +3880,7 @@ t.Parallel()
 // Since external DefraDB no longer sets defraNode, it should return the
 // "defraNode is required" error after applying schema.
 func TestStartIndexing_ExternalDefra(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -3921,7 +3912,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -4018,7 +4009,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -4113,7 +4104,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -4192,7 +4183,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -4277,7 +4268,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_WithTransactionsAndReceipts(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4326,7 +4317,6 @@ t.Parallel()
 		GasUsed:          "21000",
 		Miner:            "0x0000000000000000000000000000000000000000",
 		Difficulty:       "0",
-		TotalDifficulty:  "0",
 		Size:             "1000",
 		Nonce:            "0x0000000000000000",
 		BaseFeePerGas:    "1000000000",
@@ -4363,7 +4353,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_ReceiptFetchFailure(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4402,7 +4392,6 @@ t.Parallel()
 		GasUsed:          "21000",
 		Miner:            "0x0000000000000000000000000000000000000000",
 		Difficulty:       "0",
-		TotalDifficulty:  "0",
 		Size:             "1000",
 		Nonce:            "0x0000000000000000",
 		BaseFeePerGas:    "1000000000",
@@ -4439,7 +4428,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ReceiptFallbackIndividual(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4493,7 +4482,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4555,7 +4544,7 @@ t.Parallel()
 // TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail tests the fallback
 // when individual receipt fetch also fails.
 func TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4600,7 +4589,7 @@ t.Parallel()
 // TestFetchAndProcessBlock_ReceiptFallbackContextCancel tests receipt fallback
 // when context is cancelled during individual fetch.
 func TestFetchAndProcessBlock_ReceiptFallbackContextCancel(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4650,7 +4639,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlocks_ExistingBlockPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4704,7 +4693,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_SelfInfoConstruction(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4734,7 +4723,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestSignMessages_FullSuccessPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -4814,7 +4803,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestExtractPublicKeyFromPeerID_Ed25519Key(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Ed25519 keys are embedded in PeerIDs and should be extractable.
 	logger.InitConsoleOnly(true)
 
@@ -4828,7 +4817,7 @@ t.Parallel()
 }
 
 func TestExtractPublicKeyFromPeerID_RSAKey(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// RSA keys use multihash encoding in PeerIDs (key too large to embed).
 	// ExtractPublicKey() returns ErrNoPublicKey for RSA PeerIDs.
 	logger.InitConsoleOnly(true)
@@ -4848,7 +4837,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestOpenBrowser_StartFailure(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
 	execCommand = func(name string, arg ...string) *exec.Cmd {
@@ -4864,7 +4853,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4907,7 +4896,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4951,7 +4940,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
@@ -4997,7 +4986,7 @@ t.Parallel()
 
 // This test ensures the filepath import is used (for prune queue test paths).
 func TestPruneQueueFilePath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 	queueFilePath := filepath.Join(tmpDir, "prune_queue.gob")
 	assert.Contains(t, queueFilePath, "prune_queue.gob")
@@ -5008,7 +4997,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -5110,7 +5099,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -5193,7 +5182,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_WithOpenBrowser(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -5272,7 +5261,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -5321,7 +5310,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_ReceiptFetchError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -5390,7 +5379,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_AlreadyExists_WithSigning(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -5438,7 +5427,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -5467,7 +5456,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -5566,7 +5555,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -5684,7 +5673,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_FullIntegration_WithP2P(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -5747,7 +5736,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -5828,7 +5817,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -5930,7 +5919,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -6012,7 +6001,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestExtractPublicKeyFromPeerID_ECDSA_Key(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Generate an ECDSA key pair
@@ -6034,7 +6023,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_AfterNodeClose(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Create a temporary node, then close it to make PeerInfo fail
@@ -6096,7 +6085,7 @@ func createClosedTestDefraNode(t *testing.T) *node.Node {
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -6184,7 +6173,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -6273,7 +6262,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -6377,7 +6366,7 @@ func writeCorruptedFile(path string) error {
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -6418,7 +6407,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlocks_ImmediateCancel(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -6450,7 +6439,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestProcessBlocks_ImmediateCancelWithRateLimit(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -6482,7 +6471,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetNodePublicKey_WithEmbeddedNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -6507,7 +6496,7 @@ t.Parallel()
 }
 
 func TestGetPeerPublicKey_WithEmbeddedNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -6537,7 +6526,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_WithTxAndBatchReceipts(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -6629,7 +6618,7 @@ func setupTestDefraDBWithP2P(t *testing.T) *node.Node {
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_WithP2PEnabled(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	defraNode := setupTestDefraDBWithP2P(t)
@@ -6659,7 +6648,7 @@ t.Parallel()
 
 // TestGetPeerInfo_P2PEnabled_NoNetworkHandler tests with P2P enabled but nil networkHandler.
 func TestGetPeerInfo_P2PEnabled_NoNetworkHandler(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	defraNode := setupTestDefraDBWithP2P(t)
@@ -6683,7 +6672,7 @@ t.Parallel()
 }
 
 func TestFetchAndProcessBlock_IndividualReceiptSuccess(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -6790,7 +6779,7 @@ func fullBlockResponseWithMultipleTxs(number string, count int) map[string]any {
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_WithConnectedPeers(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	// Create two P2P-enabled nodes
@@ -6880,7 +6869,7 @@ func setupTestDefraDBWithMultiAddr(t *testing.T) *node.Node {
 }
 
 func TestGetPeerInfo_PeerDedupMerge(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	node1 := setupTestDefraDBWithP2P(t)
@@ -6924,7 +6913,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_P2PEnabledNodeClosed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	tmpDir := t.TempDir()
@@ -6964,7 +6953,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestOpenBrowser_DarwinHappyPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
 	execCommand = func(name string, arg ...string) *exec.Cmd {
@@ -6984,7 +6973,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -7061,7 +7050,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -7203,7 +7192,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -7267,7 +7256,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
@@ -7340,7 +7329,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_SnapshotterStartError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -7443,7 +7432,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -7537,7 +7526,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists_FromRPC(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -7630,7 +7619,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}

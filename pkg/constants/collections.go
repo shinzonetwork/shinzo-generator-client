@@ -3,14 +3,14 @@ package constants
 import "fmt"
 
 // Default collection prefix for backward compatibility
-const DefaultCollectionPrefix = "Ethereum__Mainnet"
+const DefaultCollectionPrefix = "Polygon__Mainnet"
 
 // CollectionNames holds the dynamically generated collection names for a chain.
 type CollectionNames struct {
 	Block             string
 	Transaction       string
-	Log               string
 	AccessListEntry   string
+	Log               string
 	BlockSignature    string
 	SnapshotSignature string
 }
@@ -52,8 +52,8 @@ var (
 	AllCollections = []string{
 		CollectionBlock,
 		CollectionTransaction,
-		CollectionAccessListEntry,
 		CollectionLog,
+		CollectionAccessListEntry,
 		CollectionBlockSignature,
 		CollectionSnapshotSignature,
 	}

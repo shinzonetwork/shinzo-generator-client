@@ -1479,7 +1479,6 @@ func testBlock(hexNumber string) *types.Block {
 		Timestamp:        "1640995200",
 		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		Difficulty:       "1000000",
-		TotalDifficulty:  "1000000",
 		GasUsed:          "21000",
 		GasLimit:         "8000000",
 		BaseFeePerGas:    "",
@@ -1499,25 +1498,23 @@ func testBlock(hexNumber string) *types.Block {
 // testTransaction creates a *types.Transaction with a deterministic hash.
 func testTransaction(seed, blockNumber string) *types.Transaction {
 	return &types.Transaction{
-		Hash:              deterministicHash("tx-" + seed),
-		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-		BlockNumber:       blockNumber,
-		From:              "0x0000000000000000000000000000000000000001",
-		To:                "0x0000000000000000000000000000000000000002",
-		Value:             "1000000000000000000",
-		Gas:               "21000",
-		GasPrice:          "20000000000",
-		Input:             "0x",
-		Nonce:             "1",
-		TransactionIndex:  0,
-		Type:              "0",
-		ChainId:           "1",
-		V:                 "27",
-		R:                 "0x0000000000000000000000000000000000000000000000000000000000000001",
-		S:                 "0x0000000000000000000000000000000000000000000000000000000000000001",
-		Status:            true,
-		CumulativeGasUsed: "21000",
-		EffectiveGasPrice: "20000000000",
+		Hash:             deterministicHash("tx-" + seed),
+		BlockHash:        "0x0000000000000000000000000000000000000000000000000000000000000001",
+		BlockNumber:      blockNumber,
+		From:             "0x0000000000000000000000000000000000000001",
+		To:               "0x0000000000000000000000000000000000000002",
+		Value:            "1000000000000000000",
+		Gas:              "21000",
+		GasPrice:         "20000000000",
+		Input:            "0x",
+		Nonce:            "1",
+		TransactionIndex: 0,
+		Type:             "0",
+		ChainId:          "1",
+		V:                "27",
+		R:                "0x0000000000000000000000000000000000000000000000000000000000000001",
+		S:                "0x0000000000000000000000000000000000000000000000000000000000000001",
+		YParity:          "1",
 	}
 }
 
@@ -1667,7 +1664,7 @@ func TestQueryDocIDs_EmptyDB(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	docIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Block", "number", 0, 1000)
+	docIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Block", "number", 0, 1000)
 	require.NoError(t, err)
 	assert.Empty(t, docIDs)
 }
@@ -1682,7 +1679,7 @@ func TestQueryDocIDs_WithBlocks(t *testing.T) {
 	ctx := context.Background()
 
 	// Query Block collection (uses "number" field)
-	blockDocIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Block", "number", 100, 102)
+	blockDocIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Block", "number", 100, 102)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3, "should find 3 block doc IDs")
 
@@ -1702,7 +1699,7 @@ func TestQueryDocIDs_PartialRange(t *testing.T) {
 	ctx := context.Background()
 
 	// Query only blocks 101-103
-	blockDocIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Block", "number", 101, 103)
+	blockDocIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Block", "number", 101, 103)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3, "should find 3 block doc IDs for range 101-103")
 }
@@ -1716,7 +1713,7 @@ func TestQueryDocIDs_Transactions(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	txDocIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Transaction", "blockNumber", 200, 202)
+	txDocIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Transaction", "blockNumber", 200, 202)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 3, "should find 3 transaction doc IDs")
 }
@@ -1730,7 +1727,7 @@ func TestQueryDocIDs_Logs(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	logDocIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Log", "blockNumber", 300, 301)
+	logDocIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Log", "blockNumber", 300, 301)
 	require.NoError(t, err)
 	assert.Len(t, logDocIDs, 2, "should find 2 log doc IDs")
 }
@@ -1745,7 +1742,7 @@ func TestQueryDocIDs_OutOfRange(t *testing.T) {
 	ctx := context.Background()
 
 	// Query a range that has no blocks
-	docIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Block", "number", 500, 600)
+	docIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Block", "number", 500, 600)
 	require.NoError(t, err)
 	assert.Empty(t, docIDs)
 }
@@ -2266,11 +2263,11 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	assert.Equal(t, int64(104), highest)
 
 	// Also verify we can query doc IDs in the imported node
-	blockDocIDs, err := s2.queryDocIDs(ctx, "Ethereum__Mainnet__Block", "number", 100, 104)
+	blockDocIDs, err := s2.queryDocIDs(ctx, "Polygon__Mainnet__Block", "number", 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 5, "should find 5 block doc IDs after import")
 
-	txDocIDs, err := s2.queryDocIDs(ctx, "Ethereum__Mainnet__Transaction", "blockNumber", 100, 104)
+	txDocIDs, err := s2.queryDocIDs(ctx, "Polygon__Mainnet__Transaction", "blockNumber", 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 5, "should find 5 transaction doc IDs after import")
 }
@@ -2291,12 +2288,12 @@ func TestQueryDocIDs_ChunkedQuery(t *testing.T) {
 	ctx := context.Background()
 
 	// Query across a range that spans exactly one chunk
-	docIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Block", "number", 100, 104)
+	docIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Block", "number", 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, docIDs, 5)
 
 	// Query across a range that starts before and ends after our blocks
-	docIDs, err = s.queryDocIDs(ctx, "Ethereum__Mainnet__Block", "number", 0, 200)
+	docIDs, err = s.queryDocIDs(ctx, "Polygon__Mainnet__Block", "number", 0, 200)
 	require.NoError(t, err)
 	assert.Len(t, docIDs, 5, "should still find only our 5 blocks")
 }
@@ -3588,7 +3585,7 @@ func TestQueryDocIDs_AccessListEntry(t *testing.T) {
 	ctx := context.Background()
 
 	// AccessListEntry docs may or may not exist depending on test transaction data
-	docIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__AccessListEntry", "blockNumber", 600, 601)
+	docIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__AccessListEntry", "blockNumber", 600, 601)
 	require.NoError(t, err)
 	// Just verify no error; count depends on test data
 	_ = docIDs
@@ -3602,7 +3599,7 @@ func TestQueryDocIDs_BlockSignature(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	docIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__BlockSignature", "blockNumber", 700, 701)
+	docIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__BlockSignature", "blockNumber", 700, 701)
 	require.NoError(t, err)
 	_ = docIDs
 }
@@ -3948,7 +3945,7 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 	txn, err := td.Node.DB.NewBlindWriteTxn()
 	require.NoError(t, err)
 
-	col, err := txn.GetCollectionByName(ctx, "Ethereum__Mainnet__BlockSignature")
+	col, err := txn.GetCollectionByName(ctx, "Polygon__Mainnet__BlockSignature")
 	require.NoError(t, err)
 
 	data := map[string]any{
@@ -4565,17 +4562,17 @@ func TestQueryDocIDs_WithIdentityBlocks(t *testing.T) {
 	ctx := context.Background()
 
 	// Query Block docs
-	blockDocIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Block", "number", 400, 402)
+	blockDocIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Block", "number", 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3)
 
 	// Query Transaction docs
-	txDocIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__Transaction", "blockNumber", 400, 402)
+	txDocIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__Transaction", "blockNumber", 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 3)
 
 	// Query BlockSignature docs (should exist with identity)
-	sigDocIDs, err := s.queryDocIDs(ctx, "Ethereum__Mainnet__BlockSignature", "blockNumber", 400, 402)
+	sigDocIDs, err := s.queryDocIDs(ctx, "Polygon__Mainnet__BlockSignature", "blockNumber", 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, sigDocIDs, 3, "should have 3 block signature docs")
 }

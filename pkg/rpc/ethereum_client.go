@@ -387,7 +387,6 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 		Timestamp:        fmt.Sprintf("%d", gethBlock.Time()),
 		ParentHash:       gethBlock.ParentHash().Hex(),
 		Difficulty:       gethBlock.Difficulty().String(),
-		TotalDifficulty:  "", // Will be populated separately if needed
 		GasUsed:          fmt.Sprintf("%d", gethBlock.GasUsed()),
 		GasLimit:         fmt.Sprintf("%d", gethBlock.GasLimit()),
 		BaseFeePerGas:    getBaseFeePerGas(gethBlock),
@@ -475,7 +474,7 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		V:                    v.String(),                               // string
 		R:                    r.String(),                               // string
 		S:                    s.String(),                               // string
-		Status:               true,                                     // Default to true, will be updated from receipt
+		YParity:              getYParity(tx),                             // string
 	}
 
 	return &localTx, nil
@@ -555,6 +554,14 @@ func getChainId(tx *ethtypes.Transaction) string {
 		return ""
 	}
 	return tx.ChainId().String()
+}
+
+func getYParity(tx *ethtypes.Transaction) string {
+	v, _, _ := tx.RawSignatureValues()
+	if v == nil || v.BitLen() == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", v.Uint64()%2)
 }
 
 // Close closes the connections

@@ -5,18 +5,18 @@ import (
 )
 
 func TestCollectionConstants(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name     string
 		constant string
 		expected string
 	}{
-		{"Block", CollectionBlock, "Ethereum__Mainnet__Block"},
-		{"Transaction", CollectionTransaction, "Ethereum__Mainnet__Transaction"},
-		{"Log", CollectionLog, "Ethereum__Mainnet__Log"},
-		{"AccessListEntry", CollectionAccessListEntry, "Ethereum__Mainnet__AccessListEntry"},
-		{"BlockSignature", CollectionBlockSignature, "Ethereum__Mainnet__BlockSignature"},
-		{"SnapshotSignature", CollectionSnapshotSignature, "Ethereum__Mainnet__SnapshotSignature"},
+		{"Block", CollectionBlock, "Polygon__Mainnet__Block"},
+		{"Transaction", CollectionTransaction, "Polygon__Mainnet__Transaction"},
+		{"Log", CollectionLog, "Polygon__Mainnet__Log"},
+		{"AccessListEntry", CollectionAccessListEntry, "Polygon__Mainnet__AccessListEntry"},
+		{"BlockSignature", CollectionBlockSignature, "Polygon__Mainnet__BlockSignature"},
+		{"SnapshotSignature", CollectionSnapshotSignature, "Polygon__Mainnet__SnapshotSignature"},
 	}
 
 	for _, tt := range tests {
@@ -29,7 +29,7 @@ t.Parallel()
 }
 
 func TestAllCollections(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if AllCollections == nil {
 		t.Fatal("AllCollections should not be nil")
 	}
@@ -41,8 +41,8 @@ t.Parallel()
 	expected := []string{
 		CollectionBlock,
 		CollectionTransaction,
-		CollectionAccessListEntry,
 		CollectionLog,
+		CollectionAccessListEntry,
 		CollectionBlockSignature,
 		CollectionSnapshotSignature,
 	}

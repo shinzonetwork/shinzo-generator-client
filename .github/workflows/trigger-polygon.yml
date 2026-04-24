@@ -1,0 +1,17 @@
+name: Trigger Polygon Build
+
+on:
+  workflow_run:
+    workflows: ["Go Test CI"]
+    types: [completed]
+    branches: [new-chain/polygon] # trigger event needs to be updated with branch name. 
+  workflow_dispatch:
+
+jobs:
+  call:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    uses: shinzonetwork/shinzo-indexer-client/.github/workflows/build-and-push.yml@main
+    with:
+      chain: polygon
+      network: mainnet
+    secrets: inherit

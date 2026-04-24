@@ -1,31 +1,30 @@
-type Ethereum__Mainnet__Block {
-    hash: String
-    number: Int
-    timestamp: String
-    parentHash: String
-    difficulty: String
-    totalDifficulty: String
-    gasUsed: String
-    gasLimit: String
+type Polygon__Mainnet__Block {
+    hash: String   
+    extraData: String
     baseFeePerGas: String
-    nonce: String
+    difficulty: String
+    gasLimit: String
+    gasUsed: String
+    logsBloom: String
     miner: String
+    mixHash: String
+    nonce: String
+    number: Int
+    parentHash: String
+    transactionsRoot: String
+    uncles: [String]
+    receiptsRoot: String
+    sha3Uncles: String
     size: String
     stateRoot: String
-    sha3Uncles: String
-    transactionsRoot: String
-    receiptsRoot: String
-    logsBloom: String
-    extraData: String
-    mixHash: String
-    uncles: [String]
+    timestamp: String
     # Relationships
-    transactions: [Ethereum__Mainnet__Transaction] @relation(name: "block_transactions")
+    transactions: [Polygon__Mainnet__Transaction] @relation(name: "block_transactions")
 }
 
 # BlockSignature covers all documents in a block (txs, logs, ALEs, and the block itself)
 # Created in the same transaction as the block data, arrives via P2P together
-type Ethereum__Mainnet__BlockSignature {
+type Polygon__Mainnet__BlockSignature {
     blockNumber: Int
     blockHash: String
     merkleRoot: String
@@ -39,7 +38,7 @@ type Ethereum__Mainnet__BlockSignature {
 
 # SnapshotSignature seals a snapshot file with a Merkle root over per-block block
 # signature Merkle roots. Used for cross-indexer attestation and snapshot exchange.
-type Ethereum__Mainnet__SnapshotSignature {
+type Polygon__Mainnet__SnapshotSignature {
     startBlock: Int
     endBlock: Int
     merkleRoot: String
@@ -52,7 +51,8 @@ type Ethereum__Mainnet__SnapshotSignature {
     blockSigMerkleRoots: [String]
 }
 
-type Ethereum__Mainnet__Transaction {
+
+type Polygon__Mainnet__Transaction {
     hash: String
     blockHash: String
     blockNumber: Int
@@ -61,7 +61,6 @@ type Ethereum__Mainnet__Transaction {
     value: String
     gas: String
     gasPrice: String
-    gasUsed: String
     maxFeePerGas: String
     maxPriorityFeePerGas: String
     input: String
@@ -72,33 +71,31 @@ type Ethereum__Mainnet__Transaction {
     v: String
     r: String
     s: String
-    status: Boolean
-    cumulativeGasUsed: String
-    effectiveGasPrice: String
+    yParity: String
     # Relationships
-    block: Ethereum__Mainnet__Block @relation(name: "block_transactions")
-    logs: [Ethereum__Mainnet__Log] @relation(name: "transaction_logs")
-    accessList: [Ethereum__Mainnet__AccessListEntry] @relation(name: "transaction_accessList")
+    block: Polygon__Mainnet__Block @relation(name: "block_transactions")
+    logs: [Polygon__Mainnet__Log] @relation(name: "transaction_logs")
+    accessList: [Polygon__Mainnet__AccessListEntry] @relation(name: "transaction_accessList")
 }
 
-type Ethereum__Mainnet__AccessListEntry {
+type Polygon__Mainnet__AccessListEntry {
     address: String
     blockNumber: Int
     storageKeys: [String]
-    transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_accessList")
+    transaction: Polygon__Mainnet__Transaction @relation(name: "transaction_accessList")
 }
 
-type Ethereum__Mainnet__Log {
+type Polygon__Mainnet__Log {
     address: String
     topics: [String]
     data: String
-    transactionHash: String
-    blockHash: String
     blockNumber: Int
+    transactionHash: String
     transactionIndex: Int
+    blockHash: String
     logIndex: Int
     removed: String
     # Relationships
-    block: Ethereum__Mainnet__Block @relation(name: "block_logs")
-    transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_logs")
+    block: Polygon__Mainnet__Block @relation(name: "block_logs")
+    transaction: Polygon__Mainnet__Transaction @relation(name: "transaction_logs")
 }

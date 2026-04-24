@@ -374,7 +374,6 @@ func (h *BlockHandler) buildBlockDocument(ctx context.Context, block *types.Bloc
 		"timestamp":        block.Timestamp,
 		"parentHash":       block.ParentHash,
 		"difficulty":       block.Difficulty,
-		"totalDifficulty":  block.TotalDifficulty,
 		"gasUsed":          block.GasUsed,
 		"gasLimit":         block.GasLimit,
 		"baseFeePerGas":    block.BaseFeePerGas,
@@ -415,9 +414,7 @@ func (h *BlockHandler) buildTransactionDocument(ctx context.Context, tx *types.T
 		"v":                    tx.V,
 		"r":                    tx.R,
 		"s":                    tx.S,
-		"cumulativeGasUsed":    tx.CumulativeGasUsed,
-		"effectiveGasPrice":    tx.EffectiveGasPrice,
-		"status":               tx.Status,
+		"yParity":              tx.YParity,
 		"_blockID":             blockID,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
