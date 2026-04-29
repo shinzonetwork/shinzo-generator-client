@@ -7,6 +7,7 @@ import (
 )
 
 func TestNetworkErrorConstructors(t *testing.T) {
+t.Parallel()
 	underlying := fmt.Errorf("dial tcp: connection refused")
 
 	tests := []struct {
@@ -67,6 +68,7 @@ func TestNetworkErrorConstructors(t *testing.T) {
 }
 
 func TestDataErrorConstructors(t *testing.T) {
+t.Parallel()
 	underlying := fmt.Errorf("parse error")
 
 	tests := []struct {
@@ -119,6 +121,7 @@ func TestDataErrorConstructors(t *testing.T) {
 }
 
 func TestStorageErrorConstructors(t *testing.T) {
+t.Parallel()
 	underlying := fmt.Errorf("db error")
 
 	tests := []struct {
@@ -166,6 +169,7 @@ func TestStorageErrorConstructors(t *testing.T) {
 }
 
 func TestSystemErrorConstructors(t *testing.T) {
+t.Parallel()
 	underlying := fmt.Errorf("system error")
 
 	tests := []struct {
@@ -208,6 +212,7 @@ func TestSystemErrorConstructors(t *testing.T) {
 }
 
 func TestWithBlockNumber(t *testing.T) {
+t.Parallel()
 	err := NewRPCTimeout("rpc", "GetBlock", "", nil, WithBlockNumber(42))
 	ctx := err.Context()
 	if ctx.BlockNumber == nil {
@@ -219,6 +224,7 @@ func TestWithBlockNumber(t *testing.T) {
 }
 
 func TestWithTxHash(t *testing.T) {
+t.Parallel()
 	hash := "0xabc123"
 	err := NewRPCTimeout("rpc", "GetTx", "", nil, WithTxHash(hash))
 	ctx := err.Context()
@@ -231,6 +237,7 @@ func TestWithTxHash(t *testing.T) {
 }
 
 func TestWithMetadata(t *testing.T) {
+t.Parallel()
 	err := NewRPCTimeout("rpc", "GetBlock", "", nil, WithMetadata("retry_count", 3))
 	ctx := err.Context()
 	if ctx.Metadata == nil {
@@ -242,6 +249,7 @@ func TestWithMetadata(t *testing.T) {
 }
 
 func TestWithMetadata_NilMapInitialization(t *testing.T) {
+t.Parallel()
 	// The WithMetadata function has a nil check on ctx.Metadata
 	// Since newBaseError always initializes Metadata, we test the nil branch
 	// by calling WithMetadata directly on a context with nil Metadata
@@ -257,6 +265,7 @@ func TestWithMetadata_NilMapInitialization(t *testing.T) {
 }
 
 func TestNewBaseError_TimestampAndMetadata(t *testing.T) {
+t.Parallel()
 	err := NewRPCTimeout("comp", "op", "data", nil)
 	ctx := err.Context()
 	if ctx.Timestamp.IsZero() {
@@ -268,6 +277,7 @@ func TestNewBaseError_TimestampAndMetadata(t *testing.T) {
 }
 
 func TestConstructor_ErrorMessage_IncludesInputData(t *testing.T) {
+t.Parallel()
 	err := NewInvalidHex("converter", "ParseHex", "0xZZZ", nil)
 	msg := err.Error()
 	if msg == "" {
@@ -280,6 +290,7 @@ func TestConstructor_ErrorMessage_IncludesInputData(t *testing.T) {
 }
 
 func TestConstructor_ParsingFailed_IncludesInputData(t *testing.T) {
+t.Parallel()
 	err := NewParsingFailed("converter", "ParseJSON", "json_data", nil)
 	msg := err.Error()
 	if !contains(msg, "json_data") {
@@ -288,6 +299,7 @@ func TestConstructor_ParsingFailed_IncludesInputData(t *testing.T) {
 }
 
 func TestDocumentNotFound_NilUnderlying(t *testing.T) {
+t.Parallel()
 	err := NewDocumentNotFound("defra", "GetBlock", "Block", "block_123")
 	if err.Unwrap() != nil {
 		t.Error("DocumentNotFound should have nil underlying error")
