@@ -10,7 +10,7 @@ require (
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260325173318-87784b9925c2
 	github.com/sourcenetwork/immutable v0.3.0
-	go.uber.org/zap v1.27.0
+	go.uber.org/zap v1.28.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
