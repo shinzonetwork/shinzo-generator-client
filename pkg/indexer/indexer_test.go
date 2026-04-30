@@ -934,7 +934,7 @@ func TestGetPeerInfo_NilNode(t *testing.T) {
 	t.Parallel()
 	indexer := &ChainIndexer{defraNode: nil}
 	info, err := indexer.GetPeerInfo()
-	assert.NoError(t, err)
+	assert.ErrorContains(t, err, "defra is nil")
 	assert.Nil(t, info)
 }
 

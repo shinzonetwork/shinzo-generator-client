@@ -4039,7 +4039,7 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 	s := New(cfg, td.Node)
 	s.ctx = identCtx // Set identity context for signing
 
-	err = s.createKVSnapshot(context.Background(), 700, 702)
+	err = s.createKVSnapshot(identCtx, 700, 702)
 	require.NoError(t, err)
 
 	// Verify the snapshot file exists
@@ -4173,7 +4173,7 @@ func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {
 	s := New(cfg, td.Node)
 	s.ctx = identCtx
 
-	err = s.checkAndSnapshot(context.Background())
+	err = s.checkAndSnapshot(identCtx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(54), s.lastSnapshotBlock)
 
@@ -4328,7 +4328,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 	s := New(cfg, td.Node)
 	s.ctx = identCtx
 
-	err := s.createKVSnapshot(context.Background(), 200, 204)
+	err := s.createKVSnapshot(identCtx, 200, 204)
 	require.NoError(t, err)
 
 	// Verify the header has BlockSigMerkleRoots from real block signatures
@@ -4382,7 +4382,7 @@ func TestCheckAndSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 	s := New(cfg, td.Node)
 	s.ctx = identCtx
 
-	err := s.checkAndSnapshot(context.Background())
+	err := s.checkAndSnapshot(identCtx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(54), s.lastSnapshotBlock)
 
