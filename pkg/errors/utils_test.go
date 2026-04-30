@@ -1,7 +1,7 @@
 package errors
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 	"time"
 )
@@ -14,9 +14,9 @@ func TestIsErrNotFound(t *testing.T) {
 		expected bool
 	}{
 		{"nil", nil, false},
-		{"not found", fmt.Errorf("document not found"), true},
-		{"does not exist", fmt.Errorf("collection does not exist"), true},
-		{"unrelated", fmt.Errorf("connection timeout"), false},
+		{"not found", errors.New("document not found"), true},             //nolint: err113
+		{"does not exist", errors.New("collection does not exist"), true}, //nolint: err113
+		{"unrelated", errors.New("connection timeout"), false},            //nolint: err113
 	}
 
 	for _, tt := range tests {
@@ -36,9 +36,9 @@ func TestIsErrAlreadyExists(t *testing.T) {
 		expected bool
 	}{
 		{"nil", nil, false},
-		{"already exists", fmt.Errorf("document already exists"), true},
-		{"collection already exists", fmt.Errorf("collection already exists in database"), true},
-		{"unrelated", fmt.Errorf("timeout"), false},
+		{"already exists", errors.New("document already exists"), true},                          //nolint: err113
+		{"collection already exists", errors.New("collection already exists in database"), true}, //nolint: err113
+		{"unrelated", errors.New("timeout"), false},                                              //nolint: err113
 	}
 
 	for _, tt := range tests {
@@ -58,8 +58,8 @@ func TestIsErrTransactionConflict(t *testing.T) {
 		expected bool
 	}{
 		{"nil", nil, false},
-		{"conflict", fmt.Errorf("transaction conflict detected"), true},
-		{"unrelated", fmt.Errorf("timeout"), false},
+		{"conflict", errors.New("transaction conflict detected"), true}, //nolint: err113
+		{"unrelated", errors.New("timeout"), false},                     //nolint: err113
 	}
 
 	for _, tt := range tests {
@@ -79,9 +79,9 @@ func TestIsErrUnsupportedTxType(t *testing.T) {
 		expected bool
 	}{
 		{"nil", nil, false},
-		{"not supported", fmt.Errorf("transaction type not supported"), true},
-		{"invalid type", fmt.Errorf("invalid transaction type"), true},
-		{"unrelated", fmt.Errorf("timeout"), false},
+		{"not supported", errors.New("transaction type not supported"), true}, //nolint: err113
+		{"invalid type", errors.New("invalid transaction type"), true},        //nolint: err113
+		{"unrelated", errors.New("timeout"), false},                           //nolint: err113
 	}
 
 	for _, tt := range tests {
@@ -100,7 +100,7 @@ func TestIsRetryable(t *testing.T) {
 		err      error
 		expected bool
 	}{
-		{"plain error", fmt.Errorf("something"), false},
+		{"plain error", errors.New("something"), false}, //nolint: err113
 		{"retryable", NewRPCTimeout("rpc", "op", "", nil), true},
 		{"non-retryable", NewInvalidHex("conv", "op", "bad", nil), false},
 		{"retryable with backoff", NewRateLimited("rpc", "op", "", nil), true},
@@ -122,7 +122,7 @@ func TestIsRetryableWithBackoff(t *testing.T) {
 		err      error
 		expected bool
 	}{
-		{"plain error", fmt.Errorf("something"), false},
+		{"plain error", errors.New("something"), false}, //nolint: err113
 		{"retryable (no backoff)", NewRPCTimeout("rpc", "op", "", nil), false},
 		{"retryable with backoff", NewRateLimited("rpc", "op", "", nil), true},
 		{"non-retryable", NewInvalidHex("conv", "op", "bad", nil), false},
@@ -144,7 +144,7 @@ func TestIsCritical(t *testing.T) {
 		err      error
 		expected bool
 	}{
-		{"plain error", fmt.Errorf("something"), false},
+		{"plain error", errors.New("something"), false}, //nolint: err113
 		{"critical", NewDBConnectionFailed("defra", "Connect", "", nil), true},
 		{"non-critical", NewRPCTimeout("rpc", "op", "", nil), false},
 	}
@@ -167,7 +167,7 @@ func TestIsNetworkError(t *testing.T) {
 	}{
 		{"network error", NewRPCTimeout("rpc", "op", "", nil), true},
 		{"data error", NewInvalidHex("conv", "op", "", nil), false},
-		{"plain error", fmt.Errorf("test"), false},
+		{"plain error", errors.New("test"), false}, //nolint: err113
 	}
 
 	for _, tt := range tests {
@@ -188,7 +188,7 @@ func TestIsDataError(t *testing.T) {
 	}{
 		{"data error", NewInvalidHex("conv", "op", "", nil), true},
 		{"network error", NewRPCTimeout("rpc", "op", "", nil), false},
-		{"plain error", fmt.Errorf("test"), false},
+		{"plain error", errors.New("test"), false}, //nolint: err113
 	}
 
 	for _, tt := range tests {
@@ -209,7 +209,7 @@ func TestIsStorageError(t *testing.T) {
 	}{
 		{"storage error", NewDBConnectionFailed("defra", "Connect", "", nil), true},
 		{"network error", NewRPCTimeout("rpc", "op", "", nil), false},
-		{"plain error", fmt.Errorf("test"), false},
+		{"plain error", errors.New("test"), false}, //nolint: err113
 	}
 
 	for _, tt := range tests {
@@ -229,7 +229,7 @@ func TestGetErrorCode(t *testing.T) {
 		expected string
 	}{
 		{"indexer error", NewRPCTimeout("rpc", "op", "", nil), CodeRPCTimeout},
-		{"plain error", fmt.Errorf("test"), "UNKNOWN"},
+		{"plain error", errors.New("test"), "UNKNOWN"},
 	}
 
 	for _, tt := range tests {
@@ -292,7 +292,7 @@ func TestWrapError(t *testing.T) {
 	})
 
 	t.Run("plain error wrapped as SystemError", func(t *testing.T) {
-		plain := fmt.Errorf("something went wrong")
+		plain := errors.New("something went wrong") //nolint: err113
 		result := WrapError(plain, "comp", "op")
 		if result == nil {
 			t.Fatal("WrapError should not return nil for non-nil error")
@@ -364,7 +364,7 @@ func TestLogContext_IndexerError_MinimalContext(t *testing.T) {
 
 func TestLogContext_PlainError(t *testing.T) {
 	t.Parallel()
-	err := fmt.Errorf("something broke")
+	err := errors.New("something broke") //nolint: err113
 	ctx := LogContext(err)
 
 	if ctx["error_type"] != "standard_error" {

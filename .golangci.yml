@@ -13,7 +13,6 @@ linters:
     - dupl
     - dupword
     - embeddedstructfieldcheck
-    - err113
     - errcheck
     - errname
     - errorlint
@@ -43,6 +42,7 @@ linters:
     - unconvert
     - unused
     - wastedassign
+    # - err113 # TODO - enable this linter and fix the issues it finds. by creating errors file with all reusable errors in it.
   settings:
     funlen:
       lines: 100

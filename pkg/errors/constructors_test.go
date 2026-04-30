@@ -2,13 +2,12 @@ package errors
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 )
 
 func TestNetworkErrorConstructors(t *testing.T) {
 	t.Parallel()
-	underlying := fmt.Errorf("dial tcp: connection refused")
+	underlying := errors.New("dial tcp: connection refused") //nolint: err113
 
 	tests := []struct {
 		name      string
@@ -69,7 +68,7 @@ func TestNetworkErrorConstructors(t *testing.T) {
 
 func TestDataErrorConstructors(t *testing.T) {
 	t.Parallel()
-	underlying := fmt.Errorf("parse error")
+	underlying := errors.New("parse error") //nolint: err113
 
 	tests := []struct {
 		name      string
@@ -122,7 +121,7 @@ func TestDataErrorConstructors(t *testing.T) {
 
 func TestStorageErrorConstructors(t *testing.T) {
 	t.Parallel()
-	underlying := fmt.Errorf("db error")
+	underlying := errors.New("db error") //nolint: err113
 
 	tests := []struct {
 		name      string
@@ -170,7 +169,7 @@ func TestStorageErrorConstructors(t *testing.T) {
 
 func TestSystemErrorConstructors(t *testing.T) {
 	t.Parallel()
-	underlying := fmt.Errorf("system error")
+	underlying := errors.New("system error") //nolint: err113
 
 	tests := []struct {
 		name      string

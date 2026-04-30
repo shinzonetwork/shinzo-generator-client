@@ -7,8 +7,9 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
-//go:embed schema.graphql
 // SchemaGraphQL contains the embedded GraphQL schema definition from schema.graphql.
+//
+//go:embed schema.graphql
 var SchemaGraphQL string
 
 // GetSchema returns the GraphQL schema found in `schema.graphql` as a string.

@@ -15,22 +15,22 @@ func init() {
 	blockQueryPath = filepath.Join(getProjectRoot(nil), queryFile)
 }
 
-// Helper to get the latest block number
+// Helper to get the latest block number.
 func getLatestBlockNumber(t *testing.T) int {
 	result := MakeQuery(t, blockQueryPath, "GetHighestBlockNumber", nil)
 
-	// Check if result is nil
+	// Check if result is nil.
 	if result == nil {
 		t.Fatalf("GraphQL query returned nil result")
 	}
 
-	// Check if data field exists
+	// Check if data field exists.
 	data, ok := result["data"]
 	if !ok {
 		t.Fatalf("No 'data' field in GraphQL response: %v", result)
 	}
 
-	// Check if data is nil
+	// Check if data is nil.
 	if data == nil {
 		t.Fatalf("GraphQL 'data' field is nil: %v", result)
 	}
@@ -41,13 +41,13 @@ func getLatestBlockNumber(t *testing.T) int {
 		t.Fatalf("GraphQL 'data' field is not a map: %v", data)
 	}
 
-	// Check if Block field exists
+	// Check if Block field exists.
 	blockField, ok := dataMap[constants.CollectionBlock]
 	if !ok {
 		t.Fatalf("No '%s' field in GraphQL data: %v", constants.CollectionBlock, dataMap)
 	}
 
-	// Cast Block to array
+	// Cast Block to array.
 	blockList, ok := blockField.([]any)
 	if !ok {
 		t.Fatalf("Block field is not an array: %v", blockField)
@@ -70,7 +70,7 @@ func getLatestBlockNumber(t *testing.T) int {
 
 func TestGetHighestBlockNumber(t *testing.T) {
 	t.Parallel()
-	_ = getLatestBlockNumber(t) // Just check we can get it
+	_ = getLatestBlockNumber(t) // Just check we can get it.
 }
 
 func TestGetLatestBlocks(t *testing.T) {

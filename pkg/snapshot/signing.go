@@ -46,14 +46,14 @@ func ComputeSnapshotMerkleRoot(blockSigMerkleRoots [][]byte) []byte {
 		hashes[i] = hash[:]
 	}
 
-	combined := make([]byte, 64)
+	combined := make([]byte, 64) //nolint:mnd
 	for len(hashes) > 1 {
-		newLen := (len(hashes) + 1) / 2
+		newLen := (len(hashes) + 1) / 2 //nolint:mnd
 		newHashes := make([][]byte, 0, newLen)
-		for i := 0; i < len(hashes); i += 2 {
+		for i := 0; i < len(hashes); i += 2 { //nolint:mnd
 			if i+1 < len(hashes) {
-				copy(combined[:32], hashes[i])
-				copy(combined[32:], hashes[i+1])
+				copy(combined[:32], hashes[i])   //nolint:mnd
+				copy(combined[32:], hashes[i+1]) //nolint:mnd
 				hash := sha256.Sum256(combined)
 				newHashes = append(newHashes, hash[:])
 			} else {
@@ -76,7 +76,7 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 
 	result := defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return nil, 0, fmt.Errorf("query block signatures: %w", result.GQL.Errors[0])
+		return nil, 0, fmt.Errorf("query block signatures: %w", result.GQL.Errors[0]) //nolint: err113
 	}
 
 	data, ok := result.GQL.Data.(map[string]any)
@@ -125,21 +125,21 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 func signMerkleRoot(ctx context.Context, merkleRoot []byte) (sigType, sigIdentity string, sigValue []byte, err error) {
 	ident := identity.FromContext(ctx)
 	if !ident.HasValue() {
-		return "", "", nil, fmt.Errorf("no identity in context")
+		return "", "", nil, fmt.Errorf("no identity in context") //nolint: err113
 	}
 
 	fullIdent, ok := ident.Value().(identity.FullIdentity)
 	if !ok {
-		return "", "", nil, fmt.Errorf("identity is not a full identity (no private key)")
+		return "", "", nil, fmt.Errorf("identity is not a full identity (no private key)") //nolint: err113
 	}
 
-	switch fullIdent.PrivateKey().Type() {
+	switch fullIdent.PrivateKey().Type() { //nolint:exhaustive // unsupported key types handled by default case
 	case crypto.KeyTypeSecp256k1:
 		sigType = "ES256K"
 	case crypto.KeyTypeEd25519:
 		sigType = "Ed25519"
 	default:
-		return "", "", nil, fmt.Errorf("unsupported key type: %v", fullIdent.PrivateKey().Type())
+		return "", "", nil, fmt.Errorf("unsupported key type: %v", fullIdent.PrivateKey().Type()) //nolint: err113
 	}
 
 	sigValue, err = fullIdent.PrivateKey().Sign(merkleRoot)
@@ -195,9 +195,27 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 	return nil
 }
 
-// QuerySnapshotSignatures queries DefraDB for all SnapshotSignature documents
+// QuerySnapshotSignatures queries DefraDB for all SnapshotSignature documents,
 // and returns them keyed by snapshot filename for easy lookup.
 func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[string]*SnapshotSignatureData, error) {
+	docs, err := fetchSnapshotSignatureDocs(ctx, defraNode)
+	if err != nil {
+		return nil, err
+	}
+
+	sigs := make(map[string]*SnapshotSignatureData, len(docs))
+	for _, doc := range docs {
+		sig := parseSnapshotSignatureDoc(doc)
+		if sig.SnapshotFile != "" {
+			sigs[sig.SnapshotFile] = sig
+		}
+	}
+
+	return sigs, nil
+}
+
+// fetchSnapshotSignatureDocs executes the GraphQL query and returns raw documents.
+func fetchSnapshotSignatureDocs(ctx context.Context, defraNode *node.Node) ([]map[string]any, error) {
 	query := fmt.Sprintf(
 		`query { %s { startBlock endBlock merkleRoot blockCount signatureType signatureIdentity signatureValue snapshotFile createdAt blockSigMerkleRoots } }`,
 		constants.CollectionSnapshotSignature,
@@ -210,12 +228,12 @@ func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[str
 
 	data, ok := result.GQL.Data.(map[string]any)
 	if !ok {
-		return make(map[string]*SnapshotSignatureData), nil
+		return nil, nil
 	}
 
 	raw := data[constants.CollectionSnapshotSignature]
 	if raw == nil {
-		return make(map[string]*SnapshotSignatureData), nil
+		return nil, nil
 	}
 
 	var docs []map[string]any
@@ -230,56 +248,65 @@ func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[str
 		docs = typed
 	}
 
-	sigs := make(map[string]*SnapshotSignatureData, len(docs))
-	for _, doc := range docs {
-		sig := &SnapshotSignatureData{
-			Version: 1,
-		}
-		if v, ok := doc["snapshotFile"].(string); ok {
-			sig.SnapshotFile = v
-		}
-		if v, ok := doc["startBlock"].(int64); ok {
-			sig.StartBlock = v
-		}
-		if v, ok := doc["endBlock"].(int64); ok {
-			sig.EndBlock = v
-		}
-		if v, ok := doc["merkleRoot"].(string); ok {
-			sig.MerkleRoot = v
-		}
-		if v, ok := doc["blockCount"].(int64); ok {
-			sig.BlockCount = int(v)
-		}
-		if v, ok := doc["signatureType"].(string); ok {
-			sig.SignatureType = v
-		}
-		if v, ok := doc["signatureIdentity"].(string); ok {
-			sig.SignatureIdentity = v
-		}
-		if v, ok := doc["signatureValue"].(string); ok {
-			sig.SignatureValue = v
-		}
-		if v, ok := doc["createdAt"].(string); ok {
-			sig.CreatedAt = v
-		}
-		if raw, ok := doc["blockSigMerkleRoots"]; ok && raw != nil {
-			switch typed := raw.(type) {
-			case []any:
-				for _, item := range typed {
-					if s, ok := item.(string); ok {
-						sig.BlockSigMerkleRoots = append(sig.BlockSigMerkleRoots, s)
-					}
-				}
-			case []string:
-				sig.BlockSigMerkleRoots = typed
-			}
-		}
-		if sig.SnapshotFile != "" {
-			sigs[sig.SnapshotFile] = sig
-		}
+	return docs, nil
+}
+
+// parseSnapshotSignatureDoc maps a raw GraphQL document to a SnapshotSignatureData.
+func parseSnapshotSignatureDoc(doc map[string]any) *SnapshotSignatureData {
+	sig := &SnapshotSignatureData{Version: 1}
+
+	if v, ok := doc["snapshotFile"].(string); ok {
+		sig.SnapshotFile = v
+	}
+	if v, ok := doc["startBlock"].(int64); ok {
+		sig.StartBlock = v
+	}
+	if v, ok := doc["endBlock"].(int64); ok {
+		sig.EndBlock = v
+	}
+	if v, ok := doc["merkleRoot"].(string); ok {
+		sig.MerkleRoot = v
+	}
+	if v, ok := doc["blockCount"].(int64); ok {
+		sig.BlockCount = int(v)
+	}
+	if v, ok := doc["signatureType"].(string); ok {
+		sig.SignatureType = v
+	}
+	if v, ok := doc["signatureIdentity"].(string); ok {
+		sig.SignatureIdentity = v
+	}
+	if v, ok := doc["signatureValue"].(string); ok {
+		sig.SignatureValue = v
+	}
+	if v, ok := doc["createdAt"].(string); ok {
+		sig.CreatedAt = v
 	}
 
-	return sigs, nil
+	sig.BlockSigMerkleRoots = parseBlockSigMerkleRoots(doc["blockSigMerkleRoots"])
+
+	return sig
+}
+
+// parseBlockSigMerkleRoots extracts the blockSigMerkleRoots field from a raw document value.
+func parseBlockSigMerkleRoots(raw any) []string {
+	if raw == nil {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []any:
+		roots := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if s, ok := item.(string); ok {
+				roots = append(roots, s)
+			}
+		}
+		return roots
+	case []string:
+		return typed
+	default:
+		return nil
+	}
 }
 
 // signSnapshotWithRoots signs a snapshot using pre-queried block sig roots.
@@ -293,7 +320,7 @@ func signSnapshotWithRoots(ctx context.Context, defraNode *node.Node, snapshotFi
 	// Compute snapshot Merkle root
 	snapshotRoot := ComputeSnapshotMerkleRoot(roots)
 	if snapshotRoot == nil {
-		return fmt.Errorf("failed to compute snapshot merkle root")
+		return fmt.Errorf("failed to compute snapshot merkle root") //nolint: err113
 	}
 
 	// Sign

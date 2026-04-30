@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -41,13 +42,18 @@ func (m *mockHealthChecker) IsHealthy() bool                 { return m.healthy 
 func (m *mockHealthChecker) GetCurrentBlock() int64          { return m.currentBlock }
 func (m *mockHealthChecker) GetLastProcessedTime() time.Time { return m.lastProcessed }
 func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.p2pInfo, m.p2pErr }
-func (m *mockHealthChecker) SignMessages(message string) (DefraPKRegistration, PeerIDRegistration, error) {
+func (m *mockHealthChecker) SignMessages(_ string) (DefraPKRegistration, PeerIDRegistration, error) {
 	return m.defraReg, m.peerReg, m.signErr
 }
 
-type errTestSignFailed struct{}
+type testSignFailedError struct{}
 
-func (errTestSignFailed) Error() string { return "sign failed" }
+var (
+	errP2P         = errors.New("p2p error")    //nolint:err113
+	errQueryFailed = errors.New("query failed") //nolint:err113
+)
+
+func (testSignFailedError) Error() string { return "sign failed" }
 
 // --- NewHealthServer ---
 
@@ -219,7 +225,7 @@ func TestRegistrationHandler_P2PError(t *testing.T) {
 		healthy:       true,
 		currentBlock:  100,
 		lastProcessed: time.Now(),
-		p2pErr:        fmt.Errorf("p2p error"),
+		p2pErr:        errP2P,
 	}
 	hs := NewHealthServer(0, mock, "")
 	rec := httptest.NewRecorder()
@@ -268,7 +274,7 @@ func TestRegistrationHandler_SignError(t *testing.T) {
 		currentBlock:  1,
 		lastProcessed: time.Now(),
 		p2pInfo:       &P2PInfo{Enabled: true, PeerInfo: []PeerInfo{{ID: "peer1"}}},
-		signErr:       errTestSignFailed{},
+		signErr:       testSignFailedError{},
 	}
 
 	hs := NewHealthServer(0, mock, "")
@@ -314,7 +320,7 @@ func TestRegistrationAppHandler_NilIndexer(t *testing.T) {
 func TestRegistrationAppHandler_SignError(t *testing.T) {
 	t.Parallel()
 	mock := &mockHealthChecker{
-		signErr: errTestSignFailed{},
+		signErr: testSignFailedError{},
 	}
 	hs := NewHealthServer(0, mock, "")
 	rec := httptest.NewRecorder()
@@ -495,7 +501,7 @@ func TestSnapshotDownloadHandler_FileFound(t *testing.T) {
 	tempDir := t.TempDir()
 	// Create a file matching snapshot naming
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
-	os.WriteFile(testFile, []byte("test snapshot data"), 0644)
+	_ = os.WriteFile(testFile, []byte("test snapshot data"), 0o600)
 
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 
@@ -558,7 +564,7 @@ func TestCheckDefraDB_ExternalSuccess(t *testing.T) {
 	listener, err := net.Listen("tcp", "[::1]:0")
 	require.NoError(t, err)
 
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	srv.Listener = listener
@@ -574,7 +580,7 @@ func TestCheckDefraDB_ExternalBadRequest(t *testing.T) {
 	listener, err := net.Listen("tcp", "[::1]:0")
 	require.NoError(t, err)
 
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 	srv.Listener = listener
@@ -596,7 +602,7 @@ func TestCheckDefraDB_ExternalServerError(t *testing.T) {
 	listener, err := net.Listen("tcp", "[::1]:0")
 	require.NoError(t, err)
 
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	srv.Listener = listener
@@ -642,17 +648,16 @@ func TestGetHealthStatusPageHTML_FromDisk(t *testing.T) {
 
 func TestGetHealthStatusPageHTML_EmbeddedFallback(t *testing.T) {
 	t.Parallel()
-	// Override the disk path AND change working directory so ./health_status_page.html also won't be found
-	originalPath := healthStatusPagePath
-	healthStatusPagePath = "/nonexistent/path.html"
-	defer func() { healthStatusPagePath = originalPath }()
 
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() {
+		_ = os.Chdir(originalWd)
+	}()
+	_ = os.Chdir(tempDir)
 
 	hs := NewHealthServer(0, nil, "")
+	hs.healthStatusPagePath = "/nonexistent/path.html"
 	html := hs.getHealthStatusPageHTML()
 	assert.NotEmpty(t, html)
 }
@@ -706,7 +711,7 @@ func TestSnapshotsListHandler_WithDefraNode_QueryError(t *testing.T) {
 	// Since node.DB is nil, QuerySnapshotSignatures panics, so we test via recovery.
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
-	os.WriteFile(testFile, []byte("data"), 0644)
+	_ = os.WriteFile(testFile, []byte("data"), 0o600)
 
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 	hs := NewHealthServer(0, nil, "")
@@ -731,14 +736,14 @@ func TestSnapshotDownloadHandler_FileDeletedBeforeOpen(t *testing.T) {
 	// Simulate a file that exists during GetSnapshotPath but is deleted before os.Open
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz")
-	os.WriteFile(testFile, []byte("data"), 0644)
+	_ = os.WriteFile(testFile, []byte("data"), 0o600)
 
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
 
 	// Delete the file after snapshotter has seen it but before the handler opens it
-	os.Remove(testFile)
+	_ = os.Remove(testFile)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/snapshots/snapshot_0_50.kvsnap.gz", nil)
@@ -753,15 +758,15 @@ func TestSnapshotDownloadHandler_FileOpenError(t *testing.T) {
 	// Create a file, then make it unreadable to trigger os.Open error
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz")
-	os.WriteFile(testFile, []byte("data"), 0644)
+	_ = os.WriteFile(testFile, []byte("data"), 0o600)
 
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
 
 	// Make file unreadable (os.Open will fail with permission denied)
-	os.Chmod(testFile, 0000)
-	defer os.Chmod(testFile, 0644) // restore for cleanup
+	_ = os.Chmod(testFile, 0o000)
+	defer func() { _ = os.Chmod(testFile, 0o600) }() // restore for cleanup
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/snapshots/snapshot_0_50.kvsnap.gz", nil)
@@ -823,9 +828,9 @@ func writeTestKVSnapshot(t *testing.T, dir string, start, end int64) string {
 	filename := fmt.Sprintf("snapshot_%d_%d.kvsnap.gz", start, end)
 	path := filepath.Join(dir, filename)
 
-	f, err := os.Create(path)
+	f, err := os.Create(filepath.Clean(path))
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gw := gzip.NewWriter(f)
 
@@ -840,9 +845,9 @@ func writeTestKVSnapshot(t *testing.T, dir string, start, end int64) string {
 	require.NoError(t, err)
 
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes)))
-	gw.Write(lenBuf[:])
-	gw.Write(headerBytes)
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes))) //nolint:gosec
+	_, _ = gw.Write(lenBuf[:])
+	_, _ = gw.Write(headerBytes)
 
 	require.NoError(t, gw.Close())
 	return filename
@@ -875,15 +880,18 @@ type failWriter struct {
 	code   int
 }
 
+// errSimulatedWrite is the error returned by failWriter.Write to simulate a write failure.
+var errSimulatedWrite = errors.New("simulated write error") //nolint:gochecknoglobals
+
 func (f *failWriter) Header() http.Header         { return f.header }
 func (f *failWriter) WriteHeader(statusCode int)  { f.code = statusCode }
-func (f *failWriter) Write(b []byte) (int, error) { return 0, fmt.Errorf("simulated write error") }
+func (f *failWriter) Write(_ []byte) (int, error) { return 0, errSimulatedWrite }
 
 func TestSnapshotDownloadHandler_CopyError(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
-	os.WriteFile(testFile, []byte("test snapshot data"), 0644)
+	_ = os.WriteFile(testFile, []byte("test snapshot data"), 0o600)
 
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 
@@ -904,7 +912,7 @@ func TestSnapshotImportHandler_InvalidGzipFile(t *testing.T) {
 	tempDir := t.TempDir()
 	filename := "snapshot_0_50.kvsnap.gz"
 	testFile := filepath.Join(tempDir, filename)
-	os.WriteFile(testFile, []byte("not gzip data"), 0644)
+	_ = os.WriteFile(testFile, []byte("not gzip data"), 0o600)
 
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 
@@ -928,8 +936,8 @@ func TestSnapshotsListHandler_WithFiles(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
 	// Create snapshot files matching naming convention
-	os.WriteFile(filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz"), []byte("data1"), 0644)
-	os.WriteFile(filepath.Join(tempDir, "snapshot_100_200.kvsnap.gz"), []byte("data2"), 0644)
+	_ = os.WriteFile(filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz"), []byte("data1"), 0o600)
+	_ = os.WriteFile(filepath.Join(tempDir, "snapshot_100_200.kvsnap.gz"), []byte("data2"), 0o600)
 
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 	hs := NewHealthServer(0, nil, "")
@@ -958,14 +966,14 @@ func TestSnapshotsListHandler_WithFiles(t *testing.T) {
 func TestSnapshotsListHandler_QuerySigError(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
-	os.WriteFile(filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz"), []byte("data"), 0644)
+	_ = os.WriteFile(filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz"), []byte("data"), 0o600)
 
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
 	hs.defraNode = &node.Node{} // non-nil so the query branch is entered
-	hs.querySnapshotSigsFn = func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error) {
-		return nil, fmt.Errorf("query failed")
+	hs.querySnapshotSigsFn = func(_ context.Context, _ *node.Node) (map[string]*snapshot.SnapshotSignatureData, error) {
+		return nil, fmt.Errorf("query snapshots: %w", errQueryFailed)
 	}
 
 	rec := httptest.NewRecorder()

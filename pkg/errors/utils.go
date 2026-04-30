@@ -2,6 +2,7 @@ package errors
 
 import (
 	"errors"
+	"maps"
 	"strings"
 	"time"
 )
@@ -15,6 +16,7 @@ const (
 	ErrStrTransactionConflict     = "transaction conflict"
 	ErrStrTxTypeNotSupported      = "transaction type not supported"
 	ErrStrInvalidTxType           = "invalid transaction type"
+	DefaultRetryDelay             = 30 * time.Second
 )
 
 // IsErrNotFound checks if an error message indicates a "not found" condition.
@@ -51,7 +53,7 @@ func IsErrUnsupportedTxType(err error) bool {
 	return strings.Contains(msg, ErrStrTxTypeNotSupported) || strings.Contains(msg, ErrStrInvalidTxType)
 }
 
-// IsRetryable checks if an error can be retried
+// IsRetryable checks if an error can be retried.
 func IsRetryable(err error) bool {
 	var indexerErr IndexerError
 	if errors.As(err, &indexerErr) {
@@ -60,7 +62,7 @@ func IsRetryable(err error) bool {
 	return false
 }
 
-// IsRetryableWithBackoff checks if error requires exponential backoff
+// IsRetryableWithBackoff checks if error requires exponential backoff.
 func IsRetryableWithBackoff(err error) bool {
 	var indexerErr IndexerError
 	if errors.As(err, &indexerErr) {
@@ -69,7 +71,7 @@ func IsRetryableWithBackoff(err error) bool {
 	return false
 }
 
-// IsCritical checks if error is critical severity
+// IsCritical checks if error is critical severity.
 func IsCritical(err error) bool {
 	var indexerErr IndexerError
 	if errors.As(err, &indexerErr) {
@@ -78,25 +80,25 @@ func IsCritical(err error) bool {
 	return false
 }
 
-// IsNetworkError checks if error is network-related
+// IsNetworkError checks if error is network-related.
 func IsNetworkError(err error) bool {
 	var networkErr *NetworkError
 	return errors.As(err, &networkErr)
 }
 
-// IsDataError checks if error is data-related
+// IsDataError checks if error is data-related.
 func IsDataError(err error) bool {
 	var dataErr *DataError
 	return errors.As(err, &dataErr)
 }
 
-// IsStorageError checks if error is storage-related
+// IsStorageError checks if error is storage-related.
 func IsStorageError(err error) bool {
 	var storageErr *StorageError
 	return errors.As(err, &storageErr)
 }
 
-// GetErrorCode extracts error code from IndexerError, returns "UNKNOWN" for other errors
+// GetErrorCode extracts error code from IndexerError, returns "UNKNOWN" for other errors.
 func GetErrorCode(err error) string {
 	var indexerErr IndexerError
 	if errors.As(err, &indexerErr) {
@@ -105,7 +107,7 @@ func GetErrorCode(err error) string {
 	return "UNKNOWN"
 }
 
-// GetRetryDelay calculates appropriate retry delay based on error type and attempt count
+// GetRetryDelay calculates appropriate retry delay based on error type and attempt count.
 func GetRetryDelay(err error, attemptCount int) time.Duration {
 	if !IsRetryable(err) {
 		return 0
@@ -114,41 +116,39 @@ func GetRetryDelay(err error, attemptCount int) time.Duration {
 	baseDelay := time.Second
 
 	if IsRetryableWithBackoff(err) {
-		// Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
+		// Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s.
 		delay := baseDelay
 		for i := 0; i < attemptCount && delay < 30*time.Second; i++ {
 			delay *= 2
 		}
-		if delay > 30*time.Second {
-			delay = 30 * time.Second
-		}
+		delay = min(delay, DefaultRetryDelay) //nolint:mnd
 		return delay
 	}
 
-	// Simple retry - fixed delay
+	// Simple retry - fixed delay.
 	return baseDelay
 }
 
-// WrapError wraps a standard error with IndexerError context
+// WrapError wraps a standard error with IndexerError context.
 func WrapError(err error, component, operation string) IndexerError {
 	if err == nil {
 		return nil
 	}
 
-	// If already an IndexerError, return as-is
+	// If already an IndexerError, return as-is.
 	var indexerErr IndexerError
 	if errors.As(err, &indexerErr) {
 		return indexerErr
 	}
 
-	// Create generic error wrapper
+	// Create generic error wrapper.
 	return &SystemError{
 		baseError: newBaseError("WRAPPED_ERROR", "Wrapped standard error", Error, NonRetryable,
 			component, operation, "", err),
 	}
 }
 
-// LogContext extracts structured logging context from error
+// LogContext extracts structured logging context from error.
 func LogContext(err error) map[string]any {
 	var indexerErr IndexerError
 	if errors.As(err, &indexerErr) {
@@ -170,10 +170,7 @@ func LogContext(err error) map[string]any {
 			logCtx["tx_hash"] = *ctx.TxHash
 		}
 
-		// Add metadata
-		for k, v := range ctx.Metadata {
-			logCtx[k] = v
-		}
+		maps.Copy(logCtx, ctx.Metadata)
 
 		return logCtx
 	}

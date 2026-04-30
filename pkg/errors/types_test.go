@@ -1,7 +1,7 @@
 package errors
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 )
 
@@ -50,7 +50,7 @@ func TestRetryBehavior_String(t *testing.T) {
 
 func TestBaseError_Error_WithUnderlying(t *testing.T) {
 	t.Parallel()
-	underlying := fmt.Errorf("connection refused")
+	underlying := errors.New("connection refused") //nolint: err113
 	e := &baseError{
 		code:       "TEST_CODE",
 		message:    "test message",
@@ -76,7 +76,7 @@ func TestBaseError_Error_WithoutUnderlying(t *testing.T) {
 
 func TestBaseError_Accessors(t *testing.T) {
 	t.Parallel()
-	underlying := fmt.Errorf("wrapped")
+	underlying := errors.New("wrapped") //nolint: err113
 	ctx := ErrorContext{
 		Component: "test",
 		Operation: "TestOp",
@@ -105,7 +105,7 @@ func TestBaseError_Accessors(t *testing.T) {
 	if e.Context().Operation != "TestOp" {
 		t.Errorf("Context().Operation = %q, want %q", e.Context().Operation, "TestOp")
 	}
-	if e.Unwrap() != underlying { //nolint:errorlint
+	if !errors.Is(e.Unwrap(), underlying) { //nolint:err113
 		t.Errorf("Unwrap() = %v, want %v", e.Unwrap(), underlying)
 	}
 }

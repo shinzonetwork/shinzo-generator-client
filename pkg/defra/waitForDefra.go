@@ -2,6 +2,7 @@ package defra
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -21,6 +22,8 @@ const (
 	// GraphQLEndpointPath is the path to the DefraDB GraphQL endpoint.
 	GraphQLEndpointPath = "/api/v0/graphql"
 )
+
+var errDefraDBNotReady = errors.New("DefraDB failed to become ready") //nolint:gochecknoglobals
 
 // WaitForDefraDB waits for a DefraDB instance to be ready by checking the GraphQL endpoint.
 // It retries until the endpoint responds successfully or until max attempts are reached.
@@ -70,5 +73,5 @@ func WaitForDefraDB(url string) error {
 		time.Sleep(DefraDBReadyRetryDelay)
 	}
 
-	return fmt.Errorf("DefraDB failed to become ready after %d retry attempts", DefraDBReadyMaxAttempts)
+	return fmt.Errorf("%w after %d retry attempts", errDefraDBNotReady, DefraDBReadyMaxAttempts)
 }

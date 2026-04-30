@@ -30,7 +30,7 @@ const (
 	ZeroAddress = "0x0000000000000000000000000000000000000000"
 )
 
-// EthereumClient wraps both JSON-RPC and fallback HTTP client
+// EthereumClient wraps both JSON-RPC and fallback HTTP client.
 type EthereumClient struct {
 	httpClient   *ethclient.Client
 	wsClient     *ethclient.Client
@@ -40,7 +40,7 @@ type EthereumClient struct {
 	apiKeyHeader string
 }
 
-// NewEthereumClient creates a new JSON-RPC Ethereum client with HTTP and WebSocket support
+// NewEthereumClient creates a new JSON-RPC Ethereum client with HTTP and WebSocket support.
 func NewEthereumClient(httpNodeURL, wsURL, apiKey, apiKeyHeader string) (*EthereumClient, error) {
 	client := &EthereumClient{
 		nodeURL:      httpNodeURL,
@@ -148,7 +148,7 @@ func NewEthereumClient(httpNodeURL, wsURL, apiKey, apiKeyHeader string) (*Ethere
 	return client, nil
 }
 
-// apiKeyTransport adds API key header to HTTP requests
+// apiKeyTransport adds API key header to HTTP requests.
 type apiKeyTransport struct {
 	apiKey       string
 	apiKeyHeader string
@@ -176,53 +176,52 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// GetLatestBlock fetches the latest block
+// GetLatestBlock fetches the latest block.
 func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, fmt.Errorf("no client available")
 	}
 
-	// Get the latest block number first
+	// Get the latest block number first.
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest header: %w", err)
 	}
 
-	// For GCP Erigon nodes, start with blocks that are significantly behind
-	// to avoid transaction type compatibility issues
+	// For GCP Erigon nodes, start with blocks that are significantly behind.
+	// to avoid transaction type compatibility issues.
 	targetBlockNumber := big.NewInt(1).Sub(latestHeader.Number, big.NewInt(InitialBlocksBack))
 	logger.Sugar.Infof("Latest block: %s, targeting block: %s (%d blocks behind for Erigon compatibility)",
 		latestHeader.Number.String(), targetBlockNumber.String(), InitialBlocksBack)
 
 	var gethBlock *ethtypes.Block
 
-	// Try progressively older blocks if transaction type errors occur
-	for retries := 0; retries < MaxErigonRetries; retries++ {
+	// Try progressively older blocks if transaction type errors occur.
+	for retries := range MaxErigonRetries {
 		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
 		if err != nil {
 			if errors.IsErrUnsupportedTxType(err) {
 
 				if retries < MaxErigonRetries-1 {
-					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks
+					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks.
 					blocksBack := InitialBlocksBack * (1 << uint(retries+1))
 					targetBlockNumber = big.NewInt(1).Sub(latestHeader.Number, big.NewInt(int64(blocksBack)))
 					logger.Sugar.Warnf("Retry %d: Transaction type error with Erigon, going back %d blocks total...",
 						retries+1, blocksBack)
 
-					// Add progressive delay to prevent API rate limiting
+					// Add progressive delay to prevent API rate limiting.
 					time.Sleep(time.Duration(retries+1) * time.Second)
 					continue
-				} else {
-					logger.Sugar.Errorf("Failed after %d retries due to transaction type compatibility with Erigon", retries+1)
-					return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
 				}
+				logger.Sugar.Errorf("Failed after %d retries due to transaction type compatibility with Erigon", retries+1)
+				return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
 			}
-			// For non-transaction-type errors, fail immediately
+			// For non-transaction-type errors, fail immediately.
 			return nil, fmt.Errorf("failed to get block: %w", err)
 		}
 
-		// Success - log which block we're actually processing
+		// Success - log which block we're actually processing.
 		if retries > 0 {
 			logger.Sugar.Infof("Successfully retrieved block %s after %d retries (Erigon compatibility)",
 				targetBlockNumber.String(), retries)
@@ -233,7 +232,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, erro
 	return c.convertGethBlock(gethBlock), nil
 }
 
-// GetBlockByNumber fetches a block by number
+// GetBlockByNumber fetches a block by number.
 func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*types.Block, error) {
 	client := c.getPreferredClient()
 	if client == nil {
@@ -248,7 +247,7 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	return c.convertGethBlock(gethBlock), nil
 }
 
-// GetNetworkID returns the network ID
+// GetNetworkID returns the network ID.
 func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 	client := c.getPreferredClient()
 	if client == nil {
@@ -258,7 +257,7 @@ func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 	return client.NetworkID(ctx)
 }
 
-// GetLatestBlockNumber returns just the latest block number (not the offset block)
+// GetLatestBlockNumber returns just the latest block number (not the offset block).
 func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, error) {
 	client := c.getPreferredClient()
 	if client == nil {
@@ -273,7 +272,7 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 	return latestHeader.Number, nil
 }
 
-// GetTransactionReceipt fetches a transaction receipt by hash
+// GetTransactionReceipt fetches a transaction receipt by hash.
 func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash string) (*types.TransactionReceipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
@@ -305,13 +304,13 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.
 	return result, nil
 }
 
-// convertGethReceipt converts go-ethereum receipt to our custom receipt type
+// convertGethReceipt converts go-ethereum receipt to our custom receipt type.
 func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *types.TransactionReceipt {
 	if receipt == nil {
 		return nil
 	}
 
-	// Convert logs
+	// Convert logs.
 	logs := make([]types.Log, len(receipt.Logs))
 	for i, log := range receipt.Logs {
 		logs[i] = c.convertGethLog(log)
@@ -330,7 +329,7 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *types.Tr
 	}
 }
 
-// convertGethLog converts go-ethereum log to our custom log type
+// convertGethLog converts go-ethereum log to our custom log type.
 func (c *EthereumClient) convertGethLog(log *ethtypes.Log) types.Log {
 	// Convert topics
 	topics := make([]string, len(log.Topics))
@@ -344,14 +343,14 @@ func (c *EthereumClient) convertGethLog(log *ethtypes.Log) types.Log {
 		Data:             common.Bytes2Hex(log.Data),
 		BlockNumber:      fmt.Sprintf("%d", log.BlockNumber),
 		TransactionHash:  log.TxHash.Hex(),
-		TransactionIndex: int(log.TxIndex),
+		TransactionIndex: int(log.TxIndex), //nolint:gosec
 		BlockHash:        log.BlockHash.Hex(),
-		LogIndex:         int(log.Index),
+		LogIndex:         int(log.Index), //nolint:gosec
 		Removed:          log.Removed,
 	}
 }
 
-// Helper functions for receipt conversion
+// Helper functions for receipt conversion.
 func getContractAddress(receipt *ethtypes.Receipt) string {
 	if receipt.ContractAddress == (common.Address{}) {
 		return ""
@@ -366,13 +365,13 @@ func getReceiptStatus(receipt *ethtypes.Receipt) string {
 	return "0"
 }
 
-// convertGethBlock converts go-ethereum Block to our custom Block type
+// convertGethBlock converts go-ethereum Block to our custom Block type.
 func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Block {
 	if gethBlock == nil {
 		return nil
 	}
 
-	// Convert transactions
+	// Convert transactions.
 	transactions := make([]types.Transaction, 0, len(gethBlock.Transactions()))
 
 	for i, tx := range gethBlock.Transactions() {
@@ -380,13 +379,13 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 		transactions = append(transactions, *localTx)
 	}
 
-	// Convert uncles
+	// Convert uncles.
 	uncles := make([]string, len(gethBlock.Uncles()))
 	for i, uncle := range gethBlock.Uncles() {
 		uncles[i] = uncle.Hash().Hex()
 	}
 
-	// Convert the block
+	// Convert the block.
 	return &types.Block{
 		Hash:             gethBlock.Hash().Hex(),
 		Number:           fmt.Sprintf("%d", gethBlock.NumberU64()),
@@ -412,14 +411,14 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 	}
 }
 
-// convertTransaction safely converts a single transaction
+// convertTransaction safely converts a single transaction.
 func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock *ethtypes.Block, index int) *types.Transaction {
-	// Get transaction details with error handling
+	// Get transaction details with error handling.
 	fromAddr, fromErr := GetFromAddress(tx)
 	var fromAddrStr string
 	switch {
 	case fromErr != nil:
-		// For unsigned transactions or other errors, use zero address
+		// For unsigned transactions or other errors, use zero address.
 		logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), fromErr)
 		fromAddrStr = ZeroAddress
 	case fromAddr != nil:
@@ -429,25 +428,25 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 	}
 	toAddr := getToAddress(tx)
 
-	// Handle different transaction types
+	// Handle different transaction types.
 	var gasPrice *big.Int
 	switch tx.Type() {
 	case ethtypes.LegacyTxType, ethtypes.AccessListTxType:
 		gasPrice = tx.GasPrice()
 	case ethtypes.DynamicFeeTxType:
-		// For EIP-1559 transactions, use effective gas price if available
-		// Fall back to gas fee cap if not
+		// For EIP-1559 transactions, use effective gas price if available.
+		// Fall back to gas fee cap if not.
 		gasPrice = tx.GasFeeCap()
 	default:
-		// For unknown transaction types, try to get gas price
-		// If it fails, we'll catch it in the calling function
+		// For unknown transaction types, try to get gas price.
+		// If it fails, we'll catch it in the calling function.
 		gasPrice = tx.GasPrice()
 	}
 
-	// Extract signature components
+	// Extract signature components.
 	v, r, s := tx.RawSignatureValues()
 
-	// Get access list for EIP-2930/EIP-1559 transactions
+	// Get access list for EIP-2930/EIP-1559 transactions.
 	accessList := make([]types.AccessListEntry, 0)
 	if tx.AccessList() != nil {
 		for _, entry := range tx.AccessList() {
@@ -482,7 +481,7 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		V:                    v.String(),                               // string
 		R:                    r.String(),                               // string
 		S:                    s.String(),                               // string
-		Status:               true,                                     // Default to true, will be updated from receipt
+		Status:               true,                                     // Default to true, will be updated from receipt.
 	}
 
 	return &localTx
@@ -492,7 +491,7 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 func GetFromAddress(tx *ethtypes.Transaction) (*common.Address, error) {
 	chainID := tx.ChainId()
 
-	// Handle pre-EIP-155 transactions (before block 2,675,000)
+	// Handle pre-EIP-155 transactions (before block 2,675,000).
 	if chainID == nil || chainID.Sign() <= 0 {
 		// Use HomesteadSigner for pre-EIP-155 transactions
 		homesteadSigner := ethtypes.HomesteadSigner{}
@@ -500,7 +499,7 @@ func GetFromAddress(tx *ethtypes.Transaction) (*common.Address, error) {
 			return &from, nil
 		}
 
-		// Fallback to FrontierSigner for even older transactions
+		// Fallback to FrontierSigner for even older transactions.
 		frontierSigner := ethtypes.FrontierSigner{}
 		if from, err := ethtypes.Sender(frontierSigner, tx); err == nil {
 			return &from, nil
@@ -509,7 +508,7 @@ func GetFromAddress(tx *ethtypes.Transaction) (*common.Address, error) {
 		return nil, fmt.Errorf("unable to recover sender from pre-EIP-155 transaction")
 	}
 
-	// Try different signers to handle various transaction types (post-EIP-155)
+	// Try different signers to handle various transaction types (post-EIP-155).
 	signers := []ethtypes.Signer{
 		ethtypes.LatestSignerForChainID(chainID),
 		ethtypes.NewEIP155Signer(chainID),
@@ -532,7 +531,7 @@ func getToAddress(tx *ethtypes.Transaction) string {
 	return tx.To().Hex()
 }
 
-// getBaseFeePerGas extracts base fee from EIP-1559 blocks
+// getBaseFeePerGas extracts base fee from EIP-1559 blocks.
 func getBaseFeePerGas(block *ethtypes.Block) string {
 	if block.BaseFee() == nil {
 		return "" // Not an EIP-1559 block
@@ -540,7 +539,7 @@ func getBaseFeePerGas(block *ethtypes.Block) string {
 	return block.BaseFee().String()
 }
 
-// getMaxFeePerGas extracts max fee per gas from EIP-1559 transactions
+// getMaxFeePerGas extracts max fee per gas from EIP-1559 transactions.
 func getMaxFeePerGas(tx *ethtypes.Transaction) string {
 	if tx.Type() == ethtypes.DynamicFeeTxType {
 		return tx.GasFeeCap().String()
@@ -548,7 +547,7 @@ func getMaxFeePerGas(tx *ethtypes.Transaction) string {
 	return ""
 }
 
-// getMaxPriorityFeePerGas extracts max priority fee per gas from EIP-1559 transactions
+// getMaxPriorityFeePerGas extracts max priority fee per gas from EIP-1559 transactions.
 func getMaxPriorityFeePerGas(tx *ethtypes.Transaction) string {
 	if tx.Type() == ethtypes.DynamicFeeTxType {
 		return tx.GasTipCap().String()
@@ -556,7 +555,7 @@ func getMaxPriorityFeePerGas(tx *ethtypes.Transaction) string {
 	return ""
 }
 
-// getChainID extracts chain ID from transaction
+// getChainID extracts chain ID from transaction.
 func getChainID(tx *ethtypes.Transaction) string {
 	if tx.ChainId() == nil {
 		return ""
@@ -564,7 +563,7 @@ func getChainID(tx *ethtypes.Transaction) string {
 	return tx.ChainId().String()
 }
 
-// Close closes the connections
+// Close closes the connections.
 func (c *EthereumClient) Close() error {
 	if c.httpClient != nil {
 		c.httpClient.Close()
@@ -575,8 +574,8 @@ func (c *EthereumClient) Close() error {
 	return nil
 }
 
-// getPreferredClient returns WebSocket client if available, otherwise HTTP client
-// Prioritizes WebSocket for real-time blockchain data streaming
+// getPreferredClient returns WebSocket client if available, otherwise HTTP client.
+// Prioritizes WebSocket for real-time blockchain data streaming.
 func (c *EthereumClient) getPreferredClient() *ethclient.Client {
 	if c.wsClient != nil {
 		return c.wsClient
@@ -589,23 +588,22 @@ func (c *EthereumClient) getPreferredClient() *ethclient.Client {
 	return nil
 }
 
-// createWebSocketWithHeaders creates a WebSocket connection with API key header
+// createWebSocketWithHeaders creates a WebSocket connection with API key header.
 func createWebSocketWithHeaders(wsURL, apiKey, apiKeyHeader string) (*ethclient.Client, error) {
 	ctx := context.Background()
 
-	// Use configured header name
+	// Use configured header name.
 	headerName := apiKeyHeader
 
-	// Create http.Header with API key
+	// Create http.Header with API key.
 	headers := http.Header{}
 	headers.Set(headerName, apiKey)
 
-	// Create custom dialer with API key header
+	// Create custom dialer with API key header.
 	logger.Sugar.Debugf("Creating WebSocket with %s header", headerName)
 	rpcClient, err := ethrpc.DialOptions(ctx, wsURL,
 		ethrpc.WithHeaders(headers),
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, err)
 	}
@@ -614,7 +612,7 @@ func createWebSocketWithHeaders(wsURL, apiKey, apiKeyHeader string) (*ethclient.
 	return ethclient.NewClient(rpcClient), nil
 }
 
-// maskAPIKey masks the API key in URLs for logging
+// maskAPIKey masks the API key in URLs for logging.
 func maskAPIKey(url, apiKey string) string {
 	if apiKey == "" || len(apiKey) < 8 {
 		return url

@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,8 +21,11 @@ import (
 
 //go:embed health_status_page.html
 var embeddedHealthStatusPageHTML string
+var errIndexerNotAvailable = errors.New("indexer not available") //nolint:err113
 
 const (
+	// ServerUnhealthyStatus is the status string used when the server is unhealthy.
+	ServerUnhealthyStatus = "unhealthy"
 	// RegistrationAppBaseURL is the base URL for the Shinzo Network registration app.
 	// TODO: Make this configurable via config file.
 	RegistrationAppBaseURL = "https://registration.shinzo.network/"
@@ -36,22 +40,20 @@ const (
 	DefraDBCheckTimeout = 5 * time.Second
 )
 
-var (
-	healthStatusPagePath = filepath.Join("pkg", "server", "health_status_page.html")
-)
-
-// HealthServer provides HTTP endpoints for health checks and metrics
+// HealthServer provides HTTP endpoints for health checks and metrics.
 type HealthServer struct {
-	server              *http.Server
-	mux                 *http.ServeMux
-	indexer             HealthChecker
-	defraURL            string
-	snapshotter         *snapshot.Snapshotter
-	defraNode           *node.Node
-	querySnapshotSigsFn func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error)
+	server               *http.Server
+	mux                  *http.ServeMux
+	indexer              HealthChecker
+	defraURL             string
+	snapshotter          *snapshot.Snapshotter
+	defraNode            *node.Node
+	startTime            time.Time
+	healthStatusPagePath string
+	querySnapshotSigsFn  func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error)
 }
 
-// HealthChecker interface for checking indexer health
+// HealthChecker interface for checking indexer health.
 type HealthChecker interface {
 	IsHealthy() bool
 	GetCurrentBlock() int64
@@ -60,7 +62,7 @@ type HealthChecker interface {
 	SignMessages(message string) (DefraPKRegistration, PeerIDRegistration, error)
 }
 
-// P2PInfo represents DefraDB P2P network information
+// P2PInfo represents DefraDB P2P network information.
 type P2PInfo struct {
 	Enabled  bool       `json:"enabled"`
 	Self     *PeerInfo  `json:"self,omitempty"`
@@ -78,8 +80,8 @@ type PeerInfo struct {
 type DisplayRegistration struct {
 	Enabled             bool                `json:"enabled"`
 	Message             string              `json:"message"`
-	DefraPKRegistration DefraPKRegistration `json:"defra_pk_registration,omitempty"`
-	PeerIDRegistration  PeerIDRegistration  `json:"peer_id_registration,omitempty"`
+	DefraPKRegistration DefraPKRegistration `json:"defra_pk_registration,omitzero"`
+	PeerIDRegistration  PeerIDRegistration  `json:"peer_id_registration,omitzero"`
 }
 
 // DefraPKRegistration holds the public key and signed message for DefraDB PK registration.
@@ -94,12 +96,12 @@ type PeerIDRegistration struct {
 	SignedPeerMsg string `json:"signed_peer_message,omitempty"`
 }
 
-// HealthResponse represents the health check response
+// HealthResponse represents the health check response.
 type HealthResponse struct {
 	Status           string               `json:"status"`
 	Timestamp        time.Time            `json:"timestamp"`
 	CurrentBlock     int64                `json:"current_block,omitempty"`
-	LastProcessed    time.Time            `json:"last_processed,omitempty"`
+	LastProcessed    time.Time            `json:"last_processed,omitzero"`
 	DefraDBConnected bool                 `json:"defradb_connected"`
 	Uptime           string               `json:"uptime"`
 	UptimeSeconds    float64              `json:"uptime_seconds"`
@@ -109,7 +111,7 @@ type HealthResponse struct {
 	SchemaType       string               `json:"schema_type,omitempty"`
 }
 
-// MetricsResponse represents basic metrics
+// MetricsResponse represents basic metrics.
 type MetricsResponse struct {
 	BlocksProcessed   int64     `json:"blocks_processed"`
 	CurrentBlock      int64     `json:"current_block"`
@@ -117,9 +119,7 @@ type MetricsResponse struct {
 	Uptime            string    `json:"uptime"`
 }
 
-var startTime = time.Now()
-
-// NewHealthServer creates a new health server
+// NewHealthServer creates a new health server.
 func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthServer {
 	mux := http.NewServeMux()
 
@@ -127,13 +127,15 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 		server: &http.Server{
 			Addr:         fmt.Sprintf(":%d", port),
 			Handler:      mux,
-			ReadTimeout:  10 * time.Second,
-			WriteTimeout: 5 * time.Minute, // large snapshot files need time to transfer
+			ReadTimeout:  10 * time.Second, //nolint:mnd
+			WriteTimeout: 5 * time.Minute,  //nolint:mnd // large snapshot files need time to transfer.
 		},
-		mux:                 mux,
-		indexer:             indexer,
-		defraURL:            defraURL,
-		querySnapshotSigsFn: snapshot.QuerySnapshotSignatures,
+		mux:                  mux,
+		indexer:              indexer,
+		defraURL:             defraURL,
+		startTime:            time.Now(),
+		healthStatusPagePath: "pkg/server/health_status_page.html",
+		querySnapshotSigsFn:  snapshot.QuerySnapshotSignatures,
 	}
 
 	// Register routes
@@ -159,41 +161,41 @@ func (hs *HealthServer) SetDefraNode(n *node.Node) {
 	hs.mux.HandleFunc("/snapshots/import", hs.snapshotImportHandler)
 }
 
-// Start starts the health server
+// Start starts the health server.
 func (hs *HealthServer) Start() error {
 	logger.Sugar.Infof("Starting health server on %s", hs.server.Addr)
 	return hs.server.ListenAndServe()
 }
 
-// Stop gracefully stops the health server
+// Stop gracefully stops the health server.
 func (hs *HealthServer) Stop(ctx context.Context) error {
 	logger.Sugar.Info("Stopping health server...")
 	return hs.server.Shutdown(ctx)
 }
 
-// healthHandler handles liveness probe requests
+// healthHandler handles liveness probe requests.
 func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested
+	// Content negotiation: Default to HTML for browsers, only serve JSON if explicitly requested.
 	accept := r.Header.Get("Accept")
 	acceptLower := strings.ToLower(accept)
 
-	uptime := time.Since(startTime)
+	uptime := time.Since(hs.startTime)
 
-	// Serve JSON only if explicitly requested (Accept contains application/json and not text/html)
-	// Otherwise, default to HTML for browser requests
+	// Serve JSON only if explicitly requested (Accept contains application/json and not text/html).
+	// Otherwise, default to HTML for browser requests.
 	if strings.Contains(acceptLower, "text/html") && !strings.Contains(acceptLower, "application/json") {
-		// Default to HTML (browser request or Accept header includes text/html)
+		// Default to HTML (browser request or Accept header includes text/html).
 		htmlContent := hs.getHealthStatusPageHTML()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(htmlContent)
 		return
 	}
-	// Serve JSON response
+	// Serve JSON response.
 	response := HealthResponse{
 		Status:           "healthy",
 		Timestamp:        time.Now(),
@@ -209,21 +211,21 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		response.P2P = p2p
 
 		if !hs.indexer.IsHealthy() {
-			response.Status = "unhealthy"
+			response.Status = ServerUnhealthyStatus
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if response.Status == "unhealthy" {
+	if response.Status == ServerUnhealthyStatus {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// getRegistrationData returns the signed registration data for the indexer
+// getRegistrationData returns the signed registration data for the indexer.
 func (hs *HealthServer) getRegistrationData() (*DisplayRegistration, error) {
 	if hs.indexer == nil {
-		return nil, fmt.Errorf("indexer not available")
+		return nil, errIndexerNotAvailable
 	}
 
 	defraReg, peerReg, signErr := hs.indexer.SignMessages(RegistrationMessage)
@@ -248,14 +250,14 @@ func (hs *HealthServer) getRegistrationData() (*DisplayRegistration, error) {
 	return registration, nil
 }
 
-// registrationHandler handles readiness probe requests
+// registrationHandler handles readiness probe requests.
 func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Check if indexer is ready (has processed at least one block recently)
+	// Check if indexer is ready (has processed at least one block recently).
 	ready := true
 	if hs.indexer != nil {
 		lastProcessed := hs.indexer.GetLastProcessedTime()
@@ -264,12 +266,12 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Check DefraDB connectivity
+	// Check DefraDB connectivity.
 	if !hs.checkDefraDB() {
 		ready = false
 	}
 
-	uptime := time.Since(startTime)
+	uptime := time.Since(hs.startTime)
 	response := HealthResponse{
 		Status:           "ready",
 		Timestamp:        time.Now(),
@@ -284,7 +286,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		p2p, err := hs.indexer.GetPeerInfo()
 		response.P2P = p2p
 		if err != nil {
-			response.Status = "unhealthy"
+			response.Status = ServerUnhealthyStatus
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
@@ -302,7 +304,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// registrationAppHandler redirects to the registration app with registration data as query params
+// registrationAppHandler redirects to the registration app with registration data as query params.
 func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Request) {
 	registration, err := hs.getRegistrationData()
 	if err != nil || registration == nil || !registration.Enabled {
@@ -322,7 +324,7 @@ func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Re
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
 
-// metricsHandler provides basic metrics in JSON format
+// metricsHandler provides basic metrics in JSON format.
 func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -330,7 +332,7 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metrics := MetricsResponse{
-		Uptime: time.Since(startTime).String(),
+		Uptime: time.Since(hs.startTime).String(),
 	}
 
 	if hs.indexer != nil {
@@ -343,7 +345,7 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(metrics)
 }
 
-// rootHandler handles root requests
+// rootHandler handles root requests.
 func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -371,6 +373,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 // snapshotListEntry extends SnapshotInfo with inline signature data.
 type snapshotListEntry struct {
 	snapshot.SnapshotInfo
+
 	Signed    bool                            `json:"signed"`
 	Signature *snapshot.SnapshotSignatureData `json:"signature,omitempty"`
 }
@@ -388,7 +391,7 @@ func (hs *HealthServer) snapshotsListHandler(w http.ResponseWriter, r *http.Requ
 
 	infos := hs.snapshotter.ListSnapshots()
 
-	// Query DefraDB for all snapshot signatures, keyed by filename
+	// Query DefraDB for all snapshot signatures, keyed by filename.
 	var sigs map[string]*snapshot.SnapshotSignatureData
 	if hs.defraNode != nil {
 		var err error
@@ -416,7 +419,7 @@ func (hs *HealthServer) snapshotsListHandler(w http.ResponseWriter, r *http.Requ
 }
 
 // snapshotDownloadHandler serves a snapshot file by name.
-// URL: /snapshots/{filename} — serves .jsonl.gz snapshot file
+// URL: /snapshots/{filename} — serves .jsonl.gz snapshot file.
 func (hs *HealthServer) snapshotDownloadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -439,7 +442,7 @@ func (hs *HealthServer) snapshotDownloadHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	f, err := os.Open(filePath)
+	f, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		http.Error(w, "Failed to open file", http.StatusInternalServerError)
 		return
@@ -465,7 +468,7 @@ func (hs *HealthServer) snapshotDownloadHandler(w http.ResponseWriter, r *http.R
 }
 
 // snapshotImportHandler imports a snapshot file by name.
-// POST /snapshots/import?file=snapshot_X_Y.kvsnap.gz
+// POST /snapshots/import?file=snapshot_X_Y.kvsnap.gz.
 func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -510,10 +513,10 @@ func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// checkDefraDB checks if DefraDB is accessible
+// checkDefraDB checks if DefraDB is accessible.
 func (hs *HealthServer) checkDefraDB() bool {
 	if hs.defraURL == "" {
-		return true // Embedded mode, assume healthy
+		return true // Embedded mode, assume healthy.
 	}
 
 	if strings.Contains(hs.defraURL, "localhost") || strings.Contains(hs.defraURL, "127.0.0.1") {
@@ -527,7 +530,7 @@ func (hs *HealthServer) checkDefraDB() bool {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest // GraphQL endpoint returns 400 for GET
+	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest // GraphQL endpoint returns 400 for GET.
 }
 
 // normalizeHex ensures a string is represented as a 0x-prefixed hex string.
@@ -543,24 +546,24 @@ func normalizeHex(s string) string {
 	return "0x" + s
 }
 
-// getHealthStatusPageHTML reads the HTML file from disk at runtime, falling back to embedded version
-// This allows hot-reloading during development without rebuilding
+// getHealthStatusPageHTML reads the HTML file from disk at runtime, falling back to embedded version.
+// This allows hot-reloading during development without rebuilding.
 func (hs *HealthServer) getHealthStatusPageHTML() []byte {
-	// Try to read from disk first (for development hot-reload)
-	// Check multiple possible paths relative to where the binary might be running
+	// Try to read from disk first (for development hot-reload).
+	// Check multiple possible paths relative to where the binary might be running.
 	possiblePaths := []string{
-		healthStatusPagePath,                          // pkg/server/health_status_page.html
-		filepath.Join(".", "health_status_page.html"), // ./health_status_page.html (if running from pkg/server)
+		hs.healthStatusPagePath,
+		filepath.Join(".", "health_status_page.html"),
 	}
 
 	for _, path := range possiblePaths {
-		if data, err := os.ReadFile(path); err == nil {
+		if data, err := os.ReadFile(filepath.Clean(path)); err == nil {
 			logger.Sugar.Debugf("Loaded health status page from: %s", path)
 			return data
 		}
 	}
 
-	// Fallback to embedded version (for production or if file not found)
+	// Fallback to embedded version (for production or if file not found).
 	logger.Sugar.Debug("Using embedded health status page")
 	return []byte(embeddedHealthStatusPageHTML)
 }

@@ -4,35 +4,48 @@ import (
 	"time"
 )
 
-// Error code constants for monitoring and metrics
+// Error code constants for monitoring and metrics.
 const (
-	// Network error codes
-	CodeRPCTimeout          = "RPC_TIMEOUT"
+	// CodeRPCTimeout is for errors related to RPC request timeouts, such as when a request to an RPC endpoint exceeds the configured timeout duration.
+	CodeRPCTimeout = "RPC_TIMEOUT"
+	// CodeRPCConnectionFailed is for errors related to failures when connecting to an RPC endpoint, such as connection refused or network unreachable.
 	CodeRPCConnectionFailed = "RPC_CONNECTION_FAILED"
-	CodeHTTPError           = "HTTP_ERROR"
-	CodeRateLimited         = "RATE_LIMITED"
+	// CodeHTTPError is for errors related to HTTP connection failures, such as when connecting to a third-party API or service over HTTP.
+	CodeHTTPError = "HTTP_ERROR"
+	// CodeRateLimited is for errors indicating that the system has been rate limited by an external service, such as a third-party API or database.
+	CodeRateLimited = "RATE_LIMITED"
 
-	// Data error codes
-	CodeInvalidHex           = "INVALID_HEX"
-	CodeInvalidBlockFormat   = "INVALID_BLOCK_FORMAT"
-	CodeInvalidInputFormat   = "INVALID_INPUT_FORMAT"
+	// CodeInvalidHex is for errors indicating that a hexadecimal string input was invalid or malformed.
+	CodeInvalidHex = "INVALID_HEX"
+	// CodeInvalidBlockFormat is for errors indicating that block data is malformed or does not conform to expected format.
+	CodeInvalidBlockFormat = "INVALID_BLOCK_FORMAT"
+	// CodeInvalidInputFormat is for errors indicating that input data is malformed or does not conform to expected format.
+	CodeInvalidInputFormat = "INVALID_INPUT_FORMAT"
+	// CodeMissingRequiredField is for errors indicating that a required field was missing from input data.
 	CodeMissingRequiredField = "MISSING_REQUIRED_FIELD"
-	CodeParsingFailed        = "PARSING_FAILED"
+	// CodeParsingFailed is for general parsing failures that don't fit more specific categories.
+	CodeParsingFailed = "PARSING_FAILED"
 
-	// Storage error codes
-	CodeDBConnectionFailed  = "DB_CONNECTION_FAILED"
-	CodeQueryFailed         = "QUERY_FAILED"
+	// CodeDBConnectionFailed is for errors related to failures when connecting to the database.
+	CodeDBConnectionFailed = "DB_CONNECTION_FAILED"
+	// CodeQueryFailed is for errors that occur during database query execution, such as syntax errors or constraint violations.
+	CodeQueryFailed = "QUERY_FAILED"
+	// CodeConstraintViolation is for errors indicating a database constraint violation, such as unique key or foreign key violations.
 	CodeConstraintViolation = "CONSTRAINT_VIOLATION"
-	CodeDocumentNotFound    = "DOCUMENT_NOT_FOUND"
+	// CodeDocumentNotFound is for errors indicating that a required document was not found in the database.
+	CodeDocumentNotFound = "DOCUMENT_NOT_FOUND"
 
-	// System error codes
-	CodeInvalidConfig      = "INVALID_CONFIG"
-	CodeResourceExhausted  = "RESOURCE_EXHAUSTED"
+	// CodeInvalidConfig is for errors related to invalid system configuration that prevents startup or operation.
+	CodeInvalidConfig = "INVALID_CONFIG"
+	// CodeResourceExhausted is for errors indicating that a critical resource (e.g. memory, disk space) has been exhausted.
+	CodeResourceExhausted = "RESOURCE_EXHAUSTED"
+	// CodeServiceUnavailable is for errors indicating that a critical external service is unavailable, such as a database or third-party API.
 	CodeServiceUnavailable = "SERVICE_UNAVAILABLE"
+	// CodeConfigurationError is for errors related to misconfiguration of the system that prevents it from functioning correctly (e.g. invalid environment variables, missing config files).
 	CodeConfigurationError = "CONFIGURATION_ERROR"
 )
 
-// NetworkError constructors
+// NetworkError constructors.
 
 // NewHTTPConnectionFailed creates an error for HTTP connection failures.
 func NewHTTPConnectionFailed(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
@@ -42,7 +55,7 @@ func NewHTTPConnectionFailed(component, operation, inputData string, underlying 
 	}
 }
 
-// NewRPCTimeout creates an error for RPC timeout scenarios
+// NewRPCTimeout creates an error for RPC timeout scenarios.
 func NewRPCTimeout(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	return &NetworkError{
 		baseError: newBaseError(CodeRPCTimeout, "RPC request timed out", Error, Retryable,
@@ -50,7 +63,7 @@ func NewRPCTimeout(component, operation, inputData string, underlying error, ctx
 	}
 }
 
-// NewRPCConnectionFailed creates an error for RPC connection failures
+// NewRPCConnectionFailed creates an error for RPC connection failures.
 func NewRPCConnectionFailed(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	return &NetworkError{
 		baseError: newBaseError(CodeRPCConnectionFailed, "Failed to connect to RPC endpoint", Error, Retryable,
@@ -58,7 +71,7 @@ func NewRPCConnectionFailed(component, operation, inputData string, underlying e
 	}
 }
 
-// NewRateLimited creates an error for rate limiting scenarios
+// NewRateLimited creates an error for rate limiting scenarios.
 func NewRateLimited(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	return &NetworkError{
 		baseError: newBaseError(CodeRateLimited, "Rate limited by external service", Warning, RetryableWithBackoff,
@@ -66,9 +79,9 @@ func NewRateLimited(component, operation, inputData string, underlying error, ct
 	}
 }
 
-// DataError constructors
+// DataError constructors.
 
-// NewInvalidHex creates an error for invalid hexadecimal string inputs
+// NewInvalidHex creates an error for invalid hexadecimal string inputs.
 func NewInvalidHex(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	message := "Invalid hexadecimal format: " + inputData
 	return &DataError{
@@ -77,7 +90,7 @@ func NewInvalidHex(component, operation, inputData string, underlying error, ctx
 	}
 }
 
-// NewInvalidBlockFormat creates an error for malformed block data
+// NewInvalidBlockFormat creates an error for malformed block data.
 func NewInvalidBlockFormat(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	return &DataError{
 		baseError: newBaseError(CodeInvalidBlockFormat, "Block data format is invalid", Error, NonRetryable,
@@ -85,7 +98,7 @@ func NewInvalidBlockFormat(component, operation, inputData string, underlying er
 	}
 }
 
-// NewInvalidInputFormat creates an error for malformed input data
+// NewInvalidInputFormat creates an error for malformed input data.
 func NewInvalidInputFormat(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	return &DataError{
 		baseError: newBaseError(CodeInvalidInputFormat, "Input data format is invalid", Error, NonRetryable,
@@ -93,7 +106,7 @@ func NewInvalidInputFormat(component, operation, inputData string, underlying er
 	}
 }
 
-// NewParsingFailed creates an error for general parsing failures
+// NewParsingFailed creates an error for general parsing failures.
 func NewParsingFailed(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	message := "Failed to parse " + inputData
 	return &DataError{
@@ -102,9 +115,9 @@ func NewParsingFailed(component, operation, inputData string, underlying error, 
 	}
 }
 
-// StorageError constructors
+// StorageError constructors.
 
-// NewDBConnectionFailed creates an error for database connection failures
+// NewDBConnectionFailed creates an error for database connection failures.
 func NewDBConnectionFailed(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	return &StorageError{
 		baseError: newBaseError(CodeDBConnectionFailed, "Failed to connect to database", Critical, Retryable,
@@ -112,7 +125,7 @@ func NewDBConnectionFailed(component, operation, inputData string, underlying er
 	}
 }
 
-// NewQueryFailed creates an error for database query failures
+// NewQueryFailed creates an error for database query failures.
 func NewQueryFailed(component, operation, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	return &StorageError{
 		baseError: newBaseError(CodeQueryFailed, "Database query execution failed", Error, Retryable,
@@ -120,7 +133,7 @@ func NewQueryFailed(component, operation, inputData string, underlying error, ct
 	}
 }
 
-// NewDocumentNotFound creates an error when a required document is not found
+// NewDocumentNotFound creates an error when a required document is not found.
 func NewDocumentNotFound(component, operation, documentType, inputData string, ctx ...ContextOption) IndexerError {
 	message := "Required " + documentType + " document not found"
 	return &StorageError{
@@ -129,9 +142,9 @@ func NewDocumentNotFound(component, operation, documentType, inputData string, c
 	}
 }
 
-// SystemError constructors
+// SystemError constructors.
 
-// NewConfigurationError creates an error for system configuration issues
+// NewConfigurationError creates an error for system configuration issues.
 func NewConfigurationError(component, operation, issue, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	message := "Configuration error: " + issue
 	return &SystemError{
@@ -140,7 +153,7 @@ func NewConfigurationError(component, operation, issue, inputData string, underl
 	}
 }
 
-// NewServiceUnavailable creates an error when a critical service is unavailable
+// NewServiceUnavailable creates an error when a critical service is unavailable.
 func NewServiceUnavailable(component, operation, service, inputData string, underlying error, ctx ...ContextOption) IndexerError {
 	message := "Service unavailable: " + service
 	return &SystemError{
@@ -149,12 +162,12 @@ func NewServiceUnavailable(component, operation, service, inputData string, unde
 	}
 }
 
-// Helper functions
+// Helper functions.
 
-// newBaseError creates a baseError with consistent context
+// newBaseError creates a baseError with consistent context.
 func newBaseError(code, message string, severity Severity, retryable RetryBehavior,
-	component, operation, inputData string, underlying error, contextOptions ...ContextOption) *baseError {
-
+	component, operation, inputData string, underlying error, contextOptions ...ContextOption,
+) *baseError {
 	context := ErrorContext{
 		Component: component,
 		Operation: operation,
@@ -162,7 +175,7 @@ func newBaseError(code, message string, severity Severity, retryable RetryBehavi
 		Metadata:  make(map[string]any),
 	}
 
-	// Apply context options
+	// Apply context options.
 	for _, opt := range contextOptions {
 		opt(&context)
 	}
@@ -173,29 +186,29 @@ func newBaseError(code, message string, severity Severity, retryable RetryBehavi
 		severity:   severity,
 		retryable:  retryable,
 		context:    context,
-		inputData: inputData,
+		inputData:  inputData,
 		underlying: underlying,
 	}
 }
 
-// ContextOption allows flexible context configuration
+// ContextOption allows flexible context configuration.
 type ContextOption func(*ErrorContext)
 
-// WithBlockNumber adds block number to error context
+// WithBlockNumber adds block number to error context.
 func WithBlockNumber(blockNumber int64) ContextOption {
 	return func(ctx *ErrorContext) {
 		ctx.BlockNumber = &blockNumber
 	}
 }
 
-// WithTxHash adds transaction hash to error context
+// WithTxHash adds transaction hash to error context.
 func WithTxHash(txHash string) ContextOption {
 	return func(ctx *ErrorContext) {
 		ctx.TxHash = &txHash
 	}
 }
 
-// WithMetadata adds arbitrary metadata to error context
+// WithMetadata adds arbitrary metadata to error context.
 func WithMetadata(key string, value any) ContextOption {
 	return func(ctx *ErrorContext) {
 		if ctx.Metadata == nil {

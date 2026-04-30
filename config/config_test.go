@@ -34,7 +34,7 @@ logger:
   development: true
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
@@ -73,7 +73,7 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "invalid_config.yaml")
 
-	if err := os.WriteFile(configPath, []byte("defradb:\n  url: \"invalid yaml\n"), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte("defradb:\n  url: \"invalid yaml\n"), 0o600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 			configPath := filepath.Join(tempDir, "config.yaml")
 			configContent := "defradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
 
-			if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 				t.Fatalf("Failed to write test config file: %v", err)
 			}
 
@@ -519,7 +519,7 @@ indexer:
   start_height: 1000
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
@@ -545,7 +545,7 @@ indexer:
   start_height: 1000
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 

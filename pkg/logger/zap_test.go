@@ -31,8 +31,8 @@ func TestInitWithFiles(t *testing.T) {
 	// Don't run in parallel - modifies global logger state
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	InitWithFiles(true)
 	if Sugar == nil {
@@ -42,7 +42,7 @@ func TestInitWithFiles(t *testing.T) {
 	// Write some logs to trigger file creation
 	Sugar.Info("test info")
 	Sugar.Error("test error")
-	Sugar.Sync()
+	_ = Sugar.Sync()
 
 	// Verify log files were created
 	logFile := filepath.Join(tempDir, "logs", "logfile.log")
@@ -60,8 +60,8 @@ func TestInitWithFiles_Production(t *testing.T) {
 	// Don't run in parallel - modifies global logger state
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	InitWithFiles(false)
 	if Sugar == nil {
@@ -73,8 +73,8 @@ func TestInit(t *testing.T) {
 	// Don't run in parallel - modifies global logger state
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	Init(true)
 	if Sugar == nil {
@@ -165,7 +165,7 @@ func TestTestf_WithSugar(t *testing.T) {
 func TestLogError_CriticalSeverity(t *testing.T) {
 	t.Parallel()
 	InitConsoleOnly(true)
-	err := errors.NewDBConnectionFailed("defra", "Connect", "", fmt.Errorf("connection refused"))
+	err := errors.NewDBConnectionFailed("defra", "Connect", "", fmt.Errorf("connection refused")) //nolint: err113
 	// Should not panic
 	LogError(err, "database connection failed")
 }
@@ -173,14 +173,14 @@ func TestLogError_CriticalSeverity(t *testing.T) {
 func TestLogError_ErrorSeverity(t *testing.T) {
 	t.Parallel()
 	InitConsoleOnly(true)
-	err := errors.NewRPCTimeout("rpc", "GetBlock", "", fmt.Errorf("timeout"))
+	err := errors.NewRPCTimeout("rpc", "GetBlock", "", fmt.Errorf("timeout")) //nolint: err113
 	LogError(err, "rpc timeout")
 }
 
 func TestLogError_WarningSeverity(t *testing.T) {
 	t.Parallel()
 	InitConsoleOnly(true)
-	err := errors.NewRateLimited("rpc", "GetBlock", "", fmt.Errorf("429"))
+	err := errors.NewRateLimited("rpc", "GetBlock", "", fmt.Errorf("429")) //nolint: err113
 	LogError(err, "rate limited")
 }
 
@@ -191,8 +191,8 @@ func TestLogError_InfoSeverity(t *testing.T) {
 	LogError(err, "info level log")
 }
 
-// mockInfoError implements errors.IndexerError with Info severity
-// (no constructor produces Info severity, but LogError handles it)
+// mockInfoError implements errors.IndexerError with Info severity.
+// (no constructor produces Info severity, but LogError handles it).
 type mockInfoError struct{}
 
 func (e *mockInfoError) Error() string                   { return "info error" }
@@ -209,7 +209,7 @@ func TestLogError_WithBlockNumberAndTxHash(t *testing.T) {
 	InitConsoleOnly(true)
 	blockNum := int64(42)
 	txHash := "0xabc123"
-	err := errors.NewRPCTimeout("rpc", "GetBlock", "", fmt.Errorf("timeout"),
+	err := errors.NewRPCTimeout("rpc", "GetBlock", "", fmt.Errorf("timeout"), //nolint: err113
 		errors.WithBlockNumber(blockNum),
 		errors.WithTxHash(txHash),
 	)
@@ -219,44 +219,44 @@ func TestLogError_WithBlockNumberAndTxHash(t *testing.T) {
 func TestLogError_WithCustomFields(t *testing.T) {
 	t.Parallel()
 	InitConsoleOnly(true)
-	err := errors.NewRPCTimeout("rpc", "GetBlock", "", fmt.Errorf("timeout"))
+	err := errors.NewRPCTimeout("rpc", "GetBlock", "", fmt.Errorf("timeout")) //nolint: err113
 	LogError(err, "rpc timeout", zap.Int("attempt", 3), zap.String("endpoint", "localhost"))
 }
 
 func TestLogError_NonIndexerError(t *testing.T) {
 	t.Parallel()
 	InitConsoleOnly(true)
-	err := fmt.Errorf("standard error")
+	err := fmt.Errorf("standard error") //nolint: err113
 	LogError(err, "something failed")
 }
 
 func TestLogError_NonIndexerError_WithFields(t *testing.T) {
 	t.Parallel()
 	InitConsoleOnly(true)
-	err := fmt.Errorf("standard error")
+	err := fmt.Errorf("standard error") //nolint: err113
 	LogError(err, "something failed", zap.String("context", "test"))
 }
 
-// testArrayEncoder is a minimal PrimitiveArrayEncoder for testing customLevelEncoder
+// testArrayEncoder is a minimal PrimitiveArrayEncoder for testing customLevelEncoder.
 type testArrayEncoder struct {
 	values []string
 }
 
-func (e *testArrayEncoder) AppendBool(v bool)             {}
-func (e *testArrayEncoder) AppendByteString(v []byte)     {}
-func (e *testArrayEncoder) AppendComplex128(v complex128) {}
-func (e *testArrayEncoder) AppendComplex64(v complex64)   {}
-func (e *testArrayEncoder) AppendFloat64(v float64)       {}
-func (e *testArrayEncoder) AppendFloat32(v float32)       {}
-func (e *testArrayEncoder) AppendInt(v int)               {}
-func (e *testArrayEncoder) AppendInt64(v int64)           {}
-func (e *testArrayEncoder) AppendInt32(v int32)           {}
-func (e *testArrayEncoder) AppendInt16(v int16)           {}
-func (e *testArrayEncoder) AppendInt8(v int8)             {}
+func (e *testArrayEncoder) AppendBool(_ bool)             {}
+func (e *testArrayEncoder) AppendByteString(_ []byte)     {}
+func (e *testArrayEncoder) AppendComplex128(_ complex128) {}
+func (e *testArrayEncoder) AppendComplex64(_ complex64)   {}
+func (e *testArrayEncoder) AppendFloat64(_ float64)       {}
+func (e *testArrayEncoder) AppendFloat32(_ float32)       {}
+func (e *testArrayEncoder) AppendInt(_ int)               {}
+func (e *testArrayEncoder) AppendInt64(_ int64)           {}
+func (e *testArrayEncoder) AppendInt32(_ int32)           {}
+func (e *testArrayEncoder) AppendInt16(_ int16)           {}
+func (e *testArrayEncoder) AppendInt8(_ int8)             {}
 func (e *testArrayEncoder) AppendString(v string)         { e.values = append(e.values, v) }
-func (e *testArrayEncoder) AppendUint(v uint)             {}
-func (e *testArrayEncoder) AppendUint64(v uint64)         {}
-func (e *testArrayEncoder) AppendUint32(v uint32)         {}
-func (e *testArrayEncoder) AppendUint16(v uint16)         {}
-func (e *testArrayEncoder) AppendUint8(v uint8)           {}
-func (e *testArrayEncoder) AppendUintptr(v uintptr)       {}
+func (e *testArrayEncoder) AppendUint(_ uint)             {}
+func (e *testArrayEncoder) AppendUint64(_ uint64)         {}
+func (e *testArrayEncoder) AppendUint32(_ uint32)         {}
+func (e *testArrayEncoder) AppendUint16(_ uint16)         {}
+func (e *testArrayEncoder) AppendUint8(_ uint8)           {}
+func (e *testArrayEncoder) AppendUintptr(_ uintptr)       {}

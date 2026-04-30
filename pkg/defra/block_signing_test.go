@@ -56,7 +56,7 @@ func TestMerkleRootComputation(t *testing.T) {
 	}
 }
 
-// TestMerkleRootWithOddNumberOfCIDs tests merkle root with odd number of CIDs
+// TestMerkleRootWithOddNumberOfCIDs tests merkle root with odd number of CIDs.
 func TestMerkleRootWithOddNumberOfCIDs(t *testing.T) {
 	t.Parallel()
 	testData := [][]byte{
@@ -92,7 +92,7 @@ func TestMerkleRootWithOddNumberOfCIDs(t *testing.T) {
 	}
 }
 
-// TestMerkleRootWithSingleCID tests merkle root with single CID
+// TestMerkleRootWithSingleCID tests merkle root with single CID.
 func TestMerkleRootWithSingleCID(t *testing.T) {
 	t.Parallel()
 	hash, err := multihash.Sum([]byte("single doc"), multihash.SHA2_256, -1)
@@ -113,7 +113,7 @@ func TestMerkleRootWithSingleCID(t *testing.T) {
 	}
 }
 
-// TestMerkleRootDeterminism verifies that merkle root is deterministic regardless of input order
+// TestMerkleRootDeterminism verifies that merkle root is deterministic regardless of input order.
 func TestMerkleRootDeterminism(t *testing.T) {
 	t.Parallel()
 	testData := [][]byte{
@@ -156,7 +156,7 @@ func TestMerkleRootDeterminism(t *testing.T) {
 	t.Logf("✅ Merkle root is deterministic: %s", hex.EncodeToString(root1))
 }
 
-// TestEmptyCIDs verifies behavior with empty CID list
+// TestEmptyCIDs verifies behavior with empty CID list.
 func TestEmptyCIDs(t *testing.T) {
 	t.Parallel()
 	indexerRoot := computeMerkleRootIndexer([]gocid.Cid{})
@@ -172,13 +172,13 @@ func TestEmptyCIDs(t *testing.T) {
 	t.Log("✅ Empty CID handling correct")
 }
 
-// TestLargeBatch tests with a larger batch of CIDs (simulating a real block)
+// TestLargeBatch tests with a larger batch of CIDs (simulating a real block).
 func TestLargeBatch(t *testing.T) {
 	t.Parallel()
-	// Simulate a block with 100 documents (block + txs + logs + ALEs)
+	// Simulate a block with 100 documents (block + txs + logs + ALEs).
 	numDocs := 100
 	testData := make([][]byte, numDocs)
-	for i := 0; i < numDocs; i++ {
+	for i := range numDocs {
 		testData[i] = []byte("document " + string(rune('0'+i%10)) + string(rune('0'+i/10)))
 	}
 
@@ -210,33 +210,33 @@ func TestLargeBatch(t *testing.T) {
 	}
 }
 
-// computeMerkleRootIndexer simulates DefraDB's ComputeMerkleRoot function
-// This is a copy of the logic from defradb/internal/core/block/block_signing.go
+// computeMerkleRootIndexer simulates DefraDB's ComputeMerkleRoot function.
+// This is a copy of the logic from defradb/internal/core/block/block_signing.go.
 func computeMerkleRootIndexer(cids []gocid.Cid) []byte {
 	if len(cids) == 0 {
 		return nil
 	}
 
-	// Sort CIDs by string representation
+	// Sort CIDs by string representation.
 	sortedCids := make([]gocid.Cid, len(cids))
 	copy(sortedCids, cids)
 	sort.Slice(sortedCids, func(i, j int) bool {
 		return bytes.Compare(sortedCids[i].Bytes(), sortedCids[j].Bytes()) < 0
 	})
 
-	// Hash each CID's raw bytes
+	// Hash each CID's raw bytes.
 	hashes := make([][]byte, len(sortedCids))
 	for i, c := range sortedCids {
 		hash := sha256.Sum256(c.Bytes())
 		hashes[i] = hash[:]
 	}
 
-	// Reduce to single root
+	// Reduce to single root.
 	for len(hashes) > 1 {
 		var newHashes [][]byte
 		for i := 0; i < len(hashes); i += 2 {
 			if i+1 < len(hashes) {
-				combined := append(hashes[i], hashes[i+1]...)
+				combined := bytes.Join([][]byte{hashes[i], hashes[i+1]}, nil)
 				hash := sha256.Sum256(combined)
 				newHashes = append(newHashes, hash[:])
 			} else {
@@ -249,14 +249,14 @@ func computeMerkleRootIndexer(cids []gocid.Cid) []byte {
 	return hashes[0]
 }
 
-// computeMerkleRootHost simulates the host's ComputeMerkleRootFromStrings function
-// This is a copy of the logic from shinzo-host-client/pkg/attestation/blockSignatureVerifier.go
+// computeMerkleRootHost simulates the host's ComputeMerkleRootFromStrings function.
+// This is a copy of the logic from shinzo-host-client/pkg/attestation/blockSignatureVerifier.go.
 func computeMerkleRootHost(cidStrings []string) []byte {
 	if len(cidStrings) == 0 {
 		return nil
 	}
 
-	// Parse CID strings into CID objects
+	// Parse CID strings into CID objects.
 	parsedCids := make([]gocid.Cid, 0, len(cidStrings))
 	for _, cidStr := range cidStrings {
 		c, err := gocid.Decode(cidStr)
@@ -270,24 +270,24 @@ func computeMerkleRootHost(cidStrings []string) []byte {
 		return nil
 	}
 
-	// Sort CIDs by their string representation
+	// Sort CIDs by their string representation.
 	sort.Slice(parsedCids, func(i, j int) bool {
 		return bytes.Compare(parsedCids[i].Bytes(), parsedCids[j].Bytes()) < 0
 	})
 
-	// Hash each CID's raw bytes
+	// Hash each CID's raw bytes.
 	hashes := make([][]byte, len(parsedCids))
 	for i, c := range parsedCids {
 		hash := sha256.Sum256(c.Bytes())
 		hashes[i] = hash[:]
 	}
 
-	// Reduce to single root
+	// Reduce to single root.
 	for len(hashes) > 1 {
 		var newHashes [][]byte
 		for i := 0; i < len(hashes); i += 2 {
 			if i+1 < len(hashes) {
-				combined := append(hashes[i], hashes[i+1]...)
+				combined := bytes.Join([][]byte{hashes[i], hashes[i+1]}, nil)
 				hash := sha256.Sum256(combined)
 				newHashes = append(newHashes, hash[:])
 			} else {

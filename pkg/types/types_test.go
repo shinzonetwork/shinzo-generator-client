@@ -276,5 +276,4 @@ func TestUpdateStructsJSONMarshaling(t *testing.T) {
 	if unmarshaledLog.TxId != updateLog.TxId {
 		t.Errorf("TxId mismatch: got %s, want %s", unmarshaledLog.TxId, updateLog.TxId)
 	}
-
 }

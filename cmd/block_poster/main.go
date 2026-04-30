@@ -114,7 +114,7 @@ func verifySnapshots(args []string, stdout, stderr io.Writer) error {
 }
 
 func truncateID(id string) string {
-	if len(id) <= 20 {
+	if len(id) <= 20 { //nolint:mnd
 		return id
 	}
 	return id[:20] + "..."

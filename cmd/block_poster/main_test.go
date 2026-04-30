@@ -79,15 +79,15 @@ func TestVerifySnapshots(t *testing.T) {
 		sigPath := filepath.Join(tmpDir, "test.sig.json")
 
 		// Write a non-gzip file as the snapshot
-		err := os.WriteFile(snapshotPath, []byte("not a gzip file"), 0644)
+		err := os.WriteFile(snapshotPath, []byte("not a gzip file"), 0o600)
 		require.NoError(t, err)
 
 		// Write an invalid sig file
-		err = os.WriteFile(sigPath, []byte("not json"), 0644)
+		err = os.WriteFile(filepath.Clean(sigPath), []byte("not json"), 0o600)
 		require.NoError(t, err)
 
 		var stdout, stderr bytes.Buffer
-		err = verifySnapshots([]string{snapshotPath}, &stdout, &stderr)
+		err = verifySnapshots([]string{filepath.Clean(snapshotPath)}, &stdout, &stderr)
 		require.Error(t, err)
 		assert.Contains(t, stderr.String(), "FAIL:")
 	})
@@ -98,7 +98,7 @@ func TestVerifySnapshots(t *testing.T) {
 		sigPath := filepath.Join(tmpDir, "test.sig.json")
 
 		// Write a non-gzip file as the snapshot
-		err := os.WriteFile(snapshotPath, []byte("not a gzip file"), 0644)
+		err := os.WriteFile(filepath.Clean(snapshotPath), []byte("not a gzip file"), 0o600)
 		require.NoError(t, err)
 
 		// Write a valid JSON sig file (VerifySnapshot will parse it, then fail on snapshot read)
@@ -112,11 +112,11 @@ func TestVerifySnapshots(t *testing.T) {
 			"signature_type": "Ed25519",
 			"signature_identity": "someid"
 		}`
-		err = os.WriteFile(sigPath, []byte(sigJSON), 0644)
+		err = os.WriteFile(filepath.Clean(sigPath), []byte(sigJSON), 0o600)
 		require.NoError(t, err)
 
 		var stdout, stderr bytes.Buffer
-		err = verifySnapshots([]string{snapshotPath}, &stdout, &stderr)
+		err = verifySnapshots([]string{filepath.Clean(snapshotPath)}, &stdout, &stderr)
 		require.Error(t, err)
 		// Should get a FAIL in stderr for the bad snapshot
 		assert.Contains(t, stderr.String(), "FAIL:")
@@ -125,7 +125,7 @@ func TestVerifySnapshots(t *testing.T) {
 	t.Run("multiple files with first failing", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		err := verifySnapshots(
-			[]string{"/nonexistent/file1.jsonl.gz", "/nonexistent/file2.jsonl.gz"},
+			[]string{filepath.Clean("/nonexistent/file1.jsonl.gz"), filepath.Clean("/nonexistent/file2.jsonl.gz")},
 			&stdout, &stderr,
 		)
 		require.Error(t, err)
@@ -206,7 +206,7 @@ logger:
   development: true
 `, tmpDir)
 
-		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
 		err = run([]string{"-config", configPath})
@@ -246,7 +246,7 @@ logger:
   development: true
 `, tmpDir)
 
-		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
 		err = run([]string{"-config", configPath})
@@ -290,7 +290,7 @@ logger:
   development: true
 `, tmpDir)
 
-		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
 		// Send SIGTERM after a short delay to trigger graceful shutdown path.
@@ -322,7 +322,7 @@ geth:
 indexer:
   start_height: -1
 `
-		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
 		err = run([]string{"-config", configPath})
@@ -336,7 +336,7 @@ indexer:
 func createTestSnapshot(t *testing.T, dir, filename string, merkleRootHexes []string) string {
 	t.Helper()
 	snapshotPath := filepath.Join(dir, filename)
-	f, err := os.Create(snapshotPath)
+	f, err := os.Create(filepath.Clean(snapshotPath))
 	require.NoError(t, err)
 
 	gw := gzip.NewWriter(f)
@@ -431,7 +431,7 @@ func TestVerifySnapshots_ValidSnapshot(t *testing.T) {
 	sigJSON, err := json.Marshal(sigData)
 	require.NoError(t, err)
 	sigPath := filepath.Join(tmpDir, "valid.sig.json")
-	err = os.WriteFile(sigPath, sigJSON, 0644)
+	err = os.WriteFile(filepath.Clean(sigPath), sigJSON, 0o600)
 	require.NoError(t, err)
 
 	var stdout, stderr bytes.Buffer
@@ -469,7 +469,7 @@ func TestVerifySnapshots_MerkleRootMismatch(t *testing.T) {
 	sigJSON, err := json.Marshal(sigData)
 	require.NoError(t, err)
 	sigPath := filepath.Join(tmpDir, "mismatch.sig.json")
-	err = os.WriteFile(sigPath, sigJSON, 0644)
+	err = os.WriteFile(sigPath, sigJSON, 0o600)
 	require.NoError(t, err)
 
 	var stdout, stderr bytes.Buffer
@@ -512,7 +512,7 @@ func TestVerifySnapshots_AllValid_ReturnsNil(t *testing.T) {
 	}
 	sigJSON, err := json.Marshal(sigData)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(tmpDir, "single.sig.json"), sigJSON, 0644)
+	err = os.WriteFile(filepath.Clean(filepath.Join(tmpDir, "single.sig.json")), sigJSON, 0o600)
 	require.NoError(t, err)
 
 	var stdout, stderr bytes.Buffer
@@ -534,7 +534,7 @@ func TestMain_ErrorExitsNonZero(t *testing.T) {
 	}
 
 	// Parent process: run ourselves as a subprocess
-	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_ErrorExitsNonZero$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_ErrorExitsNonZero$") //nolint:gosec
 	cmd.Env = append(os.Environ(), "TEST_MAIN_EXIT=1")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -578,7 +578,7 @@ func TestMain_VerifyValidSnapshot(t *testing.T) {
 	}
 	sigJSON, err := json.Marshal(sigData)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(tmpDir, "main_test.sig.json"), sigJSON, 0644)
+	err = os.WriteFile(filepath.Clean(filepath.Join(tmpDir, "main_test.sig.json")), sigJSON, 0o600)
 	require.NoError(t, err)
 
 	// Save and restore os.Args

@@ -16,9 +16,14 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// queryChunkSize is the number of blocks queried per GraphQL request
+// queryChunkSize is the number of blocks queried per GraphQL request.
 // to avoid memory pressure from large result sets.
-const queryChunkSize int64 = 100
+const (
+	// queryChunkSize is the number of blocks queried per GraphQL request.
+	queryChunkSize int64 = 100
+	// numFileParts is the expected number of parts in a snapshot filename when split by "_".
+	numFileParts = 3
+)
 
 // Config holds snapshot configuration.
 type Config struct {
@@ -43,7 +48,7 @@ func (c *Config) SetDefaults() {
 
 // SnapshotInfo describes a snapshot file on disk.
 //
-//nolint:revive // name is intentionally descriptive; renaming would break external references
+//nolint:revive // name is intentionally descriptive; renaming would break external references.
 type SnapshotInfo struct {
 	Filename   string    `json:"filename"`
 	StartBlock int64     `json:"start_block"`
@@ -63,7 +68,7 @@ type Metrics struct {
 type Snapshotter struct {
 	cfg       *Config
 	defraNode *node.Node
-	ctx       context.Context // stored from Start(), carries identity for signing
+	ctx       context.Context //nolint:containedctx // stored from Start(), carries identity for signing
 
 	mu                sync.RWMutex
 	lastSnapshotBlock int64
@@ -83,11 +88,11 @@ func New(cfg *Config, defraNode *node.Node) *Snapshotter {
 
 // Start begins the background snapshot loop.
 func (s *Snapshotter) Start(ctx context.Context) error {
-	if err := os.MkdirAll(s.cfg.Dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.cfg.Dir, 0o750); err != nil { // nolint:mnd
 		return fmt.Errorf("failed to create snapshot directory: %w", err)
 	}
 
-	s.ctx = ctx // store context with identity for signing
+	s.ctx = ctx // store context with identity for signing.
 	s.scanExisting()
 
 	s.wg.Add(1)
@@ -127,7 +132,7 @@ func (s *Snapshotter) ListSnapshots() []SnapshotInfo {
 	for _, f := range files {
 		base := filepath.Base(f)
 		parts := strings.Split(strings.TrimSuffix(base, ".kvsnap.gz"), "_")
-		if len(parts) != 3 {
+		if len(parts) != numFileParts {
 			continue
 		}
 		start, err1 := strconv.ParseInt(parts[1], 10, 64)
@@ -181,7 +186,7 @@ func (s *Snapshotter) scanExisting() {
 	for _, f := range files {
 		base := filepath.Base(f)
 		parts := strings.Split(strings.TrimSuffix(base, ".kvsnap.gz"), "_")
-		if len(parts) == 3 {
+		if len(parts) == numFileParts {
 			if end, err := strconv.ParseInt(parts[2], 10, 64); err == nil && end > highest {
 				highest = end
 			}
@@ -291,7 +296,7 @@ func (s *Snapshotter) getBlockNumber(ctx context.Context, order string) (int64, 
 
 	result := s.defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return 0, fmt.Errorf("getBlockNumber(%s): %v", order, result.GQL.Errors[0])
+		return 0, fmt.Errorf("getBlockNumber(%s): %w", order, result.GQL.Errors[0])
 	}
 
 	data, ok := result.GQL.Data.(map[string]any)

@@ -1,5 +1,4 @@
 //go:build !branchable
-// +build !branchable
 
 package schema
 

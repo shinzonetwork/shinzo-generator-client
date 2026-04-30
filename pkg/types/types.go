@@ -1,12 +1,12 @@
 package types
 
-// AccessListEntry represents an access list entry for EIP-2930 transactions
+// AccessListEntry represents an access list entry for EIP-2930 transactions.
 type AccessListEntry struct {
 	Address     string   `json:"address"`
 	StorageKeys []string `json:"storageKeys"`
 }
 
-// TransactionReceipt represents an Ethereum transaction receipt
+// TransactionReceipt represents an Ethereum transaction receipt.
 type TransactionReceipt struct {
 	TransactionHash   string `json:"transactionHash"`
 	TransactionIndex  string `json:"transactionIndex"`

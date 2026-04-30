@@ -5,12 +5,17 @@ import (
 	"compress/gzip"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sourcenetwork/defradb/crypto"
 )
+
+// MB is the size of a megabyte in bytes, used for buffer sizing when reading snapshot files.
+const MB = 1024 * 1024
 
 // VerifyResult holds the result of a snapshot verification.
 type VerifyResult struct {
@@ -34,7 +39,7 @@ func VerifySnapshot(snapshotPath string) (*VerifyResult, error) {
 	// Derive sidecar path
 	sigPath := strings.TrimSuffix(snapshotPath, ".jsonl.gz") + ".sig.json"
 
-	sigData, err := os.ReadFile(sigPath)
+	sigData, err := os.ReadFile(filepath.Clean(sigPath))
 	if err != nil {
 		return nil, fmt.Errorf("read signature file: %w", err)
 	}
@@ -56,65 +61,13 @@ func VerifySnapshotWithSig(snapshotPath string, sig *SnapshotSignatureData) (*Ve
 		SignerIdentity: sig.SignatureIdentity,
 	}
 
-	// Extract block sig merkle roots from the snapshot file
-	roots, err := extractBlockSigMerkleRoots(snapshotPath)
-	if err != nil {
-		result.Error = fmt.Sprintf("extract block sig roots: %v", err)
-		return result, nil
-	}
-	result.BlockSigsFound = len(roots)
-
-	if len(roots) == 0 {
-		result.Error = "no block signatures found in snapshot"
-		return result, nil
+	if err := verifyMerkleRoot(snapshotPath, sig, result); err != nil || result.Error != "" {
+		return result, err
 	}
 
-	// Recompute Merkle root
-	computedRoot := ComputeSnapshotMerkleRoot(roots)
-	computedRootHex := hex.EncodeToString(computedRoot)
-	result.MerkleRootMatch = computedRootHex == sig.MerkleRoot
-
-	if !result.MerkleRootMatch {
-		result.Error = fmt.Sprintf("merkle root mismatch: computed %s, expected %s", computedRootHex, sig.MerkleRoot)
-		return result, nil
+	if err := verifyCryptoSignature(sig, result); err != nil || result.Error != "" {
+		return result, err
 	}
-
-	// Verify cryptographic signature
-	merkleRootBytes, err := hex.DecodeString(sig.MerkleRoot)
-	if err != nil {
-		result.Error = fmt.Sprintf("decode merkle root hex: %v", err)
-		return result, nil
-	}
-
-	sigValueBytes, err := hex.DecodeString(sig.SignatureValue)
-	if err != nil {
-		result.Error = fmt.Sprintf("decode signature hex: %v", err)
-		return result, nil
-	}
-
-	var keyType crypto.KeyType
-	switch sig.SignatureType {
-	case "ES256K", "ecdsa-256k":
-		keyType = crypto.KeyTypeSecp256k1
-	case "Ed25519", "ed25519":
-		keyType = crypto.KeyTypeEd25519
-	default:
-		result.Error = fmt.Sprintf("unsupported signature type: %s", sig.SignatureType)
-		return result, nil
-	}
-
-	pubKey, err := crypto.PublicKeyFromString(keyType, sig.SignatureIdentity)
-	if err != nil {
-		result.Error = fmt.Sprintf("parse public key: %v", err)
-		return result, nil
-	}
-
-	valid, err := pubKey.Verify(merkleRootBytes, sigValueBytes)
-	if err != nil {
-		result.Error = fmt.Sprintf("verify signature: %v", err)
-		return result, nil
-	}
-	result.SignatureValid = valid
 
 	result.Valid = result.MerkleRootMatch && result.SignatureValid
 	if !result.Valid && result.Error == "" {
@@ -124,10 +77,83 @@ func VerifySnapshotWithSig(snapshotPath string, sig *SnapshotSignatureData) (*Ve
 	return result, nil
 }
 
+// verifyMerkleRoot extracts and verifies the Merkle root from the snapshot file.
+func verifyMerkleRoot(snapshotPath string, sig *SnapshotSignatureData, result *VerifyResult) error {
+	roots, err := extractBlockSigMerkleRoots(snapshotPath)
+	if err != nil {
+		result.Error = fmt.Sprintf("extract block sig roots: %v", err)
+		return nil
+	}
+	result.BlockSigsFound = len(roots)
+
+	if len(roots) == 0 {
+		result.Error = "no block signatures found in snapshot"
+		return nil
+	}
+
+	computedRoot := ComputeSnapshotMerkleRoot(roots)
+	computedRootHex := hex.EncodeToString(computedRoot)
+	result.MerkleRootMatch = computedRootHex == sig.MerkleRoot
+
+	if !result.MerkleRootMatch {
+		result.Error = fmt.Sprintf("merkle root mismatch: computed %s, expected %s", computedRootHex, sig.MerkleRoot)
+	}
+
+	return nil
+}
+
+// verifyCryptoSignature verifies the cryptographic signature against the Merkle root.
+func verifyCryptoSignature(sig *SnapshotSignatureData, result *VerifyResult) error {
+	merkleRootBytes, err := hex.DecodeString(sig.MerkleRoot)
+	if err != nil {
+		result.Error = fmt.Sprintf("decode merkle root hex: %v", err)
+		return nil
+	}
+
+	sigValueBytes, err := hex.DecodeString(sig.SignatureValue)
+	if err != nil {
+		result.Error = fmt.Sprintf("decode signature hex: %v", err)
+		return nil
+	}
+
+	keyType, err := resolveKeyType(sig.SignatureType)
+	if err != nil {
+		result.Error = err.Error()
+		return err
+	}
+
+	pubKey, err := crypto.PublicKeyFromString(keyType, sig.SignatureIdentity)
+	if err != nil {
+		result.Error = fmt.Sprintf("parse public key: %v", err)
+		return err
+	}
+
+	valid, err := pubKey.Verify(merkleRootBytes, sigValueBytes)
+	if err != nil {
+		result.Error = fmt.Sprintf("verify signature: %v", err)
+		return err
+	}
+	result.SignatureValid = valid
+
+	return nil
+}
+
+// resolveKeyType maps a signature type string to a crypto.KeyType.
+func resolveKeyType(sigType string) (crypto.KeyType, error) {
+	switch sigType {
+	case "ES256K", "ecdsa-256k":
+		return crypto.KeyTypeSecp256k1, nil
+	case "Ed25519", "ed25519":
+		return crypto.KeyTypeEd25519, nil
+	default:
+		return crypto.KeyTypeSecp256k1, errors.New("unsupported signature type") //nolint: err113
+	}
+}
+
 // extractBlockSigMerkleRoots reads a snapshot file and extracts the merkleRoot
 // values from block_signature entries, in the order they appear (by blockNumber ASC).
 func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
-	f, err := os.Open(snapshotPath)
+	f, err := os.Open(filepath.Clean(snapshotPath))
 	if err != nil {
 		return nil, fmt.Errorf("open snapshot: %w", err)
 	}
@@ -144,7 +170,7 @@ func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 	} else {
 		reader = bufio.NewScanner(f)
 	}
-	reader.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
+	reader.Buffer(make([]byte, 0, MB), 10*MB) // nolint:mnd
 
 	var roots [][]byte
 

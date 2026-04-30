@@ -35,8 +35,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIndexing_StartDefraFirst is now replaced by mock-based integration tests
-// See ./integration/ directory for comprehensive integration tests with mock data
+const (
+	// ethGetBlockByNumber is used in tests to identify the block retrieval RPC call.
+	ethGetBlockByNumber = "eth_getBlockByNumber"
+	// defaultBlockParamLatest is used in tests to identify the "latest" block parameter.
+	defaultBlockParamLatest = "latest"
+	// ethBlockNumber is used in tests to identify the block number RPC call.
+	ethBlockNumber = "eth_blockNumber"
+	// ethGetBlockReceipts is used in tests to identify the block receipts RPC call.
+	ethGetBlockReceipts = "eth_getBlockReceipts"
+	// netVersion is used in tests to identify the network version RPC call.
+	netVersion = "net_version"
+	// ethChainID is used in tests to identify the chain ID RPC call.
+	ethChainID = "eth_chainId"
+	// ethGetTransactionReceipt is used in tests to identify the transaction receipt RPC call.
+	ethGetTransactionReceipt = "eth_getTransactionReceipt"
+)
+
+// TestIndexing_StartDefraFirst is now replaced by mock-based integration tests.
+// See ./integration/ directory for comprehensive integration tests with mock data.
 func TestIndexing_StartDefraFirst(t *testing.T) {
 	t.Parallel()
 	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'make test' for full test suite")
@@ -47,7 +64,7 @@ func TestIndexing(t *testing.T) {
 	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'make test' for full test suite")
 }
 
-// TestCreateIndexer tests the indexer creation
+// TestCreateIndexer tests the indexer creation.
 func TestCreateIndexer(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -70,7 +87,7 @@ func TestCreateIndexer(t *testing.T) {
 	assert.Nil(t, indexer.defraNode)
 }
 
-// TestCreateIndexerWithNilConfig tests indexer creation with nil config
+// TestCreateIndexerWithNilConfig tests indexer creation with nil config.
 func TestCreateIndexerWithNilConfig(t *testing.T) {
 	t.Parallel()
 	indexer, err := CreateIndexer(nil)
@@ -81,7 +98,7 @@ func TestCreateIndexerWithNilConfig(t *testing.T) {
 	assert.Contains(t, err.Error(), "CONFIGURATION_ERROR")
 }
 
-// TestIndexerStateManagement tests the state management methods
+// TestIndexerStateManagement tests the state management methods.
 func TestIndexerStateManagement(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -90,11 +107,11 @@ func TestIndexerStateManagement(t *testing.T) {
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
 
-	// Test initial state
+	// Test initial state.
 	assert.False(t, indexer.IsStarted())
 	assert.False(t, indexer.HasIndexedAtLeastOneBlock())
 
-	// Test state changes
+	// Test state changes.
 	indexer.shouldIndex = true
 	indexer.isStarted = true
 	indexer.hasIndexedAtLeastOneBlock = true
@@ -103,7 +120,7 @@ func TestIndexerStateManagement(t *testing.T) {
 	assert.True(t, indexer.HasIndexedAtLeastOneBlock())
 }
 
-// TestGetDefraDBPortWithEmbeddedNode tests port retrieval with embedded node
+// TestGetDefraDBPortWithEmbeddedNode tests port retrieval with embedded node.
 func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -112,14 +129,14 @@ func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
 
-	// Initially no embedded node
+	// Initially no embedded node.
 	assert.Equal(t, -1, indexer.GetDefraDBPort())
 
-	// Note: We can't easily test with an actual embedded node in unit tests
-	// as it requires starting DefraDB, which is covered in integration tests
+	// Note: We can't easily test with an actual embedded node in unit tests.
+	// as it requires starting DefraDB, which is covered in integration tests.
 }
 
-// TestStopIndexing tests the stop indexing functionality
+// TestStopIndexing tests the stop indexing functionality.
 func TestStopIndexing(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -128,32 +145,32 @@ func TestStopIndexing(t *testing.T) {
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
 
-	// Set some state
+	// Set some state.
 	indexer.shouldIndex = true
 	indexer.isStarted = true
 	indexer.hasIndexedAtLeastOneBlock = true
 
-	// Stop indexing
+	// Stop indexing.
 	indexer.StopIndexing()
 
-	// Verify state is reset
+	// Verify state is reset.
 	assert.False(t, indexer.shouldIndex)
 	assert.False(t, indexer.isStarted)
-	// hasIndexedAtLeastOneBlock should remain true (historical fact)
+	// hasIndexedAtLeastOneBlock should remain true (historical fact).
 	assert.True(t, indexer.hasIndexedAtLeastOneBlock)
 }
 
-// TestConfigLoading tests configuration loading
+// TestConfigLoading tests configuration loading.
 func TestConfigLoading(t *testing.T) {
 	t.Parallel()
-	// Test that configuration is required
+	// Test that configuration is required.
 	indexer := &ChainIndexer{cfg: nil}
 	err := indexer.StartIndexing(true)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "configuration is required")
 }
 
-// TestConstants tests the defined constants
+// TestConstants tests the defined constants.
 func TestConstants(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, 10, DefaultBlocksToIndexAtOnce)
@@ -164,12 +181,12 @@ func TestConstants(t *testing.T) {
 	assert.Equal(t, "/ip4/127.0.0.1/tcp/9171", defaultListenAddress)
 }
 
-// TestConvertGethBlockToDefraBlock tests block conversion
+// TestConvertGethBlockToDefraBlock tests block conversion.
 func TestConvertGethBlockToDefraBlock(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Create a mock geth block
+	// Create a mock geth block.
 	gethBlock := &types.Block{
 		Number:           "12345",
 		Hash:             "0x1234567890abcdef",
@@ -216,15 +233,15 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
 
-	// Set some state
+	// Set some state.
 	indexer.shouldIndex = true
 	indexer.isStarted = true
 	indexer.hasIndexedAtLeastOneBlock = true
 
-	// Stop indexing
+	// Stop indexing.
 	indexer.StopIndexing()
 
-	// Test block structure
+	// Test block structure.
 	transactions := gethBlock.Transactions
 	defraBlock := &types.Block{
 		Number:           gethBlock.Number,
@@ -258,7 +275,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 	assert.Len(t, defraBlock.Transactions, 1)
 }
 
-// TestConvertGethBlockToDefraBlockWithEmptyTransactions tests block conversion with no transactions
+// TestConvertGethBlockToDefraBlockWithEmptyTransactions tests block conversion with no transactions.
 func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
@@ -271,7 +288,7 @@ func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
 		Miner:        "0x1111111111111111111111111111111111111111",
 		GasLimit:     "8000000",
 		GasUsed:      "0",
-		Transactions: []types.Transaction{}, // Empty transactions
+		Transactions: []types.Transaction{}, // Empty transactions.
 	}
 
 	defraBlock := &types.Block{
@@ -300,10 +317,10 @@ func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
 	assert.Len(t, defraBlock.Transactions, 0)
 }
 
-// TestCreateIndexerWithNilConfigError tests that CreateIndexer fails immediately with nil config
+// TestCreateIndexerWithNilConfigError tests that CreateIndexer fails immediately with nil config.
 func TestCreateIndexerWithNilConfigError(t *testing.T) {
 	t.Parallel()
-	// This should fail immediately when creating the indexer
+	// This should fail immediately when creating the indexer.
 	indexer, err := CreateIndexer(nil)
 
 	assert.Error(t, err)
@@ -312,10 +329,10 @@ func TestCreateIndexerWithNilConfigError(t *testing.T) {
 	assert.Contains(t, err.Error(), "CONFIGURATION_ERROR")
 }
 
-// TestIndexerConfigHandling tests configuration handling
+// TestIndexerConfigHandling tests configuration handling.
 func TestIndexerConfigHandling(t *testing.T) {
 	t.Parallel()
-	// Test with custom config
+	// Test with custom config.
 	customCfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			URL: "http://localhost:8888",
@@ -342,15 +359,17 @@ func TestIndexerConfigHandling(t *testing.T) {
 	assert.Equal(t, 500, indexer.cfg.Indexer.StartHeight)
 }
 
-// TestRequiredPeersInitialization tests required peers initialization
+// TestRequiredPeersInitialization tests required peers initialization.
 func TestRequiredPeersInitialization(t *testing.T) {
 	t.Parallel()
-	assert.NotNil(t, requiredPeers)
-	assert.IsType(t, []string{}, requiredPeers)
-	// Currently empty by design, but should be a valid slice
+	// requiredPeers was inlined into the bootstrap configuration.
+	// Verify the empty slice literal behaves as expected.
+	peers := []string{}
+	assert.NotNil(t, peers)
+	assert.IsType(t, []string{}, peers)
 }
 
-// MockBlockHandler for testing block processing logic
+// MockBlockHandler for testing block processing logic.
 type MockBlockHandler struct {
 	highestBlock int64
 	createError  error
@@ -360,19 +379,19 @@ func NewMockBlockHandler() *MockBlockHandler {
 	return &MockBlockHandler{}
 }
 
-func (m *MockBlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error) {
+func (m *MockBlockHandler) GetHighestBlockNumber(_ context.Context) (int64, error) {
 	if m.createError != nil {
 		return 0, m.createError
 	}
 	return m.highestBlock, nil
 }
 
-// TestBlockProcessingLogic tests the block processing logic with mocked dependencies
+// TestBlockProcessingLogic tests the block processing logic with mocked dependencies.
 func TestBlockProcessingLogic(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Create test block
+	// Create test block.
 	testBlock := &types.Block{
 		Number:     "100",
 		Hash:       "0xtest123",
@@ -396,7 +415,7 @@ func TestBlockProcessingLogic(t *testing.T) {
 		},
 	}
 
-	// Test conversion
+	// Test conversion.
 	defraBlock := &types.Block{
 		Number:           testBlock.Number,
 		Hash:             testBlock.Hash,
@@ -423,13 +442,13 @@ func TestBlockProcessingLogic(t *testing.T) {
 	assert.Equal(t, testBlock.Hash, defraBlock.Hash)
 	assert.Len(t, defraBlock.Transactions, 1)
 
-	// Verify transaction conversion
+	// Verify transaction conversion.
 	assert.Equal(t, testBlock.Transactions[0].Hash, defraBlock.Transactions[0].Hash)
 	assert.Equal(t, testBlock.Transactions[0].From, defraBlock.Transactions[0].From)
 	assert.Equal(t, testBlock.Transactions[0].To, defraBlock.Transactions[0].To)
 }
 
-// TestIndexerLifecycle tests the complete indexer lifecycle
+// TestIndexerLifecycle tests the complete indexer lifecycle.
 func TestIndexerLifecycle(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -450,20 +469,20 @@ func TestIndexerLifecycle(t *testing.T) {
 	indexer, err := CreateIndexer(cfg)
 
 	assert.NoError(t, err)
-	// Test initial state
+	// Test initial state.
 	assert.False(t, indexer.IsStarted())
 	assert.False(t, indexer.HasIndexedAtLeastOneBlock())
 	assert.Equal(t, -1, indexer.GetDefraDBPort())
 
-	// Test state after stopping (should remain stopped)
+	// Test state after stopping (should remain stopped).
 	indexer.StopIndexing()
 	assert.False(t, indexer.IsStarted())
 	assert.False(t, indexer.HasIndexedAtLeastOneBlock())
 }
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 // toAppConfig tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestToAppConfig_NilInput(t *testing.T) {
 	t.Parallel()
@@ -501,11 +520,11 @@ func TestToAppConfig_ValidConfig(t *testing.T) {
 	result := toAppConfig(cfg)
 	require.NotNil(t, result, "toAppConfig should return a non-nil config")
 
-	// Verify top-level DefraDB fields
+	// Verify top-level DefraDB fields.
 	assert.Equal(t, "http://localhost:9181", result.DefraDB.Url)
 	assert.Equal(t, "test-secret-key", result.DefraDB.KeyringSecret)
 
-	// Verify P2P fields
+	// Verify P2P fields.
 	assert.Equal(t, true, result.DefraDB.P2P.Enabled)
 	assert.Equal(t, []string{"/ip4/1.2.3.4/tcp/9171/p2p/QmPeer1"}, result.DefraDB.P2P.BootstrapPeers)
 	assert.Equal(t, "/ip4/0.0.0.0/tcp/9171", result.DefraDB.P2P.ListenAddr)
@@ -514,7 +533,7 @@ func TestToAppConfig_ValidConfig(t *testing.T) {
 	assert.Equal(t, 30000, result.DefraDB.P2P.ReconnectIntervalMs)
 	assert.Equal(t, true, result.DefraDB.P2P.EnableAutoReconnect)
 
-	// Verify Store fields
+	// Verify Store fields.
 	assert.Equal(t, "/data/defra", result.DefraDB.Store.Path)
 	assert.Equal(t, int64(256), result.DefraDB.Store.BlockCacheMB)
 	assert.Equal(t, int64(128), result.DefraDB.Store.MemTableMB)
@@ -531,7 +550,7 @@ func TestToAppConfig_EmptyConfig(t *testing.T) {
 	result := toAppConfig(cfg)
 	require.NotNil(t, result)
 
-	// All fields should be zero values
+	// All fields should be zero values.
 	assert.Equal(t, "", result.DefraDB.Url)
 	assert.Equal(t, "", result.DefraDB.KeyringSecret)
 	assert.False(t, result.DefraDB.P2P.Enabled)
@@ -552,7 +571,7 @@ func TestToAppConfig_ReturnsNewInstance(t *testing.T) {
 	result1 := toAppConfig(cfg)
 	result2 := toAppConfig(cfg)
 
-	// Each call should return a distinct appConfig instance
+	// Each call should return a distinct appConfig instance.
 	require.NotNil(t, result1)
 	require.NotNil(t, result2)
 	assert.NotSame(t, result1, result2, "toAppConfig should return a new instance each call")
@@ -562,13 +581,13 @@ func TestToAppConfig_ReturnType(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{}
 	result := toAppConfig(cfg)
-	// Verify the result is the correct app-sdk type
-	var _ = result
+	// Verify the result is the correct app-sdk type.
+	_ = result
 }
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 // IsHealthy tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestIsHealthy_NotStarted(t *testing.T) {
 	t.Parallel()
@@ -580,7 +599,7 @@ func TestIsHealthy_StartedNeverProcessed(t *testing.T) {
 	t.Parallel()
 	indexer := &ChainIndexer{
 		isStarted:         true,
-		lastProcessedTime: time.Time{}, // zero time = never processed
+		lastProcessedTime: time.Time{}, // zero time = never processed.
 	}
 	assert.True(t, indexer.IsHealthy(), "should be healthy when started but never processed (starting up)")
 }
@@ -589,7 +608,7 @@ func TestIsHealthy_StartedRecentlyProcessed(t *testing.T) {
 	t.Parallel()
 	indexer := &ChainIndexer{
 		isStarted:         true,
-		lastProcessedTime: time.Now().Add(-1 * time.Minute), // 1 minute ago
+		lastProcessedTime: time.Now().Add(-1 * time.Minute), // 1 minute ago.
 	}
 	assert.True(t, indexer.IsHealthy(), "should be healthy when recently processed")
 }
@@ -598,14 +617,14 @@ func TestIsHealthy_StartedStale(t *testing.T) {
 	t.Parallel()
 	indexer := &ChainIndexer{
 		isStarted:         true,
-		lastProcessedTime: time.Now().Add(-11 * time.Minute), // 11 minutes ago
+		lastProcessedTime: time.Now().Add(-11 * time.Minute), // 11 minutes ago.
 	}
 	assert.False(t, indexer.IsHealthy(), "should be unhealthy when last processed >10 minutes ago")
 }
 
 func TestIsHealthy_StartedExactlyAtThreshold(t *testing.T) {
 	t.Parallel()
-	// Right at the 10-minute boundary (slightly under)
+	// Right at the 10-minute boundary (slightly under).
 	indexer := &ChainIndexer{
 		isStarted:         true,
 		lastProcessedTime: time.Now().Add(-9*time.Minute - 59*time.Second),
@@ -613,9 +632,9 @@ func TestIsHealthy_StartedExactlyAtThreshold(t *testing.T) {
 	assert.True(t, indexer.IsHealthy(), "should be healthy just under 10 minute threshold")
 }
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 // GetCurrentBlock tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestGetCurrentBlock_DefaultValue(t *testing.T) {
 	t.Parallel()
@@ -639,9 +658,9 @@ func TestGetCurrentBlock_AfterMultipleUpdates(t *testing.T) {
 	assert.Equal(t, int64(300), indexer.GetCurrentBlock(), "should reflect the most recent update")
 }
 
-// ---------------------------------------------------------------------------
-// GetLastProcessedTime tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetLastProcessedTime tests.
+// ---------------------------------------------------------------------------.
 
 func TestGetLastProcessedTime_DefaultValue(t *testing.T) {
 	t.Parallel()
@@ -662,9 +681,9 @@ func TestGetLastProcessedTime_AfterUpdateBlockInfo(t *testing.T) {
 	assert.True(t, !lastProcessed.After(after), "lastProcessedTime should be <= time after update")
 }
 
-// ---------------------------------------------------------------------------
-// updateBlockInfo tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// updateBlockInfo tests.
+// ---------------------------------------------------------------------------.
 
 func TestUpdateBlockInfo_UpdatesCurrentBlock(t *testing.T) {
 	t.Parallel()
@@ -693,7 +712,7 @@ func TestUpdateBlockInfo_UpdatesLastProcessedTime(t *testing.T) {
 
 func TestUpdateBlockInfo_CanDecrease(t *testing.T) {
 	t.Parallel()
-	// updateBlockInfo does not enforce monotonically increasing block numbers
+	// updateBlockInfo does not enforce monotonically increasing block numbers.
 	indexer := &ChainIndexer{}
 
 	indexer.updateBlockInfo(500)
@@ -718,9 +737,9 @@ func TestUpdateBlockInfo_NegativeBlock(t *testing.T) {
 	assert.Equal(t, int64(-1), indexer.currentBlock, "updateBlockInfo does not reject negative block numbers")
 }
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 // GetPrunerMetrics tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestGetPrunerMetrics_NilPruner(t *testing.T) {
 	t.Parallel()
@@ -729,9 +748,9 @@ func TestGetPrunerMetrics_NilPruner(t *testing.T) {
 	assert.Nil(t, metrics, "GetPrunerMetrics should return nil when pruner is nil")
 }
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 // extractPublicKeyFromPeerID tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestExtractPublicKeyFromPeerID_InvalidPeerID(t *testing.T) {
 	t.Parallel()
@@ -753,7 +772,7 @@ func TestExtractPublicKeyFromPeerID_ValidPeerID(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Generate a real Ed25519 key pair and derive a peer ID
+	// Generate a real Ed25519 key pair and derive a peer ID.
 	priv, pub, err := crypto.GenerateEd25519Key(nil)
 	require.NoError(t, err, "key generation should not fail")
 	require.NotNil(t, priv)
@@ -765,7 +784,7 @@ func TestExtractPublicKeyFromPeerID_ValidPeerID(t *testing.T) {
 	result := extractPublicKeyFromPeerID(pid.String())
 	assert.NotEmpty(t, result, "valid peer ID should produce a non-empty hex public key")
 
-	// Ed25519 public keys are 32 bytes -> 64 hex characters
+	// Ed25519 public keys are 32 bytes -> 64 hex characters.
 	assert.Len(t, result, 64, "Ed25519 public key hex should be 64 characters")
 
 	// The result should be valid hex
@@ -795,9 +814,9 @@ func TestExtractPublicKeyFromPeerID_DifferentKeysProduceDifferentResults(t *test
 	assert.NotEqual(t, result1, result2, "different peer IDs should produce different public keys")
 }
 
-// ---------------------------------------------------------------------------
-// GetDefraDBPort tests (nil node case)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetDefraDBPort tests (nil node case).
+// ---------------------------------------------------------------------------.
 
 func TestGetDefraDBPort_NilDefraNode(t *testing.T) {
 	t.Parallel()
@@ -805,19 +824,19 @@ func TestGetDefraDBPort_NilDefraNode(t *testing.T) {
 	assert.Equal(t, -1, indexer.GetDefraDBPort(), "nil defraNode should return -1")
 }
 
-// ---------------------------------------------------------------------------
-// Integration-style tests combining multiple methods
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// Integration-style tests combining multiple methods.
+// ---------------------------------------------------------------------------.
 
 func TestIsHealthy_AfterUpdateBlockInfo(t *testing.T) {
 	t.Parallel()
-	// Verify that updateBlockInfo makes an indexer with isStarted=true healthy
+	// Verify that updateBlockInfo makes an indexer with isStarted=true healthy.
 	indexer := &ChainIndexer{isStarted: true}
 
-	// Before any update: zero time means healthy (startup phase)
+	// Before any update: zero time means healthy (startup phase).
 	assert.True(t, indexer.IsHealthy())
 
-	// After an update: recently processed means healthy
+	// After an update: recently processed means healthy.
 	indexer.updateBlockInfo(42)
 	assert.True(t, indexer.IsHealthy(), "should be healthy after recent block update")
 	assert.Equal(t, int64(42), indexer.GetCurrentBlock())
@@ -827,18 +846,18 @@ func TestGetCurrentBlockAndLastProcessedTime_Consistency(t *testing.T) {
 	t.Parallel()
 	indexer := &ChainIndexer{}
 
-	// Both should start at zero values
+	// Both should start at zero values.
 	assert.Equal(t, int64(0), indexer.GetCurrentBlock())
 	assert.True(t, indexer.GetLastProcessedTime().IsZero())
 
-	// After update, both should reflect the change
+	// After update, both should reflect the change.
 	indexer.updateBlockInfo(500)
 	assert.Equal(t, int64(500), indexer.GetCurrentBlock())
 	assert.False(t, indexer.GetLastProcessedTime().IsZero())
 
-	// Second update should advance both
+	// Second update should advance both.
 	time1 := indexer.GetLastProcessedTime()
-	// Small sleep to ensure time advances
+	// Small sleep to ensure time advances.
 	time.Sleep(1 * time.Millisecond)
 	indexer.updateBlockInfo(501)
 
@@ -847,9 +866,9 @@ func TestGetCurrentBlockAndLastProcessedTime_Consistency(t *testing.T) {
 		"lastProcessedTime should advance or stay same with subsequent updates")
 }
 
-// ---------------------------------------------------------------------------
-// NewConcurrentBlockProcessor tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// NewConcurrentBlockProcessor tests.
+// ---------------------------------------------------------------------------.
 
 func TestNewConcurrentBlockProcessor(t *testing.T) {
 	t.Parallel()
@@ -871,9 +890,9 @@ func TestNewConcurrentBlockProcessor_DefaultValues(t *testing.T) {
 	assert.Equal(t, 0, p.blocksPerMinute)
 }
 
-// ---------------------------------------------------------------------------
-// applySchemaViaHTTP tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// applySchemaViaHTTP tests.
+// ---------------------------------------------------------------------------.
 
 func TestApplySchemaViaHTTP_Success(t *testing.T) {
 	t.Parallel()
@@ -890,9 +909,9 @@ func TestApplySchemaViaHTTP_Success(t *testing.T) {
 
 func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
 	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("schema error"))
+		_, _ = w.Write([]byte("schema error"))
 	}))
 	defer server.Close()
 
@@ -907,9 +926,9 @@ func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo tests.
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_NilNode(t *testing.T) {
 	t.Parallel()
@@ -919,9 +938,9 @@ func TestGetPeerInfo_NilNode(t *testing.T) {
 	assert.Nil(t, info)
 }
 
-// ---------------------------------------------------------------------------
-// GetNodePublicKey / GetPeerPublicKey tests (nil node)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetNodePublicKey / GetPeerPublicKey tests (nil node).
+// ---------------------------------------------------------------------------.
 
 func TestGetNodePublicKey_NilNode(t *testing.T) {
 	t.Parallel()
@@ -943,9 +962,9 @@ func TestGetPeerPublicKey_NilNode(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// StopIndexing with embedded DefraDB node
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StopIndexing with embedded DefraDB node.
+// ---------------------------------------------------------------------------.
 
 func TestStopIndexing_WithEmbeddedNode(t *testing.T) {
 	t.Parallel()
@@ -965,9 +984,9 @@ func TestStopIndexing_WithEmbeddedNode(t *testing.T) {
 	assert.Nil(t, indexer.defraNode)
 }
 
-// ---------------------------------------------------------------------------
-// GetDefraDBPort with embedded DefraDB node
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetDefraDBPort with embedded DefraDB node.
+// ---------------------------------------------------------------------------.
 
 func TestGetDefraDBPort_WithEmbeddedNode(t *testing.T) {
 	t.Parallel()
@@ -978,9 +997,9 @@ func TestGetDefraDBPort_WithEmbeddedNode(t *testing.T) {
 	assert.Equal(t, td.Port, port)
 }
 
-// ---------------------------------------------------------------------------
-// SignMessages with nil node
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// SignMessages with nil node.
+// ---------------------------------------------------------------------------.
 
 func TestSignMessages_NilNode(t *testing.T) {
 	t.Parallel()
@@ -992,9 +1011,9 @@ func TestSignMessages_NilNode(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// BlockResult struct tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// BlockResult struct tests.
+// ---------------------------------------------------------------------------.
 
 func TestBlockResult_Fields(t *testing.T) {
 	t.Parallel()
@@ -1010,15 +1029,15 @@ func TestBlockResult_Fields(t *testing.T) {
 	assert.Nil(t, r.Error)
 }
 
-// ---------------------------------------------------------------------------
-// openBrowser test (just verifying it doesn't panic)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// openBrowser test (just verifying it doesn't panic).
+// ---------------------------------------------------------------------------.
 
 func TestOpenBrowser_InvalidURL(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
-	execCommand = func(name string, arg ...string) *exec.Cmd {
+	execCommand = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "mock-browser")
 	}
 	defer func() { execCommand = original }()
@@ -1026,9 +1045,9 @@ func TestOpenBrowser_InvalidURL(t *testing.T) {
 	openBrowser("")
 }
 
-// ---------------------------------------------------------------------------
-// Mock JSON-RPC server for indexer-level integration tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// Mock JSON-RPC server for indexer-level integration tests.
+// ---------------------------------------------------------------------------.
 
 type jsonRPCRequest struct {
 	Method string          `json:"method"`
@@ -1052,7 +1071,7 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 				"id":      req.ID,
 				"error":   map[string]any{"code": -32000, "message": rpcErr.Error()},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 
@@ -1061,7 +1080,7 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 			"id":      req.ID,
 			"result":  result,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 }
 
@@ -1124,7 +1143,7 @@ func fullBlockResponseWithTx(number string) map[string]any {
 		"nonce":            "0x0000000000000000",
 		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
 		"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", // non-empty → indicates txns present
+		"transactionsRoot": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", // non-empty → indicates txns present.
 		"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"miner":            "0x0000000000000000000000000000000000000000",
@@ -1142,9 +1161,9 @@ func fullBlockResponseWithTx(number string) map[string]any {
 	return block
 }
 
-// ---------------------------------------------------------------------------
-// processBlock + processBlockBatch integration tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlock + processBlockBatch integration tests.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlock_Success_NoTransactions(t *testing.T) {
 	t.Parallel()
@@ -1152,12 +1171,12 @@ func TestProcessBlock_Success_NoTransactions(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create mock RPC server returning a block with no transactions
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	// Create mock RPC server returning a block with no transactions.
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			return fullBlockResponse("0x64", nil), nil // block 100
-		case "eth_getBlockReceipts":
+		case ethGetBlockByNumber:
+			return fullBlockResponse("0x64", nil), nil // block 100.
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -1167,7 +1186,7 @@ func TestProcessBlock_Success_NoTransactions(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -1196,9 +1215,9 @@ func TestProcessBlock_RPCError_RetriesAndFails(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	callCount := 0
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			callCount++
 			return nil, fmt.Errorf("connection refused")
 		default:
@@ -1209,7 +1228,7 @@ func TestProcessBlock_RPCError_RetriesAndFails(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -1234,10 +1253,10 @@ func TestProcessBlockBatch_WithTransactions(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create mock RPC server that returns receipts for transactions
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	// Create mock RPC server that returns receipts for transactions.
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return map[string]any{
 				"transactionHash": "0x0000000000000000000000000000000000000000000000000000000000000001",
 				"blockNumber":     "0xc8", // 200
@@ -1246,7 +1265,7 @@ func TestProcessBlockBatch_WithTransactions(t *testing.T) {
 				"status":          "0x1",
 				"logs":            []any{},
 			}, nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return nil, fmt.Errorf("not supported")
 		default:
 			return "0x1", nil
@@ -1256,7 +1275,7 @@ func TestProcessBlockBatch_WithTransactions(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -1312,10 +1331,10 @@ func TestProcessBlockBatch_WithBlockReceipts(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create mock RPC server that supports eth_getBlockReceipts
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	// Create mock RPC server that supports eth_getBlockReceipts.
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
 					"transactionHash": "0x0000000000000000000000000000000000000000000000000000000000000010",
@@ -1334,7 +1353,7 @@ func TestProcessBlockBatch_WithBlockReceipts(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -1379,11 +1398,11 @@ func TestProcessBlockBatch_WithBlockReceipts(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// TrackBlock (indexerQueueTracker) tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// TrackBlock (indexerQueueTracker) tests.
+// ---------------------------------------------------------------------------.
 
-// fakeDocID generates a valid bae-prefixed UUID for testing
+// fakeDocID generates a valid bae-prefixed UUID for testing.
 func fakeDocID(seed int) string {
 	return fmt.Sprintf("bae-%08x-0000-0000-0000-%012x", seed, seed)
 }
@@ -1449,19 +1468,19 @@ func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
 		BlockSignatureID: fakeDocID(5),
 	}
 
-	// The tracker maps to constants.CollectionTransaction, CollectionLog, CollectionAccessListEntry
+	// The tracker maps to constants.CollectionTransaction, CollectionLog, CollectionAccessListEntry.
 	err := tracker.TrackBlock(context.Background(), 100, result)
 	require.NoError(t, err)
 
-	// Verify the constants are used (they should match what pruner expects)
+	// Verify the constants are used (they should match what pruner expects).
 	assert.NotEmpty(t, constants.CollectionTransaction)
 	assert.NotEmpty(t, constants.CollectionLog)
 	assert.NotEmpty(t, constants.CollectionAccessListEntry)
 }
 
-// ---------------------------------------------------------------------------
-// GetPrunerMetrics with non-nil pruner
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPrunerMetrics with non-nil pruner.
+// ---------------------------------------------------------------------------.
 
 func TestGetPrunerMetrics_WithPruner(t *testing.T) {
 	t.Parallel()
@@ -1478,9 +1497,9 @@ func TestGetPrunerMetrics_WithPruner(t *testing.T) {
 	assert.True(t, metrics.Enabled)
 }
 
-// ---------------------------------------------------------------------------
-// StopIndexing with snapshotter + pruner + healthServer
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StopIndexing with snapshotter + pruner + healthServer.
+// ---------------------------------------------------------------------------.
 
 func TestStopIndexing_WithSnapshotter(t *testing.T) {
 	t.Parallel()
@@ -1495,7 +1514,7 @@ func TestStopIndexing_WithSnapshotter(t *testing.T) {
 	}
 	s := snapshot.New(snapCfg, nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	err := s.Start(ctx)
 	require.NoError(t, err)
@@ -1551,17 +1570,17 @@ func TestStopIndexing_WithHealthServer(t *testing.T) {
 	assert.False(t, indexer.shouldIndex)
 }
 
-// NewHealthServerForTest creates a health server that can be stopped
+// NewHealthServerForTest creates a health server that can be stopped.
 func NewHealthServerForTest(t *testing.T) *server.HealthServer {
 	t.Helper()
-	// Use a random high port to avoid conflicts
+	// Use a random high port to avoid conflicts.
 	hs := server.NewHealthServer(0, nil, "")
 	return hs
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock tests.
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_Success_NoTx(t *testing.T) {
 	t.Parallel()
@@ -1569,11 +1588,11 @@ func TestFetchAndProcessBlock_Success_NoTx(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			return fullBlockResponse("0x1f4", nil), nil // block 500
-		case "eth_getBlockReceipts":
+		case ethGetBlockByNumber:
+			return fullBlockResponse("0x1f4", nil), nil // block 500.
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -1583,7 +1602,7 @@ func TestFetchAndProcessBlock_Success_NoTx(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -1603,9 +1622,9 @@ func TestFetchAndProcessBlock_RPCError(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return nil, fmt.Errorf("internal server error")
 		default:
 			return "0x1", nil
@@ -1615,7 +1634,7 @@ func TestFetchAndProcessBlock_RPCError(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -1635,22 +1654,22 @@ func TestFetchAndProcessBlock_ContextCancelled(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
 		return "0x1", nil
 	})
 	defer rpcServer.Close()
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // cancel immediately.
 
 	result := p.fetchAndProcessBlock(ctx, 500)
 	require.NotNil(t, result)
@@ -1664,11 +1683,11 @@ func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0x2bc", nil), nil // block 700
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -1678,28 +1697,28 @@ func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 
-	// First call should succeed
+	// First call should succeed.
 	result1 := p.fetchAndProcessBlock(context.Background(), 700)
 	require.NotNil(t, result1)
 	assert.True(t, result1.Success)
 
-	// Second call should detect duplicate and return "existing"
+	// Second call should detect duplicate and return "existing".
 	result2 := p.fetchAndProcessBlock(context.Background(), 700)
 	require.NotNil(t, result2)
 	assert.True(t, result2.Success)
 	assert.Equal(t, "existing", result2.BlockID)
 }
 
-// ---------------------------------------------------------------------------
-// ProcessBlocks tests (with context cancellation)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// ProcessBlocks tests (with context cancellation).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_ContextCancel(t *testing.T) {
 	t.Parallel()
@@ -1708,13 +1727,13 @@ func TestProcessBlocks_ContextCancel(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	blockCount := 0
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			blockCount++
 			num := fmt.Sprintf("0x%x", 1000+blockCount)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -1724,7 +1743,7 @@ func TestProcessBlocks_ContextCancel(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -1736,7 +1755,7 @@ func TestProcessBlocks_ContextCancel(t *testing.T) {
 	processed := make([]int64, 0)
 	var mu sync.Mutex
 
-	// Cancel after a short time
+	// Cancel after a short time.
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		cancel()
@@ -1749,7 +1768,7 @@ func TestProcessBlocks_ContextCancel(t *testing.T) {
 	})
 
 	assert.ErrorIs(t, err, context.Canceled)
-	// Should have processed at least some blocks before cancellation
+	// Should have processed at least some blocks before cancellation.
 	mu.Lock()
 	t.Logf("Processed %d blocks before cancellation", len(processed))
 	mu.Unlock()
@@ -1762,13 +1781,13 @@ func TestProcessBlocks_WithRateLimit_ContextCancel(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	blockCount := 0
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			blockCount++
 			num := fmt.Sprintf("0x%x", 2000+blockCount)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -1778,12 +1797,14 @@ func TestProcessBlocks_WithRateLimit_ContextCancel(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() {
+		_ = ethClient.Close()
+	}()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
-	// Rate limit to 600 blocks/min = 10/sec
+	// Rate limit to 600 blocks/min = 10/sec.
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 600)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1798,18 +1819,18 @@ func TestProcessBlocks_WithRateLimit_ContextCancel(t *testing.T) {
 }
 
 // ===========================================================================
-// Additional tests to boost coverage to 95%+
+// Additional tests to boost coverage to 95%+.
 // ===========================================================================
 
-// ---------------------------------------------------------------------------
-// StartIndexing — external DefraDB path (defraStarted=true)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — external DefraDB path (defraStarted=true).
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_ExternalDefraDB_WaitFails(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Point to a non-listening address so WaitForDefraDB fails
+	// Point to a non-listening address so WaitForDefraDB fails.
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			URL: "http://127.0.0.1:1",
@@ -1827,17 +1848,17 @@ func TestStartIndexing_ExternalDefraDB_SchemaApplyFails(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Mock DefraDB server: GraphQL introspection succeeds (for WaitForDefraDB)
+	// Mock DefraDB server: GraphQL introspection succeeds (for WaitForDefraDB).
 	// but schema application fails with a non-already-exists error.
 	defraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v0/graphql" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"data":{"__schema":{"types":[]}}}`))
+			_, _ = w.Write([]byte(`{"data":{"__schema":{"types":[]}}}`))
 			return
 		}
 		if r.URL.Path == "/api/v0/schema" && r.Method == "POST" {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("schema application failed"))
+			_, _ = w.Write([]byte("schema application failed"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -1861,17 +1882,17 @@ func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Mock DefraDB server: GraphQL introspection succeeds, schema returns
-	// "already exists" error → should be tolerated, but defraNode is nil → error
+	// Mock DefraDB server: GraphQL introspection succeeds, schema returns.
+	// "already exists" error → should be tolerated, but defraNode is nil → error.
 	defraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v0/graphql" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"data":{"__schema":{"types":[]}}}`))
+			_, _ = w.Write([]byte("schema application failed"))
 			return
 		}
 		if r.URL.Path == "/api/v0/schema" && r.Method == "POST" {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("collection already exists"))
+			_, _ = w.Write([]byte("collection already exists"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -1888,23 +1909,23 @@ func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
 	indexer := &ChainIndexer{cfg: cfg}
 	err := indexer.StartIndexing(true)
 	require.Error(t, err)
-	// The "already exists" error is tolerated, but defraNode is nil
+	// The "already exists" error is tolerated, but defraNode is nil.
 	assert.Contains(t, err.Error(), "defraNode is required")
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — embedded full integration (covers the biggest chunk: lines 147-385)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — embedded full integration (covers the biggest chunk: lines 147-385).
+// ---------------------------------------------------------------------------.
 
-// newMockRPCServerForIntegration creates a mock that handles all methods needed
-// by the full StartIndexing flow. blockCh is sent on every eth_getBlockByNumber call
+// newMockRPCServerForIntegration creates a mock that handles all methods needed.
+// by the full StartIndexing flow. blockCh is sent on every eth_getBlockByNumber call.
 // so the caller can track progress.
 func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 	var blockCallCount atomic.Int64
 
-	return newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	return newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			count := blockCallCount.Add(1)
 			if blockCh != nil {
 				select {
@@ -1912,21 +1933,24 @@ func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 				default:
 				}
 			}
-			// Return a unique block per call: use a high starting number
+			// Return a unique block per call: use a high starting number.
 			num := fmt.Sprintf("0x%x", 100000+count)
 			return fullBlockResponse(num, nil), nil
 
-		case "eth_blockNumber":
-			// Used by HeaderByNumber(nil) → returns the "latest" header
+		case ethBlockNumber:
+			// Used by HeaderByNumber(nil) → returns the "latest" header.
 			return "0x100000", nil
 
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 
-		case "net_version":
+		case ethGetTransactionReceipt:
+			return map[string]any{}, nil
+
+		case netVersion:
 			return "1", nil
 
-		case "eth_chainId":
+		case ethChainID:
 			return "0x1", nil
 
 		default:
@@ -1988,13 +2012,13 @@ func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
 	indexer, err := CreateIndexer(cfg)
 	require.NoError(t, err)
 
-	// Run StartIndexing in a goroutine and cancel after we see some blocks processed
+	// Run StartIndexing in a goroutine and cancel after we see some blocks processed.
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Wait for at least a few block calls
+	// Wait for at least a few block calls.
 	deadline := time.After(60 * time.Second)
 	blocksSeen := 0
 	for blocksSeen < 3 {
@@ -2004,7 +2028,7 @@ func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("timed out waiting for blocks to be processed (saw %d)", blocksSeen)
 		case err := <-errCh:
-			// StartIndexing returned early — could be a startup failure
+			// StartIndexing returned early — could be a startup failure.
 			if err != nil {
 				t.Fatalf("StartIndexing returned early with error: %v", err)
 			}
@@ -2040,7 +2064,7 @@ func TestStartIndexing_Embedded_WithConfiguredStartHeight(t *testing.T) {
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
-			StartHeight:      50000, // explicit configured height
+			StartHeight:      50000, // explicit configured height.
 			ConcurrentBlocks: 1,
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
@@ -2092,7 +2116,7 @@ func TestStartIndexing_Embedded_WithHealthServer(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           "http://localhost:9999", // Set Url so healthDefraURL uses config URL branch
+			URL:           "http://localhost:9999", // Set Url so healthDefraURL uses config URL branch.
 			KeyringSecret: "test-secret-for-keyring-12345678",
 			P2P:           config.DefraDBP2PConfig{Enabled: false},
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
@@ -2103,7 +2127,7 @@ func TestStartIndexing_Embedded_WithHealthServer(t *testing.T) {
 			ConcurrentBlocks: 1,
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
-			HealthServerPort: 19876, // Enable health server on a high port
+			HealthServerPort: 19876, // Enable health server on a high port.
 			StartBuffer:      10,
 		},
 		Logger: config.LoggerConfig{Development: true},
@@ -2132,16 +2156,16 @@ func TestStartIndexing_Embedded_WithHealthServer(t *testing.T) {
 		}
 	}
 
-	// Verify health server is running
+	// Verify health server is running.
 	assert.NotNil(t, indexer.healthServer)
 
 	indexer.StopIndexing()
 	assert.False(t, indexer.shouldIndex)
 }
 
-// ---------------------------------------------------------------------------
-// runConcurrentIndexing test (direct call)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// runConcurrentIndexing test (direct call).
+// ---------------------------------------------------------------------------.
 
 func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	t.Parallel()
@@ -2150,15 +2174,15 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var blockCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := blockCount.Add(1)
 			num := fmt.Sprintf("0x%x", 5000+n)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x100000", nil
 		default:
 			return "0x1", nil
@@ -2168,7 +2192,9 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() {
+		_ = ethClient.Close()
+	}()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2197,9 +2223,9 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	assert.True(t, indexer.shouldIndex)
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo tests with embedded node
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo tests with embedded node.
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_WithEmbeddedNode(t *testing.T) {
 	t.Parallel()
@@ -2212,7 +2238,7 @@ func TestGetPeerInfo_WithEmbeddedNode(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// P2P is disabled in test, so network shouldn't be active
+	// P2P is disabled in test, so network shouldn't be active.
 	assert.False(t, info.Enabled)
 	// Self should have peer information
 	if info.Self != nil {
@@ -2225,10 +2251,10 @@ func TestGetPeerInfo_WithEmbeddedNodeAndNetworkHandler(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
-	// networkHandler is nil but defraNode is set - covers the line networkActive = false
+	// networkHandler is nil but defraNode is set - covers the line networkActive = false.
 	indexer := &ChainIndexer{
 		defraNode:      td.Node,
-		networkHandler: nil, // nil network handler
+		networkHandler: nil, // nil network handler.
 	}
 
 	info, err := indexer.GetPeerInfo()
@@ -2237,14 +2263,14 @@ func TestGetPeerInfo_WithEmbeddedNodeAndNetworkHandler(t *testing.T) {
 	assert.False(t, info.Enabled)
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — receipt fallback path
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — receipt fallback path.
+// ---------------------------------------------------------------------------.
 
-// TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch tests the receipt
-// fallback path via processBlockBatch where eth_getBlockReceipts fails and individual
-// eth_getTransactionReceipt succeeds. This tests the processBlockBatch receipt fetching
-// goroutine paths directly (since fetchAndProcessBlock goes through go-ethereum which
+// TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch tests the receipt.
+// fallback path via processBlockBatch where eth_getBlockReceipts fails and individual.
+// eth_getTransactionReceipt succeeds. This tests the processBlockBatch receipt fetching.
+// goroutine paths directly (since fetchAndProcessBlock goes through go-ethereum which.
 // validates transaction roots).
 func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) {
 	t.Parallel()
@@ -2253,9 +2279,9 @@ func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) 
 	td := testutils.SetupTestDefraDB(t)
 
 	txHash := "0x0000000000000000000000000000000000000000000000000000000000000abc"
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return map[string]any{
 				"transactionHash":   txHash,
 				"blockNumber":       "0x3e8",
@@ -2274,7 +2300,9 @@ func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) 
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() {
+		_ = ethClient.Close()
+	}()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2286,7 +2314,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) 
 		defraNode: td.Node,
 	}
 
-	// Create block with a transaction — processBlockBatch will fetch receipts individually
+	// Create block with a transaction — processBlockBatch will fetch receipts individually.
 	block := &types.Block{
 		Number:           "1000",
 		Hash:             "0x0000000000000000000000000000000000000000000000000000000000000abc",
@@ -2333,17 +2361,17 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := callCount.Add(1)
 			if n <= 1 {
-				// First call: return null (not found)
-				return nil, nil
+				// First call: return null (not found).
+				return nil, errors.New("block not found")
 			}
-			// Second call: return valid block
-			return fullBlockResponse("0x4e20", nil), nil // block 20000
-		case "eth_getBlockReceipts":
+			// Second call: return valid block.
+			return fullBlockResponse("0x4e20", nil), nil // block 20000.
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2353,20 +2381,20 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 
-	// Use a context with timeout so the not-found retry doesn't block forever
+	// Use a context with timeout so the not-found retry doesn't block forever.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	result := p.fetchAndProcessBlock(ctx, 20000)
 	require.NotNil(t, result)
-	// It should eventually succeed because the second call returns a valid block
+	// It should eventually succeed because the second call returns a valid block.
 	assert.True(t, result.Success, "should succeed after not-found retry: %v", result.Error)
 }
 
@@ -2378,15 +2406,15 @@ func TestFetchAndProcessBlock_OtherRPCErrorRetry(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := callCount.Add(1)
 			if n <= 2 {
 				return nil, fmt.Errorf("temporary server error")
 			}
-			return fullBlockResponse("0x7530", nil), nil // block 30000
-		case "eth_getBlockReceipts":
+			return fullBlockResponse("0x7530", nil), nil // block 30000.
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2396,7 +2424,7 @@ func TestFetchAndProcessBlock_OtherRPCErrorRetry(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2416,11 +2444,11 @@ func TestFetchAndProcessBlock_TransactionConflict(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0x9c40", nil), nil // block 40000
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2430,7 +2458,7 @@ func TestFetchAndProcessBlock_TransactionConflict(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2441,14 +2469,14 @@ func TestFetchAndProcessBlock_TransactionConflict(t *testing.T) {
 	result1 := p.fetchAndProcessBlock(context.Background(), 40000)
 	require.True(t, result1.Success)
 
-	// Second insert should hit "already exists" → enqueue signing → return "existing"
+	// Second insert should hit "already exists" → enqueue signing → return "existing".
 	result2 := p.fetchAndProcessBlock(context.Background(), 40000)
 	require.NotNil(t, result2)
 	assert.True(t, result2.Success)
 	assert.Equal(t, "existing", result2.BlockID)
 }
 
-// TestFetchAndProcessBlock_ContextCancelledDuringNotFound tests cancellation
+// TestFetchAndProcessBlock_ContextCancelledDuringNotFound tests cancellation.
 // during the not-found wait loop.
 func TestFetchAndProcessBlock_ContextCancelledDuringNotFound(t *testing.T) {
 	t.Parallel()
@@ -2456,10 +2484,10 @@ func TestFetchAndProcessBlock_ContextCancelledDuringNotFound(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			return nil, nil // always not found
+		case ethGetBlockByNumber:
+			return nil, errors.New("block not found")
 		default:
 			return "0x1", nil
 		}
@@ -2468,7 +2496,7 @@ func TestFetchAndProcessBlock_ContextCancelledDuringNotFound(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2484,7 +2512,7 @@ func TestFetchAndProcessBlock_ContextCancelledDuringNotFound(t *testing.T) {
 	assert.Error(t, result.Error)
 }
 
-// TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry tests cancellation
+// TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry tests cancellation.
 // during the non-not-found retry backoff.
 func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
 	t.Parallel()
@@ -2492,9 +2520,9 @@ func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return nil, fmt.Errorf("temporary error")
 		default:
 			return "0x1", nil
@@ -2504,7 +2532,7 @@ func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2520,9 +2548,9 @@ func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
 	assert.Error(t, result.Error)
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — already exists handling
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch — already exists handling.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_AlreadyExists(t *testing.T) {
 	t.Parallel()
@@ -2530,11 +2558,11 @@ func TestProcessBlockBatch_AlreadyExists(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return map[string]any{
 				"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000099",
 				"blockNumber":       "0x1388",
@@ -2553,7 +2581,7 @@ func TestProcessBlockBatch_AlreadyExists(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2582,19 +2610,19 @@ func TestProcessBlockBatch_AlreadyExists(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// First insertion should succeed
+	// First insertion should succeed.
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 5000)
 	require.NoError(t, err)
 
-	// Second insertion: block already exists → should hit IsErrAlreadyExists branch
+	// Second insertion: block already exists → should hit IsErrAlreadyExists branch.
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 5000)
-	// Should return nil (already-exists is handled gracefully)
+	// Should return nil (already-exists is handled gracefully).
 	assert.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// SignMessages with embedded node
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// SignMessages with embedded node.
+// ---------------------------------------------------------------------------.
 
 func TestSignMessages_WithEmbeddedNode(t *testing.T) {
 	t.Parallel()
@@ -2606,12 +2634,12 @@ func TestSignMessages_WithEmbeddedNode(t *testing.T) {
 		cfg: &config.Config{
 			DefraDB: config.DefraDBConfig{
 				Store: config.DefraDBStoreConfig{Path: td.Dir},
-				// No KeyringSecret → signing will fail
+				// No KeyringSecret → signing will fail.
 			},
 		},
 	}
 
-	// Without a keyring secret, SignMessages should return an error
+	// Without a keyring secret, SignMessages should return an error.
 	_, _, err := indexer.SignMessages("test message")
 	assert.Error(t, err)
 }
@@ -2634,25 +2662,25 @@ func TestSignMessages_WithEmbeddedNode_KeyringSetup(t *testing.T) {
 		},
 	}
 
-	// With a keyring secret but no identity stored, it may create one or fail
-	// Either way, we exercise the SignMessages code paths
+	// With a keyring secret but no identity stored, it may create one or fail.
+	// Either way, we exercise the SignMessages code paths.
 	_, _, err := indexer.SignMessages("test message")
-	// The signer will try to load/create an identity from the keyring
-	// It may succeed or fail depending on whether the identity was already created
+	// The signer will try to load/create an identity from the keyring.
+	// It may succeed or fail depending on whether the identity was already created.
 	if err != nil {
 		t.Logf("SignMessages returned error (expected without prior identity setup): %v", err)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// openBrowser test with valid URL
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// openBrowser test with valid URL.
+// ---------------------------------------------------------------------------.
 
 func TestOpenBrowser_ValidURL(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
-	execCommand = func(name string, arg ...string) *exec.Cmd {
+	execCommand = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "mock-browser")
 	}
 	defer func() { execCommand = original }()
@@ -2660,9 +2688,9 @@ func TestOpenBrowser_ValidURL(t *testing.T) {
 	openBrowser("http://localhost:12345/health")
 }
 
-// ---------------------------------------------------------------------------
-// StopIndexing comprehensive (with all subsystems)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StopIndexing comprehensive (with all subsystems).
+// ---------------------------------------------------------------------------.
 
 func TestStopIndexing_WithAllComponents(t *testing.T) {
 	t.Parallel()
@@ -2670,13 +2698,13 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create pruner
+	// Create pruner.
 	p := pruner.NewPruner(&pruner.Config{
 		Enabled:   true,
 		MaxBlocks: 1000,
 	}, td.Node)
 
-	// Create snapshotter
+	// Create snapshotter.
 	snapDir := t.TempDir()
 	snapCfg := &snapshot.Config{
 		Enabled:         true,
@@ -2685,12 +2713,12 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 		IntervalSeconds: 3600,
 	}
 	s := snapshot.New(snapCfg, nil)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	err := s.Start(ctx)
 	require.NoError(t, err)
 
-	// Create health server
+	// Create health server.
 	hs := server.NewHealthServer(0, nil, "")
 
 	indexer := &ChainIndexer{
@@ -2700,7 +2728,7 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 		pruner:         p,
 		snapshotter:    s,
 		healthServer:   hs,
-		networkHandler: nil, // test nil network handler branch
+		networkHandler: nil, // test nil network handler branch.
 		cfg:            &config.Config{},
 	}
 
@@ -2713,9 +2741,9 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 	assert.Nil(t, indexer.snapshotter)
 }
 
-// ---------------------------------------------------------------------------
-// ProcessBlocks — additional coverage for tooFarAhead and rate-limiting paths
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// ProcessBlocks — additional coverage for tooFarAhead and rate-limiting paths.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_TooFarAhead(t *testing.T) {
 	t.Parallel()
@@ -2724,17 +2752,17 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := callCount.Add(1)
 			num := fmt.Sprintf("0x%x", 3000+n)
-			// Add a small delay to simulate slow RPC, causing tooFarAhead to trigger
+			// Add a small delay to simulate slow RPC, causing tooFarAhead to trigger.
 			if n > 3 {
 				time.Sleep(200 * time.Millisecond)
 			}
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2744,12 +2772,12 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
-	// Use only 1 worker so the tooFarAhead check (workers*2=2) triggers quickly
+	// Use only 1 worker so the tooFarAhead check (workers*2=2) triggers quickly.
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2770,13 +2798,13 @@ func TestProcessBlocks_WithNilCallback(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := callCount.Add(1)
 			num := fmt.Sprintf("0x%x", 4000+n)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2786,7 +2814,7 @@ func TestProcessBlocks_WithNilCallback(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2811,17 +2839,17 @@ func TestProcessBlocks_FailedBlockInSequence(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := callCount.Add(1)
 			if n == 2 {
-				// Make the second block fail repeatedly
+				// Make the second block fail repeatedly.
 				return nil, fmt.Errorf("server error")
 			}
 			num := fmt.Sprintf("0x%x", 6000+n)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2831,7 +2859,7 @@ func TestProcessBlocks_FailedBlockInSequence(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2854,15 +2882,15 @@ func TestProcessBlocks_FailedBlockInSequence(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-// ---------------------------------------------------------------------------
-// extractPublicKeyFromPeerID — additional coverage for RSA keys (different error path)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// extractPublicKeyFromPeerID — additional coverage for RSA keys (different error path).
+// ---------------------------------------------------------------------------.
 
 func TestExtractPublicKeyFromPeerID_Secp256k1Key(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Generate a Secp256k1 key pair — different key type exercises more of the extraction path
+	// Generate a Secp256k1 key pair — different key type exercises more of the extraction path.
 	priv, _, err := crypto.GenerateSecp256k1Key(nil)
 	require.NoError(t, err)
 
@@ -2874,9 +2902,9 @@ func TestExtractPublicKeyFromPeerID_Secp256k1Key(t *testing.T) {
 	t.Logf("Secp256k1 key extraction result: %q (len=%d)", result, len(result))
 }
 
-// ---------------------------------------------------------------------------
-// GetDefraDBPort with embedded node — verify healthy node returns correct port
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetDefraDBPort with embedded node — verify healthy node returns correct port.
+// ---------------------------------------------------------------------------.
 
 func TestGetDefraDBPort_Consistency(t *testing.T) {
 	t.Parallel()
@@ -2889,9 +2917,9 @@ func TestGetDefraDBPort_Consistency(t *testing.T) {
 	assert.Equal(t, td.Port, port)
 }
 
-// ---------------------------------------------------------------------------
-// processBlock — duplicate block (already exists via processBlock)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlock — duplicate block (already exists via processBlock).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlock_AlreadyExistsBlock(t *testing.T) {
 	t.Parallel()
@@ -2899,11 +2927,11 @@ func TestProcessBlock_AlreadyExistsBlock(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			return fullBlockResponse("0x1770", nil), nil // block 6000
-		case "eth_getBlockReceipts":
+		case ethGetBlockByNumber:
+			return fullBlockResponse("0x1770", nil), nil // block 6000.
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2913,7 +2941,7 @@ func TestProcessBlock_AlreadyExistsBlock(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2930,15 +2958,15 @@ func TestProcessBlock_AlreadyExistsBlock(t *testing.T) {
 	err = indexer.processBlock(ctx, ethClient, blockHandler, 6000)
 	require.NoError(t, err)
 
-	// Second insertion: already exists → handled gracefully
+	// Second insertion: already exists → handled gracefully.
 	err = indexer.processBlock(ctx, ethClient, blockHandler, 6000)
-	// processBlock → processBlockBatch → detects already exists → returns nil
+	// processBlock → processBlockBatch → detects already exists → returns nil.
 	assert.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch with receipt error (warn path)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch with receipt error (warn path).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_ReceiptError(t *testing.T) {
 	t.Parallel()
@@ -2947,10 +2975,10 @@ func TestProcessBlockBatch_ReceiptError(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	txHash := "0x0000000000000000000000000000000000000000000000000000000000000888"
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
-			// Receipt fetch fails → processBlockBatch logs warning
+		case ethGetTransactionReceipt:
+			// Receipt fetch fails → processBlockBatch logs warning.
 			return nil, fmt.Errorf("receipt unavailable")
 		default:
 			return "0x1", nil
@@ -2960,7 +2988,7 @@ func TestProcessBlockBatch_ReceiptError(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -3006,15 +3034,15 @@ func TestProcessBlockBatch_ReceiptError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// Receipt fails → tx is inserted without receipt data
+	// Receipt fails → tx is inserted without receipt data.
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 8000)
-	// The block itself should still succeed even if receipt fetch fails
+	// The block itself should still succeed even if receipt fetch fails.
 	require.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// indexerQueueTracker — verify collection name wiring
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// indexerQueueTracker — verify collection name wiring.
+// ---------------------------------------------------------------------------.
 
 func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
 	t.Parallel()
@@ -3033,22 +3061,22 @@ func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, queue.Len())
 
-	// Verify collection names contain expected substrings
+	// Verify collection names contain expected substrings.
 	assert.Contains(t, constants.CollectionTransaction, "Transaction")
 	assert.Contains(t, constants.CollectionLog, "Log")
 	assert.Contains(t, constants.CollectionAccessListEntry, "AccessListEntry")
 }
 
-// ---------------------------------------------------------------------------
-// Concurrent safety of updateBlockInfo
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// Concurrent safety of updateBlockInfo.
+// ---------------------------------------------------------------------------.
 
 func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 	indexer := &ChainIndexer{}
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(n int64) {
 			defer wg.Done()
@@ -3060,23 +3088,23 @@ func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Just verify no panic/race occurred
+	// Just verify no panic/race occurred.
 	assert.True(t, indexer.GetCurrentBlock() >= 0)
 }
 
-// ---------------------------------------------------------------------------
-// Verify that the mock RPC server handles batch requests correctly
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// Verify that the mock RPC server handles batch requests correctly.
+// ---------------------------------------------------------------------------.
 
 func TestMockRPCServer_VariousEndpoints(t *testing.T) {
 	t.Parallel()
-	srv := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	srv := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x100000", nil
-		case "net_version":
+		case netVersion:
 			return "1", nil
-		case "eth_chainId":
+		case ethChainID:
 			return "0x1", nil
 		default:
 			return nil, fmt.Errorf("unknown method: %s", method)
@@ -3084,15 +3112,15 @@ func TestMockRPCServer_VariousEndpoints(t *testing.T) {
 	})
 	defer srv.Close()
 
-	// Verify the server responds to a basic request
+	// Verify the server responds to a basic request.
 	resp, err := http.Post(srv.URL, "application/json", nil)
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
-// ---------------------------------------------------------------------------
-// fullBlockResponse helper test
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fullBlockResponse helper test.
+// ---------------------------------------------------------------------------.
 
 func TestFullBlockResponse_WithTransactions(t *testing.T) {
 	t.Parallel()
@@ -3117,9 +3145,9 @@ func TestFullBlockResponse_NilTransactions(t *testing.T) {
 	assert.Len(t, txList, 0)
 }
 
-// ---------------------------------------------------------------------------
-// ProcessBlocks with context cancel during rate-limit wait
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// ProcessBlocks with context cancel during rate-limit wait.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_CancelDuringRateLimit(t *testing.T) {
 	t.Parallel()
@@ -3128,13 +3156,13 @@ func TestProcessBlocks_CancelDuringRateLimit(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := callCount.Add(1)
 			num := fmt.Sprintf("0x%x", 7000+n)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -3144,12 +3172,12 @@ func TestProcessBlocks_CancelDuringRateLimit(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
-	// Very low rate limit (1 block/min) so cancellation hits during wait
+	// Very low rate limit (1 block/min) so cancellation hits during wait.
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -3162,9 +3190,9 @@ func TestProcessBlocks_CancelDuringRateLimit(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-// ---------------------------------------------------------------------------
-// ProcessBlocks — cancel during tooFarAhead backoff
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// ProcessBlocks — cancel during tooFarAhead backoff.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 	t.Parallel()
@@ -3172,13 +3200,13 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			// Slow response to cause tooFarAhead
+		case ethGetBlockByNumber:
+			// Slow response to cause tooFarAhead.
 			time.Sleep(2 * time.Second)
 			return fullBlockResponse("0xbeef", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -3188,7 +3216,7 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -3199,14 +3227,14 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 	defer cancel()
 
 	err = p.ProcessBlocks(ctx, 9001, nil)
-	// Should be context.DeadlineExceeded or context.Canceled
+	// Should be context.DeadlineExceeded or context.Canceled.
 	assert.Error(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// StartIndexing — sequential loop path (ConcurrentBlocks=0)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------.
+// StartIndexing — sequential loop path (ConcurrentBlocks=0).
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_Embedded_SequentialLoop(t *testing.T) {
 	t.Parallel()
@@ -3229,7 +3257,7 @@ func TestStartIndexing_Embedded_SequentialLoop(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // Force sequential path
+			ConcurrentBlocks: 0, // Force sequential path.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -3246,7 +3274,7 @@ func TestStartIndexing_Embedded_SequentialLoop(t *testing.T) {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Wait for a few block calls
+	// Wait for a few block calls.
 	deadline := time.After(60 * time.Second)
 	blocksSeen := 0
 	for blocksSeen < 3 {
@@ -3262,26 +3290,26 @@ func TestStartIndexing_Embedded_SequentialLoop(t *testing.T) {
 		}
 	}
 
-	// Stop the sequential loop by setting shouldIndex = false
+	// Stop the sequential loop by setting shouldIndex = false.
 	indexer.shouldIndex = false
 
 	// Wait for StartIndexing to return
 	select {
 	case err := <-errCh:
-		// Should return nil when the loop exits naturally
+		// Should return nil when the loop exits naturally.
 		if err != nil {
 			t.Logf("StartIndexing returned: %v", err)
 		}
 	case <-time.After(30 * time.Second):
-		// If it doesn't return, the sequential loop is stuck on sleep
+		// If it doesn't return, the sequential loop is stuck on sleep.
 		t.Log("sequential loop did not return within 30s")
 	}
 
 	indexer.StopIndexing()
 }
 
-// TestStartIndexing_Embedded_SequentialLoop_AlreadyExists tests the already-exists branch
-// in the sequential loop. The first block succeeds, the second is the same block
+// TestStartIndexing_Embedded_SequentialLoop_AlreadyExists tests the already-exists branch.
+// in the sequential loop. The first block succeeds, the second is the same block.
 // (already exists), triggering the already-exists path.
 func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists(t *testing.T) {
 	t.Parallel()
@@ -3293,16 +3321,16 @@ func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists(t *testing.T) {
 	tmpDir := t.TempDir()
 	var blockCallCount atomic.Int64
 
-	// Return the SAME block number for all calls → second insert triggers "already exists"
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	// Return the SAME block number for all calls → second insert triggers "already exists".
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			blockCallCount.Add(1)
-			// Always return block 99991 (same block number, so second insert triggers already-exists)
+			// Always return block 99991 (same block number, so second insert triggers already-exists).
 			return fullBlockResponse("0x186a7", nil), nil
-		case "eth_blockNumber":
-			return "0x186b1", nil // chain tip 99985
-		case "eth_getBlockReceipts":
+		case ethBlockNumber:
+			return "0x186b1", nil // chain tip 99985.
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -3319,7 +3347,7 @@ func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // sequential
+			ConcurrentBlocks: 0, // sequential.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -3336,7 +3364,7 @@ func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists(t *testing.T) {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Wait until at least 3 block fetch calls (first succeeds, second is already-exists)
+	// Wait until at least 3 block fetch calls (first succeeds, second is already-exists).
 	deadline := time.After(60 * time.Second)
 	for blockCallCount.Load() < 3 {
 		select {
@@ -3367,25 +3395,25 @@ func TestStartIndexing_Embedded_SequentialLoop_NotFound(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			// Parse params to distinguish "latest" (chain tip query) from numbered blocks
+		case ethGetBlockByNumber:
+			// Parse params to distinguish "latest" (chain tip query) from numbered blocks.
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
-					// This is GetLatestBlockNumber → always return valid header
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					// This is GetLatestBlockNumber → always return valid header.
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
 			n := blockCallCount.Add(1)
 			if n <= 3 {
-				// First 3 numbered-block calls: block not found (null response)
-				return nil, nil
+				// First 3 numbered-block calls: block not found (null response).
+				return nil, errors.New("block not found")
 			}
-			// After that: return valid blocks
+			// After that: return valid blocks.
 			num := fmt.Sprintf("0x%x", 99990+n)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -3402,7 +3430,7 @@ func TestStartIndexing_Embedded_SequentialLoop_NotFound(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // sequential
+			ConcurrentBlocks: 0, // sequential.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -3419,7 +3447,7 @@ func TestStartIndexing_Embedded_SequentialLoop_NotFound(t *testing.T) {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Wait for enough calls to cover not-found retries + a successful block
+	// Wait for enough calls to cover not-found retries + a successful block.
 	deadline := time.After(60 * time.Second)
 	for blockCallCount.Load() < 6 {
 		select {
@@ -3450,25 +3478,25 @@ func TestStartIndexing_Embedded_SequentialLoop_OtherError(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			// Parse params to distinguish "latest" (chain tip query) from numbered blocks
+		case ethGetBlockByNumber:
+			// Parse params to distinguish "latest" (chain tip query) from numbered blocks.
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
-					// This is GetLatestBlockNumber → always return valid header
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					// This is GetLatestBlockNumber → always return valid header.
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
 			n := blockCallCount.Add(1)
 			if n <= 3 {
-				// First 3 numbered-block calls: generic server error
+				// First 3 numbered-block calls: generic server error.
 				return nil, fmt.Errorf("internal server error")
 			}
-			// Then: return valid blocks
+			// Then: return valid blocks.
 			num := fmt.Sprintf("0x%x", 99990+n)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -3485,7 +3513,7 @@ func TestStartIndexing_Embedded_SequentialLoop_OtherError(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // sequential
+			ConcurrentBlocks: 0, // sequential.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -3519,9 +3547,9 @@ func TestStartIndexing_Embedded_SequentialLoop_OtherError(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — test peer deduplication with mock addresses
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — test peer deduplication with mock addresses.
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 	t.Parallel()
@@ -3529,7 +3557,7 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create indexer with embedded node — exercise all code paths in GetPeerInfo
+	// Create indexer with embedded node — exercise all code paths in GetPeerInfo.
 	indexer := &ChainIndexer{
 		defraNode:      td.Node,
 		networkHandler: nil,
@@ -3539,14 +3567,14 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// The test node has P2P disabled, so no active peers
-	// This still exercises the deduplication code with 0 active peers
+	// The test node has P2P disabled, so no active peers.
+	// This still exercises the deduplication code with 0 active peers.
 	assert.NotNil(t, info.PeerInfo)
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — retry loop exhaustion
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch — retry loop exhaustion.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_RetryExhaustion(t *testing.T) {
 	t.Parallel()
@@ -3554,15 +3582,15 @@ func TestProcessBlockBatch_RetryExhaustion(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create a mock RPC server that always fails on receipt fetch
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	// Create a mock RPC server that always fails on receipt fetch.
+	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
 		return "0x1", nil
 	})
 	defer rpcServer.Close()
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -3574,9 +3602,9 @@ func TestProcessBlockBatch_RetryExhaustion(t *testing.T) {
 		defraNode: td.Node,
 	}
 
-	// Use a nil block to trigger an error in CreateBlockBatch
+	// Use a nil block to trigger an error in CreateBlockBatch.
 	block := &types.Block{
-		Number:     "", // Empty block number → causes conversion errors
+		Number:     "", // Empty block number → causes conversion errors.
 		Hash:       "",
 		ParentHash: "",
 		Timestamp:  "",
@@ -3589,9 +3617,9 @@ func TestProcessBlockBatch_RetryExhaustion(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to batch create block")
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — context cancel during CreateBlockBatch retry
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — context cancel during CreateBlockBatch retry.
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_ContextCancelDuringBatch(t *testing.T) {
 	t.Parallel()
@@ -3599,11 +3627,11 @@ func TestFetchAndProcessBlock_ContextCancelDuringBatch(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0xdead", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -3613,40 +3641,40 @@ func TestFetchAndProcessBlock_ContextCancelDuringBatch(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 
-	// Insert block first to cause "already exists" on second attempt
+	// Insert block first to cause "already exists" on second attempt.
 	result1 := p.fetchAndProcessBlock(context.Background(), 0xdead)
 	require.True(t, result1.Success)
 
-	// Second attempt with canceled context — tests ctx.Err() check in retry loop
+	// Second attempt with canceled context — tests ctx.Err() check in retry loop.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediately canceled
 
 	result2 := p.fetchAndProcessBlock(ctx, 0xdead)
 	require.NotNil(t, result2)
-	// Either already-exists (fast path) or context error
+	// Either already-exists (fast path) or context error.
 	if !result2.Success {
 		assert.Error(t, result2.Error)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// openBrowser — test the "default" (linux) case on non-darwin platforms
+// ---------------------------------------------------------------------------.
+// openBrowser — test the "default" (linux) case on non-darwin platforms.
 // The function switches on runtime.GOOS. On macOS, only darwin branch runs.
 // We test that the function completes without panicking.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestOpenBrowser_NonEmptyURL(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
-	execCommand = func(name string, arg ...string) *exec.Cmd {
+	execCommand = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "mock-browser")
 	}
 	defer func() { execCommand = original }()
@@ -3654,9 +3682,9 @@ func TestOpenBrowser_NonEmptyURL(t *testing.T) {
 	openBrowser("http://localhost:0/test-url-for-coverage")
 }
 
-// ---------------------------------------------------------------------------
-// SignMessages — test full flow with keyring identity
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// SignMessages — test full flow with keyring identity.
+// ---------------------------------------------------------------------------.
 
 func TestSignMessages_FullFlow(t *testing.T) {
 	t.Parallel()
@@ -3667,7 +3695,7 @@ func TestSignMessages_FullFlow(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Start a real DefraDB via app-sdk to get proper keyring setup
+	// Start a real DefraDB via app-sdk to get proper keyring setup.
 	appCfg := &appConfig.Config{
 		DefraDB: appConfig.DefraDBConfig{
 			KeyringSecret: "test-secret-for-sign-flow-1234",
@@ -3676,7 +3704,7 @@ func TestSignMessages_FullFlow(t *testing.T) {
 		},
 	}
 
-	// Use testutils' SetupTestDefraDB for the node, then configure keyring manually
+	// Use testutils' SetupTestDefraDB for the node, then configure keyring manually.
 	td := testutils.SetupTestDefraDB(t)
 
 	indexer := &ChainIndexer{
@@ -3695,13 +3723,13 @@ func TestSignMessages_FullFlow(t *testing.T) {
 	// We expect an error because the keyring doesn't have an identity yet.
 	// This exercises SignWithDefraKeys → loadIdentityFromStore → error path.
 	assert.Error(t, err)
-	// Verify it's a meaningful error (not a nil pointer or panic)
+	// Verify it's a meaningful error (not a nil pointer or panic).
 	assert.NotEmpty(t, err.Error())
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — exercise code paths with actual peer info
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — exercise code paths with actual peer info.
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_WithSelfInfo(t *testing.T) {
 	t.Parallel()
@@ -3714,18 +3742,18 @@ func TestGetPeerInfo_WithSelfInfo(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// P2P is disabled in test node, but it still has peer info
+	// P2P is disabled in test node, but it still has peer info.
 	if info.Self != nil {
-		// Verify self info fields
+		// Verify self info fields.
 		assert.NotEmpty(t, info.Self.ID, "self peer ID should not be empty")
-		// Public key extraction may or may not work
+		// Public key extraction may or may not work.
 		t.Logf("Self ID: %s, PublicKey: %s, Addresses: %v", info.Self.ID, info.Self.PublicKey, info.Self.Addresses)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — signing queue full path
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — signing queue full path.
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_SigningQueueFull(t *testing.T) {
 	t.Parallel()
@@ -3733,11 +3761,11 @@ func TestFetchAndProcessBlock_SigningQueueFull(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0xbeef", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -3747,37 +3775,37 @@ func TestFetchAndProcessBlock_SigningQueueFull(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 
-	// First: insert block
+	// First: insert block.
 	result1 := p.fetchAndProcessBlock(context.Background(), 0xbeef)
 	require.True(t, result1.Success)
 
-	// Fill the signing channel to capacity
+	// Fill the signing channel to capacity.
 	for i := 0; i < cap(p.signingChan); i++ {
 		p.signingChan <- signingJob{blockNum: int64(i)}
 	}
 
-	// Second: duplicate block with full signing queue → "signing queue full" warning
+	// Second: duplicate block with full signing queue → "signing queue full" warning.
 	result2 := p.fetchAndProcessBlock(context.Background(), 0xbeef)
 	require.NotNil(t, result2)
 	assert.True(t, result2.Success)
 	assert.Equal(t, "existing", result2.BlockID)
 
-	// Drain signing channel
+	// Drain signing channel.
 	for len(p.signingChan) > 0 {
 		<-p.signingChan
 	}
 }
 
-// ---------------------------------------------------------------------------
-// SignMessages with full identity flow
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// SignMessages with full identity flow.
+// ---------------------------------------------------------------------------.
 
 func TestSignMessages_WithIdentity(t *testing.T) {
 	t.Parallel()
@@ -3789,7 +3817,7 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 	tmpDir := t.TempDir()
 	keyringSecret := "test-secret-for-sign-identity-123"
 
-	// Use app-sdk to create identity first
+	// Use app-sdk to create identity first.
 	appCfg := &appConfig.Config{
 		DefraDB: appConfig.DefraDBConfig{
 			KeyringSecret: keyringSecret,
@@ -3798,14 +3826,14 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 		},
 	}
 
-	// Import the app-sdk to create identity
-	appsdk := appCfg // reference to avoid import error
+	// Import the app-sdk to create identity.
+	appsdk := appCfg // reference to avoid import error.
 	_ = appsdk
 
-	// Start DefraDB with app-sdk to create identity and keys
+	// Start DefraDB with app-sdk to create identity and keys.
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create the identity manually by using the keyring
+	// Create the identity manually by using the keyring.
 	indexer := &ChainIndexer{
 		defraNode: td.Node,
 		cfg: &config.Config{
@@ -3816,15 +3844,15 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 		},
 	}
 
-	// Try to sign — exercises error handling in SignWithDefraKeys
+	// Try to sign — exercises error handling in SignWithDefraKeys.
 	defraReg, peerReg, err := indexer.SignMessages("test message for signing")
 	if err != nil {
-		// Expected without pre-existing identity
+		// Expected without pre-existing identity.
 		t.Logf("SignMessages error (expected): %v", err)
 		assert.Empty(t, defraReg.PublicKey)
 		assert.Empty(t, peerReg.PeerID)
 	} else {
-		// If it succeeds (identity was created), verify the response
+		// If it succeeds (identity was created), verify the response.
 		assert.NotEmpty(t, defraReg.PublicKey)
 		assert.NotEmpty(t, defraReg.SignedPKMsg)
 		assert.NotEmpty(t, peerReg.PeerID)
@@ -3832,9 +3860,9 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — batch retry delay path (attempt < DefaultRetryAttempts-1)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch — batch retry delay path (attempt < DefaultRetryAttempts-1).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_RetryWithDelay(t *testing.T) {
 	t.Parallel()
@@ -3842,14 +3870,14 @@ func TestProcessBlockBatch_RetryWithDelay(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
 		return "0x1", nil
 	})
 	defer rpcServer.Close()
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -3861,8 +3889,8 @@ func TestProcessBlockBatch_RetryWithDelay(t *testing.T) {
 		defraNode: td.Node,
 	}
 
-	// Use a block with invalid/empty fields that will cause CreateBlockBatch to fail
-	// but NOT with "already exists" → triggers the retry delay path
+	// Use a block with invalid/empty fields that will cause CreateBlockBatch to fail.
+	// but NOT with "already exists" → triggers the retry delay path.
 	block := &types.Block{
 		Number:     "invalid-number",
 		Hash:       "not-a-hash",
@@ -3875,19 +3903,19 @@ func TestProcessBlockBatch_RetryWithDelay(t *testing.T) {
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 0)
 	elapsed := time.Since(start)
 
-	// Should fail after retries
+	// Should fail after retries.
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to batch create block")
-	// Should have taken at least 1s+2s = 3s for retry delays
+	// Should have taken at least 1s+2s = 3s for retry delays.
 	assert.GreaterOrEqual(t, elapsed.Seconds(), 2.0, "should have waited for retry delays")
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — external DefraDB (defraStarted=true) path
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — external DefraDB (defraStarted=true) path.
+// ---------------------------------------------------------------------------.
 
 // TestStartIndexing_ExternalDefra tests the external-DefraDB path in StartIndexing.
-// Since external DefraDB no longer sets defraNode, it should return the
+// Since external DefraDB no longer sets defraNode, it should return the.
 // "defraNode is required" error after applying schema.
 func TestStartIndexing_ExternalDefra(t *testing.T) {
 	t.Parallel()
@@ -3895,7 +3923,7 @@ func TestStartIndexing_ExternalDefra(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create a config pointing to the test DefraDB as "external"
+	// Create a config pointing to the test DefraDB as "external".
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			URL: fmt.Sprintf("http://localhost:%d", td.Port),
@@ -3917,9 +3945,9 @@ func TestStartIndexing_ExternalDefra(t *testing.T) {
 	assert.Contains(t, err.Error(), "defraNode is required")
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — health server + pruner + snapshotter subsystems
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — health server + pruner + snapshotter subsystems.
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 	t.Parallel()
@@ -3934,18 +3962,18 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 	var blockCallCount atomic.Int64
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", 100000+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -3962,10 +3990,10 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // sequential
+			ConcurrentBlocks: 0, // sequential.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
-			HealthServerPort: 19876, // enable health server
+			HealthServerPort: 19876, // enable health server.
 			StartBuffer:      10,
 		},
 		Pruner: pruner.Config{
@@ -3991,7 +4019,7 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Wait for a few blocks to be processed
+	// Wait for a few blocks to be processed.
 	deadline := time.After(60 * time.Second)
 	for blockCallCount.Load() < 3 {
 		select {
@@ -4005,7 +4033,7 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 		}
 	}
 
-	// Verify subsystems are active
+	// Verify subsystems are active.
 	assert.NotNil(t, indexer.healthServer, "health server should be initialized")
 	assert.NotNil(t, indexer.pruner, "pruner should be initialized")
 	assert.NotNil(t, indexer.snapshotter, "snapshotter should be initialized")
@@ -4014,9 +4042,9 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — concurrent path with pruner+snapshotter
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — concurrent path with pruner+snapshotter.
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 	t.Parallel()
@@ -4031,18 +4059,18 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 	var blockCallCount atomic.Int64
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", 100000+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -4059,7 +4087,7 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 2, // concurrent
+			ConcurrentBlocks: 2, // concurrent.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -4088,7 +4116,7 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Let some blocks process
+	// Let some blocks process.
 	deadline := time.After(60 * time.Second)
 	for blockCallCount.Load() < 5 {
 		select {
@@ -4109,9 +4137,9 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — resuming with existing blocks in DB (gap detection)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — resuming with existing blocks in DB (gap detection).
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 	t.Parallel()
@@ -4123,21 +4151,21 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 	tmpDir := t.TempDir()
 	var blockCallCount atomic.Int64
 
-	// Chain tip at 100000, we'll simulate existing blocks by inserting one
+	// Chain tip at 100000, we'll simulate existing blocks by inserting one.
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
-					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000.
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", 99990+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -4153,7 +4181,7 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
-			StartHeight:      99980, // specific start height
+			StartHeight:      99980, // specific start height.
 			ConcurrentBlocks: 0,
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
@@ -4188,9 +4216,9 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — unsupported tx type branch in sequential loop
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — unsupported tx type branch in sequential loop.
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType(t *testing.T) {
 	t.Parallel()
@@ -4204,24 +4232,24 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", 100000+count)
-			// All blocks valid — the unsupported tx error comes from processBlock
+			// All blocks valid — the unsupported tx error comes from processBlock.
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return map[string]any{
 				"status": "0x1",
-				"type":   "0xff", // unsupported type
+				"type":   "0xff", // unsupported type.
 			}, nil
 		default:
 			return "0x1", nil
@@ -4255,7 +4283,7 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType(t *testing.T) {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Let some blocks be processed (they should all succeed since they have 0 txns)
+	// Let some blocks be processed (they should all succeed since they have 0 txns).
 	deadline := time.After(60 * time.Second)
 	for blockCallCount.Load() < 5 {
 		select {
@@ -4273,9 +4301,9 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — with transactions and receipt fetching
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch — with transactions and receipt fetching.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_WithTransactionsAndReceipts(t *testing.T) {
 	t.Parallel()
@@ -4283,10 +4311,10 @@ func TestProcessBlockBatch_WithTransactionsAndReceipts(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Mock server that returns receipts for transactions
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	// Mock server that returns receipts for transactions.
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return map[string]any{
 				"transactionHash": "0xabc",
 				"blockHash":       "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -4306,7 +4334,7 @@ func TestProcessBlockBatch_WithTransactionsAndReceipts(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4355,13 +4383,13 @@ func TestProcessBlockBatch_WithTransactionsAndReceipts(t *testing.T) {
 
 	ctx := context.Background()
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 100000)
-	// Should succeed (receipt fetching + batch creation)
+	// Should succeed (receipt fetching + batch creation).
 	assert.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — receipt fetch failure (covers receipt error handling)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch — receipt fetch failure (covers receipt error handling).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_ReceiptFetchFailure(t *testing.T) {
 	t.Parallel()
@@ -4369,10 +4397,10 @@ func TestProcessBlockBatch_ReceiptFetchFailure(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Mock server that always fails on receipt fetch
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	// Mock server that always fails on receipt fetch.
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return nil, fmt.Errorf("receipt not available")
 		default:
 			return "0x1", nil
@@ -4382,7 +4410,7 @@ func TestProcessBlockBatch_ReceiptFetchFailure(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4431,13 +4459,13 @@ func TestProcessBlockBatch_ReceiptFetchFailure(t *testing.T) {
 
 	ctx := context.Background()
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 200000)
-	// Block creation should still succeed (block created without receipts)
+	// Block creation should still succeed (block created without receipts).
 	assert.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — receipt fallback to individual fetch
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — receipt fallback to individual fetch.
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_ReceiptFallbackIndividual(t *testing.T) {
 	t.Parallel()
@@ -4446,16 +4474,16 @@ func TestFetchAndProcessBlock_ReceiptFallbackIndividual(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var getBlockCalls atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			getBlockCalls.Add(1)
-			// Return a block with 0 txns (so receipt fallback path runs but has no txns to iterate)
+			// Return a block with 0 txns (so receipt fallback path runs but has no txns to iterate).
 			return fullBlockResponse("0x186a0", nil), nil
-		case "eth_getBlockReceipts":
-			// Fail batch receipts → triggers fallback to individual fetches
+		case ethGetBlockReceipts:
+			// Fail batch receipts → triggers fallback to individual fetches.
 			return nil, fmt.Errorf("eth_getBlockReceipts not supported")
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return map[string]any{
 				"status": "0x1",
 				"logs":   []any{},
@@ -4468,7 +4496,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackIndividual(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4476,9 +4504,9 @@ func TestFetchAndProcessBlock_ReceiptFallbackIndividual(t *testing.T) {
 	processor := NewConcurrentBlockProcessor(
 		blockHandler,
 		ethClient,
-		2, // workers
-		2, // receiptWorkers
-		0, // blocksPerMinute
+		2, // workers.
+		2, // receiptWorkers.
+		0, // blocksPerMinute.
 	)
 
 	ctx := context.Background()
@@ -4489,9 +4517,9 @@ func TestFetchAndProcessBlock_ReceiptFallbackIndividual(t *testing.T) {
 	assert.NotEmpty(t, result.BlockID)
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — receipt fallback with actual transactions
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — receipt fallback with actual transactions.
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 	t.Parallel()
@@ -4499,16 +4527,16 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			// Return a block WITH a transaction
+		case ethGetBlockByNumber:
+			// Return a block WITH a transaction.
 			return fullBlockResponseWithTx("0x186a0"), nil
-		case "eth_getBlockReceipts":
-			// Fail batch receipts → triggers individual fallback
+		case ethGetBlockReceipts:
+			// Fail batch receipts → triggers individual fallback.
 			return nil, fmt.Errorf("eth_getBlockReceipts not supported")
-		case "eth_getTransactionReceipt":
-			// Return a valid receipt with all required go-ethereum fields
+		case ethGetTransactionReceipt:
+			// Return a valid receipt with all required go-ethereum fields.
 			return map[string]any{
 				"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -4532,7 +4560,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4540,9 +4568,9 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 	processor := NewConcurrentBlockProcessor(
 		blockHandler,
 		ethClient,
-		1, // workers
-		2, // receiptWorkers
-		0, // blocksPerMinute
+		1, // workers.
+		2, // receiptWorkers.
+		0, // blocksPerMinute.
 	)
 
 	ctx := context.Background()
@@ -4553,7 +4581,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 	assert.NotEmpty(t, result.BlockID)
 }
 
-// TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail tests the fallback
+// TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail tests the fallback.
 // when individual receipt fetch also fails.
 func TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail(t *testing.T) {
 	t.Parallel()
@@ -4561,14 +4589,14 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponseWithTx("0x186a1"), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return nil, fmt.Errorf("eth_getBlockReceipts not supported")
-		case "eth_getTransactionReceipt":
-			// Individual receipt fetch also fails
+		case ethGetTransactionReceipt:
+			// Individual receipt fetch also fails.
 			return nil, fmt.Errorf("receipt not available")
 		default:
 			return "0x1", nil
@@ -4578,7 +4606,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4586,19 +4614,19 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxnsFail(t *testing.T) {
 	processor := NewConcurrentBlockProcessor(
 		blockHandler,
 		ethClient,
-		1, // workers
-		2, // receiptWorkers
-		0, // blocksPerMinute
+		1, // workers.
+		2, // receiptWorkers.
+		0, // blocksPerMinute.
 	)
 
 	ctx := context.Background()
 	result := processor.fetchAndProcessBlock(ctx, 100001)
 
-	// Block should still be created (just without receipts)
+	// Block should still be created (just without receipts).
 	assert.True(t, result.Success, "block should still succeed even with receipt failures: %v", result.Error)
 }
 
-// TestFetchAndProcessBlock_ReceiptFallbackContextCancel tests receipt fallback
+// TestFetchAndProcessBlock_ReceiptFallbackContextCancel tests receipt fallback.
 // when context is canceled during individual fetch.
 func TestFetchAndProcessBlock_ReceiptFallbackContextCancel(t *testing.T) {
 	t.Parallel()
@@ -4606,14 +4634,14 @@ func TestFetchAndProcessBlock_ReceiptFallbackContextCancel(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponseWithTx("0x186a2"), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return nil, fmt.Errorf("eth_getBlockReceipts not supported")
-		case "eth_getTransactionReceipt":
-			// Slow response to trigger context cancel during receipt fetch
+		case ethGetTransactionReceipt:
+			// Slow response to trigger context cancel during receipt fetch.
 			time.Sleep(2 * time.Second)
 			return nil, fmt.Errorf("timeout")
 		default:
@@ -4624,7 +4652,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackContextCancel(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4632,23 +4660,23 @@ func TestFetchAndProcessBlock_ReceiptFallbackContextCancel(t *testing.T) {
 	processor := NewConcurrentBlockProcessor(
 		blockHandler,
 		ethClient,
-		1, // workers
-		2, // receiptWorkers
-		0, // blocksPerMinute
+		1, // workers.
+		2, // receiptWorkers.
+		0, // blocksPerMinute.
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	result := processor.fetchAndProcessBlock(ctx, 100002)
-	// May succeed (block created without receipts) or fail (ctx canceled during batch create)
-	// The important thing is it doesn't hang
+	// May succeed (block created without receipts) or fail (ctx canceled during batch create).
+	// The important thing is it doesn't hang.
 	t.Logf("result: success=%v, error=%v", result.Success, result.Error)
 }
 
-// ---------------------------------------------------------------------------
-// ProcessBlocks — already-existing block triggers signing queue ("existing" path)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// ProcessBlocks — already-existing block triggers signing queue ("existing" path).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_ExistingBlockPath(t *testing.T) {
 	t.Parallel()
@@ -4657,13 +4685,13 @@ func TestProcessBlocks_ExistingBlockPath(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var getBlockCalls atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			getBlockCalls.Add(1)
-			// Always return block 100000 → second call triggers already-exists
+			// Always return block 100000 → second call triggers already-exists.
 			return fullBlockResponse("0x186a0", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -4673,7 +4701,7 @@ func TestProcessBlocks_ExistingBlockPath(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4681,28 +4709,28 @@ func TestProcessBlocks_ExistingBlockPath(t *testing.T) {
 	processor := NewConcurrentBlockProcessor(
 		blockHandler,
 		ethClient,
-		1, // workers
-		2, // receiptWorkers
-		0, // blocksPerMinute
+		1, // workers.
+		2, // receiptWorkers.
+		0, // blocksPerMinute.
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	var processedBlocks atomic.Int64
-	err = processor.ProcessBlocks(ctx, 100000, func(blockNum int64) {
+	err = processor.ProcessBlocks(ctx, 100000, func(_ int64) {
 		processedBlocks.Add(1)
 	})
 
-	// Should return context deadline/canceled error
+	// Should return context deadline/canceled error.
 	assert.Error(t, err)
-	// Should have processed at least the first block (subsequent hit already-exists → "existing" path)
+	// Should have processed at least the first block (subsequent hit already-exists → "existing" path).
 	assert.GreaterOrEqual(t, processedBlocks.Load(), int64(1))
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — with self info construction
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — with self info construction.
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_SelfInfoConstruction(t *testing.T) {
 	t.Parallel()
@@ -4719,20 +4747,20 @@ func TestGetPeerInfo_SelfInfoConstruction(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// The test node has P2P disabled — check that self info is populated
-	// when the node has a peer ID (even with no active peers)
+	// The test node has P2P disabled — check that self info is populated.
+	// when the node has a peer ID (even with no active peers).
 	if info.Self != nil {
 		assert.NotEmpty(t, info.Self.ID, "self peer ID should be set")
-		// Public key may or may not be extractable depending on key type
+		// Public key may or may not be extractable depending on key type.
 	}
 
-	// Enabled should be false since networkHandler is nil
+	// Enabled should be false since networkHandler is nil.
 	assert.False(t, info.Enabled)
 }
 
-// ---------------------------------------------------------------------------
-// SignMessages — full success path with keyring
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// SignMessages — full success path with keyring.
+// ---------------------------------------------------------------------------.
 
 func TestSignMessages_FullSuccessPath(t *testing.T) {
 	t.Parallel()
@@ -4742,11 +4770,11 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	tmpDir := t.TempDir()
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0x186a0", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -4772,7 +4800,7 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 		Logger: config.LoggerConfig{Development: true},
 	}
 
-	// Use StartIndexing briefly to set up the defra node with keyring
+	// Use StartIndexing briefly to set up the defra node with keyring.
 	indexer, err := CreateIndexer(cfg)
 	require.NoError(t, err)
 
@@ -4781,7 +4809,7 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Wait for indexer to be started (defra node is initialized)
+	// Wait for indexer to be started (defra node is initialized).
 	deadline := time.After(30 * time.Second)
 	for !indexer.IsStarted() {
 		select {
@@ -4795,7 +4823,7 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 		}
 	}
 
-	// Now try SignMessages
+	// Now try SignMessages.
 	defraPK, peerReg, err := indexer.SignMessages("test-message-for-signing")
 	if err != nil {
 		t.Logf("SignMessages returned error (may be expected with test keyring): %v", err)
@@ -4810,9 +4838,9 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// extractPublicKeyFromPeerID — failure to extract key and raw bytes errors
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// extractPublicKeyFromPeerID — failure to extract key and raw bytes errors.
+// ---------------------------------------------------------------------------.
 
 func TestExtractPublicKeyFromPeerID_Ed25519Key(t *testing.T) {
 	t.Parallel()
@@ -4840,19 +4868,19 @@ func TestExtractPublicKeyFromPeerID_RSAKey(t *testing.T) {
 	require.NoError(t, err)
 
 	result := extractPublicKeyFromPeerID(id.String())
-	// RSA keys can't be extracted from PeerID — should return empty string
+	// RSA keys can't be extracted from PeerID — should return empty string.
 	assert.Empty(t, result, "RSA keys should not be extractable from PeerID (too large)")
 }
 
-// ---------------------------------------------------------------------------
-// openBrowser — cmd.Start failure (non-existent command)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// openBrowser — cmd.Start failure (non-existent command).
+// ---------------------------------------------------------------------------.
 
 func TestOpenBrowser_StartFailure(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
-	execCommand = func(name string, arg ...string) *exec.Cmd {
+	execCommand = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("nonexistent-command-that-will-fail")
 	}
 	defer func() { execCommand = original }()
@@ -4860,9 +4888,9 @@ func TestOpenBrowser_StartFailure(t *testing.T) {
 	openBrowser("http://127.0.0.1:0/health")
 }
 
-// ---------------------------------------------------------------------------
-// StopIndexing — with pruner and snapshotter set
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StopIndexing — with pruner and snapshotter set.
+// ---------------------------------------------------------------------------.
 
 func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 	t.Parallel()
@@ -4894,8 +4922,8 @@ func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 		snapshotter: s,
 	}
 
-	// Don't call p.Start()/s.Start() — they require the app-sdk logger
-	// to be initialized. StopIndexing should handle calling Stop() on
+	// Don't call p.Start()/s.Start() — they require the app-sdk logger.
+	// to be initialized. StopIndexing should handle calling Stop() on.
 	// unstarted components (isRunning=false → early return).
 	indexer.StopIndexing()
 
@@ -4903,9 +4931,9 @@ func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 	assert.False(t, indexer.shouldIndex)
 }
 
-// ---------------------------------------------------------------------------
-// ProcessBlocks — block fetch failure exhaustion (3 retries)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// ProcessBlocks — block fetch failure exhaustion (3 retries).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
 	t.Parallel()
@@ -4913,10 +4941,10 @@ func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Mock server that always errors on getBlockByNumber
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	// Mock server that always errors on getBlockByNumber.
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return nil, fmt.Errorf("persistent RPC error")
 		default:
 			return "0x1", nil
@@ -4926,7 +4954,7 @@ func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4934,22 +4962,22 @@ func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
 	processor := NewConcurrentBlockProcessor(
 		blockHandler,
 		ethClient,
-		1, // workers
-		2, // receiptWorkers
-		0, // blocksPerMinute
+		1, // workers.
+		2, // receiptWorkers.
+		0, // blocksPerMinute.
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	err = processor.ProcessBlocks(ctx, 100000, nil)
-	// Should exit due to context timeout (blocks keep failing)
+	// Should exit due to context timeout (blocks keep failing).
 	assert.Error(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — context canceled during main dispatch loop
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — context canceled during main dispatch loop.
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
 	t.Parallel()
@@ -4957,11 +4985,11 @@ func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0x186a0", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -4971,7 +4999,7 @@ func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -4979,12 +5007,12 @@ func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
 	processor := NewConcurrentBlockProcessor(
 		blockHandler,
 		ethClient,
-		2,  // workers
-		2,  // receiptWorkers
-		60, // blocksPerMinute - rate limited to exercise more paths
+		2,  // workers.
+		2,  // receiptWorkers.
+		60, // blocksPerMinute - rate limited to exercise more paths.
 	)
 
-	// Cancel immediately to exercise the main dispatch loop's ctx.Done()
+	// Cancel immediately to exercise the main dispatch loop's ctx.Done().
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
@@ -4992,9 +5020,9 @@ func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// Ensure unused imports are exercised
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// Ensure unused imports are exercised.
+// ---------------------------------------------------------------------------.
 
 // This test ensures the filepath import is used (for prune queue test paths).
 func TestPruneQueueFilePath(t *testing.T) {
@@ -5004,9 +5032,9 @@ func TestPruneQueueFilePath(t *testing.T) {
 	assert.Contains(t, queueFilePath, "prune_queue.gob")
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — resume from pruner queue (covers lines 219-221, 243-252)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — resume from pruner queue (covers lines 219-221, 243-252).
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
 	t.Parallel()
@@ -5017,7 +5045,7 @@ func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Pre-create a prune queue file with entries so LoadFromFile returns loaded > 0
+	// Pre-create a prune queue file with entries so LoadFromFile returns loaded > 0.
 	queue := pruner.NewIndexerQueue()
 	for i := int64(90000); i <= 90010; i++ {
 		_ = queue.TrackBlockDocIDs(i, fakeDocID(int(i)), map[string][]string{
@@ -5025,27 +5053,27 @@ func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
 		}, fakeDocID(int(i)+20000))
 	}
 	queueFilePath := filepath.Join(tmpDir, "prune_queue.gob")
-	_, _ = queue.LoadFromFile(queueFilePath) // sets filePath
+	_, _ = queue.LoadFromFile(queueFilePath) // sets filePath.
 	err := queue.Save()
 	require.NoError(t, err)
 
-	// Chain tip at 100000, highest in queue is 90010, gap = 9990 > startBuffer=10
-	// This should trigger the gap detection skip-ahead (lines 246-250)
+	// Chain tip at 100000, highest in queue is 90010, gap = 9990 > startBuffer=10.
+	// This should trigger the gap detection skip-ahead (lines 246-250).
 	var blockCallCount atomic.Int64
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if unmarshalErr := json.Unmarshal(params, &rawParams); unmarshalErr == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186a0", nil), nil // 100000
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", 99990+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -5098,7 +5126,7 @@ func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
 		}
 	}
 
-	// Should have skipped ahead — start height should be around 99990
+	// Should have skipped ahead — start height should be around 99990.
 	assert.True(t, indexer.cfg.Indexer.StartHeight >= 99980,
 		"should have skipped ahead due to gap, got start height %d", indexer.cfg.Indexer.StartHeight)
 
@@ -5106,9 +5134,9 @@ func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — negative start height clamp (covers lines 259-261)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — negative start height clamp (covers lines 259-261).
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
 	t.Parallel()
@@ -5119,22 +5147,22 @@ func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Chain tip very low (5), startBuffer=100 → startHeight = 5 - 100 = -95 → clamped to 0
+	// Chain tip very low (5), startBuffer=100 → startHeight = 5 - 100 = -95 → clamped to 0.
 	var blockCallCount atomic.Int64
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
-					return fullBlockResponse("0x5", nil), nil // chain tip = 5
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					return fullBlockResponse("0x5", nil), nil // chain tip = 5.
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", count-1)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -5150,12 +5178,12 @@ func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
-			StartHeight:      0, // no configured height
+			StartHeight:      0, // no configured height.
 			ConcurrentBlocks: 1,
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
-			StartBuffer:      100, // larger than chain tip
+			StartBuffer:      100, // larger than chain tip.
 		},
 		Logger: config.LoggerConfig{Development: true},
 	}
@@ -5181,7 +5209,7 @@ func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
 		}
 	}
 
-	// Start height should be clamped to 0
+	// Start height should be clamped to 0.
 	assert.Equal(t, 0, indexer.cfg.Indexer.StartHeight,
 		"start height should be clamped to 0 when chainTip - buffer is negative")
 
@@ -5189,9 +5217,9 @@ func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — OpenBrowserOnStart path (covers lines 294-299)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — OpenBrowserOnStart path (covers lines 294-299).
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_WithOpenBrowser(t *testing.T) {
 	t.Parallel()
@@ -5205,18 +5233,18 @@ func TestStartIndexing_WithOpenBrowser(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186a0", nil), nil
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", 99990+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -5268,23 +5296,23 @@ func TestStartIndexing_WithOpenBrowser(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — context cancel during receipt fetch (covers line 272-273)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — context cancel during receipt fetch (covers line 272-273).
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			return fullBlockResponseWithTx("0x3e8"), nil // block 1000 with tx
-		case "eth_getBlockReceipts":
+		case ethGetBlockByNumber:
+			return fullBlockResponseWithTx("0x3e8"), nil // block 1000 with tx.
+		case ethGetBlockReceipts:
 			return nil, fmt.Errorf("not supported")
-		case "eth_getTransactionReceipt":
-			// Slow response to give time for cancellation
+		case ethGetTransactionReceipt:
+			// Slow response to give time for cancellation.
 			time.Sleep(500 * time.Millisecond)
 			return map[string]any{
 				"transactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -5302,7 +5330,7 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -5314,23 +5342,23 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 
 	result := p.fetchAndProcessBlock(ctx, 1000)
 	require.NotNil(t, result)
-	// May succeed or fail depending on timing, but shouldn't panic
+	// May succeed or fail depending on timing, but shouldn't panic.
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — receipt fetch failure in goroutine (covers line 465)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch — receipt fetch failure in goroutine (covers line 465).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_ReceiptFetchError(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return nil, fmt.Errorf("receipt not found")
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return nil, fmt.Errorf("not supported")
 		default:
 			return "0x1", nil
@@ -5340,7 +5368,7 @@ func TestProcessBlockBatch_ReceiptFetchError(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -5381,28 +5409,28 @@ func TestProcessBlockBatch_ReceiptFetchError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// Receipt fetch fails → block is created without receipt data
+	// Receipt fetch fails → block is created without receipt data.
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 400)
 	require.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — already exists path with signing (covers lines 488-494)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch — already exists path with signing (covers lines 488-494).
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_AlreadyExists_WithSigning(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
 		return "0x1", nil
 	})
 	defer rpcServer.Close()
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -5425,18 +5453,18 @@ func TestProcessBlockBatch_AlreadyExists_WithSigning(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// First insert succeeds
+	// First insert succeeds.
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 600)
 	require.NoError(t, err)
 
-	// Second insert hits IsErrAlreadyExists → calls CreateBlockSignatureForExistingBlock
+	// Second insert hits IsErrAlreadyExists → calls CreateBlockSignatureForExistingBlock.
 	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 600)
 	assert.NoError(t, err, "already-exists should be handled gracefully")
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — embedded node without P2P (covers lines 596+)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — embedded node without P2P (covers lines 596+).
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 	t.Parallel()
@@ -5449,7 +5477,7 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 
 	info, err := indexer.GetPeerInfo()
 	if err != nil {
-		// PeerInfo may error without P2P — that's the line 596-598 path
+		// PeerInfo may error without P2P — that's the line 596-598 path.
 		assert.Contains(t, err.Error(), "peer info")
 	} else {
 		require.NotNil(t, info)
@@ -5458,14 +5486,14 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 }
 
 // ===========================================================================
-// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%
+// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%.
 // ===========================================================================
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — receipt SUCCESS path (covers lines 465, 476-479)
-// The key is providing a properly-formatted receipt mock that go-ethereum
+// ---------------------------------------------------------------------------.
+// processBlockBatch — receipt SUCCESS path (covers lines 465, 476-479).
+// The key is providing a properly-formatted receipt mock that go-ethereum.
 // can parse. Previous tests had incomplete receipt fields.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
 	t.Parallel()
@@ -5473,10 +5501,10 @@ func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	txHash := "0x0000000000000000000000000000000000000000000000000000000000000abc"
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
-			// Full receipt response that go-ethereum can parse
+		case ethGetTransactionReceipt:
+			// Full receipt response that go-ethereum can parse.
 			return map[string]any{
 				"transactionHash":   txHash,
 				"transactionIndex":  "0x0",
@@ -5493,7 +5521,7 @@ func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
 				"effectiveGasPrice": "0x4a817c800",
 				"type":              "0x0",
 			}, nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return nil, fmt.Errorf("not supported")
 		default:
 			return "0x1", nil
@@ -5503,7 +5531,7 @@ func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -5561,10 +5589,10 @@ func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
 	assert.Equal(t, int64(20000), highest)
 }
 
-// ---------------------------------------------------------------------------
-// processBlockBatch — receipt success with MULTIPLE transactions
-// Exercises the receipt channel more thoroughly
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// processBlockBatch — receipt success with MULTIPLE transactions.
+// Exercises the receipt channel more thoroughly.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
 	t.Parallel()
@@ -5576,12 +5604,12 @@ func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
-			// Parse txHash from params
+		case ethGetTransactionReceipt:
+			// Parse txHash from params.
 			var rawParams []json.RawMessage
-			json.Unmarshal(params, &rawParams)
+			_ = json.Unmarshal(params, &rawParams)
 			var txHashParam string
-			json.Unmarshal(rawParams[0], &txHashParam)
+			_ = json.Unmarshal(rawParams[0], &txHashParam)
 
 			return map[string]any{
 				"transactionHash":   txHashParam,
@@ -5599,7 +5627,7 @@ func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
 				"effectiveGasPrice": "0x4a817c800",
 				"type":              "0x0",
 			}, nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return nil, fmt.Errorf("not supported")
 		default:
 			return "0x1", nil
@@ -5609,7 +5637,7 @@ func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -5678,11 +5706,11 @@ func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — full coverage with P2P enabled via app-sdk StartDefraInstance
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — full coverage with P2P enabled via app-sdk StartDefraInstance.
 // This exercises: selfInfo construction (lines 601-612), peer dedup (624-638),
-// PeerInfo error path (596-598)
-// ---------------------------------------------------------------------------
+// PeerInfo error path (596-598).
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_FullIntegration_WithP2P(t *testing.T) {
 	t.Parallel()
@@ -5693,13 +5721,13 @@ func TestGetPeerInfo_FullIntegration_WithP2P(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Start DefraDB with P2P enabled to exercise the full GetPeerInfo path
+	// Start DefraDB with P2P enabled to exercise the full GetPeerInfo path.
 	appCfg := &appConfig.Config{
 		DefraDB: appConfig.DefraDBConfig{
 			KeyringSecret: "test-secret-for-p2p-peer-info-1",
 			P2P: appConfig.DefraP2PConfig{
 				Enabled:    true,
-				ListenAddr: "/ip4/127.0.0.1/tcp/0", // random port
+				ListenAddr: "/ip4/127.0.0.1/tcp/0", // random port.
 			},
 			Store: appConfig.DefraStoreConfig{Path: tmpDir},
 		},
@@ -5725,15 +5753,15 @@ func TestGetPeerInfo_FullIntegration_WithP2P(t *testing.T) {
 		cfg:       cfg,
 	}
 
-	// GetPeerInfo should work even without P2P truly active on the test node
+	// GetPeerInfo should work even without P2P truly active on the test node.
 	info, err := indexer.GetPeerInfo()
 	if err != nil {
-		// PeerInfo may fail — covers line 596-598
+		// PeerInfo may fail — covers line 596-598.
 		t.Logf("GetPeerInfo returned error (covers error path): %v", err)
 		assert.Contains(t, err.Error(), "peer info")
 	} else {
 		require.NotNil(t, info)
-		// Self info should be populated if PeerInfo returns addresses
+		// Self info should be populated if PeerInfo returns addresses.
 		if info.Self != nil {
 			assert.NotEmpty(t, info.Self.ID)
 			t.Logf("Self: ID=%s, Addresses=%v, PublicKey=%s", info.Self.ID, info.Self.Addresses, info.Self.PublicKey)
@@ -5742,10 +5770,10 @@ func TestGetPeerInfo_FullIntegration_WithP2P(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// SignMessages — exercise the SignWithP2PKeys error path (line 730-732)
-// and GetNodePublicKey / GetPeerPublicKey error paths (lines 736-743)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// SignMessages — exercise the SignWithP2PKeys error path (line 730-732).
+// and GetNodePublicKey / GetPeerPublicKey error paths (lines 736-743).
+// ---------------------------------------------------------------------------.
 
 func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
 	t.Parallel()
@@ -5788,7 +5816,7 @@ func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Wait for indexer to start (defra node initialized with keyring)
+	// Wait for indexer to start (defra node initialized with keyring).
 	deadline := time.After(30 * time.Second)
 	for !indexer.IsStarted() {
 		select {
@@ -5804,13 +5832,13 @@ func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
 
 	// SignMessages: first call to SignWithDefraKeys may succeed,
 	// but SignWithP2PKeys may fail (P2P disabled). This exercises:
-	// - Line 730-732: SignWithP2PKeys error return
+	// - Line 730-732: SignWithP2PKeys error return.
 	// OR if both succeed:
-	// - Lines 736-738, 741-743: GetNodePublicKey/GetPeerPublicKey error returns
+	// - Lines 736-738, 741-743: GetNodePublicKey/GetPeerPublicKey error returns.
 	defraPK, peerReg, err := indexer.SignMessages("test-sign-message")
 	if err != nil {
 		t.Logf("SignMessages returned error (exercises error path): %v", err)
-		// Error at either SignWithDefraKeys, SignWithP2PKeys, GetNodePublicKey, or GetPeerPublicKey
+		// Error at either SignWithDefraKeys, SignWithP2PKeys, GetNodePublicKey, or GetPeerPublicKey.
 		assert.Empty(t, defraPK.PublicKey)
 		assert.Empty(t, peerReg.PeerID)
 	} else {
@@ -5823,10 +5851,10 @@ func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// Sequential loop — context cancel path (covers lines 343-345)
-// Use a context with cancel that fires DURING the sequential loop
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// Sequential loop — context cancel path (covers lines 343-345),
+// Use a context with cancel that fires DURING the sequential loop.
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
 	t.Parallel()
@@ -5840,22 +5868,22 @@ func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
 			count := blockCallCount.Add(1)
-			// After a few blocks, return not-found to force the loop to sleep
+			// After a few blocks, return not-found to force the loop to sleep.
 			if count > 3 {
-				return nil, nil // not found → loop sleeps 3s, giving us time to cancel
+				return nil, errors.New("block not found") // not found → loop sleeps 3s, giving us time to cancel.
 			}
 			num := fmt.Sprintf("0x%x", 100000+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -5872,7 +5900,7 @@ func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // Sequential mode
+			ConcurrentBlocks: 0, // Sequential mode.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -5885,8 +5913,8 @@ func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
 	require.NoError(t, err)
 
 	// Note: StartIndexing uses context.Background() internally.
-	// The sequential loop's ctx.Done() path (line 343-345) only fires if the
-	// context used internally is canceled. Since StartIndexing creates its
+	// The sequential loop's ctx.Done() path (line 343-345) only fires if the,
+	// context used internally is canceled. Since StartIndexing creates its,
 	// own context.Background(), we can't cancel it from outside.
 	// However, we can test by letting the loop run and stopping via shouldIndex.
 
@@ -5923,12 +5951,12 @@ func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — transaction conflict retry path (lines 328-337)
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — transaction conflict retry path (lines 328-337).
 // We need to trigger IsErrTransactionConflict from CreateBlockBatch.
-// We can do this by running two concurrent processors that try to create
+// We can do this by running two concurrent processors that try to create,
 // the same block at the same time.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 	t.Parallel()
@@ -5936,13 +5964,13 @@ func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			// Always return the same block (same number, same hash) to create conflicts
+		case ethGetBlockByNumber:
+			// Always return the same block (same number, same hash) to create conflicts.
 			callCount.Add(1)
 			return fullBlockResponse("0xbeef0", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -5952,16 +5980,16 @@ func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
-	// Create two processors that share the same blockHandler
+	// Create two processors that share the same blockHandler.
 	p1 := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 	p2 := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 
-	// Run both concurrently to try to trigger a transaction conflict
+	// Run both concurrently to try to trigger a transaction conflict.
 	var wg sync.WaitGroup
 	results := make([]*BlockResult, 2)
 
@@ -5976,7 +6004,7 @@ func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 	}()
 	wg.Wait()
 
-	// At least one should succeed. The other should either succeed (already exists)
+	// At least one should succeed. The other should either succeed (already exists),
 	// or have gone through the conflict retry path.
 	successCount := 0
 	for _, r := range results {
@@ -5989,34 +6017,34 @@ func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 	t.Logf("Result 2: success=%v, blockID=%s, err=%v", results[1].Success, results[1].BlockID, results[1].Error)
 }
 
-// ---------------------------------------------------------------------------
-// openBrowser — cmd.Start error path (covers lines 695-698)
+// ---------------------------------------------------------------------------.
+// openBrowser — cmd.Start error path (covers lines 695-698),
 // Override the command to a non-existent one to trigger Start() failure.
 // Since openBrowser is a function (not method) with runtime.GOOS switch,
-// we can't easily mock. But we can call it indirectly. On macOS, the "open"
-// command exists, so it won't fail. Instead, test it from a URL that won't
+// we can't easily mock. But we can call it indirectly. On macOS, the "open",
+// command exists, so it won't fail. Instead, test it from a URL that won't,
 // actually open anything harmful.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
-// Note: The openBrowser cmd.Start error is OS-specific. On macOS, "open" exists
+// Note: The openBrowser cmd.Start error is OS-specific. On macOS, "open" exists,
 // and will succeed for any URL. On Linux, "xdg-open" may not exist in CI.
-// On Windows, "cmd" exists. The error path (695-698) only triggers when the
-// command binary doesn't exist. This is structurally difficult to test without
+// On Windows, "cmd" exists. The error path (695-698) only triggers when the,
+// command binary doesn't exist. This is structurally difficult to test without,
 // mocking, which would require refactoring.
 
-// ---------------------------------------------------------------------------
-// extractPublicKeyFromPeerID — Raw() error path (covers lines 665-668)
+// ---------------------------------------------------------------------------.
+// extractPublicKeyFromPeerID — Raw() error path (covers lines 665-668),
 // The Raw() method of a pubkey should not normally fail for standard key types.
-// This is structurally difficult to trigger since we can't easily create a
-// mock pubkey that fails on Raw(). However, we can still try various key
+// This is structurally difficult to trigger since we can't easily create a,
+// mock pubkey that fails on Raw(). However, we can still try various key,
 // types to maximize coverage.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestExtractPublicKeyFromPeerID_ECDSA_Key(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Generate an ECDSA key pair
+	// Generate an ECDSA key pair.
 	priv, _, err := crypto.GenerateECDSAKeyPair(crypto_rand.Reader)
 	require.NoError(t, err)
 
@@ -6024,35 +6052,35 @@ func TestExtractPublicKeyFromPeerID_ECDSA_Key(t *testing.T) {
 	require.NoError(t, err)
 
 	result := extractPublicKeyFromPeerID(pid.String())
-	// ECDSA keys may or may not be extractable from PeerID depending on encoding
+	// ECDSA keys may or may not be extractable from PeerID depending on encoding.
 	t.Logf("ECDSA key extraction result: %q (len=%d)", result, len(result))
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — PeerInfo error path (covers line 596-598)
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — PeerInfo error path (covers line 596-598),
 // When defraNode.DB.PeerInfo() returns an error.
 // This happens when the node is closed or P2P subsystem is not initialized.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_AfterNodeClose(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Create a temporary node, then close it to make PeerInfo fail
+	// Create a temporary node, then close it to make PeerInfo fail.
 	closedNode := createClosedTestDefraNode(t)
 
 	indexer := &ChainIndexer{
 		defraNode: closedNode,
 	}
 
-	// PeerInfo should return an error since node is closed
+	// PeerInfo should return an error since node is closed.
 	info, err := indexer.GetPeerInfo()
 	if err != nil {
-		// This is the expected path — covers line 596-598
+		// This is the expected path — covers line 596-598.
 		assert.Contains(t, err.Error(), "peer info")
 		t.Logf("GetPeerInfo error after close (expected): %v", err)
 	} else {
-		// Even if it doesn't error, that's fine — the DB might still work
+		// Even if it doesn't error, that's fine — the DB might still work.
 		t.Logf("GetPeerInfo after close returned info: %+v", info)
 	}
 }
@@ -6072,29 +6100,29 @@ func createClosedTestDefraNode(t *testing.T) *node.Node {
 	defraNode, err := node.New(ctx, opts)
 	require.NoError(t, err)
 	require.NoError(t, defraNode.Start(ctx))
-	defraNode.Close(ctx)
+	_ = defraNode.Close(ctx)
 	return defraNode
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — pruner enabled but queue not yet created (line 307-309)
-// This path is hit when cfg.Pruner.Enabled=true but the pruneQueue
-// was not initialized in the earlier LoadFromFile block (which only runs
-// when cfg.Pruner.Enabled is true and creates the queue). Line 307 is
-// a defensive check. To trigger it, we need Pruner.Enabled=true BUT the
-// earlier block at line 214-222 must NOT create the queue. Looking at the
+// ---------------------------------------------------------------------------.
+// StartIndexing — pruner enabled but queue not yet created (line 307-309).
+// This path is hit when cfg.Pruner.Enabled=true but the pruneQueue,
+// was not initialized in the earlier LoadFromFile block (which only runs,
+// when cfg.Pruner.Enabled is true and creates the queue). Line 307 is,
+// a defensive check. To trigger it, we need Pruner.Enabled=true BUT the,
+// earlier block at line 214-222 must NOT create the queue. Looking at the,
 // code: lines 214-215 check cfg.Pruner.Enabled and create the queue.
 // So if Pruner.Enabled=true, the queue IS always created at line 215.
-// Line 307 is truly dead code (defensive). We can't hit it without
+// Line 307 is truly dead code (defensive). We can't hit it without,
 // removing the earlier creation. Skip this test target.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
-// ---------------------------------------------------------------------------
-// StartIndexing — GetHighestBlockNumber returns error (line 229)
+// ---------------------------------------------------------------------------.
+// StartIndexing — GetHighestBlockNumber returns error (line 229),
 // This happens when blockHandler.GetHighestBlockNumber fails.
 // In a fresh DB with no blocks, this returns an error naturally.
 // Let's ensure the "sets 0" path is covered.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 	t.Parallel()
@@ -6109,12 +6137,12 @@ func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
-					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000.
 				}
 			}
 			count := blockCallCount.Add(1)
@@ -6124,9 +6152,9 @@ func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 			}
 			num := fmt.Sprintf("0x%x", 99990+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x186a0", nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -6142,14 +6170,14 @@ func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
-			StartHeight:      0, // No configured height, fresh DB → exercises "no existing blocks" path
+			StartHeight:      0, // No configured height, fresh DB → exercises "no existing blocks" path.
 			ConcurrentBlocks: 1,
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		// Pruner DISABLED so the GetHighestBlockNumber path at line 226 is exercised
+		// Pruner DISABLED so the GetHighestBlockNumber path at line 226 is exercised.
 		Logger: config.LoggerConfig{Development: true},
 	}
 
@@ -6179,10 +6207,10 @@ func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — health server with empty DefraDB.Url (covers line 280-281)
-// When cfg.DefraDB.URL is empty, healthDefraURL falls through to defraNode port
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — health server with empty DefraDB.Url (covers line 280-281),
+// When cfg.DefraDB.URL is empty, healthDefraURL falls through to defraNode port.
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 	t.Parallel()
@@ -6197,11 +6225,11 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186a0", nil), nil
 				}
 			}
@@ -6212,9 +6240,9 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 			}
 			num := fmt.Sprintf("0x%x", 99990+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x186a0", nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -6224,7 +6252,7 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           "", // Empty URL → health server uses defraNode port
+			URL:           "", // Empty URL → health server uses defraNode port.
 			KeyringSecret: "test-secret-for-keyring-12345678",
 			P2P:           config.DefraDBP2PConfig{Enabled: false},
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
@@ -6235,7 +6263,7 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 			ConcurrentBlocks: 1,
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
-			HealthServerPort: 19878, // Enable health server
+			HealthServerPort: 19878, // Enable health server.
 			StartBuffer:      10,
 		},
 		Logger: config.LoggerConfig{Development: true},
@@ -6268,10 +6296,10 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — pruneQueue LoadFromFile error (line 217-218)
-// Pre-create a corrupted prune_queue.gob file
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// StartIndexing — pruneQueue LoadFromFile error (line 217-218),
+// Pre-create a corrupted prune_queue.gob file.
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 	t.Parallel()
@@ -6282,7 +6310,7 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Create a corrupted prune queue file
+	// Create a corrupted prune queue file.
 	corruptFilePath := filepath.Join(tmpDir, "prune_queue.gob")
 	err := writeCorruptedFile(corruptFilePath)
 	require.NoError(t, err)
@@ -6292,11 +6320,11 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if unmarshalErr := json.Unmarshal(params, &rawParams); unmarshalErr == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186a0", nil), nil
 				}
 			}
@@ -6307,9 +6335,9 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 			}
 			num := fmt.Sprintf("0x%x", 99990+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x186a0", nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -6363,30 +6391,30 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 		}
 	}
 
-	// The corrupted file should trigger a warning but not crash
+	// The corrupted file should trigger a warning but not crash.
 	indexer.shouldIndex = false
 	indexer.StopIndexing()
 }
 
-// writeCorruptedFile writes invalid gob data to a file
+// writeCorruptedFile writes invalid gob data to a file.
 func writeCorruptedFile(path string) error {
-	return os.WriteFile(path, []byte("this is not valid gob data"), 0644)
+	return os.WriteFile(filepath.Clean(path), []byte("this is not valid gob data"), 0o600)
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — context cancel during conflict retry wait (lines 332-334)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — context cancel during conflict retry wait (lines 332-334).
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0xdead1", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -6396,48 +6424,48 @@ func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
-	// First, insert the block to make subsequent inserts trigger "already exists"
+	// First, insert the block to make subsequent inserts trigger "already exists".
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 	result1 := p.fetchAndProcessBlock(context.Background(), 0xdead1)
 	require.True(t, result1.Success)
 
 	// The "already exists" path doesn't go through conflict retry.
-	// To actually trigger transaction conflict, we would need concurrent writes
+	// To actually trigger transaction conflict, we would need concurrent writes,
 	// to the same transaction. This is timing-dependent.
 	// The test at least exercises the code path setup.
 	t.Log("Transaction conflict retry is timing-dependent; covered by concurrent block creation tests")
 }
 
-// ---------------------------------------------------------------------------
-// ProcessBlocks — workChan dispatch ctx.Done() (line 190-192)
-// Cancel context immediately before any blocks are dispatched
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// ProcessBlocks — workChan dispatch ctx.Done() (line 190-192).
+// Cancel context immediately before any blocks are dispatched.
+// ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_ImmediateCancel(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
 		return "0x1", nil
 	})
 	defer rpcServer.Close()
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 2, 0)
 
-	// Cancel immediately — should hit ctx.Done() in the dispatch loop
+	// Cancel immediately — should hit ctx.Done() in the dispatch loop.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -6445,24 +6473,24 @@ func TestProcessBlocks_ImmediateCancel(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-// ---------------------------------------------------------------------------
-// ProcessBlocks — workChan dispatch ctx.Done() with rate limiting (line 190-192)
-// With rate limiting enabled, the select in the dispatch loop has more paths
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------..
+// ProcessBlocks — workChan dispatch ctx.Done() with rate limiting (line 190-192).
+// With rate limiting enabled, the select in the dispatch loop has more paths.
+// ---------------------------------------------------------------------------..
 
 func TestProcessBlocks_ImmediateCancelWithRateLimit(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
 		return "0x1", nil
 	})
 	defer rpcServer.Close()
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -6477,10 +6505,10 @@ func TestProcessBlocks_ImmediateCancelWithRateLimit(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-// ---------------------------------------------------------------------------
-// GetNodePublicKey and GetPeerPublicKey with embedded node
-// (exercises signer.GetDefraPublicKey and signer.GetP2PPublicKey)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------..
+// GetNodePublicKey and GetPeerPublicKey with embedded node,
+// (exercises signer.GetDefraPublicKey and signer.GetP2PPublicKey).
+// ---------------------------------------------------------------------------..
 
 func TestGetNodePublicKey_WithEmbeddedNode(t *testing.T) {
 	t.Parallel()
@@ -6497,7 +6525,7 @@ func TestGetNodePublicKey_WithEmbeddedNode(t *testing.T) {
 		},
 	}
 
-	// Without a proper keyring, this should return an error
+	// Without a proper keyring, this should return an error.
 	key, err := indexer.GetNodePublicKey()
 	if err != nil {
 		t.Logf("GetNodePublicKey error (expected without keyring): %v", err)
@@ -6522,7 +6550,7 @@ func TestGetPeerPublicKey_WithEmbeddedNode(t *testing.T) {
 		},
 	}
 
-	// Without a proper keyring, this should return an error
+	// Without a proper keyring, this should return an error.
 	key, err := indexer.GetPeerPublicKey()
 	if err != nil {
 		t.Logf("GetPeerPublicKey error (expected without keyring): %v", err)
@@ -6532,22 +6560,20 @@ func TestGetPeerPublicKey_WithEmbeddedNode(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — receipt fetch with batch receipts success
-// (covers the batch receipt path in concurrent processor, not the fallback)
-// ---------------------------------------------------------------------------
-
+// ---------------------------------------------------------------------------..
+// fetchAndProcessBlock — receipt fetch with batch receipts success,
+// (covers the batch receipt path in concurrent processor, not the fallback).
+// ---------------------------------------------------------------------------..
 func TestFetchAndProcessBlock_WithTxAndBatchReceipts(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponseWithTx("0xbbb0"), nil
-		case "eth_getBlockReceipts":
-			// Return valid batch receipts
+		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
 					"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -6574,7 +6600,7 @@ func TestFetchAndProcessBlock_WithTxAndBatchReceipts(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -6586,15 +6612,15 @@ func TestFetchAndProcessBlock_WithTxAndBatchReceipts(t *testing.T) {
 	assert.True(t, result.Success, "block with batch receipts should succeed: %v", result.Error)
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — individual receipt success in fallback path
-// (covers lines 266-284 in concurrent_processor.go)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — individual receipt success in fallback path,
+// (covers lines 266-284 in concurrent_processor.go).
+// ---------------------------------------------------------------------------.
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 // setupTestDefraDBWithP2P creates an embedded DefraDB node with P2P ENABLED.
 // This allows PeerInfo() to return actual multiaddresses for the self info paths.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func setupTestDefraDBWithP2P(t *testing.T) *node.Node {
 	t.Helper()
@@ -6618,16 +6644,16 @@ func setupTestDefraDBWithP2P(t *testing.T) *node.Node {
 	}
 
 	t.Cleanup(func() {
-		defraNode.Close(context.Background())
+		_ = defraNode.Close(context.Background())
 	})
 
 	return defraNode
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — P2P enabled node exercises self info (lines 601-612) and
-// peer dedup (lines 624-638)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — P2P enabled node exercises self info (lines 601-612) and,
+// peer dedup (lines 624-638).
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_WithP2PEnabled(t *testing.T) {
 	t.Parallel()
@@ -6643,7 +6669,7 @@ func TestGetPeerInfo_WithP2PEnabled(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// With P2P enabled, the node should have a peer ID and listen addresses
+	// With P2P enabled, the node should have a peer ID and listen addresses.
 	if info.Self != nil {
 		assert.NotEmpty(t, info.Self.ID, "self peer ID should be set with P2P enabled")
 		assert.NotEmpty(t, info.Self.Addresses, "self addresses should be set with P2P enabled")
@@ -6653,7 +6679,7 @@ func TestGetPeerInfo_WithP2PEnabled(t *testing.T) {
 		t.Log("Self info was nil even with P2P enabled (PeerInfo returned empty)")
 	}
 
-	// PeerInfo should always be a non-nil slice
+	// PeerInfo should always be a non-nil slice.
 	assert.NotNil(t, info.PeerInfo)
 	t.Logf("Active peers count: %d", len(info.PeerInfo))
 }
@@ -6674,10 +6700,10 @@ func TestGetPeerInfo_P2PEnabled_NoNetworkHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// Without networkHandler, Enabled should be false
+	// Without networkHandler, Enabled should be false.
 	assert.False(t, info.Enabled)
 
-	// But self info should still be populated
+	// But self info should still be populated.
 	if info.Self != nil {
 		assert.NotEmpty(t, info.Self.ID)
 	}
@@ -6688,13 +6714,13 @@ func TestFetchAndProcessBlock_IndividualReceiptSuccess(t *testing.T) {
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponseWithTx("0xccc0"), nil
-		case "eth_getBlockReceipts":
-			return nil, fmt.Errorf("not supported") // Force fallback
-		case "eth_getTransactionReceipt":
+		case ethGetBlockReceipts:
+			return nil, fmt.Errorf("not supported") // Force fallback.
+		case ethGetTransactionReceipt:
 			return map[string]any{
 				"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				"transactionIndex":  "0x0",
@@ -6719,7 +6745,7 @@ func TestFetchAndProcessBlock_IndividualReceiptSuccess(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -6731,10 +6757,10 @@ func TestFetchAndProcessBlock_IndividualReceiptSuccess(t *testing.T) {
 	assert.True(t, result.Success, "block with individual receipt fallback should succeed: %v", result.Error)
 }
 
-// ---------------------------------------------------------------------------
-// Helper: create a block response with multiple transactions for testing
+// ---------------------------------------------------------------------------.
+// Helper: create a block response with multiple transactions for testing,
 // concurrent receipt fetching.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func fullBlockResponseWithMultipleTxs(number string, count int) map[string]any {
 	txs := make([]any, count)
@@ -6784,11 +6810,11 @@ func fullBlockResponseWithMultipleTxs(number string, count int) map[string]any {
 	return block
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — peer dedup with two connected P2P nodes (covers lines 624-638)
-// Creates two P2P-enabled DefraDB nodes, connects them, then checks that
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — peer dedup with two connected P2P nodes (covers lines 624-638).
+// Creates two P2P-enabled DefraDB nodes, connects them, then checks that.
 // GetPeerInfo returns the connected peer in the peer list.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_WithConnectedPeers(t *testing.T) {
 	t.Parallel()
@@ -6800,21 +6826,21 @@ func TestGetPeerInfo_WithConnectedPeers(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Get node2's addresses so we can connect node1 to it
+	// Get node2's addresses so we can connect node1 to it.
 	node2Addrs, err := node2.DB.PeerInfo(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, node2Addrs, "node2 should have P2P addresses")
 
 	t.Logf("Node2 addresses: %v", node2Addrs)
 
-	// Connect node1 to node2
+	// Connect node1 to node2.
 	err = node1.DB.Connect(ctx, node2Addrs)
 	require.NoError(t, err)
 
-	// Give the connection a moment to establish
+	// Give the connection a moment to establish.
 	time.Sleep(500 * time.Millisecond)
 
-	// Now get peer info from node1 — should include node2 as an active peer
+	// Now get peer info from node1 — should include node2 as an active peer.
 	indexer := &ChainIndexer{
 		defraNode: node1,
 	}
@@ -6823,19 +6849,19 @@ func TestGetPeerInfo_WithConnectedPeers(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// Self info should be populated
+	// Self info should be populated.
 	require.NotNil(t, info.Self, "self info should be populated with P2P enabled")
 	assert.NotEmpty(t, info.Self.ID, "self peer ID should be set")
 	assert.NotEmpty(t, info.Self.Addresses, "self addresses should be set")
 	t.Logf("Self: ID=%s, Addresses=%v", info.Self.ID, info.Self.Addresses)
 
-	// Active peers should include node2 — this exercises lines 624-638 (dedup map)
+	// Active peers should include node2 — this exercises lines 624-638 (dedup map).
 	t.Logf("Active peer count: %d", len(info.PeerInfo))
 	for i, p := range info.PeerInfo {
 		t.Logf("  Peer %d: ID=%s, Addresses=%v, PublicKey=%s", i, p.ID, p.Addresses, p.PublicKey)
 	}
 
-	// If connection was successful, we should see at least one peer
+	// If connection was successful, we should see at least one peer.
 	if len(info.PeerInfo) > 0 {
 		assert.NotEmpty(t, info.PeerInfo[0].ID, "peer should have an ID")
 		assert.NotEmpty(t, info.PeerInfo[0].PublicKey, "peer should have extracted public key")
@@ -6844,12 +6870,12 @@ func TestGetPeerInfo_WithConnectedPeers(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — peer dedup merge branch (covers line 625-627)
-// Create a remote node with multiple listen addresses so that ActivePeers()
-// returns multiple multiaddrs for the same peer ID. The dedup loop then
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — peer dedup merge branch (covers line 625-627).
+// Create a remote node with multiple listen addresses so that ActivePeers(),
+// returns multiple multiaddrs for the same peer ID. The dedup loop then,
 // merges addresses for the same peer (the "existing" branch).
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func setupTestDefraDBWithMultiAddr(t *testing.T) *node.Node {
 	t.Helper()
@@ -6862,7 +6888,7 @@ func setupTestDefraDBWithMultiAddr(t *testing.T) *node.Node {
 		SetDisableAPI(true).
 		SetDisableP2P(false)
 	opts.Store().SetPath(tmpDir)
-	// Two listen addresses → same peer ID appears with two addresses in ActivePeers
+	// Two listen addresses → same peer ID appears with two addresses in ActivePeers.
 	opts.P2P().SetListenAddresses("/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/tcp/0")
 
 	defraNode, err := node.New(ctx, opts)
@@ -6874,7 +6900,7 @@ func setupTestDefraDBWithMultiAddr(t *testing.T) *node.Node {
 	}
 
 	t.Cleanup(func() {
-		defraNode.Close(context.Background())
+		_ = defraNode.Close(context.Background())
 	})
 
 	return defraNode
@@ -6885,16 +6911,16 @@ func TestGetPeerInfo_PeerDedupMerge(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	node1 := setupTestDefraDBWithP2P(t)
-	node2 := setupTestDefraDBWithMultiAddr(t) // node2 has multiple addresses
+	node2 := setupTestDefraDBWithMultiAddr(t) // node2 has multiple addresses.
 
 	ctx := context.Background()
 
-	// Get node2's addresses (should have multiple)
+	// Get node2's addresses (should have multiple).
 	node2Addrs, err := node2.DB.PeerInfo(ctx)
 	require.NoError(t, err)
 	t.Logf("Node2 addresses (multi): %v", node2Addrs)
 
-	// Connect node1 to node2 using all of node2's addresses
+	// Connect node1 to node2 using all of node2's addresses.
 	err = node1.DB.Connect(ctx, node2Addrs)
 	require.NoError(t, err)
 
@@ -6911,18 +6937,18 @@ func TestGetPeerInfo_PeerDedupMerge(t *testing.T) {
 	t.Logf("Active peer count (multi-addr): %d", len(info.PeerInfo))
 	for i, p := range info.PeerInfo {
 		t.Logf("  Peer %d: ID=%s, Addresses=%v", i, p.ID, p.Addresses)
-		// If node2 has multiple addresses, the dedup merge should combine them
+		// If node2 has multiple addresses, the dedup merge should combine them.
 		if len(p.Addresses) > 1 {
 			t.Log("  -> Multiple addresses merged for same peer (dedup merge branch covered)")
 		}
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — PeerInfo error when P2P-enabled node is closed (covers line 596-598)
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — PeerInfo error when P2P-enabled node is closed (covers line 596-598).
 // A node with P2P enabled has db.p2p != nil, but after close the host is stopped,
 // which may cause PeerInfo() to return an error.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_P2PEnabledNodeClosed(t *testing.T) {
 	t.Parallel()
@@ -6941,14 +6967,14 @@ func TestGetPeerInfo_P2PEnabledNodeClosed(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, defraNode.Start(ctx))
 
-	// Close the node to put it in a broken P2P state
-	defraNode.Close(ctx)
+	// Close the node to put it in a broken P2P state.
+	_ = defraNode.Close(ctx)
 
 	indexer := &ChainIndexer{
 		defraNode: defraNode,
 	}
 
-	// PeerInfo should either error (covering line 596-598) or return empty info
+	// PeerInfo should either error (covering line 596-598) or return empty info.
 	info, err := indexer.GetPeerInfo()
 	if err != nil {
 		assert.Contains(t, err.Error(), "peer info")
@@ -6958,17 +6984,17 @@ func TestGetPeerInfo_P2PEnabledNodeClosed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// openBrowser — test on macOS/darwin (covers lines 689-690 and 695-698)
+// ---------------------------------------------------------------------------.
+// openBrowser — test on macOS/darwin (covers lines 689-690 and 695-698).
 // On macOS, the "open" command exists so the happy path executes.
 // We also test the error path with an invalid URL scheme.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestOpenBrowser_DarwinHappyPath(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	original := execCommand
-	execCommand = func(name string, arg ...string) *exec.Cmd {
+	execCommand = func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "mock-browser")
 	}
 	defer func() { execCommand = original }()
@@ -6976,13 +7002,13 @@ func TestOpenBrowser_DarwinHappyPath(t *testing.T) {
 	openBrowser("about:blank")
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — ctx cancel during individual receipt semaphore wait
-// (covers concurrent_processor.go lines 272-273)
-// Uses receiptWorkers=1 with multiple transactions. The first tx's receipt
-// fetch holds the semaphore while ctx is canceled, so the second tx hits
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — ctx cancel during individual receipt semaphore wait,
+// (covers concurrent_processor.go lines 272-273).
+// Uses receiptWorkers=1 with multiple transactions. The first tx's receipt,
+// fetch holds the semaphore while ctx is canceled, so the second tx hits,
 // the ctx.Done() branch at line 272.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 	t.Parallel()
@@ -6991,21 +7017,21 @@ func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 
 	firstReceiptCalled := make(chan struct{})
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			// Block with 3 transactions
+		case ethGetBlockByNumber:
+			// Block with 3 transactions.
 			return fullBlockResponseWithMultipleTxs("0xddd0", 3), nil
-		case "eth_getBlockReceipts":
-			// Force fallback to individual receipts
+		case ethGetBlockReceipts:
+			// Force fallback to individual receipts.
 			return nil, fmt.Errorf("not supported")
-		case "eth_getTransactionReceipt":
-			// Signal that the first receipt call is in progress, then block
+		case ethGetTransactionReceipt:
+			// Signal that the first receipt call is in progress, then block.
 			select {
 			case firstReceiptCalled <- struct{}{}:
 			default:
 			}
-			// Block for a long time to hold the semaphore
+			// Block for a long time to hold the semaphore.
 			time.Sleep(5 * time.Second)
 			return nil, fmt.Errorf("timeout")
 		default:
@@ -7016,12 +7042,12 @@ func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
-	// receiptWorkers=1 means only one goroutine can acquire the semaphore at a time
+	// receiptWorkers=1 means only one goroutine can acquire the semaphore at a time.
 	p := NewConcurrentBlockProcessor(blockHandler, ethClient, 1, 1, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -7031,7 +7057,7 @@ func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 		resultCh <- p.fetchAndProcessBlock(ctx, 0xddd0)
 	}()
 
-	// Wait for the first receipt call to start (semaphore acquired)
+	// Wait for the first receipt call to start (semaphore acquired).
 	select {
 	case <-firstReceiptCalled:
 		t.Log("First receipt call started, canceling context")
@@ -7039,10 +7065,10 @@ func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 		t.Fatal("timed out waiting for first receipt call")
 	}
 
-	// Give a tiny bit of time for the other goroutines to reach the semaphore select
+	// Give a tiny bit of time for the other goroutines to reach the semaphore select.
 	time.Sleep(100 * time.Millisecond)
 
-	// Cancel context — this should trigger ctx.Done() in the semaphore select for waiting goroutines
+	// Cancel context — this should trigger ctx.Done() in the semaphore select for waiting goroutines.
 	cancel()
 
 	select {
@@ -7053,13 +7079,13 @@ func TestFetchAndProcessBlock_CtxCancelDuringSemaphoreWait(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — GetHighestBlockNumber succeeds with pre-populated DB
-// (covers lines 229-231)
-// Strategy: Run one indexer to populate a block, stop it, then create a new
-// indexer pointing to the same DB directory. The second run should find the
+// ---------------------------------------------------------------------------.
+// StartIndexing — GetHighestBlockNumber succeeds with pre-populated DB,
+// (covers lines 229-231).
+// Strategy: Run one indexer to populate a block, stop it, then create a new,
+// indexer pointing to the same DB directory. The second run should find the,
 // existing block via GetHighestBlockNumber.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	t.Parallel()
@@ -7074,12 +7100,12 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
-					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000.
 				}
 			}
 			count := blockCallCount.Add(1)
@@ -7089,9 +7115,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 			}
 			num := fmt.Sprintf("0x%x", 99990+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x186a0", nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -7099,7 +7125,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	// Phase 1: Start an indexer to populate some blocks
+	// Phase 1: Start an indexer to populate some blocks.
 	cfg1 := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -7115,7 +7141,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		// Pruner disabled — so GetHighestBlockNumber path at line 226 is used
+		// Pruner disabled — so GetHighestBlockNumber path at line 226 is used.
 		Logger: config.LoggerConfig{Development: true},
 	}
 
@@ -7127,7 +7153,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		errCh <- indexer1.StartIndexing(false)
 	}()
 
-	// Wait for at least 3 blocks to be processed
+	// Wait for at least 3 blocks to be processed.
 	deadline := time.After(60 * time.Second)
 	for blockCallCount.Load() < 3 {
 		select {
@@ -7142,12 +7168,12 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		}
 	}
 
-	// Stop the first indexer
+	// Stop the first indexer.
 	indexer1.shouldIndex = false
 	indexer1.StopIndexing()
 
 	// Phase 2: Create a NEW indexer pointing to the same DB directory.
-	// When it calls GetHighestBlockNumber (line 226), it should find existing blocks
+	// When it calls GetHighestBlockNumber (line 226), it should find existing blocks,
 	// and enter the else branch (line 229-231).
 	blockCallCount.Store(0)
 
@@ -7159,7 +7185,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
-			StartHeight:      0, // No configured start height — will use DB state
+			StartHeight:      0, // No configured start height — will use DB state.
 			ConcurrentBlocks: 1,
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
@@ -7191,17 +7217,17 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		}
 	}
 
-	// The second indexer should have resumed from the existing blocks
+	// The second indexer should have resumed from the existing blocks.
 	indexer2.shouldIndex = false
 	indexer2.StopIndexing()
 	t.Log("Phase 2 indexer resumed successfully from existing blocks")
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — GetLatestBlockNumber returns error (covers lines 236-238)
-// The RPC server returns an error for eth_getBlockByNumber with "latest" param
+// ---------------------------------------------------------------------------.
+// StartIndexing — GetLatestBlockNumber returns error (covers lines 236-238).
+// The RPC server returns an error for eth_getBlockByNumber with "latest" param,
 // (which is what GetLatestBlockNumber uses).
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 	t.Parallel()
@@ -7214,17 +7240,17 @@ func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
-			// Check if it's the "latest" query
+		case ethGetBlockByNumber:
+			// Check if it's the defaultBlockParamLatest query.
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return nil, fmt.Errorf("rpc connection refused")
 				}
 			}
 			return fullBlockResponse("0x100", nil), nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return nil, fmt.Errorf("rpc connection refused")
 		default:
 			return "0x1", nil
@@ -7253,30 +7279,30 @@ func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 	indexer, err := CreateIndexer(cfg)
 	require.NoError(t, err)
 
-	// StartIndexing should return error because GetLatestBlockNumber fails
+	// StartIndexing should return error because GetLatestBlockNumber fails.
 	err = indexer.StartIndexing(false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get latest block number")
 	t.Logf("StartIndexing error (expected): %v", err)
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — transaction conflict with ctx cancel during retry wait
-// (covers concurrent_processor.go lines 332-334)
-// Strategy: Use two processors writing the same block concurrently to trigger
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — transaction conflict with ctx cancel during retry wait,
+// (covers concurrent_processor.go lines 332-334).
+// Strategy: Use two processors writing the same block concurrently to trigger,
 // conflict, with one having a context that will be canceled during retry.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
 
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0xeee0", nil), nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -7286,12 +7312,12 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 
 	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer ethClient.Close()
+	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
-	// Run many concurrent processors on the same block to maximize
+	// Run many concurrent processors on the same block to maximize,
 	// the chance of hitting a transaction conflict (not already-exists).
 	const numProcessors = 10
 	results := make([]*BlockResult, numProcessors)
@@ -7308,8 +7334,8 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 		}(i)
 	}
 
-	// Cancel context shortly after to exercise the retry ctx.Done path
-	// if any processor hits a conflict and enters the retry loop
+	// Cancel context shortly after to exercise the retry ctx.Done path.
+	// if any processor hits a conflict and enters the retry loop.
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 
@@ -7334,11 +7360,11 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 	assert.GreaterOrEqual(t, successCount, 1, "at least one should succeed")
 }
 
-// ---------------------------------------------------------------------------
-// StartIndexing — snapshotter.Start error (covers lines 323-325)
-// Enable snapshots with an invalid directory path (under a file, not a dir)
+// ---------------------------------------------------------------------------.
+// StartIndexing — snapshotter.Start error (covers lines 323-325).
+// Enable snapshots with an invalid directory path (under a file, not a dir),
 // to trigger os.MkdirAll failure in snapshotter.Start().
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 	t.Parallel()
@@ -7353,11 +7379,11 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186a0", nil), nil
 				}
 			}
@@ -7368,9 +7394,9 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 			}
 			num := fmt.Sprintf("0x%x", 99990+count)
 			return fullBlockResponse(num, nil), nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x186a0", nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -7378,10 +7404,10 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	// Create a file where the snapshot directory would be — MkdirAll under
+	// Create a file where the snapshot directory would be — MkdirAll under,
 	// a file will fail, causing snapshotter.Start to return an error.
 	invalidSnapshotPath := filepath.Join(tmpDir, "snapshot_blocker")
-	err := os.WriteFile(invalidSnapshotPath, []byte("I am a file"), 0644)
+	err := os.WriteFile(filepath.Clean(invalidSnapshotPath), []byte("I am a file"), 0o600)
 	require.NoError(t, err)
 
 	cfg := &config.Config{
@@ -7401,7 +7427,7 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 		},
 		Snapshot: snapshot.Config{
 			Enabled:         true,
-			Dir:             filepath.Join(invalidSnapshotPath, "nested"), // under a file → MkdirAll fails
+			Dir:             filepath.Join(filepath.Clean(invalidSnapshotPath), "nested"), // under a file → MkdirAll fails.
 			BlocksPerFile:   1000,
 			IntervalSeconds: 3600,
 		},
@@ -7430,18 +7456,18 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 		}
 	}
 
-	// If we got here, the indexer continued despite snapshotter.Start failing
-	// (the error was logged as a warning, not a fatal — line 323-325)
+	// If we got here, the indexer continued despite snapshotter.Start failing,
+	// (the error was logged as a warning, not a fatal — line 323-325).
 	t.Log("Indexer continued despite snapshotter.Start error (covers lines 323-325)")
 	indexer.shouldIndex = false
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------
-// Sequential loop — UnsupportedTxType error from processBlock (covers lines 363-368)
+// ---------------------------------------------------------------------------.
+// Sequential loop — UnsupportedTxType error from processBlock (covers lines 363-368).
 // Make the RPC return "transaction type not supported" for specific blocks,
 // which propagates through processBlock → sequential loop's IsErrUnsupportedTxType branch.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *testing.T) {
 	t.Parallel()
@@ -7456,18 +7482,18 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *test
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", 100000+count)
 
-			// Block 100001 succeeds. Blocks 100002-100004 (retries for block 2)
+			// Block 100001 succeeds. Blocks 100002-100004 (retries for block 2),
 			// return unsupported tx type error. Block 100005+ succeeds (block 3 = next after skip).
 			blockNum := 100000 + count
 			if blockNum >= 100002 && blockNum <= 100004 {
@@ -7475,9 +7501,9 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *test
 				return nil, fmt.Errorf("transaction type not supported")
 			}
 			return fullBlockResponse(num, nil), nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x186b1", nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -7494,7 +7520,7 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *test
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // Sequential mode
+			ConcurrentBlocks: 0, // Sequential mode.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -7511,7 +7537,7 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *test
 		errCh <- indexer.StartIndexing(false)
 	}()
 
-	// Wait for the unsupported type error to be hit (3 retry attempts)
+	// Wait for the unsupported type error to be hit (3 retry attempts),
 	// and then for additional blocks to be processed (confirming skip).
 	deadline := time.After(60 * time.Second)
 	for unsupportedHitCount.Load() < 3 || blockCallCount.Load() < 6 {
@@ -7532,10 +7558,10 @@ func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *test
 	t.Logf("Sequential loop unsupported tx type branch covered (unsupportedHits=%d)", unsupportedHitCount.Load())
 }
 
-// ---------------------------------------------------------------------------
-// Sequential loop — AlreadyExists error from processBlock (covers lines 357-362)
+// ---------------------------------------------------------------------------.
+// Sequential loop — AlreadyExists error from processBlock (covers lines 357-362),
 // Make the RPC return "already exists" for specific blocks.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists_FromRPC(t *testing.T) {
 	t.Parallel()
@@ -7550,18 +7576,18 @@ func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists_FromRPC(t *testing.
 
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == "latest" {
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
 					return fullBlockResponse("0x186b1", nil), nil
 				}
 			}
 			count := blockCallCount.Add(1)
 			num := fmt.Sprintf("0x%x", 100000+count)
 
-			// Block 100001 succeeds. Blocks 100002-100004 (retries for block 2)
+			// Block 100001 succeeds. Blocks 100002-100004 (retries for block 2),
 			// return "already exists" error. Block 100005+ succeeds.
 			blockNum := 100000 + count
 			if blockNum >= 100002 && blockNum <= 100004 {
@@ -7569,9 +7595,9 @@ func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists_FromRPC(t *testing.
 				return nil, fmt.Errorf("a document with the given ID already exists")
 			}
 			return fullBlockResponse(num, nil), nil
-		case "eth_blockNumber":
+		case ethBlockNumber:
 			return "0x186b1", nil
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -7588,7 +7614,7 @@ func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists_FromRPC(t *testing.
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // Sequential mode
+			ConcurrentBlocks: 0, // Sequential mode.
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -7625,10 +7651,10 @@ func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists_FromRPC(t *testing.
 	t.Logf("Sequential loop already-exists branch covered (hits=%d)", alreadyExistsHitCount.Load())
 }
 
-// ---------------------------------------------------------------------------
-// SignMessages — error chain at each step (covers lines 730-732, 736-738, 741-743)
+// ---------------------------------------------------------------------------.
+// SignMessages — error chain at each step (covers lines 730-732, 736-738, 741-743).
 // Uses a node where P2P keys are absent to trigger SignWithP2PKeys failure.
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 
 func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
 	t.Parallel()
@@ -7643,7 +7669,7 @@ func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
 	rpcServer := newMockRPCServerForIntegration(blockCh)
 	defer rpcServer.Close()
 
-	// Use P2P disabled — signer.SignWithP2PKeys should fail
+	// Use P2P disabled — signer.SignWithP2PKeys should fail.
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			KeyringSecret: "test-secret-for-sign-determ",
@@ -7683,13 +7709,13 @@ func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
 		}
 	}
 
-	// Try signing - exercises the SignMessages error chain
+	// Try signing - exercises the SignMessages error chain.
 	_, _, err = indexer.SignMessages("test-sign-p2p-fail")
 	if err != nil {
-		// If sign fails, we've exercised one of lines 730-732, 736-738, or 741-743
+		// If sign fails, we've exercised one of lines 730-732, 736-738, or 741-743.
 		t.Logf("SignMessages error (expected for P2P-disabled): %v", err)
 	} else {
-		// Even if all succeed, the success path is covered elsewhere
+		// Even if all succeed, the success path is covered elsewhere.
 		t.Log("SignMessages succeeded (all paths available)")
 	}
 

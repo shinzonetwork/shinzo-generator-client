@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	liveGraphqlURL = "" // Will be set dynamically when DefraDB starts
-	liveDefraURL   = "" // Will be set dynamically when DefraDB starts
+	liveGraphqlURL = "" // Will be set dynamically when DefraDB starts.
+	liveDefraURL   = "" // Will be set dynamically when DefraDB starts.
 )
 
 var (
@@ -30,54 +30,55 @@ var (
 	liveChainIndexer *indexer.ChainIndexer
 )
 
-// TestMain sets up and tears down the live integration test environment
+// TestMain sets up and tears down the live integration test environment.
 func TestMain(m *testing.M) {
-	// Initialize logger for live integration tests first
+	// Initialize logger for live integration tests first.
 	logger.InitConsoleOnly(true)
 	logger.Test("TestMain - Starting live integration tests with real Ethereum data")
 
-	// Check required environment variables
+	// Check required environment variables.
 	if !checkRequiredEnvVars() {
 		logger.Sugar.Error("Required environment variables not set. Set GETH_RPC_URL, GETH_WS_URL, and GETH_API_KEY")
-		os.Exit(0) // treat as skipped instead of failed
+		os.Exit(0) // treat as skipped instead of failed.
 	}
 
-	// Clean up any existing live integration DefraDB data
+	// Clean up any existing live integration DefraDB data.
 	logger.Test("Cleaning up existing live integration DefraDB data...")
 	if err := os.RemoveAll("./.defra"); err != nil {
 		logger.Sugar.Warnf("Failed to clean existing live data: %v", err)
 	}
 
-	// Start live indexer with real Ethereum connections
+	// Start live indexer with real Ethereum connections.
 	logger.Test("Starting live indexer with real Ethereum connections...")
-	indexerCtx, indexerCancel = context.WithCancel(context.Background())
+	indexerCtx, indexerCancel = context.WithCancel(context.Background()) //nolint:gosec
+	defer indexerCancel()
 	go func() {
-		// Load config for live testing
+		// Load config for live testing.
 		cfg, err := config.LoadConfig("../../config/config.yaml")
 		if err != nil {
 			logger.Sugar.Errorf("Failed to load config: %v", err)
 			return
 		}
 
-		// Override DefraDB store path for live testing
+		// Override DefraDB store path for live testing.
 		cfg.DefraDB.Store.Path = "./.defra"
 
-		// Override Geth config with environment variables for live testing
+		// Override Geth config with environment variables for live testing.
 		cfg.Geth.NodeURL = os.Getenv("GETH_RPC_URL")
 		cfg.Geth.WsURL = os.Getenv("GETH_WS_URL")
 		cfg.Geth.APIKey = os.Getenv("GETH_API_KEY")
 
-		// Start indexer with real connections - should succeed if env vars are set
+		// Start indexer with real connections - should succeed if env vars are set.
 		liveChainIndexer, err = indexer.CreateIndexer(cfg)
 		if err != nil {
 			logger.Sugar.Errorf("create indexer failed: %v", err)
 			return
 		}
 
-		// Start indexer in background
+		// Start indexer in background.
 		go func() {
 			logger.Test("Starting indexer...")
-			err = liveChainIndexer.StartIndexing(false) // false = start embedded DefraDB
+			err = liveChainIndexer.StartIndexing(false) // false = start embedded DefraDB.
 			if err != nil {
 				logger.Sugar.Errorf("Live indexer failed: %v", err)
 				return
@@ -85,7 +86,7 @@ func TestMain(m *testing.M) {
 			logger.Test("Indexer started successfully")
 		}()
 
-		// Wait for at least one block to be indexed (proves everything works)
+		// Wait for at least one block to be indexed (proves everything works).
 		logger.Test("Waiting for blocks to be indexed...")
 		if !waitForAnyBlock(60 * time.Second) {
 			logger.Sugar.Error("No blocks were indexed - test failed")
@@ -96,23 +97,24 @@ func TestMain(m *testing.M) {
 		indexerStarted = true
 	}()
 
-	// Run tests
+	// Run tests.
 	result := m.Run()
 
-	// Teardown
+	// Teardown.
 	logger.Test("TestMain - Live integration teardown")
 	if liveChainIndexer != nil {
 		liveChainIndexer.StopIndexing()
 	}
 
-	// Clean up test data
-	time.Sleep(2 * time.Second) // Give time for cleanup
-	os.RemoveAll("./.defra")
+	// Clean up test data.
+	time.Sleep(2 * time.Second) // Give time for cleanup.
+	_ = os.RemoveAll("./.defra")
 
-	os.Exit(result)
+	indexerCancel()
+	os.Exit(result) //nolint:gocritic
 }
 
-// checkRequiredEnvVars checks if all required environment variables are set for live testing
+// checkRequiredEnvVars checks if all required environment variables are set for live testing.
 func checkRequiredEnvVars() bool {
 	requiredVars := []string{"GETH_RPC_URL", "GETH_WS_URL", "GETH_API_KEY"}
 
@@ -127,15 +129,15 @@ func checkRequiredEnvVars() bool {
 	return true
 }
 
-// waitForAnyBlock waits for at least one block to be indexed
+// waitForAnyBlock waits for at least one block to be indexed.
 func waitForAnyBlock(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		// Try multiple approaches to find DefraDB
+		// Try multiple approaches to find DefraDB.
 		var testURLs []string
 
-		// Try to get the port directly from the indexer's embedded DefraDB
+		// Try to get the port directly from the indexer's embedded DefraDB.
 		if liveChainIndexer != nil {
 			port := liveChainIndexer.GetDefraDBPort()
 			if port > 0 {
@@ -143,13 +145,13 @@ func waitForAnyBlock(timeout time.Duration) bool {
 			}
 		}
 
-		// Try common DefraDB ports
+		// Try common DefraDB ports.
 		commonPorts := []int{9181, 9180, 9182}
 		for _, port := range commonPorts {
 			testURLs = append(testURLs, fmt.Sprintf("http://localhost:%d", port))
 		}
 
-		// Test each URL for blocks
+		// Test each URL for blocks.
 		for _, testURL := range testURLs {
 			query := `{"query":"{ Block { _count } }"}`
 			client := &http.Client{Timeout: 2 * time.Second}
@@ -160,7 +162,7 @@ func waitForAnyBlock(timeout time.Duration) bool {
 				if resp, err := client.Do(req); err == nil {
 					if resp.StatusCode == 200 {
 						body, err := io.ReadAll(resp.Body)
-						resp.Body.Close()
+						_ = resp.Body.Close()
 						if err == nil {
 							var result map[string]any
 							if json.Unmarshal(body, &result) == nil {
@@ -177,7 +179,7 @@ func waitForAnyBlock(timeout time.Duration) bool {
 							}
 						}
 					} else {
-						resp.Body.Close()
+						_ = resp.Body.Close()
 					}
 				}
 			}
@@ -188,30 +190,17 @@ func waitForAnyBlock(timeout time.Duration) bool {
 	return false
 }
 
-// // testLiveDefraDBConnection tests if DefraDB is responding
-// func testLiveDefraDBConnection() bool {
-// 	if liveDefraURL == "" {
-// 		return false
-// 	}
-// 	resp, err := http.Get(liveDefraURL + "/api/v0/schema")
-// 	if err != nil {
-// 		return false
-// 	}
-// 	defer resp.Body.Close()
-// 	return resp.StatusCode == 200
-// }
-
-// hasLiveBlocks checks if any blocks have been indexed from live Ethereum
+// hasLiveBlocks checks if any blocks have been indexed from live Ethereum.
 func hasLiveBlocks() bool {
 	if liveGraphqlURL == "" {
 		return false
 	}
 	query := `{"query":"query { Block(limit: 1) { number hash } }"}`
-	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query)))
+	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query))) //nolint:gosec
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return false
@@ -231,7 +220,7 @@ func hasLiveBlocks() bool {
 	return ok && len(blocks) > 0
 }
 
-// TestLiveEthereumConnection tests that the indexer can connect to real Ethereum
+// TestLiveEthereumConnection tests that the indexer can connect to real Ethereum.
 func TestLiveEthereumConnection(t *testing.T) {
 	t.Parallel()
 	if !indexerStarted {
@@ -240,7 +229,7 @@ func TestLiveEthereumConnection(t *testing.T) {
 
 	logger.Test("Testing live Ethereum connection and block indexing")
 
-	// Check that we have live blocks
+	// Check that we have live blocks.
 	if !hasLiveBlocks() {
 		t.Fatal("No live blocks found - indexer may not be connected to Ethereum")
 	}
@@ -248,7 +237,7 @@ func TestLiveEthereumConnection(t *testing.T) {
 	logger.Test("✓ Live Ethereum connection successful - blocks are being indexed")
 }
 
-// TestLiveGetLatestBlocks tests querying latest blocks from live data
+// TestLiveGetLatestBlocks tests querying latest blocks from live data.
 func TestLiveGetLatestBlocks(t *testing.T) {
 	t.Parallel()
 	if !indexerStarted {
@@ -257,11 +246,11 @@ func TestLiveGetLatestBlocks(t *testing.T) {
 
 	query := `{"query":"query { Block(limit: 5, order: {number: DESC}) { number hash timestamp gasUsed gasLimit miner } }"}`
 
-	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query)))
+	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query))) //nolint:gosec
 	if err != nil {
 		t.Fatalf("Failed to query live blocks: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -285,7 +274,7 @@ func TestLiveGetLatestBlocks(t *testing.T) {
 
 	logger.Testf("✓ Successfully queried %d live blocks", len(blocks))
 
-	// Validate block structure
+	// Validate block structure.
 	firstBlock := blocks[0].(map[string]any)
 	requiredFields := []string{"number", "hash", "timestamp", "gasUsed", "gasLimit", "miner"}
 
@@ -296,7 +285,7 @@ func TestLiveGetLatestBlocks(t *testing.T) {
 	}
 }
 
-// TestLiveGetTransactions tests querying transactions from live data
+// TestLiveGetTransactions tests querying transactions from live data.
 func TestLiveGetTransactions(t *testing.T) {
 	t.Parallel()
 	if !indexerStarted {
@@ -305,11 +294,11 @@ func TestLiveGetTransactions(t *testing.T) {
 
 	query := `{"query":"query { Transaction(limit: 3) { hash blockNumber from to value gas gasPrice gasUsed status } }"}`
 
-	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query)))
+	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query))) //nolint:gosec
 	if err != nil {
 		t.Fatalf("Failed to query live transactions: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -335,7 +324,7 @@ func TestLiveGetTransactions(t *testing.T) {
 	logger.Testf("✓ Successfully queried %d live transactions", len(transactions))
 
 	if len(transactions) > 0 {
-		// Validate transaction structure
+		// Validate transaction structure.
 		firstTx := transactions[0].(map[string]any)
 		requiredFields := []string{"hash", "blockNumber", "from", "to", "value", "gas", "gasPrice"}
 
@@ -347,21 +336,21 @@ func TestLiveGetTransactions(t *testing.T) {
 	}
 }
 
-// TestLiveBlockTransactionRelationship tests the relationship between blocks and transactions in live data
+// TestLiveBlockTransactionRelationship tests the relationship between blocks and transactions in live data.
 func TestLiveBlockTransactionRelationship(t *testing.T) {
 	t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
 
-	// Get a block with its transactions
+	// Get a block with its transactions.
 	query := `{"query":"query { Block(limit: 1, filter: {}) { number hash transactions { hash blockNumber from to } } }"}`
 
-	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query)))
+	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query))) //nolint:gosec
 	if err != nil {
 		t.Fatalf("Failed to query live block with transactions: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -386,7 +375,7 @@ func TestLiveBlockTransactionRelationship(t *testing.T) {
 	block := blocks[0].(map[string]any)
 	blockNumber := block["number"]
 
-	// Check if block has transactions
+	// Check if block has transactions.
 	transactions, hasTransactions := block["transactions"].([]any)
 	if !hasTransactions {
 		logger.Test("Block has no transactions (this may be normal)")
@@ -395,7 +384,7 @@ func TestLiveBlockTransactionRelationship(t *testing.T) {
 
 	logger.Testf("✓ Block %v has %d transactions", blockNumber, len(transactions))
 
-	// Validate that transaction blockNumbers match the block number
+	// Validate that transaction blockNumbers match the block number.
 	for i, tx := range transactions {
 		txMap := tx.(map[string]any)
 		txBlockNumber := txMap["blockNumber"]
@@ -406,14 +395,14 @@ func TestLiveBlockTransactionRelationship(t *testing.T) {
 	}
 }
 
-// TestLiveIndexerPerformance tests the performance of live indexing
+// TestLiveIndexerPerformance tests the performance of live indexing.
 func TestLiveIndexerPerformance(t *testing.T) {
 	t.Parallel()
 	if !indexerStarted {
 		t.Skip("Live indexer not started - skipping live tests")
 	}
 
-	// Get current block count
+	// Get current block count.
 	initialCount := getLiveBlockCount()
 	if initialCount == 0 {
 		t.Skip("No blocks indexed yet - skipping performance test")
@@ -421,7 +410,7 @@ func TestLiveIndexerPerformance(t *testing.T) {
 
 	logger.Testf("Initial block count: %d", initialCount)
 
-	// Wait for more blocks to be indexed
+	// Wait for more blocks to be indexed.
 	time.Sleep(10 * time.Second)
 
 	finalCount := getLiveBlockCount()
@@ -435,17 +424,17 @@ func TestLiveIndexerPerformance(t *testing.T) {
 	}
 }
 
-// getLiveBlockCount returns the total number of blocks indexed
+// getLiveBlockCount returns the total number of blocks indexed.
 func getLiveBlockCount() int {
 	if liveGraphqlURL == "" {
 		return 0
 	}
 	query := `{"query":"query { Block { _count } }"}`
-	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query)))
+	resp, err := http.Post(liveGraphqlURL, "application/json", bytes.NewBuffer([]byte(query))) //nolint:gosec
 	if err != nil {
 		return 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return 0

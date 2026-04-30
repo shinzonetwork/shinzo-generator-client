@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,7 +16,7 @@ import (
 // CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
 
-// DefraDBP2PConfig represents P2P configuration for DefraDB
+// DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	BootstrapPeers      []string `yaml:"bootstrap_peers"`
 	ListenAddr          string   `yaml:"listen_addr"`
@@ -27,7 +28,7 @@ type DefraDBP2PConfig struct {
 	EnableAutoReconnect bool     `yaml:"enable_auto_reconnect"`
 }
 
-// DefraDBStoreConfig represents store configuration for DefraDB
+// DefraDBStoreConfig represents store configuration for DefraDB.
 type DefraDBStoreConfig struct {
 	Path string `yaml:"path"`
 	// Badger memory configuration
@@ -39,10 +40,10 @@ type DefraDBStoreConfig struct {
 	NumLevelZeroTables      int `yaml:"num_level_zero_tables"`
 	NumLevelZeroTablesStall int `yaml:"num_level_zero_tables_stall"`
 	// Badger value log configuration
-	ValueLogFileSizeMB int64 `yaml:"value_log_file_size_mb"` // Size of each vlog file (default 64MB)
+	ValueLogFileSizeMB int64 `yaml:"value_log_file_size_mb"` // Size of each vlog file (default 64MB).
 }
 
-// DefraDBConfig represents DefraDB configuration
+// DefraDBConfig represents DefraDB configuration.
 type DefraDBConfig struct {
 	URL           string             `yaml:"url"`
 	KeyringSecret string             `yaml:"keyring_secret"`
@@ -51,18 +52,18 @@ type DefraDBConfig struct {
 	Store         DefraDBStoreConfig `yaml:"store"`
 }
 
-// Host returns the DefraDB host URL for backward compatibility
+// Host returns the DefraDB host URL for backward compatibility.
 func (d *DefraDBConfig) Host() string {
 	return d.URL
 }
 
-// ChainConfig represents the EVM chain being indexed
+// ChainConfig represents the EVM chain being indexed.
 type ChainConfig struct {
 	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
 	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
 }
 
-// GethConfig represents Geth node configuration
+// GethConfig represents Geth node configuration.
 type GethConfig struct {
 	NodeURL    string `yaml:"node_url"`
 	WsURL      string `yaml:"ws_url"`
@@ -70,7 +71,7 @@ type GethConfig struct {
 	APIKeyType string `yaml:"api_key_type"`
 }
 
-// IndexerConfig represents indexer configuration
+// IndexerConfig represents indexer configuration.
 type IndexerConfig struct {
 	StartHeight        int  `yaml:"start_height"`
 	ConcurrentBlocks   int  `yaml:"concurrent_blocks"`
@@ -82,12 +83,12 @@ type IndexerConfig struct {
 	StartBuffer        int  `yaml:"start_buffer"`
 }
 
-// LoggerConfig represents logger configuration
+// LoggerConfig represents logger configuration.
 type LoggerConfig struct {
 	Development bool `yaml:"development"`
 }
 
-// Config represents the main configuration structure
+// Config represents the main configuration structure.
 type Config struct {
 	Chain    ChainConfig     `yaml:"chain"`
 	DefraDB  DefraDBConfig   `yaml:"defradb"`
@@ -98,13 +99,13 @@ type Config struct {
 	Logger   LoggerConfig    `yaml:"logger"`
 }
 
-// LoadConfig loads configuration from a YAML file and environment variables
+// LoadConfig loads configuration from a YAML file and environment variables.
 func LoadConfig(path string) (*Config, error) {
-	// Load .env file if it exists
+	// Load .env file if it exists.
 	_ = godotenv.Load()
 
-	// Load YAML config
-	data, err := os.ReadFile(path)
+	// Load YAML config.
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -114,13 +115,13 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Apply environment variable overrides
+	// Apply environment variable overrides.
 	applyEnvOverrides(&cfg)
 
-	// Apply default values
+	// Apply default values.
 	applyDefaults(&cfg)
 
-	// Validate configuration
+	// Validate configuration.
 	if err := validateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -128,7 +129,7 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// applyDefaults sets default values for optional configuration
+// applyDefaults sets default values for optional configuration.
 func applyDefaults(cfg *Config) {
 	if cfg.Chain.Name == "" {
 		cfg.Chain.Name = "Ethereum"
@@ -151,14 +152,14 @@ func applyDefaults(cfg *Config) {
 	if cfg.Indexer.StartBuffer <= 0 {
 		cfg.Indexer.StartBuffer = 100
 	}
-	// Pruner defaults
+	// Pruner defaults.
 	cfg.Pruner.SetDefaults()
 
-	// Snapshot defaults
+	// Snapshot defaults.
 	cfg.Snapshot.SetDefaults()
 }
 
-// validateConfig validates the configuration
+// validateConfig validates the configuration.
 func validateConfig(cfg *Config) error {
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
@@ -172,9 +173,23 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
-// applyEnvOverrides applies environment variable overrides to configuration
+// applyEnvOverrides applies environment variable overrides to the config.
 func applyEnvOverrides(cfg *Config) {
-	// DefraDB configuration
+	applyDefraEnvOverrides(cfg)
+	applyChainEnvOverrides(cfg)
+	applyIndexerEnvOverrides(cfg)
+	applyPrunerEnvOverrides(cfg)
+	applySnapshotEnvOverrides(cfg)
+
+	if loggerDebug := os.Getenv("LOGGER_DEBUG"); loggerDebug != "" {
+		if debug, err := strconv.ParseBool(loggerDebug); err == nil {
+			cfg.Logger.Development = debug
+		}
+	}
+}
+
+// applyDefraEnvOverrides applies DefraDB-related environment variable overrides.
+func applyDefraEnvOverrides(cfg *Config) {
 	if defraURL := os.Getenv("DEFRADB_URL"); defraURL != "" {
 		cfg.DefraDB.URL = defraURL
 	} else if host := os.Getenv("DEFRADB_HOST"); host != "" {
@@ -188,28 +203,22 @@ func applyEnvOverrides(cfg *Config) {
 	if keyringSecret := os.Getenv("DEFRADB_KEYRING_SECRET"); keyringSecret != "" {
 		cfg.DefraDB.KeyringSecret = keyringSecret
 	}
-
 	if p2pEnabled := os.Getenv("DEFRADB_P2P_ENABLED"); p2pEnabled != "" {
 		if parsed, err := strconv.ParseBool(p2pEnabled); err == nil {
 			cfg.DefraDB.P2P.Enabled = parsed
 		}
 	}
-
 	if listenAddr := os.Getenv("DEFRADB_P2P_LISTEN_ADDR"); listenAddr != "" {
 		cfg.DefraDB.P2P.ListenAddr = listenAddr
 	}
-
 	if acceptIncoming := os.Getenv("DEFRADB_P2P_ACCEPT_INCOMING"); acceptIncoming != "" {
 		if parsed, err := strconv.ParseBool(acceptIncoming); err == nil {
 			cfg.DefraDB.P2P.AcceptIncoming = parsed
 		}
 	}
-
 	if storePath := os.Getenv("DEFRADB_STORE_PATH"); storePath != "" {
 		cfg.DefraDB.Store.Path = storePath
 	}
-
-	// Badger memory configuration
 	if blockCacheMB := os.Getenv("DEFRADB_BLOCK_CACHE_MB"); blockCacheMB != "" {
 		if n, err := strconv.ParseInt(blockCacheMB, 10, 64); err == nil {
 			cfg.DefraDB.Store.BlockCacheMB = n
@@ -225,8 +234,6 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.DefraDB.Store.IndexCacheMB = n
 		}
 	}
-
-	// Badger compaction configuration
 	if numCompactors := os.Getenv("DEFRADB_NUM_COMPACTORS"); numCompactors != "" {
 		if n, err := strconv.Atoi(numCompactors); err == nil {
 			cfg.DefraDB.Store.NumCompactors = n
@@ -242,29 +249,29 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.DefraDB.Store.NumLevelZeroTablesStall = n
 		}
 	}
+}
 
-	// Chain configuration
+// applyChainEnvOverrides applies chain and Geth environment variable overrides.
+func applyChainEnvOverrides(cfg *Config) {
 	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
 		cfg.Chain.Name = chainName
 	}
 	if chainNetwork := os.Getenv("CHAIN_NETWORK"); chainNetwork != "" {
 		cfg.Chain.Network = chainNetwork
 	}
-
-	// Geth configuration
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL
 	}
-
 	if gethWsURL := os.Getenv("GETH_WS_URL"); gethWsURL != "" {
 		cfg.Geth.WsURL = gethWsURL
 	}
-
 	if gethAPIKey := os.Getenv("GETH_API_KEY"); gethAPIKey != "" {
 		cfg.Geth.APIKey = gethAPIKey
 	}
+}
 
-	// Indexer configuration
+// applyIndexerEnvOverrides applies indexer environment variable overrides.
+func applyIndexerEnvOverrides(cfg *Config) {
 	if startHeight := os.Getenv("INDEXER_START_HEIGHT"); startHeight != "" {
 		if h, err := strconv.Atoi(startHeight); err == nil {
 			cfg.Indexer.StartHeight = h
@@ -300,15 +307,10 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Indexer.StartBuffer = n
 		}
 	}
+}
 
-	// Logger configuration
-	if loggerDebug := os.Getenv("LOGGER_DEBUG"); loggerDebug != "" {
-		if debug, err := strconv.ParseBool(loggerDebug); err == nil {
-			cfg.Logger.Development = debug
-		}
-	}
-
-	// Pruner configuration
+// applyPrunerEnvOverrides applies pruner environment variable overrides.
+func applyPrunerEnvOverrides(cfg *Config) {
 	if prunerEnabled := os.Getenv("PRUNER_ENABLED"); prunerEnabled != "" {
 		if enabled, err := strconv.ParseBool(prunerEnabled); err == nil {
 			cfg.Pruner.Enabled = enabled
@@ -329,8 +331,10 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Pruner.IntervalSeconds = n
 		}
 	}
+}
 
-	// Snapshot configuration
+// applySnapshotEnvOverrides applies snapshot environment variable overrides.
+func applySnapshotEnvOverrides(cfg *Config) {
 	if snapshotEnabled := os.Getenv("SNAPSHOT_ENABLED"); snapshotEnabled != "" {
 		if enabled, err := strconv.ParseBool(snapshotEnabled); err == nil {
 			cfg.Snapshot.Enabled = enabled
