@@ -49,7 +49,7 @@ A high-performance blockchain indexing solution built with Source Network, Defra
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - Ethereum node with JSON-RPC and WebSocket access (GCP Managed Blockchain Node recommended)
 
 ## Setup
@@ -122,7 +122,15 @@ A high-performance blockchain indexing solution built with Source Network, Defra
      development: true
    ```
 
-## How to Run
+## Production Deployment
+
+1. SSH into your VM
+2. Paste the contents of `indexer-prod-setup.sh` into the terminal and press Enter — this creates the `docker-compose.yml` with your configuration
+3. Paste the contents of `indexer-prod.sh` into the terminal and press Enter — this installs Docker, sets up data directories, and starts the indexer
+
+The indexer should now be up and running.
+
+## How to Run (Development)
 
 ### Using Makefile (Recommended)
 ```bash
@@ -206,6 +214,25 @@ go build -tags=branchable -o bin/block_poster cmd/block_poster/main.go
 - `make clean` - Clean build artifacts
 - `make stop` - Stop all services
 - `make help` - Show all available targets with descriptions
+
+## Test Coverage
+
+| Package | Coverage |
+| --- | --- |
+| `cmd/block_poster` | 98.0% |
+| `config` | 100.0% |
+| `pkg/defra` | 98.6% |
+| `pkg/errors` | 100.0% |
+| `pkg/indexer` | 95.4% |
+| `pkg/logger` | 100.0% |
+| `pkg/rpc` | 98.3% |
+| `pkg/schema` | 100.0% |
+| `pkg/server` | 99.0% |
+| `pkg/snapshot` | 86.6% |
+| `pkg/utils` | 100.0% |
+| **Total** | **95.6%** |
+
+Run `make coverage` to generate an HTML coverage report.
 
 ## Testing
 

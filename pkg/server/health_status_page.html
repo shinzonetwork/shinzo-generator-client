@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -111,11 +112,6 @@
             font-size: 14px;
         }
 
-        .info-row-placeholder {
-            opacity: 0;
-            pointer-events: none;
-        }
-
         .info-label {
             font-weight: 500;
             color: #666;
@@ -125,6 +121,14 @@
             font-family: 'Courier New', monospace;
             color: #000;
             text-align: right;
+        }
+
+        .copyable {
+            cursor: pointer;
+        }
+
+        .copyable:hover {
+            color: #D01F27;
         }
 
         .peer-section {
@@ -230,6 +234,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
@@ -296,9 +301,9 @@
                         <span class="info-label">Last Processed</span>
                         <span class="info-value" id="lastProcessedValue">-</span>
                     </div>
-                    <div class="info-row info-row-placeholder">
-                        <span class="info-label">&nbsp;</span>
-                        <span class="info-value">&nbsp;</span>
+                    <div class="info-row">
+                        <span class="info-label">Peer ID</span>
+                        <span class="info-value" id="peerIdValue">-</span>
                     </div>
                 </div>
             </div>
@@ -343,13 +348,14 @@
         }
 
         function parseDurationToHMS(input) {
-            const match = input.match(/(?:(\d+)m)?([\d.]+)s/);
+            const match = input.match(/(?:(\d+)h)?(?:(\d+)m)?([\d.]+)s/);
             if (!match) throw new Error("Invalid duration format");
 
-            const minutes = Number(match[1] ?? 0);
-            const seconds = Number(match[2]);
+            const hours = Number(match[1] ?? 0);
+            const minutes = Number(match[2] ?? 0);
+            const seconds = Number(match[3]);
 
-            const totalSeconds = minutes * 60 + seconds;
+            const totalSeconds = hours * 3600 + minutes * 60 + seconds;
 
             const h = Math.floor(totalSeconds / 3600);
             const m = Math.floor((totalSeconds % 3600) / 60);
@@ -362,14 +368,47 @@
         function updateStatusBadge(status) {
             const healthStatusText = document.getElementById('healthStatusText');
             const healthStatusIndicator = document.getElementById('healthStatusIndicator');
-            
+
             healthStatusText.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-            
+
             if (status === 'healthy') {
                 healthStatusIndicator.className = 'info-value status-indicator-inline status-healthy';
             } else {
                 healthStatusIndicator.className = 'info-value status-indicator-inline status-disconnected';
 
+            }
+        }
+
+        function truncatePeerId(id) {
+            if (!id || id.length <= 16) return id;
+            return id.slice(0, 8) + '...' + id.slice(-8);
+        }
+
+        function copyToClipboard(text, el) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            const original = el.textContent;
+            el.textContent = 'Copied!';
+            setTimeout(() => { el.textContent = original; }, 1000);
+        }
+
+        function renderSelfInfo(self) {
+            const peerIdValue = document.getElementById('peerIdValue');
+            if (self && self.id) {
+                peerIdValue.textContent = truncatePeerId(self.id);
+                peerIdValue.title = self.id;
+                peerIdValue.className = 'info-value copyable';
+                peerIdValue.onclick = () => copyToClipboard(self.id, peerIdValue);
+            } else {
+                peerIdValue.textContent = '-';
+                peerIdValue.onclick = null;
+                peerIdValue.className = 'info-value';
             }
         }
 
@@ -381,17 +420,18 @@
             }
 
             peerList.innerHTML = peers.map(peer => {
-                const addresses = peer.addresses && peer.addresses.length > 0 
+                const addresses = peer.addresses && peer.addresses.length > 0
                     ? peer.addresses.map(addr => `<div class="peer-detail-value">${addr}</div>`).join('')
                     : '<div class="peer-detail-value">No addresses</div>';
-                
-                const publicKey = peer.public_key 
+
+                const publicKey = peer.public_key
                     ? `<div class="peer-detail"><div class="peer-detail-label">Public Key</div><div class="peer-detail-value">${peer.public_key}</div></div>`
                     : '';
 
+                const peerId = peer.id || 'Unknown';
                 return `
                     <div class="peer-card">
-                        <div class="peer-id">${peer.id || 'Unknown'}</div>
+                        <div class="peer-id copyable" title="${peerId}" onclick="copyToClipboard('${peerId}', this)">${truncatePeerId(peerId)}</div>
                         <div class="peer-detail">
                             <div class="peer-detail-label">Address</div>
                             ${addresses}
@@ -412,10 +452,6 @@
                         'Accept': 'application/json'
                     }
                 });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
 
                 const data = await response.json();
 
@@ -454,10 +490,12 @@
                         p2pEnabledValue.className = 'info-value status-indicator-inline status-disconnected';
                     }
                     document.getElementById('connectedPeersValue').textContent = formatNumber(data.p2p.peers ? data.p2p.peers.length : 0);
+                    renderSelfInfo(data.p2p.self);
                     renderPeers(data.p2p.peers || []);
                 } else {
                     document.getElementById('p2pEnabledValue').textContent = 'N/A';
                     document.getElementById('connectedPeersValue').textContent = '0';
+                    document.getElementById('peerIdValue').textContent = '-';
                     document.getElementById('peerList').innerHTML = '<div class="peer-card"><div class="peer-id">No P2P data available</div></div>';
                 }
 
@@ -483,4 +521,5 @@
         });
     </script>
 </body>
+
 </html>

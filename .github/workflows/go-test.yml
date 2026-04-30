@@ -3,9 +3,8 @@ name: Go Test CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
 
 jobs:
   test:
@@ -13,22 +12,17 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
-        go-version: '1.23' 
+        go-version-file: 'go.mod'
+        cache: true
 
-    - name: Cache Go build
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
+    - name: Get CPU count
+      id: cpu
+      run: echo "count=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 2)" >> $GITHUB_OUTPUT
 
     - name: Run tests
       env:
@@ -36,6 +30,14 @@ jobs:
         GETH_WS_URL: ${{ secrets.GETH_WS_URL }}
         GETH_API_KEY: ${{ secrets.GETH_API_KEY }}
         DEFRADB_URL: http://localhost:9181
-        DEFRADB_PLAYGROUND: true
-        LOGGER_DEBUG: false
-      run: go test ./...
+        LOG_LEVEL: error
+      run: |
+        go test -parallel=${{ steps.cpu.outputs.count  }} ./...
+
+    - name: Upload coverage
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+      continue-on-error: true

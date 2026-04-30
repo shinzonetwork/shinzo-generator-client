@@ -2,8 +2,54 @@ package errors
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
+
+// Error substring constants for matching upstream errors that don't use typed errors.
+const (
+	ErrStrNotFound                = "not found"
+	ErrStrDoesNotExist            = "does not exist"
+	ErrStrAlreadyExists           = "already exists"
+	ErrStrCollectionAlreadyExists = "collection already exists"
+	ErrStrTransactionConflict     = "transaction conflict"
+	ErrStrTxTypeNotSupported      = "transaction type not supported"
+	ErrStrInvalidTxType           = "invalid transaction type"
+)
+
+// IsErrNotFound checks if an error message indicates a "not found" condition.
+func IsErrNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, ErrStrNotFound) || strings.Contains(msg, ErrStrDoesNotExist)
+}
+
+// IsErrAlreadyExists checks if an error message indicates a resource already exists.
+func IsErrAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), ErrStrAlreadyExists)
+}
+
+// IsErrTransactionConflict checks if an error message indicates a transaction conflict.
+func IsErrTransactionConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), ErrStrTransactionConflict)
+}
+
+// IsErrUnsupportedTxType checks if an error indicates an unsupported transaction type.
+func IsErrUnsupportedTxType(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, ErrStrTxTypeNotSupported) || strings.Contains(msg, ErrStrInvalidTxType)
+}
 
 // IsRetryable checks if an error can be retried
 func IsRetryable(err error) bool {
@@ -98,16 +144,16 @@ func WrapError(err error, component, operation string) IndexerError {
 	// Create generic error wrapper
 	return &SystemError{
 		baseError: newBaseError("WRAPPED_ERROR", "Wrapped standard error", Error, NonRetryable,
-			component, operation, "", err, nil),
+			component, operation, "", err),
 	}
 }
 
 // LogContext extracts structured logging context from error
-func LogContext(err error) map[string]interface{} {
+func LogContext(err error) map[string]any {
 	var indexerErr IndexerError
 	if errors.As(err, &indexerErr) {
 		ctx := indexerErr.Context()
-		logCtx := map[string]interface{}{
+		logCtx := map[string]any{
 			"error_code": indexerErr.Code(),
 			"severity":   indexerErr.Severity().String(),
 			"retryable":  indexerErr.Retryable().String(),
@@ -132,7 +178,7 @@ func LogContext(err error) map[string]interface{} {
 		return logCtx
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"error":      err.Error(),
 		"error_type": "standard_error",
 	}

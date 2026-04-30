@@ -61,12 +61,12 @@ func (r RetryBehavior) String() string {
 
 // ErrorContext provides structured context for debugging and monitoring
 type ErrorContext struct {
-	Component   string                 `json:"component"` // Which service/component (e.g., "defra", "rpc", "converter")
-	Operation   string                 `json:"operation"` // What operation (e.g., "CreateBlock", "GetTransaction")
-	BlockNumber *int64                 `json:"blockNumber,omitempty"`
-	TxHash      *string                `json:"txHash,omitempty"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	Component   string         `json:"component"` // Which service/component (e.g., "defra", "rpc", "converter")
+	Operation   string         `json:"operation"` // What operation (e.g., "CreateBlock", "GetTransaction")
+	BlockNumber *int64         `json:"blockNumber,omitempty"`
+	TxHash      *string        `json:"txHash,omitempty"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 // IndexerError is the main error interface for the blockchain indexing system

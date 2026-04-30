@@ -97,7 +97,7 @@ func (tls *TestLoggerSetup) AssertLogField(fieldName, expectedValue string) {
 
 // hasFieldWithValue checks if a JSON object contains the field with expected value
 // It checks both camelCase and snake_case variants, and also nested objects
-func (tls *TestLoggerSetup) hasFieldWithValue(entry map[string]interface{}, fieldName, expectedValue string) bool {
+func (tls *TestLoggerSetup) hasFieldWithValue(entry map[string]any, fieldName, expectedValue string) bool {
 	// Check top-level fields first
 	if tls.checkFieldInObject(entry, fieldName, expectedValue) {
 		return true
@@ -105,7 +105,7 @@ func (tls *TestLoggerSetup) hasFieldWithValue(entry map[string]interface{}, fiel
 
 	// Check nested objects (like "ignored" from zap structured logging)
 	for _, value := range entry {
-		if nestedObj, ok := value.(map[string]interface{}); ok {
+		if nestedObj, ok := value.(map[string]any); ok {
 			if tls.checkFieldInObject(nestedObj, fieldName, expectedValue) {
 				return true
 			}
@@ -116,7 +116,7 @@ func (tls *TestLoggerSetup) hasFieldWithValue(entry map[string]interface{}, fiel
 }
 
 // checkFieldInObject checks a single object for the field with both naming conventions
-func (tls *TestLoggerSetup) checkFieldInObject(obj map[string]interface{}, fieldName, expectedValue string) bool {
+func (tls *TestLoggerSetup) checkFieldInObject(obj map[string]any, fieldName, expectedValue string) bool {
 	// Try the field name as-is
 	if value, exists := obj[fieldName]; exists {
 		if fmt.Sprintf("%v", value) == expectedValue {
@@ -164,17 +164,17 @@ func (tls *TestLoggerSetup) AssertLogStructuredContext(expectedComponent, expect
 }
 
 // GetLogEntries parses the log output and returns individual log entries
-func (tls *TestLoggerSetup) GetLogEntries() []map[string]interface{} {
+func (tls *TestLoggerSetup) GetLogEntries() []map[string]any {
 	output := tls.GetLogOutput()
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 
-	var entries []map[string]interface{}
+	var entries []map[string]any
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 
-		var entry map[string]interface{}
+		var entry map[string]any
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			tls.t.Logf("Failed to parse log line: %s, error: %v", line, err)
 			continue

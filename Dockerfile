@@ -1,6 +1,6 @@
 # Multi-stage build for Shinzo Network Ethereum Indexer
 # Stage 1: Builder stage
-FROM golang:1.25 AS builder
+FROM golang:1.26 AS builder
 
 # Build arguments
 ARG BUILD_DATE
@@ -90,8 +90,13 @@ RUN set -ex && \
     ls -la bin/ && \
     echo "Binary created successfully"
 
-# Stage 2: Runtime stage  
+# Stage 2: Runtime stage
 FROM ubuntu:24.04
+
+# Re-declare build arguments for this stage
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION=dev
 
 # Labels for metadata
 LABEL maintainer="Shinzo Network <team@shinzo.network>" \
@@ -123,7 +128,7 @@ COPY --from=builder /usr/local/lib/ /usr/local/lib/
 COPY --from=builder /usr/local/include/ /usr/local/include/
 
 # Set library path for WASM runtimes
-ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/lib"
 
 # Create non-root user for security
 RUN groupadd -g 1001 indexer && \

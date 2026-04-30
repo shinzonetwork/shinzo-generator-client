@@ -1,10 +1,19 @@
 # Default configuration - environment variables will override these
+
+# Chain configuration - identifies which EVM chain to index
+# Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
+# Collection names are derived as: {name}__{network}__Block, etc.
+chain:
+  name: "Ethereum"       # Chain name (env: CHAIN_NAME)
+  network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
+
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
   keyring_secret: "" # over written by env var
   embedded: true
   p2p:
     enabled: true
+    accept_incoming: false          # Accept incoming P2P documents. false = reject all (indexer is source of truth).
     bootstrap_peers: []
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
@@ -13,19 +22,41 @@ defradb:
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
     path: "./.defra"
-
+    # Badger memory configuration
+    block_cache_mb: 512  # Block cache size
+    memtable_mb: 64      # Memtable size
+    index_cache_mb: 256   # Index cache size
+    # Badger compaction configuration
+    num_compactors: 4              # Number of compaction workers
+    # num_level_zero_tables: 10      # L0 tables before compaction starts
+    # num_level_zero_tables_stall: 30  # L0 tables that trigger write stalls
+    # Badger value log configuration
+    value_log_file_size_mb: 128      # Size of each vlog file (smaller = more effective GC)
 geth:
   node_url: "${GETH_RPC_URL}"  # Fallback
   ws_url: "${GETH_WS_URL}"
   api_key: "${GETH_API_KEY}"
-
+  api_key_type: "X-Api-Key"
 indexer:
-  start_height: 420000000
-  concurrent_blocks: 6     # Number of blocks to process concurrently (default: 1)
-  prefetch_blocks: 16      # Number of blocks to prefetch ahead (default: 2)
-  receipt_workers: 64      # Concurrent receipt fetchers per block (default: 20)
-  max_docs_per_txn: 256    # Docs threshold for single-txn block creation (default: 256)
-
+  start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
+  concurrent_blocks: 1      # Number of blocks to process concurrently
+  receipt_workers: 8        # Concurrent receipt fetchers per block
+  max_docs_per_txn: 500    # Docs threshold for single-txn block creation
+  blocks_per_minute: 60     # Block indexing rate limit
+  health_server_port: 8080  # Health server port (-1 == disabled)
+  open_browser_on_start: false  # Auto-open health page on startup
+  start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
 logger:
   development: false
-
+  level: "error"
+pruner:
+  enabled: true             # Set to true to enable automatic pruning
+  max_blocks: 1000          # Number of blocks to retain
+  prune_threshold: 1        # Trigger pruning when exceeding max_blocks by this amount
+  interval_seconds: 30      # How often to check and prune
+  prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
+snapshot:
+  enabled: true             # Set to true to enable automatic snapshots before pruning
+  dir: "./.defra/snapshots" # Directory to store snapshot files
+  blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
+  interval_seconds: 30      # How often to check and create snapshots

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,7 +14,8 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
+	"github.com/sourcenetwork/defradb/node"
 )
 
 //go:embed health_status_page.html
@@ -25,9 +27,13 @@ var (
 
 // HealthServer provides HTTP endpoints for health checks and metrics
 type HealthServer struct {
-	server   *http.Server
-	indexer  HealthChecker
-	defraURL string
+	server              *http.Server
+	mux                 *http.ServeMux
+	indexer             HealthChecker
+	defraURL            string
+	snapshotter         *snapshot.Snapshotter
+	defraNode           *node.Node
+	querySnapshotSigsFn func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error)
 }
 
 // HealthChecker interface for checking indexer health
@@ -42,6 +48,7 @@ type HealthChecker interface {
 // P2PInfo represents DefraDB P2P network information
 type P2PInfo struct {
 	Enabled  bool       `json:"enabled"`
+	Self     *PeerInfo  `json:"self,omitempty"`
 	PeerInfo []PeerInfo `json:"peers"`
 }
 
@@ -76,6 +83,7 @@ type HealthResponse struct {
 	LastProcessed    time.Time            `json:"last_processed,omitempty"`
 	DefraDBConnected bool                 `json:"defradb_connected"`
 	Uptime           string               `json:"uptime"`
+	UptimeSeconds    float64              `json:"uptime_seconds"`
 	P2P              *P2PInfo             `json:"p2p,omitempty"`
 	Registration     *DisplayRegistration `json:"registration,omitempty"`
 	BuildTags        string               `json:"build_tags,omitempty"`
@@ -101,10 +109,12 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 			Addr:         fmt.Sprintf(":%d", port),
 			Handler:      mux,
 			ReadTimeout:  10 * time.Second,
-			WriteTimeout: 10 * time.Second,
+			WriteTimeout: 5 * time.Minute, // large snapshot files need time to transfer
 		},
-		indexer:  indexer,
-		defraURL: defraURL,
+		mux:                 mux,
+		indexer:             indexer,
+		defraURL:            defraURL,
+		querySnapshotSigsFn: snapshot.QuerySnapshotSignatures,
 	}
 
 	// Register routes
@@ -115,6 +125,19 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 	mux.HandleFunc("/", hs.rootHandler)
 
 	return hs
+}
+
+// SetSnapshotter registers the snapshot provider and enables snapshot HTTP endpoints.
+func (hs *HealthServer) SetSnapshotter(s *snapshot.Snapshotter) {
+	hs.snapshotter = s
+	hs.mux.HandleFunc("/snapshots", hs.snapshotsListHandler)
+	hs.mux.HandleFunc("/snapshots/", hs.snapshotDownloadHandler)
+}
+
+// SetDefraNode sets the DefraDB node reference for import operations.
+func (hs *HealthServer) SetDefraNode(n *node.Node) {
+	hs.defraNode = n
+	hs.mux.HandleFunc("/snapshots/import", hs.snapshotImportHandler)
 }
 
 // Start starts the health server
@@ -139,6 +162,8 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	accept := r.Header.Get("Accept")
 	acceptLower := strings.ToLower(accept)
 
+	uptime := time.Since(startTime)
+
 	// Serve JSON only if explicitly requested (Accept contains application/json and not text/html)
 	// Otherwise, default to HTML for browser requests
 	if strings.Contains(acceptLower, "text/html") && !strings.Contains(acceptLower, "application/json") {
@@ -154,29 +179,25 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		Status:           "healthy",
 		Timestamp:        time.Now(),
 		DefraDBConnected: hs.checkDefraDB(),
-		Uptime:           time.Since(startTime).String(),
-		BuildTags:        getBuildTags(),
-		SchemaType:       getSchemaType(),
+		Uptime:           uptime.String(),
+		UptimeSeconds:    uptime.Seconds(),
 	}
 
 	if hs.indexer != nil {
 		response.CurrentBlock = hs.indexer.GetCurrentBlock()
 		response.LastProcessed = hs.indexer.GetLastProcessedTime()
-		p2p, err := hs.indexer.GetPeerInfo()
+		p2p, _ := hs.indexer.GetPeerInfo()
 		response.P2P = p2p
-		if err != nil {
-			response.Status = "unhealthy"
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
 
 		if !hs.indexer.IsHealthy() {
 			response.Status = "unhealthy"
-			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	if response.Status == "unhealthy" {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -230,11 +251,13 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		ready = false
 	}
 
+	uptime := time.Since(startTime)
 	response := HealthResponse{
 		Status:           "ready",
 		Timestamp:        time.Now(),
 		DefraDBConnected: hs.checkDefraDB(),
-		Uptime:           time.Since(startTime).String(),
+		Uptime:           uptime.String(),
+		UptimeSeconds:    uptime.Seconds(),
 	}
 
 	if hs.indexer != nil {
@@ -268,9 +291,9 @@ func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Registration data not available", http.StatusServiceUnavailable)
 		return
 	}
-
+	//TODO: make this configurable not sure registration should be hardcoded
 	redirectURL := fmt.Sprintf(
-		"https://register.shinzo.network/?role=indexer&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
+		"https://registration.shinzo.network/?role=indexer&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
 		registration.Message,
 		registration.PeerIDRegistration.PeerID,
 		registration.PeerIDRegistration.SignedPeerMsg,
@@ -309,15 +332,17 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"service":   "Shinzo Network Indexer",
 		"version":   "1.0.0",
 		"status":    "running",
 		"timestamp": time.Now(),
 		"endpoints": []string{
-			"/health 	   - Health probe",
-			"/registration - Registration information",
-			"/metrics 	   - Basic metrics",
+			"/health 	      - Health probe",
+			"/registration  - Registration information",
+			"/metrics 	    - Basic metrics",
+			"/snapshots     - List available snapshots",
+			"/snapshots/:id - Download a snapshot file",
 		},
 	}
 
@@ -325,10 +350,156 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// snapshotListEntry extends SnapshotInfo with inline signature data.
+type snapshotListEntry struct {
+	snapshot.SnapshotInfo
+	Signed    bool                            `json:"signed"`
+	Signature *snapshot.SnapshotSignatureData `json:"signature,omitempty"`
+}
+
+// snapshotsListHandler returns a JSON list of available snapshot files with inline signatures.
+func (hs *HealthServer) snapshotsListHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if hs.snapshotter == nil {
+		http.Error(w, "Snapshots not enabled", http.StatusNotFound)
+		return
+	}
+
+	infos := hs.snapshotter.ListSnapshots()
+
+	// Query DefraDB for all snapshot signatures, keyed by filename
+	var sigs map[string]*snapshot.SnapshotSignatureData
+	if hs.defraNode != nil {
+		var err error
+		sigs, err = hs.querySnapshotSigsFn(r.Context(), hs.defraNode)
+		if err != nil {
+			logger.Sugar.Warnf("Failed to query snapshot signatures: %v", err)
+		}
+	}
+
+	entries := make([]snapshotListEntry, len(infos))
+	for i, info := range infos {
+		sig := sigs[info.Filename]
+		entries[i] = snapshotListEntry{
+			SnapshotInfo: info,
+			Signed:       sig != nil,
+			Signature:    sig,
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"snapshots": entries,
+		"count":     len(entries),
+	})
+}
+
+// snapshotDownloadHandler serves a snapshot file by name.
+// URL: /snapshots/{filename} — serves .jsonl.gz snapshot file
+func (hs *HealthServer) snapshotDownloadHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if hs.snapshotter == nil {
+		http.Error(w, "Snapshots not enabled", http.StatusNotFound)
+		return
+	}
+
+	filename := strings.TrimPrefix(r.URL.Path, "/snapshots/")
+	if filename == "" {
+		hs.snapshotsListHandler(w, r)
+		return
+	}
+
+	filePath := hs.snapshotter.GetSnapshotPath(filename)
+	if filePath == "" {
+		http.Error(w, "Snapshot not found", http.StatusNotFound)
+		return
+	}
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		http.Error(w, "Failed to open file", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil {
+		http.Error(w, "Failed to stat file", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+
+	written, err := io.Copy(w, f)
+	if err != nil {
+		logger.Sugar.Errorf("Snapshot download error for %s: %v (wrote %d/%d bytes)", filename, err, written, stat.Size())
+	} else {
+		logger.Sugar.Infof("Snapshot served: %s (%d bytes)", filename, written)
+	}
+}
+
+// snapshotImportHandler imports a snapshot file by name.
+// POST /snapshots/import?file=snapshot_X_Y.kvsnap.gz
+func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if hs.defraNode == nil {
+		http.Error(w, "Import not available (no embedded DefraDB)", http.StatusServiceUnavailable)
+		return
+	}
+	if hs.snapshotter == nil {
+		http.Error(w, "Snapshots not enabled", http.StatusNotFound)
+		return
+	}
+
+	filename := r.URL.Query().Get("file")
+	if filename == "" {
+		http.Error(w, "Missing 'file' query parameter", http.StatusBadRequest)
+		return
+	}
+
+	filePath := hs.snapshotter.GetSnapshotPath(filename)
+	if filePath == "" {
+		http.Error(w, "Snapshot not found", http.StatusNotFound)
+		return
+	}
+
+	result, err := snapshot.ImportKV(r.Context(), hs.defraNode, filePath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error":  err.Error(),
+			"result": result,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok",
+		"result": result,
+	})
+}
+
 // checkDefraDB checks if DefraDB is accessible
 func (hs *HealthServer) checkDefraDB() bool {
 	if hs.defraURL == "" {
 		return true // Embedded mode, assume healthy
+	}
+
+	if strings.Contains(hs.defraURL, "localhost") || strings.Contains(hs.defraURL, "127.0.0.1") {
+		return true
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -352,22 +523,6 @@ func normalizeHex(s string) string {
 		return "0x" + s[2:]
 	}
 	return "0x" + s
-}
-
-// getBuildTags returns the build tags used to compile the binary
-func getBuildTags() string {
-	if schema.IsBranchable() {
-		return "branchable"
-	}
-	return "standard"
-}
-
-// getSchemaType returns the schema type based on build tags
-func getSchemaType() string {
-	if schema.IsBranchable() {
-		return "branchable"
-	}
-	return "non-branchable"
 }
 
 // getHealthStatusPageHTML reads the HTML file from disk at runtime, falling back to embedded version

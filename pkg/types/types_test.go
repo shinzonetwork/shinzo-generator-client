@@ -8,6 +8,7 @@ import (
 )
 
 func TestTransactionReceiptJSONMarshaling(t *testing.T) {
+t.Parallel()
 	receipt := TransactionReceipt{
 		TransactionHash:   "0x1234567890abcdef",
 		TransactionIndex:  "0",
@@ -45,6 +46,7 @@ func TestTransactionReceiptJSONMarshaling(t *testing.T) {
 }
 
 func TestBlockJSONMarshaling(t *testing.T) {
+t.Parallel()
 	block := Block{
 		BaseFeePerGas: "1000000000",
 		Difficulty:    "1000000",
@@ -92,6 +94,7 @@ func TestBlockJSONMarshaling(t *testing.T) {
 }
 
 func TestTransactionJSONMarshaling(t *testing.T) {
+t.Parallel()
 	tx := Transaction{
 		// Transaction fields
 		BlockHash:        "0xblockhash",
@@ -152,6 +155,7 @@ func TestTransactionJSONMarshaling(t *testing.T) {
 }
 
 func TestLogJSONMarshaling(t *testing.T) {
+t.Parallel()
 	log := Log{
 		Address:          "0xcontract",
 		Topics:           []string{"0xtopic1", "0xtopic2"},
@@ -190,6 +194,7 @@ func TestLogJSONMarshaling(t *testing.T) {
 }
 
 func TestRequestJSONMarshaling(t *testing.T) {
+t.Parallel()
 	request := Request{
 		Type:  "query",
 		Query: "{ Block { number } }",
@@ -218,6 +223,7 @@ func TestRequestJSONMarshaling(t *testing.T) {
 }
 
 func TestResponseJSONMarshaling(t *testing.T) {
+t.Parallel()
 	response := Response{
 		Data: map[string][]struct {
 			DocID string `json:"_docID"`

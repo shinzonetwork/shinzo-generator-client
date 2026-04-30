@@ -11,6 +11,7 @@ import (
 
 // TestErrorLoggingPatterns demonstrates how to use structured error logging in tests
 func TestErrorLoggingPatterns(t *testing.T) {
+t.Parallel()
 	// Set up test logger with buffer
 	testLogger := testutils.NewTestLogger(t)
 
@@ -130,6 +131,7 @@ func TestErrorLoggingPatterns(t *testing.T) {
 
 // TestRetryLogicWithErrorLogging demonstrates testing retry logic with proper error logging
 func TestRetryLogicWithErrorLogging(t *testing.T) {
+t.Parallel()
 	testLogger := testutils.NewTestLogger(t)
 
 	// Simulate the retry logic from main.go
@@ -210,50 +212,21 @@ func TestRetryLogicWithErrorLogging(t *testing.T) {
 
 // TestBlockHandlerErrorLogging shows how to integrate this pattern into existing tests
 func TestBlockHandlerErrorLogging(t *testing.T) {
+t.Parallel()
 	testLogger := testutils.NewTestLogger(t)
 
-	// Create a block handler (this would be your actual handler)
-	handler, err := NewBlockHandler("http://localhost:9181")
-	if err != nil {
-		// Instead of t.Errorf, use structured logging
-		logCtx := errors.LogContext(err)
-		testLogger.Logger.With(logCtx).Error("Failed to create block handler")
-
-		// Still fail the test, but now we have structured logs
-		testLogger.AssertLogLevel("ERROR")
-		testLogger.AssertLogContains("Failed to create block handler")
-		t.Fatalf("Handler creation failed: %v", err)
+	// Create a block handler with nil node to trigger the error path
+	_, err := NewBlockHandler(nil, 1000, nil)
+	if err == nil {
+		t.Fatal("Expected error for nil node")
 	}
 
-	if handler == nil {
-		// Create a custom error for this scenario
-		customErr := errors.NewConfigurationError(
-			"defra",
-			"NewBlockHandler",
-			"handler is nil",
-			"host=localhost, port=9181",
-			nil,
-		)
+	// Log the error using structured logging
+	logCtx := errors.LogContext(err)
+	testLogger.Logger.With(logCtx).Error("Failed to create block handler")
 
-		logCtx := errors.LogContext(customErr)
-		testLogger.Logger.With(logCtx).Error("NewBlockHandler returned nil")
-
-		testLogger.AssertLogLevel("ERROR")
-		testLogger.AssertLogStructuredContext("defra", "NewBlockHandler")
-		testLogger.AssertLogField("errorCode", "CONFIGURATION_ERROR")
-
-		t.Fatal("NewBlockHandler should not return nil")
-	}
-
-	// Test successful case
-	testLogger.Logger.Infow("Block handler created successfully",
-		"host", "localhost",
-		"port", 9181,
-		"defraURL", handler.defraURL,
-	)
-
-	testLogger.AssertLogLevel("INFO")
-	testLogger.AssertLogContains("Block handler created successfully")
-	testLogger.AssertLogField("host", "localhost")
-	testLogger.AssertLogField("port", "9181")
+	testLogger.AssertLogLevel("ERROR")
+	testLogger.AssertLogContains("Failed to create block handler")
+	testLogger.AssertLogStructuredContext("defra", "NewBlockHandler")
+	testLogger.AssertLogField("errorCode", "CONFIGURATION_ERROR")
 }

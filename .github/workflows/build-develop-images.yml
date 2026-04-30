@@ -1,0 +1,67 @@
+name: Build develop images
+
+on:
+  push:
+    branches:
+      - develop
+      - develop-*-*
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-image:
+    name: Build image from branch
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Extract chain and network from branch name
+        id: meta
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          if [[ "$BRANCH" == "develop" ]]; then
+            echo "chain=base" >> $GITHUB_OUTPUT
+            echo "network=mainnet" >> $GITHUB_OUTPUT
+          else
+            SUFFIX="${BRANCH#develop-}"
+            NETWORK="${SUFFIX##*-}"
+            CHAIN="${SUFFIX%-*}"
+            echo "chain=$CHAIN" >> $GITHUB_OUTPUT
+            echo "network=$NETWORK" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get short SHA
+        id: short_sha
+        run: echo "sha=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop-${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:develop-${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-sha-${{ steps.short_sha.outputs.sha }}
+          build-args: |
+            CHAIN=${{ steps.meta.outputs.chain }}
+            NETWORK=${{ steps.meta.outputs.network }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

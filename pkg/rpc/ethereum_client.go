@@ -23,19 +23,21 @@ import (
 
 // EthereumClient wraps both JSON-RPC and fallback HTTP client
 type EthereumClient struct {
-	httpClient *ethclient.Client
-	wsClient   *ethclient.Client
-	nodeURL    string
-	wsURL      string
-	apiKey     string
+	httpClient   *ethclient.Client
+	wsClient     *ethclient.Client
+	nodeURL      string
+	wsURL        string
+	apiKey       string
+	apiKeyHeader string
 }
 
 // NewEthereumClient creates a new JSON-RPC Ethereum client with HTTP and WebSocket support
-func NewEthereumClient(httpNodeURL, wsURL, apiKey string) (*EthereumClient, error) {
+func NewEthereumClient(httpNodeURL, wsURL, apiKey, apiKeyHeader string) (*EthereumClient, error) {
 	client := &EthereumClient{
-		nodeURL: httpNodeURL,
-		wsURL:   wsURL,
-		apiKey:  apiKey,
+		nodeURL:      httpNodeURL,
+		wsURL:        wsURL,
+		apiKey:       apiKey,
+		apiKeyHeader: apiKeyHeader,
 	}
 
 	// Establish HTTP client with API key authentication
@@ -48,8 +50,9 @@ func NewEthereumClient(httpNodeURL, wsURL, apiKey string) (*EthereumClient, erro
 			// Create RPC client with custom headers for API key authentication using modern approach
 			rpcClient, err := ethrpc.DialOptions(context.Background(), httpNodeURL, ethrpc.WithHTTPClient(&http.Client{
 				Transport: &apiKeyTransport{
-					apiKey: apiKey,
-					base:   http.DefaultTransport,
+					apiKey:       apiKey,
+					apiKeyHeader: apiKeyHeader,
+					base:         http.DefaultTransport,
 				},
 			}))
 			if err != nil {
@@ -77,9 +80,9 @@ func NewEthereumClient(httpNodeURL, wsURL, apiKey string) (*EthereumClient, erro
 		var wsConnected bool
 
 		if apiKey != "" {
-			// Create WebSocket connection with custom headers for GCP authentication
-			logger.Sugar.Info("Creating WebSocket connection with X-goog-api-key header")
-			wsClient, err = createWebSocketWithHeaders(wsURL, apiKey)
+			// Create WebSocket connection with custom headers for API key authentication
+			logger.Sugar.Infof("Creating WebSocket connection with %s header", apiKeyHeader)
+			wsClient, err = createWebSocketWithHeaders(wsURL, apiKey, apiKeyHeader)
 			if err != nil {
 				logger.Sugar.Warnf("Failed to establish WebSocket connection with API key header: %v", err)
 				// Try fallback without API key
@@ -137,14 +140,16 @@ func NewEthereumClient(httpNodeURL, wsURL, apiKey string) (*EthereumClient, erro
 
 // apiKeyTransport adds API key header to HTTP requests
 type apiKeyTransport struct {
-	apiKey string
-	base   http.RoundTripper
+	apiKey       string
+	apiKeyHeader string
+	base         http.RoundTripper
 }
 
 func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, req.URL.String())
-	logger.Sugar.Debugf("Setting X-goog-api-key header: %s", t.apiKey[:10]+"...")
-	req.Header.Set("X-goog-api-key", t.apiKey)
+	headerName := t.apiKeyHeader
+	logger.Sugar.Debugf("Setting %s header: %s", headerName, maskAPIKey(t.apiKey, t.apiKey))
+	req.Header.Set(headerName, t.apiKey)
 
 	// Log request headers (excluding sensitive data)
 	logger.Sugar.Debugf("Request headers: Content-Type=%s, User-Agent=%s",
@@ -161,7 +166,65 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// GetBlockByNumber fetches a block by number with Optimism transaction type support
+// GetLatestBlock fetches the latest block
+func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, fmt.Errorf("no client available")
+	}
+
+	// Get the latest block number first
+	latestHeader, err := client.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest header: %w", err)
+	}
+
+	// For GCP Erigon nodes, start with blocks that are significantly behind
+	// to avoid transaction type compatibility issues
+	const initialBlocksBack = 100
+	targetBlockNumber := big.NewInt(1).Sub(latestHeader.Number, big.NewInt(initialBlocksBack))
+	logger.Sugar.Infof("Latest block: %s, targeting block: %s (%d blocks behind for Erigon compatibility)",
+		latestHeader.Number.String(), targetBlockNumber.String(), initialBlocksBack)
+
+	var gethBlock *ethtypes.Block
+
+	// Try progressively older blocks if transaction type errors occur
+	for retries := 0; retries < 8; retries++ {
+		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
+		if err != nil {
+			if errors.IsErrUnsupportedTxType(err) {
+
+				if retries < 7 {
+					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks
+					blocksBack := initialBlocksBack * (1 << uint(retries+1))
+					targetBlockNumber = big.NewInt(1).Sub(latestHeader.Number, big.NewInt(int64(blocksBack)))
+					logger.Sugar.Warnf("Retry %d: Transaction type error with Erigon, going back %d blocks total...",
+						retries+1, blocksBack)
+
+					// Add progressive delay to prevent API rate limiting
+					time.Sleep(time.Duration(retries+1) * time.Second)
+					continue
+				} else {
+					logger.Sugar.Errorf("Failed after %d retries due to transaction type compatibility with Erigon", retries+1)
+					return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
+				}
+			}
+			// For non-transaction-type errors, fail immediately
+			return nil, fmt.Errorf("failed to get block: %w", err)
+		}
+
+		// Success - log which block we're actually processing
+		if retries > 0 {
+			logger.Sugar.Infof("Successfully retrieved block %s after %d retries (Erigon compatibility)",
+				targetBlockNumber.String(), retries)
+		}
+		break
+	}
+
+	return c.convertGethBlock(gethBlock), nil
+}
+
+// GetBlockByNumber fetches a block by number
 func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*types.Block, error) {
 	client := c.getPreferredClient()
 	if client == nil {
@@ -387,6 +450,23 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 	return c.convertGethReceipt(receipt), nil
+}
+
+// GetBlockReceipts fetches all receipts for a block in a single RPC call.
+func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*types.TransactionReceipt, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, fmt.Errorf("no client available")
+	}
+	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
+	}
+	result := make([]*types.TransactionReceipt, len(receipts))
+	for i, receipt := range receipts {
+		result[i] = c.convertGethReceipt(receipt)
+	}
+	return result, nil
 }
 
 // convertGethReceipt converts go-ethereum receipt to our custom receipt type
@@ -714,11 +794,9 @@ func (c *EthereumClient) Close() error {
 // Prioritizes WebSocket for real-time blockchain data streaming
 func (c *EthereumClient) getPreferredClient() *ethclient.Client {
 	if c.wsClient != nil {
-		logger.Sugar.Debug("Using WebSocket client for real-time blockchain streaming")
 		return c.wsClient
 	}
 	if c.httpClient != nil {
-		logger.Sugar.Debug("Using HTTP client with API key authentication (WebSocket unavailable)")
 		return c.httpClient
 	}
 
@@ -726,38 +804,36 @@ func (c *EthereumClient) getPreferredClient() *ethclient.Client {
 	return nil
 }
 
-// createWebSocketWithHeaders creates a WebSocket connection with API key for GCP authentication
-func createWebSocketWithHeaders(wsURL, apiKey string) (*ethclient.Client, error) {
-	// GCP WebSocket endpoints may support API key as query parameter
-	// Try multiple approaches for WebSocket authentication
-
+// createWebSocketWithHeaders creates a WebSocket connection with API key header
+func createWebSocketWithHeaders(wsURL, apiKey, apiKeyHeader string) (*ethclient.Client, error) {
 	ctx := context.Background()
 
-	// Approach 1: Try with API key as query parameter
-	wsURLWithKey := wsURL
-	if strings.Contains(wsURL, "?") {
-		wsURLWithKey = wsURL + "&key=" + apiKey
-	} else {
-		wsURLWithKey = wsURL + "?key=" + apiKey
-	}
+	// Use configured header name
+	headerName := apiKeyHeader
 
-	logger.Sugar.Debugf("Trying WebSocket with API key parameter: %s", wsURLWithKey)
-	rpcClient, err := ethrpc.DialOptions(ctx, wsURLWithKey)
+	// Create http.Header with API key
+	headers := http.Header{}
+	headers.Set(headerName, apiKey)
+
+	// Create custom dialer with API key header
+	logger.Sugar.Debugf("Creating WebSocket with %s header", headerName)
+	rpcClient, err := ethrpc.DialOptions(ctx, wsURL,
+		ethrpc.WithHeaders(headers),
+	)
+
 	if err != nil {
-		// Approach 2: Try with different parameter name
-		if strings.Contains(wsURL, "?") {
-			wsURLWithKey = wsURL + "&api_key=" + apiKey
-		} else {
-			wsURLWithKey = wsURL + "?api_key=" + apiKey
-		}
-
-		logger.Sugar.Debugf("Trying WebSocket with api_key parameter: %s", wsURLWithKey)
-		rpcClient, err = ethrpc.DialOptions(ctx, wsURLWithKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to dial WebSocket with API key: %w", err)
-		}
+		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, err)
 	}
 
-	// Create ethclient from the RPC client
+	logger.Sugar.Infof("WebSocket connection established successfully with %s header", headerName)
 	return ethclient.NewClient(rpcClient), nil
+}
+
+// maskAPIKey masks the API key in URLs for logging
+func maskAPIKey(url, apiKey string) string {
+	if apiKey == "" || len(apiKey) < 8 {
+		return url
+	}
+	masked := apiKey[:4] + "****" + apiKey[len(apiKey)-4:]
+	return strings.ReplaceAll(url, apiKey, masked)
 }
