@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -24,7 +23,6 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
@@ -373,52 +371,6 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		return i.runConcurrentIndexing(ctx, client, blockHandler, nextBlockToProcess, cfg)
 	}
 
-	// Sequential processing (original behavior)
-	for i.shouldIndex {
-		i.isStarted = true
-
-		select {
-		case <-ctx.Done():
-			logger.Sugar.Info("Real-time indexing stopped")
-			return nil
-		default:
-			// Process the specific block we want (nextBlockToProcess)
-			logger.Sugar.Infof("=== Processing block %d ===", nextBlockToProcess)
-
-			err := i.processBlock(ctx, client, blockHandler, nextBlockToProcess)
-			if err != nil {
-				if errors.IsErrNotFound(err) {
-					// Block doesn't exist yet (we're ahead of the chain) - wait 3 seconds and try again
-					logger.Sugar.Infof("Block %d not available yet (ahead of chain), waiting 3s before retry...", nextBlockToProcess)
-					time.Sleep(3 * time.Second)
-					continue
-				} else if errors.IsErrAlreadyExists(err) {
-					// Block already processed, move to next
-					logger.Sugar.Infof("Block %d already processed, moving to next", nextBlockToProcess)
-					nextBlockToProcess++
-					i.hasIndexedAtLeastOneBlock = true
-					continue
-				} else if errors.IsErrUnsupportedTxType(err) {
-					// Skip problematic block
-					logger.Sugar.Warnf("Block %d has unsupported transaction types, skipping", nextBlockToProcess)
-					nextBlockToProcess++
-					i.hasIndexedAtLeastOneBlock = true
-					continue
-				} else {
-					// Other error - retry in 3 seconds
-					logger.Sugar.Errorf("Failed to process block %d: %v, retrying in 3s", nextBlockToProcess, err)
-					time.Sleep(3 * time.Second)
-					continue
-				}
-			}
-
-			// Success! Move to next block (Step 3: increment by 1 and repeat)
-			logger.Sugar.Infof("Successfully processed block %d", nextBlockToProcess)
-			nextBlockToProcess++
-			i.hasIndexedAtLeastOneBlock = true
-		}
-	}
-
 	return nil
 }
 
@@ -447,105 +399,9 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	})
 }
 
-// processBlock fetches and stores a single block with retry logic
-func (i *ChainIndexer) processBlock(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler *defra.BlockHandler, blockNum int64) error {
-	var block *types.Block
-	var err error
 
-	// Retry logic for fetching block from Ethereum
-	for attempt := range DefaultRetryAttempts {
-		block, err = ethClient.GetBlockByNumber(ctx, big.NewInt(blockNum))
-		if err == nil {
-			break
-		}
 
-		if attempt < DefaultRetryAttempts-1 {
-			retryDelay := time.Duration(attempt+1) * time.Second
-			logger.Sugar.Warnf("Failed to fetch block %d (attempt %d/%d): %v, retrying in %v",
-				blockNum, attempt+1, DefaultRetryAttempts, err, retryDelay)
-			time.Sleep(retryDelay)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("failed to fetch block %d after %d attempts: %w", blockNum, DefaultRetryAttempts, err)
-	}
 
-	return i.processBlockBatch(ctx, ethClient, blockHandler, block, blockNum)
-}
-
-// processBlockBatch creates all documents for a block using optimized batch mutations.
-// This streams receipts as they arrive and processes them concurrently with fetching,
-// reducing latency compared to waiting for all receipts before processing.
-func (i *ChainIndexer) processBlockBatch(ctx context.Context, ethClient *rpc.EthereumClient, blockHandler *defra.BlockHandler, block *types.Block, blockNum int64) error {
-	type txWithReceipt struct {
-		tx      *types.Transaction
-		receipt *types.TransactionReceipt
-	}
-	receiptWorkers := i.cfg.Indexer.ReceiptWorkers
-	receiptChan := make(chan txWithReceipt, receiptWorkers*2)
-
-	var fetchWg sync.WaitGroup
-	receiptSem := make(chan struct{}, receiptWorkers)
-
-	for idx := range block.Transactions {
-		tx := &block.Transactions[idx]
-		fetchWg.Add(1)
-		go func(tx *types.Transaction) {
-			defer fetchWg.Done()
-			receiptSem <- struct{}{}
-			defer func() { <-receiptSem }()
-
-			receipt, err := ethClient.GetTransactionReceipt(ctx, tx.Hash)
-			if err != nil {
-				logger.Sugar.Warnf("Failed to get receipt for tx %s: %v", tx.Hash, err)
-				return
-			}
-			receiptChan <- txWithReceipt{tx: tx, receipt: receipt}
-		}(tx)
-	}
-
-	go func() {
-		fetchWg.Wait()
-		close(receiptChan)
-	}()
-
-	var transactions []*types.Transaction
-	var receipts []*types.TransactionReceipt
-	for result := range receiptChan {
-		transactions = append(transactions, result.tx)
-		receipts = append(receipts, result.receipt)
-	}
-
-	var err error
-	for attempt := range DefaultRetryAttempts {
-		_, err = blockHandler.CreateBlockBatch(ctx, block, transactions, receipts)
-		if err == nil {
-			break
-		}
-
-		if errors.IsErrAlreadyExists(err) {
-			// Block exists via P2P, but we still need to sign it with our identity
-			if _, signErr := blockHandler.CreateBlockSignatureForExistingBlock(ctx, blockNum, block.Hash, block, transactions, receipts); signErr != nil {
-				logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, signErr)
-			}
-			return nil
-		}
-
-		if attempt < DefaultRetryAttempts-1 {
-			retryDelay := time.Duration(attempt+1) * time.Second
-			logger.Sugar.Warnf("Failed to batch create block %d (attempt %d/%d): %v, retrying in %v",
-				blockNum, attempt+1, DefaultRetryAttempts, err, retryDelay)
-			time.Sleep(retryDelay)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("failed to batch create block %d after %d attempts: %w", blockNum, DefaultRetryAttempts, err)
-	}
-
-	logger.Sugar.Infof("Successfully batch processed block %d with %d transactions", blockNum, len(block.Transactions))
-	i.updateBlockInfo(blockNum)
-	return nil
-}
 
 func (i *ChainIndexer) StopIndexing() {
 	i.shouldIndex = false
