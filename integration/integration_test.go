@@ -193,7 +193,7 @@ func insertMockData() error {
 	// Create Block 1
 	block1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
-			create_%s(input: {`, constants.CollectionBlock) + `
+			add_%s(input: {`, constants.CollectionBlock) + `
 				hash: "0x1000001000000000000000000000000000000000000000000000000000000001"
 				number: 1000001
 				timestamp: "1640995200"
@@ -254,7 +254,7 @@ func insertMockData() error {
 
 	// Extract Block 1 DocID
 	if data, ok := block1Resp["data"].(map[string]any); ok {
-		if createBlock, ok := data[fmt.Sprintf("create_%s", constants.CollectionBlock)].([]any); ok && len(createBlock) > 0 {
+		if createBlock, ok := data[fmt.Sprintf("add_%s", constants.CollectionBlock)].([]any); ok && len(createBlock) > 0 {
 			if blockData, ok := createBlock[0].(map[string]any); ok {
 				if docID, ok := blockData["_docID"].(string); ok {
 					block1DocID = docID
@@ -267,7 +267,7 @@ func insertMockData() error {
 	// Create Block 2
 	block2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
-			create_%s(input: {`, constants.CollectionBlock) + `
+			add_%s(input: {`, constants.CollectionBlock) + `
 				hash: "0x1000002000000000000000000000000000000000000000000000000000000002"
 				number: 1000002
 				timestamp: "1640995212"
@@ -328,7 +328,7 @@ func insertMockData() error {
 
 	// Extract Block 2 DocID
 	if data, ok := block2Resp["data"].(map[string]any); ok {
-		if createBlock, ok := data[fmt.Sprintf("create_%s", constants.CollectionBlock)].([]any); ok && len(createBlock) > 0 {
+		if createBlock, ok := data[fmt.Sprintf("add_%s", constants.CollectionBlock)].([]any); ok && len(createBlock) > 0 {
 			if blockData, ok := createBlock[0].(map[string]any); ok {
 				if docID, ok := blockData["_docID"].(string); ok {
 					block2DocID = docID
@@ -341,7 +341,7 @@ func insertMockData() error {
 	// Create Transaction 1 with relationship to Block 1
 	tx1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
-			create_%s(input: {`, constants.CollectionTransaction) + fmt.Sprintf(`
+			add_%s(input: {`, constants.CollectionTransaction) + fmt.Sprintf(`
 				hash: "0x2000001000000000000000000000000000000000000000000000000000000001"
 				blockHash: "0x1000001000000000000000000000000000000000000000000000000000000001"
 				blockNumber: 1000001
@@ -403,7 +403,7 @@ func insertMockData() error {
 
 	// Extract Transaction 1 DocID
 	if data, ok := tx1Resp["data"].(map[string]any); ok {
-		if createTx, ok := data[fmt.Sprintf("create_%s", constants.CollectionTransaction)].([]any); ok && len(createTx) > 0 {
+		if createTx, ok := data[fmt.Sprintf("add_%s", constants.CollectionTransaction)].([]any); ok && len(createTx) > 0 {
 			if txData, ok := createTx[0].(map[string]any); ok {
 				if docID, ok := txData["_docID"].(string); ok {
 					tx1DocID = docID
@@ -416,7 +416,7 @@ func insertMockData() error {
 	// Create Transaction 2 with relationship to Block 2
 	tx2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
-			create_%s(input: {`, constants.CollectionTransaction) + fmt.Sprintf(`
+			add_%s(input: {`, constants.CollectionTransaction) + fmt.Sprintf(`
 				hash: "0x2000002000000000000000000000000000000000000000000000000000000002"
 				blockHash: "0x1000002000000000000000000000000000000000000000000000000000000002"
 				blockNumber: 1000002
@@ -478,7 +478,7 @@ func insertMockData() error {
 
 	// Extract Transaction 2 DocID
 	if data, ok := tx2Resp["data"].(map[string]any); ok {
-		if createTx, ok := data[fmt.Sprintf("create_%s", constants.CollectionTransaction)].([]any); ok && len(createTx) > 0 {
+		if createTx, ok := data[fmt.Sprintf("add_%s", constants.CollectionTransaction)].([]any); ok && len(createTx) > 0 {
 			if txData, ok := createTx[0].(map[string]any); ok {
 				if docID, ok := txData["_docID"].(string); ok {
 					tx2DocID = docID
@@ -491,7 +491,7 @@ func insertMockData() error {
 	// Create Log 1 for Transaction 1
 	log1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
-			create_%s(input: {`, constants.CollectionLog) + fmt.Sprintf(`
+			add_%s(input: {`, constants.CollectionLog) + fmt.Sprintf(`
 				address: "0x4000000000000000000000000000000000000001"
 				topics: ["0x5000000000000000000000000000000000000000000000000000000000000001", "0x5000000000000000000000000000000000000000000000000000000000000002"]
 				data: "0x6000000000000000000000000000000000000000000000000000000000000001"
@@ -547,7 +547,7 @@ func insertMockData() error {
 	// Create Log 2 for Transaction 2
 	log2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
-			create_%s(input: {`, constants.CollectionLog) + fmt.Sprintf(`
+			add_%s(input: {`, constants.CollectionLog) + fmt.Sprintf(`
 				address: "0x4000000000000000000000000000000000000002"
 				topics: ["0x5000000000000000000000000000000000000000000000000000000000000003", "0x5000000000000000000000000000000000000000000000000000000000000004"]
 				data: "0x6000000000000000000000000000000000000000000000000000000000000002"
