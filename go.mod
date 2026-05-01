@@ -8,13 +8,11 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.47.0
 	github.com/multiformats/go-multihash v0.2.3
-	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260325173318-87784b9925c2
+	github.com/shinzonetwork/shinzo-app-sdk v0.0.0-20260501193240-a38a7db07dab
 	github.com/sourcenetwork/immutable v0.3.0
 	go.uber.org/zap v1.28.0
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace github.com/shinzonetwork/shinzo-app-sdk => ../shinzo-app-sdk
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
