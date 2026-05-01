@@ -49,7 +49,7 @@ jobs:
           docker push ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: bin/block_poster
           generate_release_notes: true
