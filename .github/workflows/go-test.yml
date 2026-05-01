@@ -35,7 +35,7 @@ jobs:
         go test -parallel=${{ steps.cpu.outputs.count  }} ./...
 
     - name: Upload coverage
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v6
       with:
         file: ./coverage.out
         flags: unittests
