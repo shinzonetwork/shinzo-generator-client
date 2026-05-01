@@ -1,10 +1,6 @@
-name: Build and Push
+name: Build and Push Custom Network
 
 on:
-  workflow_run:
-    workflows: ["Go Test CI"]
-    types: [completed]
-    branches: [main, develop]
   workflow_dispatch:
 
 concurrency:
@@ -17,14 +13,13 @@ env:
 
 jobs:
   # Job 1: Build and push standard image (standard)
-  build-and-push-standard:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+  build-and-push-custom:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Get short SHA
         id: short_sha
@@ -40,21 +35,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push standard image
+      - name: Build and push custom image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:custom-network-testnet
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   # Job 2: Build summary
   build-summary:
-    needs: [build-and-push-standard]
+    needs: [build-and-push-custom]
     runs-on: ubuntu-latest
     steps:
       - name: Build summary
@@ -63,4 +57,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Image | Tag |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| Standard | ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard" >> $GITHUB_STEP_SUMMARY
+          echo "| Custom Network | ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:custom-network-testnet" >> $GITHUB_STEP_SUMMARY

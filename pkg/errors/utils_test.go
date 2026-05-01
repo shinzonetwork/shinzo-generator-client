@@ -7,6 +7,7 @@ import (
 )
 
 func TestIsErrNotFound(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -28,6 +29,7 @@ func TestIsErrNotFound(t *testing.T) {
 }
 
 func TestIsErrAlreadyExists(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -49,6 +51,7 @@ func TestIsErrAlreadyExists(t *testing.T) {
 }
 
 func TestIsErrTransactionConflict(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -69,6 +72,7 @@ func TestIsErrTransactionConflict(t *testing.T) {
 }
 
 func TestIsErrUnsupportedTxType(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -90,6 +94,7 @@ func TestIsErrUnsupportedTxType(t *testing.T) {
 }
 
 func TestIsRetryable(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -111,6 +116,7 @@ func TestIsRetryable(t *testing.T) {
 }
 
 func TestIsRetryableWithBackoff(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -132,6 +138,7 @@ func TestIsRetryableWithBackoff(t *testing.T) {
 }
 
 func TestIsCritical(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -152,6 +159,7 @@ func TestIsCritical(t *testing.T) {
 }
 
 func TestIsNetworkError(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -172,6 +180,7 @@ func TestIsNetworkError(t *testing.T) {
 }
 
 func TestIsDataError(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -192,6 +201,7 @@ func TestIsDataError(t *testing.T) {
 }
 
 func TestIsStorageError(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -212,6 +222,7 @@ func TestIsStorageError(t *testing.T) {
 }
 
 func TestGetErrorCode(t *testing.T) {
+t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
@@ -231,6 +242,7 @@ func TestGetErrorCode(t *testing.T) {
 }
 
 func TestGetRetryDelay(t *testing.T) {
+t.Parallel()
 	nonRetryable := NewInvalidHex("conv", "op", "", nil)
 	retryable := NewRPCTimeout("rpc", "op", "", nil)
 	backoff := NewRateLimited("rpc", "op", "", nil)
@@ -263,6 +275,7 @@ func TestGetRetryDelay(t *testing.T) {
 }
 
 func TestWrapError(t *testing.T) {
+t.Parallel()
 	t.Run("nil returns nil", func(t *testing.T) {
 		result := WrapError(nil, "comp", "op")
 		if result != nil {
@@ -295,6 +308,7 @@ func TestWrapError(t *testing.T) {
 }
 
 func TestLogContext_IndexerError(t *testing.T) {
+t.Parallel()
 	blockNum := int64(42)
 	txHash := "0xabc"
 	err := NewRPCTimeout("rpc", "GetBlock", "", nil,
@@ -332,6 +346,7 @@ func TestLogContext_IndexerError(t *testing.T) {
 }
 
 func TestLogContext_IndexerError_MinimalContext(t *testing.T) {
+t.Parallel()
 	err := NewInvalidHex("conv", "ParseHex", "bad", nil)
 	ctx := LogContext(err)
 
@@ -348,6 +363,7 @@ func TestLogContext_IndexerError_MinimalContext(t *testing.T) {
 }
 
 func TestLogContext_PlainError(t *testing.T) {
+t.Parallel()
 	err := fmt.Errorf("something broke")
 	ctx := LogContext(err)
 

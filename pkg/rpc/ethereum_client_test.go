@@ -81,11 +81,11 @@ func simpleRPCServer() *httptest.Server {
 // --- NewEthereumClient ---
 
 func TestNewEthereumClient_HTTPOnly(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -95,11 +95,11 @@ t.Parallel()
 }
 
 func TestNewEthereumClient_WithAPIKey(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "test-api-key-12345")
+	client, err := NewEthereumClient(server.URL, "", "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -108,23 +108,23 @@ t.Parallel()
 }
 
 func TestNewEthereumClient_InvalidHTTP(t *testing.T) {
-t.Parallel()
-	_, err := NewEthereumClient("invalid-url", "", "")
+	t.Parallel()
+	_, err := NewEthereumClient("invalid-url", "", "", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_InvalidHTTPWithAPIKey(t *testing.T) {
-t.Parallel()
-	_, err := NewEthereumClient("invalid-url", "", "test-api-key")
+	t.Parallel()
+	_, err := NewEthereumClient("invalid-url", "", "test-api-key", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_InvalidWebSocket_FallsBackToHTTP(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "ws://invalid-websocket-url:9999", "")
+	client, err := NewEthereumClient(server.URL, "ws://invalid-websocket-url:9999", "", "X-Api-Key")
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 	assert.NotNil(t, client.httpClient)
@@ -132,48 +132,50 @@ t.Parallel()
 }
 
 func TestNewEthereumClient_InvalidWS_WithAPIKey_FallsBackToHTTP(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "ws://invalid-ws:9999", "test-api-key-12345")
+	client, err := NewEthereumClient(server.URL, "ws://invalid-ws:9999", "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 }
 
 func TestNewEthereumClient_NoEndpoints(t *testing.T) {
-t.Parallel()
-	_, err := NewEthereumClient("", "", "")
+	t.Parallel()
+	_, err := NewEthereumClient("", "", "", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_OnlyInvalidWS_NoHTTP(t *testing.T) {
-t.Parallel()
-	_, err := NewEthereumClient("", "ws://invalid:9999", "")
+	t.Parallel()
+	_, err := NewEthereumClient("", "ws://invalid:9999", "", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 func TestNewEthereumClient_OnlyInvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
-t.Parallel()
-	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345")
+	t.Parallel()
+	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 // --- apiKeyTransport ---
 
 func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	var receivedAPIKey string
+	headerName := "X-Api-Key"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedAPIKey = r.Header.Get("X-goog-api-key")
+		receivedAPIKey = r.Header.Get(headerName)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 	}))
 	defer server.Close()
 
 	transport := &apiKeyTransport{
-		apiKey: "my-api-key-1234567890",
-		base:   http.DefaultTransport,
+		apiKey:       "my-api-key-1234567890",
+		apiKeyHeader: "X-Api-Key",
+		base:         http.DefaultTransport,
 	}
 	client := &http.Client{Transport: transport}
 	resp, err := client.Get(server.URL)
@@ -185,10 +187,11 @@ t.Parallel()
 }
 
 func TestApiKeyTransport_RoundTrip_Failure(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	transport := &apiKeyTransport{
-		apiKey: "my-api-key-1234567890",
-		base:   http.DefaultTransport,
+		apiKey:       "my-api-key-1234567890",
+		apiKeyHeader: "X-Api-Key",
+		base:         http.DefaultTransport,
 	}
 	client := &http.Client{Transport: transport}
 	_, err := client.Get("http://192.0.2.1:9999") // non-routable
@@ -198,11 +201,11 @@ t.Parallel()
 // --- getPreferredClient ---
 
 func TestGetPreferredClient_WSAvailable(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	httpClient, err := NewEthereumClient(server.URL, "", "")
+	httpClient, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 
 	// Simulate both clients
@@ -216,11 +219,11 @@ t.Parallel()
 }
 
 func TestGetPreferredClient_OnlyHTTP(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 
 	result := client.getPreferredClient()
@@ -229,7 +232,7 @@ t.Parallel()
 }
 
 func TestGetPreferredClient_NoneAvailable(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	result := client.getPreferredClient()
 	assert.Nil(t, result)
@@ -238,42 +241,42 @@ t.Parallel()
 // --- Methods with nil client ---
 
 func TestGetNetworkID_NilClient(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetNetworkID(context.Background())
 	assert.Error(t, err)
 }
 
 func TestGetLatestBlockNumber_NilClient(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetLatestBlockNumber(context.Background())
 	assert.Error(t, err)
 }
 
 func TestGetLatestBlock_NilClient(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetLatestBlock(context.Background())
 	assert.Error(t, err)
 }
 
 func TestGetBlockByNumber_NilClient(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetBlockByNumber(context.Background(), big.NewInt(1))
 	assert.Error(t, err)
 }
 
 func TestGetTransactionReceipt_NilClient(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetTransactionReceipt(context.Background(), "0xabc")
 	assert.Error(t, err)
 }
 
 func TestGetBlockReceipts_NilClient(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	_, err := client.GetBlockReceipts(context.Background(), big.NewInt(1))
 	assert.Error(t, err)
@@ -282,7 +285,7 @@ t.Parallel()
 // --- convertGethBlock ---
 
 func TestConvertGethBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	header := &ethtypes.Header{
 		Number:      big.NewInt(1234567),
 		ParentHash:  common.HexToHash("0xparent"),
@@ -312,14 +315,14 @@ t.Parallel()
 }
 
 func TestConvertGethBlock_NilBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	result := client.convertGethBlock(nil)
 	assert.Nil(t, result)
 }
 
 func TestConvertGethBlock_WithBaseFee(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	header := &ethtypes.Header{
 		Number:   big.NewInt(100),
 		BaseFee:  big.NewInt(1000000000),
@@ -335,7 +338,7 @@ t.Parallel()
 }
 
 func TestConvertGethBlock_WithoutBaseFee(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	header := &ethtypes.Header{
 		Number:   big.NewInt(100),
 		GasLimit: 8000000,
@@ -352,7 +355,7 @@ t.Parallel()
 // --- convertTransaction ---
 
 func TestConvertTransaction(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), []byte("test data"))
 	header := &ethtypes.Header{Number: big.NewInt(1234567)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
@@ -368,7 +371,7 @@ t.Parallel()
 }
 
 func TestConvertTransaction_ContractCreation(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tx := ethtypes.NewContractCreation(1, big.NewInt(0), 21000, big.NewInt(20000000000), []byte("contract bytecode"))
 	header := &ethtypes.Header{Number: big.NewInt(1234567)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
@@ -381,7 +384,7 @@ t.Parallel()
 }
 
 func TestConvertTransaction_EIP1559(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
 
@@ -413,7 +416,7 @@ t.Parallel()
 }
 
 func TestConvertTransaction_AccessList(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
 
@@ -453,14 +456,14 @@ t.Parallel()
 // --- convertGethReceipt ---
 
 func TestConvertGethReceipt_Nil(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	result := client.convertGethReceipt(nil)
 	assert.Nil(t, result)
 }
 
 func TestConvertGethReceipt_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	receipt := &ethtypes.Receipt{
 		Status:            ethtypes.ReceiptStatusSuccessful,
 		CumulativeGasUsed: 21000,
@@ -483,7 +486,7 @@ t.Parallel()
 }
 
 func TestConvertGethReceipt_FailedStatus(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	receipt := &ethtypes.Receipt{
 		Status:      ethtypes.ReceiptStatusFailed,
 		TxHash:      common.HexToHash("0xtxhash"),
@@ -499,7 +502,7 @@ t.Parallel()
 }
 
 func TestConvertGethReceipt_ContractCreation(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	contractAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	receipt := &ethtypes.Receipt{
 		Status:          ethtypes.ReceiptStatusSuccessful,
@@ -517,7 +520,7 @@ t.Parallel()
 }
 
 func TestConvertGethReceipt_WithLogs(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	receipt := &ethtypes.Receipt{
 		Status:      ethtypes.ReceiptStatusSuccessful,
 		TxHash:      common.HexToHash("0xtxhash"),
@@ -548,7 +551,7 @@ t.Parallel()
 // --- convertGethLog ---
 
 func TestConvertGethLog(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	log := &ethtypes.Log{
 		Address:     common.HexToAddress("0xcontract"),
 		Topics:      []common.Hash{common.HexToHash("0xtopic1"), common.HexToHash("0xtopic2")},
@@ -575,7 +578,7 @@ t.Parallel()
 // --- helper functions ---
 
 func TestGetToAddress(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	tx := ethtypes.NewTransaction(1, to, big.NewInt(1000), 21000, big.NewInt(20000000000), []byte("data"))
 	assert.Equal(t, to.Hex(), getToAddress(tx))
@@ -585,27 +588,27 @@ t.Parallel()
 }
 
 func TestGetBaseFeePerGas_Nil(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	header := &ethtypes.Header{Number: big.NewInt(100)}
 	block := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 	assert.Equal(t, "", getBaseFeePerGas(block))
 }
 
 func TestGetBaseFeePerGas_Set(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	header := &ethtypes.Header{Number: big.NewInt(100), BaseFee: big.NewInt(1000)}
 	block := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 	assert.Equal(t, "1000", getBaseFeePerGas(block))
 }
 
 func TestGetMaxFeePerGas_LegacyTx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
 	assert.Equal(t, "", getMaxFeePerGas(tx))
 }
 
 func TestGetMaxFeePerGas_DynamicFeeTx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(1),
 		GasFeeCap: big.NewInt(2000000000),
@@ -617,13 +620,13 @@ t.Parallel()
 }
 
 func TestGetMaxPriorityFeePerGas_LegacyTx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
 	assert.Equal(t, "", getMaxPriorityFeePerGas(tx))
 }
 
 func TestGetMaxPriorityFeePerGas_DynamicFeeTx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(1),
 		GasFeeCap: big.NewInt(2000000000),
@@ -635,7 +638,7 @@ t.Parallel()
 }
 
 func TestGetChainId_LegacyTx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Legacy transactions derive chain ID from signature; for unsigned legacy txs
 	// ChainId() returns a derived value, not nil
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
@@ -645,7 +648,7 @@ t.Parallel()
 }
 
 func TestGetChainId_Set(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(137),
 		GasFeeCap: big.NewInt(2000000000),
@@ -657,26 +660,26 @@ t.Parallel()
 }
 
 func TestGetContractAddress_Empty(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	receipt := &ethtypes.Receipt{ContractAddress: common.Address{}}
 	assert.Equal(t, "", getContractAddress(receipt))
 }
 
 func TestGetContractAddress_Set(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	addr := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	receipt := &ethtypes.Receipt{ContractAddress: addr}
 	assert.Equal(t, addr.Hex(), getContractAddress(receipt))
 }
 
 func TestGetReceiptStatus_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	receipt := &ethtypes.Receipt{Status: ethtypes.ReceiptStatusSuccessful}
 	assert.Equal(t, "1", getReceiptStatus(receipt))
 }
 
 func TestGetReceiptStatus_Failed(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	receipt := &ethtypes.Receipt{Status: ethtypes.ReceiptStatusFailed}
 	assert.Equal(t, "0", getReceiptStatus(receipt))
 }
@@ -684,7 +687,7 @@ t.Parallel()
 // --- GetFromAddress ---
 
 func TestGetFromAddress(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), []byte("data"))
 
 	// Unsigned transaction - should fail gracefully
@@ -696,7 +699,7 @@ t.Parallel()
 }
 
 func TestGetFromAddress_SignedEIP155(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
@@ -719,7 +722,7 @@ t.Parallel()
 }
 
 func TestGetFromAddress_SignedDynamicFee(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
@@ -746,18 +749,18 @@ t.Parallel()
 // --- Close ---
 
 func TestClose_NilClients(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	client := &EthereumClient{}
 	err := client.Close()
 	assert.NoError(t, err)
 }
 
 func TestClose_WithHTTPClient(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 
 	err = client.Close()
@@ -767,7 +770,7 @@ t.Parallel()
 // --- RPC methods with mock server ---
 
 func TestGetLatestBlockNumber_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -796,7 +799,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -807,7 +810,7 @@ t.Parallel()
 }
 
 func TestGetNetworkID_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "net_version":
@@ -818,7 +821,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -862,7 +865,7 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 }
 
 func TestGetBlockByNumber_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -873,7 +876,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -884,7 +887,7 @@ t.Parallel()
 }
 
 func TestGetBlockByNumber_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -895,7 +898,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -906,7 +909,7 @@ t.Parallel()
 // --- GetTransactionReceipt with mock server ---
 
 func TestGetTransactionReceipt_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getTransactionReceipt":
@@ -932,7 +935,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -943,7 +946,7 @@ t.Parallel()
 }
 
 func TestGetTransactionReceipt_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getTransactionReceipt":
@@ -954,7 +957,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -965,7 +968,7 @@ t.Parallel()
 // --- GetBlockReceipts with mock server ---
 
 func TestGetBlockReceipts_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockReceipts":
@@ -990,7 +993,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1001,7 +1004,7 @@ t.Parallel()
 }
 
 func TestGetBlockReceipts_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockReceipts":
@@ -1012,7 +1015,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1023,7 +1026,7 @@ t.Parallel()
 // --- GetLatestBlock with mock server ---
 
 func TestGetLatestBlock_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -1036,7 +1039,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1047,13 +1050,13 @@ t.Parallel()
 }
 
 func TestGetLatestBlock_HeaderError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("connection refused")
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1063,7 +1066,7 @@ t.Parallel()
 }
 
 func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	callCount := 0
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
@@ -1081,7 +1084,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1091,7 +1094,7 @@ t.Parallel()
 }
 
 func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	callCount := 0
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
@@ -1109,7 +1112,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1121,7 +1124,7 @@ t.Parallel()
 // --- GetLatestBlockNumber error path ---
 
 func TestGetLatestBlockNumber_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
@@ -1132,7 +1135,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1144,7 +1147,7 @@ t.Parallel()
 // --- convertGethBlock with failed transaction conversion ---
 
 func TestConvertGethBlock_WithUncles(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	parentHeader := &ethtypes.Header{Number: big.NewInt(99)}
 	uncleHeader := &ethtypes.Header{Number: big.NewInt(98)}
 
@@ -1167,11 +1170,11 @@ t.Parallel()
 // --- Close with both clients ---
 
 func TestClose_WithBothClients(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 
 	// Set wsClient to a copy of httpClient for testing
@@ -1184,7 +1187,7 @@ t.Parallel()
 // --- GetFromAddress pre-EIP-155 (Homestead signer) ---
 
 func TestGetFromAddress_HomesteadSigner(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	key, expectedAddr := defaultTestKey()
 
 	inner := &ethtypes.LegacyTx{
@@ -1207,7 +1210,7 @@ t.Parallel()
 }
 
 func TestGetFromAddress_FrontierSigner(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	key, expectedAddr := defaultTestKey()
 
 	inner := &ethtypes.LegacyTx{
@@ -1232,7 +1235,7 @@ t.Parallel()
 // --- convertTransaction with signed legacy (exercises fromAddr != nil path) ---
 
 func TestConvertTransaction_SignedLegacy(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
@@ -1261,7 +1264,7 @@ t.Parallel()
 // --- GetLatestBlock with unsupported tx type error ---
 
 func TestGetLatestBlock_UnsupportedTxType_Exhausted(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping slow retry test")
 	}
@@ -1279,7 +1282,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1289,7 +1292,7 @@ t.Parallel()
 }
 
 func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping slow retry test")
 	}
@@ -1310,7 +1313,7 @@ t.Parallel()
 	})
 	defer server.Close()
 
-	client, err := NewEthereumClient(server.URL, "", "")
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1322,7 +1325,7 @@ t.Parallel()
 // --- convertGethBlock with failed tx conversion (warn+continue path) ---
 
 func TestConvertGethBlock_FailedTxConversion(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	header := &ethtypes.Header{
 		Number:   big.NewInt(100),
 		GasLimit: 8000000,
@@ -1360,7 +1363,7 @@ t.Parallel()
 // --- convertTransaction fromAddr == nil path ---
 
 func TestConvertTransaction_NilFromAddr(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// A transaction where GetFromAddress returns nil, nil is not normally possible
 	// with go-ethereum types, but the code handles it. We test via an unsigned
 	// legacy tx which takes the error path with zero address fallback.
@@ -1379,7 +1382,7 @@ t.Parallel()
 // --- GetFromAddress all signers fail ---
 
 func TestGetFromAddress_AllSignersFail(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Create a DynamicFeeTx with a non-zero chain ID but completely invalid signature
 	// so that all post-EIP-155 signers fail
 	inner := &ethtypes.DynamicFeeTx{
@@ -1404,12 +1407,12 @@ t.Parallel()
 // --- NewEthereumClient WebSocket without API key (invalid, falls back to HTTP) ---
 
 func TestNewEthereumClient_InvalidWS_NoAPIKey_FallsBackToHTTP(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
 	// WS is invalid but HTTP works — should succeed with HTTP only
-	client, err := NewEthereumClient(server.URL, "ws://invalid-ws-url:9999", "")
+	client, err := NewEthereumClient(server.URL, "ws://invalid-ws-url:9999", "", "X-Api-Key")
 	require.NoError(t, err)
 	assert.NotNil(t, client.httpClient)
 	assert.Nil(t, client.wsClient)
@@ -1418,7 +1421,7 @@ t.Parallel()
 // --- convertTransaction with BlobTx (default switch case) ---
 
 func TestConvertTransaction_BlobTx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// BlobTx has type 3 which exercises the default case in the gasPrice switch
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
@@ -1455,7 +1458,7 @@ t.Parallel()
 // --- getChainId nil check ---
 
 func TestGetChainId_NilChainID(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// BlobTx with a nil ChainID field to test the nil check in getChainId.
 	// This is an edge case that shouldn't happen in practice, but the code guards against it.
 	// An unsigned BlobTx with ChainID left nil will still return non-nil from tx.ChainId()
@@ -1481,19 +1484,19 @@ t.Parallel()
 // --- createWebSocketWithHeaders URL with existing query parameter ---
 
 func TestCreateWebSocketWithHeaders_URLWithQueryParam(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Test the branch where the WS URL already contains "?" (query string),
 	// so the function appends with "&" instead of "?"
-	_, err := createWebSocketWithHeaders("ws://invalid-host:9999?existing=param", "test-api-key")
+	_, err := createWebSocketWithHeaders("ws://invalid-host:9999?existing=param", "test-api-key", "X-Api-Key")
 	// Connection will fail, but we exercise the URL construction path with "&key=" and "&api_key="
 	assert.Error(t, err)
 }
 
 func TestCreateWebSocketWithHeaders_URLWithoutQueryParam(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Test the branch where the WS URL has no query string,
 	// so the function appends with "?" for both key= and api_key=
-	_, err := createWebSocketWithHeaders("ws://invalid-host:9999", "test-api-key")
+	_, err := createWebSocketWithHeaders("ws://invalid-host:9999", "test-api-key", "X-Api-Key")
 	assert.Error(t, err)
 }
 
@@ -1538,7 +1541,7 @@ func newWSMockServer() *httptest.Server {
 }
 
 func TestCreateWebSocketWithHeaders_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Start a real WebSocket server to exercise the success path
 	server := newWSMockServer()
 	defer server.Close()
@@ -1546,28 +1549,28 @@ t.Parallel()
 	// Convert http://... to ws://...
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	client, err := createWebSocketWithHeaders(wsURL, "test-api-key")
+	client, err := createWebSocketWithHeaders(wsURL, "test-api-key", "X-Api-Key")
 	require.NoError(t, err)
 	require.NotNil(t, client)
 	client.Close()
 }
 
 func TestCreateWebSocketWithHeaders_SuccessWithQueryParam(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Test the success path when the URL already contains "?"
 	server := newWSMockServer()
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "?existing=param"
 
-	client, err := createWebSocketWithHeaders(wsURL, "test-api-key")
+	client, err := createWebSocketWithHeaders(wsURL, "test-api-key", "X-Api-Key")
 	require.NoError(t, err)
 	require.NotNil(t, client)
 	client.Close()
 }
 
 func TestNewEthereumClient_WSSuccess_WithAPIKey(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// HTTP server for the HTTP client
 	httpServer := simpleRPCServer()
 	defer httpServer.Close()
@@ -1578,7 +1581,7 @@ t.Parallel()
 
 	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
 
-	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345")
+	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1587,7 +1590,7 @@ t.Parallel()
 }
 
 func TestNewEthereumClient_WSSuccess_NoAPIKey(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// HTTP server for the HTTP client
 	httpServer := simpleRPCServer()
 	defer httpServer.Close()
@@ -1598,7 +1601,7 @@ t.Parallel()
 
 	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
 
-	client, err := NewEthereumClient(httpServer.URL, wsURL, "")
+	client, err := NewEthereumClient(httpServer.URL, wsURL, "", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1607,7 +1610,7 @@ t.Parallel()
 }
 
 func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Test the path where createWebSocketWithHeaders fails (rejects URLs with
 	// query params) but the standard ethclient.Dial fallback succeeds.
 	// This exercises lines 83-96 in NewEthereumClient.
@@ -1653,7 +1656,7 @@ t.Parallel()
 
 	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
 
-	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345")
+	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -1665,21 +1668,21 @@ t.Parallel()
 // --- NewEthereumClient WS with API key, both approaches fail, no HTTP ---
 
 func TestNewEthereumClient_InvalidWS_WithAPIKey_NoHTTP(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// WS with API key fails completely and there's no HTTP fallback
-	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345")
+	_, err := NewEthereumClient("", "ws://invalid:9999", "test-api-key-12345", "X-Api-Key")
 	assert.Error(t, err)
 }
 
 // --- NewEthereumClient WS with API key where URL has query param, falls back to HTTP ---
 
 func TestNewEthereumClient_InvalidWSWithQueryParam_WithAPIKey_FallsBackToHTTP(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
 	// WS URL contains "?" to exercise the "&key=" path in createWebSocketWithHeaders
-	client, err := NewEthereumClient(server.URL, "ws://invalid:9999?param=value", "test-api-key-12345")
+	client, err := NewEthereumClient(server.URL, "ws://invalid:9999?param=value", "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
 	assert.NotNil(t, client.httpClient)
 	assert.Nil(t, client.wsClient)
@@ -1688,7 +1691,7 @@ t.Parallel()
 // --- convertGethBlock with a block containing a BlobTx ---
 
 func TestConvertGethBlock_WithBlobTx(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
 
@@ -1730,7 +1733,7 @@ t.Parallel()
 // --- GetFromAddress pre-EIP-155 where both Homestead and Frontier fail ---
 
 func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Create a legacy tx with V=27 (pre-EIP-155 marker) and R=0, S=0.
 	// deriveChainId(27) returns 0, so ChainId().Sign() == 0, entering the pre-EIP-155 path.
 	// Both HomesteadSigner and FrontierSigner will fail to recover a sender
@@ -1756,7 +1759,7 @@ t.Parallel()
 // --- convertTransaction where GetFromAddress errors (zero address fallback) ---
 
 func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Unsigned legacy tx triggers GetFromAddress error, which falls back to zero address
 	inner := &ethtypes.LegacyTx{
 		Nonce:    0,
@@ -1780,7 +1783,7 @@ t.Parallel()
 // --- GetFromAddress FrontierSigner fallback (high-s value) ---
 
 func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Craft a pre-EIP-155 tx where HomesteadSigner rejects (s > secp256k1HalfN)
 	// but FrontierSigner accepts. We sign normally, then flip s to s' = N - s
 	// and adjust v, producing a valid but "non-canonical" signature.

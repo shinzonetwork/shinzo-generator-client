@@ -1,6 +1,6 @@
 # Multi-stage build for Shinzo Network Ethereum Indexer
 # Stage 1: Builder stage
-FROM golang:1.25 AS builder
+FROM golang:1.26 AS builder
 
 # Build arguments
 ARG BUILD_DATE

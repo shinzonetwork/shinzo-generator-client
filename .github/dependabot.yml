@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Go package configurations
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: "main"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+
+  # GitHub Actions configurations
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: "main"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies

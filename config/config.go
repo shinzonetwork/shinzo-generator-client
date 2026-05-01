@@ -63,9 +63,10 @@ type ChainConfig struct {
 
 // GethConfig represents Geth node configuration
 type GethConfig struct {
-	NodeURL string `yaml:"node_url"`
-	WsURL   string `yaml:"ws_url"`
-	APIKey  string `yaml:"api_key"`
+	NodeURL    string `yaml:"node_url"`
+	WsURL      string `yaml:"ws_url"`
+	APIKey     string `yaml:"api_key"`
+	APIKeyType string `yaml:"api_key_type"`
 }
 
 // IndexerConfig represents indexer configuration
