@@ -94,7 +94,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestGraphQLConnection(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.Test("Testing GraphQL connection")
 	resp, err := http.Post(graphqlURL, "application/json", bytes.NewBuffer([]byte(`{"query":"query { __typename }"}`)))
 	if err != nil {
@@ -608,6 +608,6 @@ func insertMockData() error {
 func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
 
-	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchemaForChain(constants.DefaultCollectionPrefix))
+	_, err := defraNode.DB.AddCollection(ctx, schema.GetSchemaForChain(constants.DefaultCollectionPrefix))
 	return err
 }
