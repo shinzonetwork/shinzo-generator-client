@@ -13,8 +13,10 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
+	acpIdentity "github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
+	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -68,6 +70,8 @@ type BlockHandler struct {
 	// Document throughput metrics
 	metricsWindowStart  time.Time
 	docsCreatedInWindow int
+
+	nodeIdentity acpIdentity.FullIdentity // add this
 }
 
 // logEntry holds a log and its associated transaction ID for batched processing
@@ -85,7 +89,7 @@ type aleEntry struct {
 
 // NewBlockHandler creates a BlockHandler that uses direct DB calls.
 // maxDocsPerTxn is the threshold for single-txn vs batched block creation.
-func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *constants.CollectionNames) (*BlockHandler, error) {
+func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *constants.CollectionNames, ident acpIdentity.FullIdentity) (*BlockHandler, error) {
 	if defraNode == nil {
 		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
 			"defraNode is nil", "", nil)
@@ -96,16 +100,22 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *const
 	if collections == nil {
 		collections = constants.NewCollectionNames(constants.DefaultCollectionPrefix)
 	}
-	return &BlockHandler{
+	h := &BlockHandler{
 		db:               defraNode.DB,
 		maxDocsPerTxn:    maxDocsPerTxn,
 		collections:      collections,
-		signBlockFn:      node.SignBlock,
 		verifyBlockSigFn: node.VerifyBlockSignatureCIDs,
 		collectDocCIDsFn: node.CollectDocumentCIDs,
 		maxCIDRetries:    15,
 		retryBackoffFn:   retryBackoff,
-	}, nil
+		nodeIdentity:     ident,
+	}
+	if ident != nil {
+		h.signBlockFn = h.signBlockWithIdentity
+	} else {
+		h.signBlockFn = node.SignBlock
+	}
+	return h, nil
 }
 
 // SetDocIDTracker sets the tracker for recording docIDs at insert time
@@ -207,7 +217,7 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 	blockID := blockDoc.ID().String()
 
 	// Create block first (it's now part of the signed content, not just envelope)
-	if err := colBlock.Create(ctx, blockDoc); err != nil {
+	if err := colBlock.AddDocument(ctx, blockDoc); err != nil {
 		txn.Discard()
 		if errors.IsErrAlreadyExists(err) {
 			return "", fmt.Errorf("block already exists")
@@ -233,7 +243,7 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 		}
 
 		if len(txDocs) > 0 {
-			if err := colTx.CreateMany(ctx, txDocs); err != nil {
+			if err := colTx.AddManyDocuments(ctx, txDocs); err != nil {
 				txn.Discard()
 				return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create transactions", err)
 			}
@@ -264,7 +274,7 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 	}
 
 	if len(logDocs) > 0 {
-		if err := colLog.CreateMany(ctx, logDocs); err != nil {
+		if err := colLog.AddManyDocuments(ctx, logDocs); err != nil {
 			txn.Discard()
 			return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create logs", err)
 		}
@@ -290,7 +300,7 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 	}
 
 	if len(aleDocs) > 0 {
-		if err := colALE.CreateMany(ctx, aleDocs); err != nil {
+		if err := colALE.AddManyDocuments(ctx, aleDocs); err != nil {
 			txn.Discard()
 			return "", errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create ALEs", err)
 		}
@@ -319,7 +329,7 @@ func (h *BlockHandler) createBlockSingleTransaction(ctx context.Context, block *
 		if err != nil {
 			logger.Sugar.Warnf("Block %d: failed to build block signature document: %v", blockInt, err)
 		} else {
-			if err := colBlockSig.Create(ctx, blockSigDoc); err != nil {
+			if err := colBlockSig.AddDocument(ctx, blockSigDoc); err != nil {
 				logger.Sugar.Warnf("Block %d: failed to create block signature document: %v", blockInt, err)
 			} else {
 				blockSigDocID = blockSigDoc.ID().String()
@@ -451,6 +461,41 @@ func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessLi
 		"_transactionID": txID,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
+}
+
+// signBlockWithIdentity signs using the handler's stored node identity directly,
+// bypassing context-based identity lookup.
+func (h *BlockHandler) signBlockWithIdentity(_ context.Context, collector *node.BlockCIDCollector) (*node.BlockSignature, error) {
+	cids := collector.GetCIDs()
+	if len(cids) == 0 || h.nodeIdentity == nil {
+		return nil, nil
+	}
+
+	merkleRoot := node.ComputeMerkleRoot(cids)
+
+	sigBytes, err := h.nodeIdentity.PrivateKey().Sign(merkleRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	var sigType string
+	switch h.nodeIdentity.PrivateKey().Type() {
+	case crypto.KeyTypeSecp256k1:
+		sigType = "ES256K"
+	case crypto.KeyTypeEd25519:
+		sigType = "EdDSA"
+	default:
+		return nil, fmt.Errorf("unsupported key type for signing: %v", h.nodeIdentity.PrivateKey().Type())
+	}
+
+	sig := &node.BlockSignature{}
+	sig.Header.Type = sigType
+	sig.Header.Identity = []byte(h.nodeIdentity.PublicKey().String())
+	sig.Value = sigBytes
+	sig.MerkleRoot = merkleRoot
+	sig.CIDCount = len(cids)
+
+	return sig, nil
 }
 
 // buildBlockSignatureDocument creates a client.Document for a block signature
@@ -647,6 +692,7 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 	for _, c := range cids {
 		collector.Add(c)
 	}
+	sigCtx = node.ContextWithBlockSigning(sigCtx, collector)
 
 	blockSig, err := h.signBlockFn(sigCtx, collector)
 	if err != nil {
@@ -671,7 +717,7 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 		return "", fmt.Errorf("failed to build block signature document: %w", err)
 	}
 
-	if err := colBlockSig.Create(sigCtx, blockSigDoc); err != nil {
+	if err := colBlockSig.AddDocument(sigCtx, blockSigDoc); err != nil {
 		sigTxn.Discard()
 		return "", fmt.Errorf("failed to create block signature document: %w", err)
 	}
@@ -723,7 +769,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	}
 	blockID := blockDoc.ID().String()
 
-	if err := colBlock.Create(ctx, blockDoc); err != nil {
+	if err := colBlock.AddDocument(ctx, blockDoc); err != nil {
 		txn.Discard()
 		if errors.IsErrAlreadyExists(err) {
 			return "", fmt.Errorf("block already exists")
@@ -783,7 +829,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		}
 
 		if len(txDocs) > 0 {
-			if err := colTx.CreateMany(ctx, txDocs); err != nil {
+			if err := colTx.AddManyDocuments(ctx, txDocs); err != nil {
 				txn.Discard()
 				if errors.IsErrAlreadyExists(err) {
 					logger.Sugar.Debugf("Block %d: tx batch already exists via P2P, skipping", blockInt)
@@ -855,7 +901,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		}
 
 		if len(logDocs) > 0 {
-			if err := colLog.CreateMany(ctx, logDocs); err != nil {
+			if err := colLog.AddManyDocuments(ctx, logDocs); err != nil {
 				txn.Discard()
 				if errors.IsErrAlreadyExists(err) {
 					logger.Sugar.Debugf("Block %d: log batch already exists via P2P, skipping", blockInt)
@@ -920,7 +966,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		}
 
 		if len(aleDocs) > 0 {
-			if err := colALE.CreateMany(ctx, aleDocs); err != nil {
+			if err := colALE.AddManyDocuments(ctx, aleDocs); err != nil {
 				txn.Discard()
 				if errors.IsErrAlreadyExists(err) {
 					logger.Sugar.Debugf("Block %d: ALE batch already exists via P2P, skipping", blockInt)
@@ -970,7 +1016,7 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 					if err != nil {
 						sigTxn.Discard()
 						logger.Sugar.Warnf("Block %d: failed to build block signature document: %v", blockInt, err)
-					} else if err := colBlockSig.Create(sigCtx, blockSigDoc); err != nil {
+					} else if err := colBlockSig.AddDocument(sigCtx, blockSigDoc); err != nil {
 						sigTxn.Discard()
 						logger.Sugar.Warnf("Block %d: failed to create block signature document: %v", blockInt, err)
 					} else if err := sigTxn.Commit(); err != nil {
