@@ -126,7 +126,7 @@ func toAppConfig(cfg *config.Config) *appConfig.Config {
 
 	return &appConfig.Config{
 		DefraDB: appConfig.DefraDBConfig{
-			Url:           cfg.DefraDB.Url,
+			URL:           cfg.DefraDB.Url,
 			KeyringSecret: cfg.DefraDB.KeyringSecret,
 			P2P: appConfig.DefraP2PConfig{
 				Enabled:             cfg.DefraDB.P2P.Enabled,
@@ -227,7 +227,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		return fmt.Errorf("defraNode is required - external DefraDB via HTTP is no longer supported")
 	}
 
-	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn, i.collections)
+	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn, i.collections, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create block handler: %v", err)
 	}
