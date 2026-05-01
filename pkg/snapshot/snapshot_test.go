@@ -18,6 +18,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
+	shinzoIdentity "github.com/shinzonetwork/shinzo-indexer-client/pkg/identity"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
@@ -1565,7 +1566,7 @@ func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
 // Returns the block handler for further use.
 func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) *defra.BlockHandler {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
+	handler, err := defra.NewBlockHandler(td.Node, 1000, nil, nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -1642,7 +1643,7 @@ func TestGetBlockNumber_NonSequentialBlocks(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
+	handler, err := defra.NewBlockHandler(td.Node, 1000, nil, nil)
 	require.NoError(t, err)
 	ctx := context.Background()
 
@@ -2794,7 +2795,7 @@ func TestSignMerkleRoot_Ed25519(t *testing.T) {
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
 
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	merkleRoot := bytes.Repeat([]byte{0xBB}, 32)
 	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
@@ -2816,7 +2817,7 @@ func TestSignMerkleRoot_Secp256k1(t *testing.T) {
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
 	require.NoError(t, err)
 
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	merkleRoot := bytes.Repeat([]byte{0xCC}, 32)
 	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
@@ -2870,7 +2871,7 @@ func TestSignSnapshotWithRoots_WithIdentity(t *testing.T) {
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
 
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	roots := [][]byte{
 		bytes.Repeat([]byte{0xAA}, 32),
@@ -2907,7 +2908,7 @@ func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
 
-	identCtx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	identCtx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	snapshotDir := t.TempDir()
 	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
@@ -3102,15 +3103,13 @@ func TestLoop_StopsOnStopChan(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignMerkleRoot_IdentityNotFull(t *testing.T) {
-
-	// Create a context with a non-full identity (just a DID)
-	baseIdent := identity.FromDID("did:key:z6Mk123")
-	ctx := identity.WithContext(context.Background(), immutable.Some(baseIdent))
+	// With no identity in context, signMerkleRoot should return "no identity in context"
+	ctx := context.Background()
 
 	merkleRoot := bytes.Repeat([]byte{0xAA}, 32)
 	_, _, _, err := signMerkleRoot(ctx, merkleRoot)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "identity is not a full identity")
+	assert.Contains(t, err.Error(), "no identity in context")
 }
 
 // ---------------------------------------------------------------------------
@@ -3561,7 +3560,7 @@ func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
 	require.NoError(t, err)
 
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	roots := make([][]byte, 5)
 	for i := range roots {
@@ -3925,7 +3924,7 @@ func TestSignMerkleRoot_IdentityIsPublicKeyHex(t *testing.T) {
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
 
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	merkleRoot := bytes.Repeat([]byte{0xAA}, 32)
 	_, sigIdentity, _, err := signMerkleRoot(ctx, merkleRoot)
@@ -3972,7 +3971,7 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
 	require.NoError(t, err)
 
-	err = col.Create(ctx, doc)
+	err = col.AddDocument(ctx, doc)
 	require.NoError(t, err)
 
 	err = txn.Commit()
@@ -4124,7 +4123,7 @@ func TestSignSnapshotWithRoots_FullFlowWithBlockSigs(t *testing.T) {
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	err = signSnapshotWithRoots(ctx, td.Node, "snapshot_600_602.kvsnap.gz", 600, 602, roots, 3)
 	require.NoError(t, err)
@@ -4174,7 +4173,7 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
-	identCtx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	identCtx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	snapshotDir := t.TempDir()
 	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
@@ -4211,7 +4210,7 @@ func TestSignMerkleRoot_UnsupportedKeyType(t *testing.T) {
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256r1)
 	require.NoError(t, err)
 
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	merkleRoot := bytes.Repeat([]byte{0xAA}, 32)
 	_, _, _, err = signMerkleRoot(ctx, merkleRoot)
@@ -4230,7 +4229,7 @@ func TestSignSnapshotWithRoots_UnsupportedKeyType(t *testing.T) {
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256r1)
 	require.NoError(t, err)
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	roots := [][]byte{bytes.Repeat([]byte{0xAA}, 32)}
 
@@ -4251,7 +4250,7 @@ func TestSignMerkleRoot_ProducesVerifiableSignature(t *testing.T) {
 			fullIdent, err := identity.Generate(keyType)
 			require.NoError(t, err)
 
-			ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+			ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 			merkleRoot := bytes.Repeat([]byte{0xDD}, 32)
 			sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
@@ -4307,7 +4306,7 @@ func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
-	identCtx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+	identCtx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	snapshotDir := t.TempDir()
 	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
@@ -4420,12 +4419,14 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 
 func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) (context.Context, *defra.BlockHandler) {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
-	require.NoError(t, err)
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
 	require.NoError(t, err)
-	ctx := identity.WithContext(context.Background(), immutable.Some[identity.Identity](fullIdent))
+
+	handler, err := defra.NewBlockHandler(td.Node, 1000, nil, fullIdent)
+	require.NoError(t, err)
+
+	ctx := shinzoIdentity.WithContext(context.Background(), immutable.Some(fullIdent))
 
 	for i := startBlock; i <= endBlock; i++ {
 		hexNum := fmt.Sprintf("0x%x", i)
@@ -4433,7 +4434,7 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		_, err := handler.CreateBlockBatch(ctx, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		_, err := handler.CreateBlockBatch(context.Background(), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
 	return ctx, handler
@@ -4464,16 +4465,16 @@ func TestGetBlockSigMerkleRoots_ViaIdentityInsertedBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
-
 	td := testutils.SetupTestDefraDB(t)
 	identCtx, _ := insertTestBlocksWithIdentity(t, td, 200, 204)
 
 	snapshotDir := t.TempDir()
 	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node)
-	s.ctx = identCtx
+	s.ctx = identCtx // ← set the identity context for signing
 
-	err := s.createKVSnapshot(context.Background(), 200, 204)
+	ctx := context.Background()
+	err := s.createKVSnapshot(ctx, 200, 204)
 	require.NoError(t, err)
 
 	// Verify the header has BlockSigMerkleRoots from real block signatures
@@ -4502,8 +4503,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 	assert.Equal(t, "DFKV", header.Magic)
 	assert.Len(t, header.BlockSigMerkleRoots, 5, "should have 5 block sig merkle roots from identity-signed blocks")
 
-	// Verify signature was created in DefraDB
-	sigs, err := QuerySnapshotSignatures(context.Background(), td.Node)
+	sigs, err := QuerySnapshotSignatures(ctx, td.Node)
 	require.NoError(t, err)
 	assert.Len(t, sigs, 1)
 
@@ -4566,25 +4566,22 @@ func TestGetBlockNumber_WithIdentityBlocks(t *testing.T) {
 }
 
 func TestQueryDocIDs_WithIdentityBlocks(t *testing.T) {
-
 	td := testutils.SetupTestDefraDB(t)
-	_, _ = insertTestBlocksWithIdentity(t, td, 400, 402)
+	insertTestBlocksWithIdentity(t, td, 400, 402) // ← use identity version
 
 	cfg := &Config{Dir: t.TempDir(), BlocksPerFile: 1000}
 	s := New(cfg, td.Node)
+
 	ctx := context.Background()
 
-	// Query Block docs
 	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3)
 
-	// Query Transaction docs
 	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, "blockNumber", 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 3)
 
-	// Query BlockSignature docs (should exist with identity)
 	sigDocIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, "blockNumber", 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, sigDocIDs, 3, "should have 3 block signature docs")

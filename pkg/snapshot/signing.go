@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	shinzoIdentity "github.com/shinzonetwork/shinzo-indexer-client/pkg/identity"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
@@ -17,17 +18,17 @@ import (
 
 // SnapshotSignatureData holds the cryptographic signature for a snapshot file.
 type SnapshotSignatureData struct {
-	Version              int      `json:"version"`
-	SnapshotFile         string   `json:"snapshot_file"`
-	StartBlock           int64    `json:"start_block"`
-	EndBlock             int64    `json:"end_block"`
-	MerkleRoot           string   `json:"merkle_root"`
-	BlockCount           int      `json:"block_count"`
-	SignatureType        string   `json:"signature_type"`
-	SignatureIdentity    string   `json:"signature_identity"`
-	SignatureValue       string   `json:"signature_value"`
-	CreatedAt            string   `json:"created_at"`
-	BlockSigMerkleRoots  []string `json:"block_sig_merkle_roots,omitempty"`
+	Version             int      `json:"version"`
+	SnapshotFile        string   `json:"snapshot_file"`
+	StartBlock          int64    `json:"start_block"`
+	EndBlock            int64    `json:"end_block"`
+	MerkleRoot          string   `json:"merkle_root"`
+	BlockCount          int      `json:"block_count"`
+	SignatureType       string   `json:"signature_type"`
+	SignatureIdentity   string   `json:"signature_identity"`
+	SignatureValue      string   `json:"signature_value"`
+	CreatedAt           string   `json:"created_at"`
+	BlockSigMerkleRoots []string `json:"block_sig_merkle_roots,omitempty"`
 }
 
 // ComputeSnapshotMerkleRoot computes a Merkle root from per-block block signature
@@ -121,7 +122,7 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 // signMerkleRoot signs the given Merkle root using the identity from context.
 // Returns signature type, identity string, and signature bytes.
 func signMerkleRoot(ctx context.Context, merkleRoot []byte) (sigType, sigIdentity string, sigValue []byte, err error) {
-	ident := identity.FromContext(ctx)
+	ident := shinzoIdentity.FromContext(ctx)
 	if !ident.HasValue() {
 		return "", "", nil, fmt.Errorf("no identity in context")
 	}
@@ -181,7 +182,7 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 		return fmt.Errorf("create doc from map: %w", err)
 	}
 
-	if err := col.Create(ctx, doc); err != nil {
+	if err := col.AddDocument(ctx, doc); err != nil {
 		txn.Discard()
 		return fmt.Errorf("create doc: %w", err)
 	}
