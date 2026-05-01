@@ -2,50 +2,59 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
-      - main-**
+    tags:
+      - 'v*-*-*'  # matches v0.6.4-ethereum-mainnet, v1.0.0-polygon-testnet, etc.
 
 jobs:
-  release-please:
-    name: Create or update release PR
+  build:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+      - run: make build
 
+  release:
+    needs: build
+    runs-on: ubuntu-latest
     permissions:
-      contents: write       # push tags, create releases, update CHANGELOG
-      pull-requests: write  # open and update the release PR
-
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-
+      packages: write
+      contents: write
     steps:
-      - name: Run release-please
-        id: release
-        uses: googleapis/release-please-action@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          release-type: simple
-          # Tells release-please to start versioning from v0.6.3.
-          # Once the first release tag exists in the repo this is ignored.
-          default-branch: ${{ github.ref_name }}
+          go-version-file: 'go.mod'
+      - run: make build
 
-  # Optional: anything that should only run after a real release is cut
-  # (e.g. triggering a prod deployment, posting a Slack notification, etc.)
-  post-release:
-    name: Post-release steps
-    runs-on: ubuntu-latest
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+      - name: Extract chain and network from tag
+        id: meta
+        run: |
+          TAG="${{ github.ref_name }}"
+          SUFFIX="${TAG#v*.*.*-}"
+          NETWORK="${SUFFIX##*-}"
+          CHAIN="${SUFFIX%-*}"
+          echo "chain=$CHAIN" >> $GITHUB_OUTPUT
+          echo "network=$NETWORK" >> $GITHUB_OUTPUT
 
-    steps:
-      - name: Checkout tag
-        uses: actions/checkout@v6
+      - name: Build and push Docker image
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
+                       -t ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest \
+                       --build-arg CHAIN=${{ steps.meta.outputs.chain }} \
+                       --build-arg NETWORK=${{ steps.meta.outputs.network }} .
+          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+          docker push ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-
-      # Add any post-release steps here, for example:
-      #   - name: Notify Slack
-      #     run: |
-      #       curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
-      #         -d "{\"text\":\"Released ${{ needs.release-please.outputs.tag_name }}\"}"
+          files: bin/block_poster
+          generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
