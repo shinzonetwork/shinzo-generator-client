@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
