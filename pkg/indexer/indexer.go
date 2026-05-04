@@ -19,6 +19,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
+	shinzoIdentity "github.com/shinzonetwork/shinzo-indexer-client/pkg/identity"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
@@ -27,8 +28,10 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
+	"github.com/sourcenetwork/immutable"
 
 	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
 	appsdk "github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
@@ -166,10 +169,12 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, chainPrefixFromConfig(cfg))
 
+	// Convert indexer config to app-sdk config (used for both defraNode startup
+	// and node-identity loading below).
+	appCfg := toAppConfig(cfg)
+
 	if !defraStarted {
 		// Use app-sdk to start DefraDB instance with persistent keys
-		// Convert indexer config to app-sdk config
-		appCfg := toAppConfig(cfg)
 		// Note: app-sdk P2P config has no Enabled field - P2P should be enabled by ListenAddr
 
 		logger.Sugar.Debugf("P2P config: ListenAddr: '%s', BootstrapPeers: %v",
@@ -201,15 +206,6 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			return err
 		}
 
-		// Get the identity context for block signing
-		identityCtx, err := appsdk.GetIdentityContext(ctx, appCfg)
-		if err != nil {
-			logger.Sugar.Warnf("Failed to get identity context for block signing: %v (block signatures may not work)", err)
-		} else {
-			ctx = identityCtx
-			logger.Sugar.Info("Identity context initialized for block signing")
-		}
-
 	} else {
 		// Using external DefraDB - wait for it and apply schema via HTTP
 		err := defra.WaitForDefraDB(cfg.DefraDB.Url)
@@ -227,7 +223,22 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		return fmt.Errorf("defraNode is required - external DefraDB via HTTP is no longer supported")
 	}
 
-	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn, i.collections, nil)
+	nodeIdent, err := appsdk.GetOrCreateNodeIdentity(appCfg)
+	if err != nil {
+		return fmt.Errorf("failed to load node identity for block signing: %w",
+			err)
+	}
+	fullIdent, ok := nodeIdent.(identity.FullIdentity)
+	if !ok {
+		return fmt.Errorf("loaded node identity is not a FullIdentity (noprivate key)")
+	}
+
+	// Carry the identity on ctx so downstream subsystems that sign with it
+	// (snapshotter Merkle root signing) can recover it without the indexer
+	// having to thread it through every constructor.
+	ctx = shinzoIdentity.WithContext(ctx, immutable.Some(fullIdent))
+
+	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn, i.collections, fullIdent)
 	if err != nil {
 		return fmt.Errorf("failed to create block handler: %v", err)
 	}
