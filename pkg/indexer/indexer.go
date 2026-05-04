@@ -23,6 +23,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/signer"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
@@ -30,7 +31,6 @@ import (
 
 	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
 	appsdk "github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/signer"
 )
 
 const (
@@ -664,7 +664,7 @@ func (i *ChainIndexer) GetPrunerMetrics() *pruner.Metrics {
 	return &metrics
 }
 
-// indexerQueueTracker adapts app-sdk's IndexerQueue to the local DocIDTrackerInterface.
+// indexerQueueTracker adapts pruner's IndexerQueue to the local DocIDTrackerInterface.
 type indexerQueueTracker struct {
 	queue       *pruner.IndexerQueue
 	collections *constants.CollectionNames
