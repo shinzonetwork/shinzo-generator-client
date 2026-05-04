@@ -616,13 +616,13 @@ func applySchemaViaHTTP(defraUrl string, chainPrefix string) error {
 }
 
 func (i *ChainIndexer) SignMessages(message string) (server.DefraPKRegistration, server.PeerIDRegistration, error) {
-	signedMsg, err := signer.SignWithDefraKeys(message, i.defraNode, toAppConfig(i.cfg))
+	signedMsg, err := signer.SignWithDefraKeys(message, i.defraNode, i.cfg)
 	if err != nil {
 		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
 	}
 
 	// Sign with peer ID
-	peerSignedMsg, err := signer.SignWithP2PKeys(message, i.defraNode, toAppConfig(i.cfg))
+	peerSignedMsg, err := signer.SignWithP2PKeys(message, i.defraNode, i.cfg)
 	if err != nil {
 		return server.DefraPKRegistration{}, server.PeerIDRegistration{}, err
 	}
@@ -648,11 +648,11 @@ func (i *ChainIndexer) SignMessages(message string) (server.DefraPKRegistration,
 }
 
 func (i *ChainIndexer) GetNodePublicKey() (string, error) {
-	return signer.GetDefraPublicKey(i.defraNode, toAppConfig(i.cfg))
+	return signer.GetDefraPublicKey(i.defraNode, i.cfg)
 }
 
 func (i *ChainIndexer) GetPeerPublicKey() (string, error) {
-	return signer.GetP2PPublicKey(i.defraNode, toAppConfig(i.cfg))
+	return signer.GetP2PPublicKey(i.defraNode, i.cfg)
 }
 
 // GetPrunerMetrics returns the current pruner metrics, or nil if pruner is not enabled
