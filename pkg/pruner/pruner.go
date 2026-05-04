@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -145,7 +145,6 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 	if err := p.startupCleanup(ctx); err != nil {
 		logger.Sugar.Errorf("Startup cleanup failed: %v", err)
 	}
-
 
 	ticker := time.NewTicker(time.Duration(p.cfg.IntervalSeconds) * time.Second)
 	defer ticker.Stop()

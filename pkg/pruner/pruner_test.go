@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/logger"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
-	logger.Init(true, os.TempDir())
+	logger.Init(true)
 	os.Exit(m.Run())
 }
 
