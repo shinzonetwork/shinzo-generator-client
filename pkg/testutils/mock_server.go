@@ -49,7 +49,7 @@ func CreateMockServer(config MockServerConfig) *httptest.Server {
 func CreateGraphQLCreateResponse(collectionName, docID string) string {
 	return `{
 		"data": {
-			"create_` + collectionName + `": [
+			"add_` + collectionName + `": [
 				{
 					"_docID": "` + docID + `"
 				}
