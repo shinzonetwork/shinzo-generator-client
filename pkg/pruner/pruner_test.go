@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"

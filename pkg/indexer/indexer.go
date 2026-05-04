@@ -28,9 +28,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
-
-	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
-	appsdk "github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
 )
 
 const (
@@ -55,7 +52,7 @@ type ChainIndexer struct {
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
 	defraNode                 *node.Node             // Embedded DefraDB node (nil if using external)
-	networkHandler            *appsdk.NetworkHandler // P2P network handler (nil if using external)
+	networkHandler            *defra.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
 	pruner                    *pruner.Pruner        // Document pruner for removing old blocks
 	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks
@@ -117,37 +114,6 @@ func chainPrefixFromConfig(cfg *config.Config) string {
 	return fmt.Sprintf("%s__%s", name, network)
 }
 
-func toAppConfig(cfg *config.Config) *appConfig.Config {
-	if cfg == nil {
-		return nil
-	}
-
-	return &appConfig.Config{
-		DefraDB: appConfig.DefraDBConfig{
-			Url:           cfg.DefraDB.Url,
-			KeyringSecret: cfg.DefraDB.KeyringSecret,
-			P2P: appConfig.DefraP2PConfig{
-				Enabled:             cfg.DefraDB.P2P.Enabled,
-				BootstrapPeers:      cfg.DefraDB.P2P.BootstrapPeers,
-				ListenAddr:          cfg.DefraDB.P2P.ListenAddr,
-				MaxRetries:          cfg.DefraDB.P2P.MaxRetries,
-				RetryBaseDelayMs:    cfg.DefraDB.P2P.RetryBaseDelayMs,
-				ReconnectIntervalMs: cfg.DefraDB.P2P.ReconnectIntervalMs,
-				EnableAutoReconnect: cfg.DefraDB.P2P.EnableAutoReconnect,
-			},
-			Store: appConfig.DefraStoreConfig{
-				Path:                    cfg.DefraDB.Store.Path,
-				BlockCacheMB:            cfg.DefraDB.Store.BlockCacheMB,
-				MemTableMB:              cfg.DefraDB.Store.MemTableMB,
-				IndexCacheMB:            cfg.DefraDB.Store.IndexCacheMB,
-				NumCompactors:           cfg.DefraDB.Store.NumCompactors,
-				NumLevelZeroTables:      cfg.DefraDB.Store.NumLevelZeroTables,
-				NumLevelZeroTablesStall: cfg.DefraDB.Store.NumLevelZeroTablesStall,
-			},
-		},
-	}
-}
-
 func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	ctx := context.Background()
 	cfg := i.cfg
@@ -165,15 +131,10 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, chainPrefixFromConfig(cfg))
 
 	if !defraStarted {
-		// Use app-sdk to start DefraDB instance with persistent keys
-		// Convert indexer config to app-sdk config
-		appCfg := toAppConfig(cfg)
-		// Note: app-sdk P2P config has no Enabled field - P2P should be enabled by ListenAddr
+		
 
-		logger.Sugar.Debugf("P2P config: ListenAddr: '%s', BootstrapPeers: %v",
-			appCfg.DefraDB.P2P.ListenAddr, appCfg.DefraDB.P2P.BootstrapPeers)
-		logger.Sugar.Debugf("P2P config (original): ListenAddr: '%s', Enabled: %t",
-			cfg.DefraDB.P2P.ListenAddr, cfg.DefraDB.P2P.Enabled)
+		logger.Sugar.Debugf("P2P config: ListenAddr: '%s', BootstrapPeers: %v, Enabled: %t",
+		cfg.DefraDB.P2P.ListenAddr, cfg.DefraDB.P2P.BootstrapPeers, cfg.DefraDB.P2P.Enabled)
 
 		// When accept_incoming is false (default), reject all incoming P2P documents.
 		// The indexer is the source of truth from the chain and should not accept
@@ -183,10 +144,10 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			replicationFilter = &indexerReplicationFilter{}
 		}
 
-		defraNode, networkHandler, err := appsdk.StartDefraInstance(appCfg,
-			appsdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
+		defraNode, networkHandler, err := defra.StartDefraInstance(cfg,
+			defra.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
 		if err != nil {
-			return fmt.Errorf("Failed to start DefraDB instance with app-sdk: %v", err)
+			return fmt.Errorf("Failed to start DefraDB instance: %v", err)
 		}
 		// Store the defraNode and networkHandler references
 		i.defraNode = defraNode
@@ -200,7 +161,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 
 		// Get the identity context for block signing
-		identityCtx, err := appsdk.GetIdentityContext(ctx, appCfg)
+		identityCtx, err := defra.GetIdentityContext(ctx, cfg)
 		if err != nil {
 			logger.Sugar.Warnf("Failed to get identity context for block signing: %v (block signatures may not work)", err)
 		} else {
@@ -490,7 +451,7 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error fetching own peer info: %w", err)
 	}
-	ownPeers, _ := appsdk.BootstrapIntoPeers(ownAddresses)
+	ownPeers, _ := defra.BootstrapIntoPeers(ownAddresses)
 
 	var selfInfo *server.PeerInfo
 	if len(ownPeers) > 0 {
@@ -511,7 +472,7 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	if err != nil {
 		activePeerStrings = nil // P2P not available, treat as no peers
 	}
-	activePeers, _ := appsdk.BootstrapIntoPeers(activePeerStrings)
+	activePeers, _ := defra.BootstrapIntoPeers(activePeerStrings)
 
 	// Deduplicate peers by ID and merge addresses
 	peerMap := make(map[string]*server.PeerInfo)

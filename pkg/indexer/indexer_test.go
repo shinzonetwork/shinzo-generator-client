@@ -17,7 +17,6 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
@@ -458,111 +457,6 @@ func TestIndexerLifecycle(t *testing.T) {
 	indexer.StopIndexing()
 	assert.False(t, indexer.IsStarted())
 	assert.False(t, indexer.HasIndexedAtLeastOneBlock())
-}
-
-// ---------------------------------------------------------------------------
-// toAppConfig tests
-// ---------------------------------------------------------------------------
-
-func TestToAppConfig_NilInput(t *testing.T) {
-	t.Parallel()
-	result := toAppConfig(nil)
-	assert.Nil(t, result, "toAppConfig(nil) should return nil")
-}
-
-func TestToAppConfig_ValidConfig(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			Url:           "http://localhost:9181",
-			KeyringSecret: "test-secret-key",
-			P2P: config.DefraDBP2PConfig{
-				Enabled:             true,
-				BootstrapPeers:      []string{"/ip4/1.2.3.4/tcp/9171/p2p/QmPeer1"},
-				ListenAddr:          "/ip4/0.0.0.0/tcp/9171",
-				MaxRetries:          5,
-				RetryBaseDelayMs:    1000,
-				ReconnectIntervalMs: 30000,
-				EnableAutoReconnect: true,
-			},
-			Store: config.DefraDBStoreConfig{
-				Path:                    "/data/defra",
-				BlockCacheMB:            256,
-				MemTableMB:              128,
-				IndexCacheMB:            64,
-				NumCompactors:           4,
-				NumLevelZeroTables:      10,
-				NumLevelZeroTablesStall: 20,
-			},
-		},
-	}
-
-	result := toAppConfig(cfg)
-	require.NotNil(t, result, "toAppConfig should return a non-nil config")
-
-	// Verify top-level DefraDB fields
-	assert.Equal(t, "http://localhost:9181", result.DefraDB.Url)
-	assert.Equal(t, "test-secret-key", result.DefraDB.KeyringSecret)
-
-	// Verify P2P fields
-	assert.Equal(t, true, result.DefraDB.P2P.Enabled)
-	assert.Equal(t, []string{"/ip4/1.2.3.4/tcp/9171/p2p/QmPeer1"}, result.DefraDB.P2P.BootstrapPeers)
-	assert.Equal(t, "/ip4/0.0.0.0/tcp/9171", result.DefraDB.P2P.ListenAddr)
-	assert.Equal(t, 5, result.DefraDB.P2P.MaxRetries)
-	assert.Equal(t, 1000, result.DefraDB.P2P.RetryBaseDelayMs)
-	assert.Equal(t, 30000, result.DefraDB.P2P.ReconnectIntervalMs)
-	assert.Equal(t, true, result.DefraDB.P2P.EnableAutoReconnect)
-
-	// Verify Store fields
-	assert.Equal(t, "/data/defra", result.DefraDB.Store.Path)
-	assert.Equal(t, int64(256), result.DefraDB.Store.BlockCacheMB)
-	assert.Equal(t, int64(128), result.DefraDB.Store.MemTableMB)
-	assert.Equal(t, int64(64), result.DefraDB.Store.IndexCacheMB)
-	assert.Equal(t, 4, result.DefraDB.Store.NumCompactors)
-	assert.Equal(t, 10, result.DefraDB.Store.NumLevelZeroTables)
-	assert.Equal(t, 20, result.DefraDB.Store.NumLevelZeroTablesStall)
-}
-
-func TestToAppConfig_EmptyConfig(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{}
-
-	result := toAppConfig(cfg)
-	require.NotNil(t, result)
-
-	// All fields should be zero values
-	assert.Equal(t, "", result.DefraDB.Url)
-	assert.Equal(t, "", result.DefraDB.KeyringSecret)
-	assert.False(t, result.DefraDB.P2P.Enabled)
-	assert.Nil(t, result.DefraDB.P2P.BootstrapPeers)
-	assert.Equal(t, "", result.DefraDB.P2P.ListenAddr)
-	assert.Equal(t, "", result.DefraDB.Store.Path)
-	assert.Equal(t, int64(0), result.DefraDB.Store.BlockCacheMB)
-}
-
-func TestToAppConfig_ReturnsNewInstance(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			Url: "http://localhost:9181",
-		},
-	}
-
-	result1 := toAppConfig(cfg)
-	result2 := toAppConfig(cfg)
-
-	// Each call should return a distinct appConfig instance
-	require.NotNil(t, result1)
-	require.NotNil(t, result2)
-	assert.NotSame(t, result1, result2, "toAppConfig should return a new instance each call")
-}
-
-func TestToAppConfig_ReturnType(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{}
-	result := toAppConfig(cfg)
-	// Verify the result is the correct app-sdk type
-	var _ *appConfig.Config = result
 }
 
 // ---------------------------------------------------------------------------
@@ -3103,17 +2997,6 @@ func TestSignMessages_FullFlow(t *testing.T) {
 	}
 	logger.InitConsoleOnly(true)
 
-	tmpDir := t.TempDir()
-
-	// Start a real DefraDB via app-sdk to get proper keyring setup
-	appCfg := &appConfig.Config{
-		DefraDB: appConfig.DefraDBConfig{
-			KeyringSecret: "test-secret-for-sign-flow-1234",
-			P2P:           appConfig.DefraP2PConfig{Enabled: false},
-			Store:         appConfig.DefraStoreConfig{Path: tmpDir},
-		},
-	}
-
 	// Use testutils' SetupTestDefraDB for the node, then configure keyring manually
 	td := testutils.SetupTestDefraDB(t)
 
@@ -3121,7 +3004,7 @@ func TestSignMessages_FullFlow(t *testing.T) {
 		defraNode: td.Node,
 		cfg: &config.Config{
 			DefraDB: config.DefraDBConfig{
-				KeyringSecret: appCfg.DefraDB.KeyringSecret,
+				KeyringSecret: "test-secret-for-sign-flow-1234",
 				Store:         config.DefraDBStoreConfig{Path: td.Dir},
 			},
 		},
@@ -3224,23 +3107,10 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 	}
 	logger.InitConsoleOnly(true)
 
-	tmpDir := t.TempDir()
 	keyringSecret := "test-secret-for-sign-identity-123"
 
-	// Use app-sdk to create identity first
-	appCfg := &appConfig.Config{
-		DefraDB: appConfig.DefraDBConfig{
-			KeyringSecret: keyringSecret,
-			P2P:           appConfig.DefraP2PConfig{Enabled: false},
-			Store:         appConfig.DefraStoreConfig{Path: tmpDir},
-		},
-	}
 
-	// Import the app-sdk to create identity
-	appsdk := appCfg // reference to avoid import error
-	_ = appsdk
-
-	// Start DefraDB with app-sdk to create identity and keys
+	// Start DefraDB to create identity and keys
 	td := testutils.SetupTestDefraDB(t)
 
 	// Create the identity manually by using the keyring
@@ -4585,21 +4455,9 @@ func TestGetPeerInfo_FullIntegration_WithP2P(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Start DefraDB with P2P enabled to exercise the full GetPeerInfo path
-	appCfg := &appConfig.Config{
-		DefraDB: appConfig.DefraDBConfig{
-			KeyringSecret: "test-secret-for-p2p-peer-info-1",
-			P2P: appConfig.DefraP2PConfig{
-				Enabled:    true,
-				ListenAddr: "/ip4/127.0.0.1/tcp/0", // random port
-			},
-			Store: appConfig.DefraStoreConfig{Path: tmpDir},
-		},
-	}
-
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			KeyringSecret: appCfg.DefraDB.KeyringSecret,
+			KeyringSecret: "test-secret-for-p2p-peer-info-1",
 			P2P: config.DefraDBP2PConfig{
 				Enabled:    true,
 				ListenAddr: "/ip4/127.0.0.1/tcp/0",

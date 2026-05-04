@@ -14,7 +14,7 @@ import (
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	pb "github.com/libp2p/go-libp2p/core/crypto/pb"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/defra"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/keyring"
@@ -22,8 +22,6 @@ import (
 	"github.com/sourcenetwork/immutable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
 )
 
 // mockKeyring implements keyring.Keyring for testing.
@@ -62,37 +60,6 @@ func (m *mockKeyring) List() ([]string, error) {
 		keys = append(keys, k)
 	}
 	return keys, nil
-}
-
-func toAppConfig(cfg *config.Config) *appConfig.Config {
-	if cfg == nil {
-		return nil
-	}
-
-	return &appConfig.Config{
-		DefraDB: appConfig.DefraDBConfig{
-			Url:           cfg.DefraDB.Url,
-			KeyringSecret: cfg.DefraDB.KeyringSecret,
-			P2P: appConfig.DefraP2PConfig{
-				Enabled:             cfg.DefraDB.P2P.Enabled,
-				BootstrapPeers:      cfg.DefraDB.P2P.BootstrapPeers,
-				ListenAddr:          cfg.DefraDB.P2P.ListenAddr,
-				MaxRetries:          cfg.DefraDB.P2P.MaxRetries,
-				RetryBaseDelayMs:    cfg.DefraDB.P2P.RetryBaseDelayMs,
-				ReconnectIntervalMs: cfg.DefraDB.P2P.ReconnectIntervalMs,
-				EnableAutoReconnect: cfg.DefraDB.P2P.EnableAutoReconnect,
-			},
-			Store: appConfig.DefraStoreConfig{
-				Path:                    cfg.DefraDB.Store.Path,
-				BlockCacheMB:            cfg.DefraDB.Store.BlockCacheMB,
-				MemTableMB:              cfg.DefraDB.Store.MemTableMB,
-				IndexCacheMB:            cfg.DefraDB.Store.IndexCacheMB,
-				NumCompactors:           cfg.DefraDB.Store.NumCompactors,
-				NumLevelZeroTables:      cfg.DefraDB.Store.NumLevelZeroTables,
-				NumLevelZeroTablesStall: cfg.DefraDB.Store.NumLevelZeroTablesStall,
-			},
-		},
-	}
 }
 
 // mockPrivateKey implements crypto.PrivateKey for testing edge cases.
@@ -235,7 +202,7 @@ func setupTestNode(t *testing.T) (*node.Node, *config.Config) {
 		}
 	`)
 
-	defraNode, _, err := defra.StartDefraInstance(toAppConfig(testConfig), schemaApplier, nil, nil)
+	defraNode, _, err := defra.StartDefraInstance(testConfig, schemaApplier, nil, nil)
 	require.NoError(t, err)
 
 	return defraNode, testConfig
