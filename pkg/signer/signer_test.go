@@ -14,7 +14,7 @@ import (
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	pb "github.com/libp2p/go-libp2p/core/crypto/pb"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defrasdk"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/keyring"
@@ -196,13 +196,13 @@ func setupTestNode(t *testing.T) (*node.Node, *config.Config) {
 		},
 	}
 
-	schemaApplier := defra.NewSchemaApplierFromProvidedSchema(`
+	schemaApplier := defrasdk.NewSchemaApplierFromProvidedSchema(`
 		type User {
 			name: String
 		}
 	`)
 
-	defraNode, _, err := defra.StartDefraInstance(testConfig, schemaApplier, nil, nil)
+	defraNode, _, err := defrasdk.StartDefraInstance(testConfig, schemaApplier, nil, nil)
 	require.NoError(t, err)
 
 	return defraNode, testConfig

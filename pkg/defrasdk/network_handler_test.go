@@ -1,4 +1,4 @@
-package defra
+package defrasdk
 
 import (
 	"testing"

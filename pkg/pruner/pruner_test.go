@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defrasdk"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
@@ -45,8 +45,8 @@ func testCollections() CollectionConfig {
 // startTestNode creates a real DefraDB node with the test schema.
 func startTestNode(t *testing.T) *node.Node {
 	t.Helper()
-	schema := defra.NewSchemaApplierFromProvidedSchema(testSchema)
-	n, err := defra.StartDefraInstanceWithTestConfig(t, defra.DefaultConfig, schema)
+	schema := defrasdk.NewSchemaApplierFromProvidedSchema(testSchema)
+	n, err := defrasdk.StartDefraInstanceWithTestConfig(t, defrasdk.DefaultConfig, schema)
 	require.NoError(t, err)
 	t.Cleanup(func() { n.Close(context.Background()) })
 	return n
