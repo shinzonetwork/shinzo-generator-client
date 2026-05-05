@@ -17,7 +17,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defrasdk"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
@@ -53,7 +53,7 @@ type ChainIndexer struct {
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
 	defraNode                 *node.Node             // Embedded DefraDB node (nil if using external)
-	networkHandler            *defrasdk.NetworkHandler // P2P network handler (nil if using external)
+	networkHandler            *defradb.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
 	pruner                    *pruner.Pruner        // Document pruner for removing old blocks
 	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks
@@ -145,8 +145,8 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 			replicationFilter = &indexerReplicationFilter{}
 		}
 
-		defraNode, networkHandler, err := defrasdk.StartDefraInstance(cfg,
-			defrasdk.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
+		defraNode, networkHandler, err := defradb.StartDefraInstance(cfg,
+			defradb.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
 		if err != nil {
 			return fmt.Errorf("Failed to start DefraDB instance: %v", err)
 		}
@@ -162,7 +162,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		}
 
 		// Get the identity context for block signing
-		identityCtx, err := defrasdk.GetIdentityContext(ctx, cfg)
+		identityCtx, err := defradb.GetIdentityContext(ctx, cfg)
 		if err != nil {
 			logger.Sugar.Warnf("Failed to get identity context for block signing: %v (block signatures may not work)", err)
 		} else {
@@ -452,7 +452,7 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error fetching own peer info: %w", err)
 	}
-	ownPeers, _ := defrasdk.BootstrapIntoPeers(ownAddresses)
+	ownPeers, _ := defradb.BootstrapIntoPeers(ownAddresses)
 
 	var selfInfo *server.PeerInfo
 	if len(ownPeers) > 0 {
@@ -473,7 +473,7 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	if err != nil {
 		activePeerStrings = nil // P2P not available, treat as no peers
 	}
-	activePeers, _ := defrasdk.BootstrapIntoPeers(activePeerStrings)
+	activePeers, _ := defradb.BootstrapIntoPeers(activePeerStrings)
 
 	// Deduplicate peers by ID and merge addresses
 	peerMap := make(map[string]*server.PeerInfo)
