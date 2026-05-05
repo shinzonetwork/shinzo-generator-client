@@ -1,0 +1,14 @@
+defradb:
+  url: "http://localhost:9181"
+  keyring_secret: "overwritten by DEFRA_KEYRING_SECRET env variable"
+  p2p:
+    bootstrap_peers: []
+    listen_addr: ""
+  store:
+    path: "./.defra"
+
+shinzo:
+  minimum_attestations: 1
+
+logger:
+  development: true
