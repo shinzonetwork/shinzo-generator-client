@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/file"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +21,7 @@ func TestStartDefra(t *testing.T) {
 }
 
 func TestStartDefraUsingConfig(t *testing.T) {
-	configPath, err := file.FindFile("config.yaml")
+	configPath, err := utils.FindFile("config.yaml")
 	require.NoError(t, err)
 
 	testConfig, err := config.LoadConfig(configPath)

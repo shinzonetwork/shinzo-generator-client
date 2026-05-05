@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/file"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -30,7 +30,7 @@ func (schema *SchemaApplierFromFile) ApplySchema(ctx context.Context, defraNode 
 		schema.DefaultPath = defaultPath
 	}
 
-	schemaPath, err := file.FindFile(schema.DefaultPath)
+	schemaPath, err := utils.FindFile(schema.DefaultPath)
 	if err != nil {
 		return fmt.Errorf("Failed to find schema file: %v", err)
 	}

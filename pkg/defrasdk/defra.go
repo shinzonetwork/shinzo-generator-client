@@ -14,7 +14,7 @@ import (
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/networking"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
@@ -280,7 +280,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	}
 
 	// Get real IP address to replace loopback addresses
-	ipAddress, err := networking.GetLANIP()
+	ipAddress, err := utils.GetLANIP()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get LAN IP address: %v", err)
 	}
@@ -413,7 +413,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 
 // A simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test
 func StartDefraInstanceWithTestConfig(t *testing.T, cfg *config.Config, schemaApplier SchemaApplier, collectionsOfInterest ...string) (*node.Node, error) {
-	ipAddress, err := networking.GetLANIP()
+	ipAddress, err := utils.GetLANIP()
 	if err != nil {
 		return nil, err
 	}
@@ -549,7 +549,7 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 
 	// Get real IP address to replace loopback addresses
-	ipAddress, err := networking.GetLANIP()
+	ipAddress, err := utils.GetLANIP()
 	if err != nil {
 		return fmt.Errorf("failed to get LAN IP address: %v", err)
 	}
