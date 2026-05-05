@@ -24,6 +24,13 @@ type TestDefraDB struct {
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDB(t *testing.T) *TestDefraDB {
+	return SetupTestDefraDBWithSchema(t, schema.GetSchema())
+}
+
+// SetupTestDefraDBWithSchema creates and starts an in-memory DefraDB node with a provided schema.
+// It uses a temporary directory and a random free port to avoid conflicts.
+// Call the returned cleanup function (or use t.Cleanup) when done.
+func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 	t.Helper()
 
 	// Initialize logger if not already done
@@ -51,7 +58,7 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 	}
 
 	// Apply schema
-	_, err = defraNode.DB.AddSchema(ctx, schema.GetSchema())
+	_, err = defraNode.DB.AddSchema(ctx, schemaSDL)
 	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
 		defraNode.Close(ctx)
 		t.Fatalf("Failed to apply schema: %v", err)

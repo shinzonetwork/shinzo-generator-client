@@ -9,6 +9,8 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// This could be moved to schema package
+
 type SchemaApplier interface {
 	ApplySchema(ctx context.Context, defraNode *node.Node) error
 }

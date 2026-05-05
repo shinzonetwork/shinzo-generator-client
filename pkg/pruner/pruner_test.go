@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defrasdk"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,11 +45,8 @@ func testCollections() CollectionConfig {
 // startTestNode creates a real DefraDB node with the test schema.
 func startTestNode(t *testing.T) *node.Node {
 	t.Helper()
-	schema := defrasdk.NewSchemaApplierFromProvidedSchema(testSchema)
-	n, err := defrasdk.StartDefraInstanceWithTestConfig(t, defrasdk.DefaultConfig, schema)
-	require.NoError(t, err)
-	t.Cleanup(func() { n.Close(context.Background()) })
-	return n
+	td := testutils.SetupTestDefraDBWithSchema(t, testSchema)
+	return td.Node
 }
 
 // insertTestBlock inserts a TestBlock and optionally TestTx docs into the DB.
