@@ -9,7 +9,7 @@ import (
 )
 
 func TestLoadConfig_ValidYAML(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
 
@@ -61,7 +61,7 @@ logger:
 }
 
 func TestLoadConfig_InvalidPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	_, err := LoadConfig("/nonexistent/path/config.yaml")
 	if err == nil {
 		t.Error("Expected error for nonexistent config file")
@@ -69,7 +69,7 @@ t.Parallel()
 }
 
 func TestLoadConfig_InvalidYAML(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "invalid_config.yaml")
 
@@ -124,7 +124,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 }
 
 func TestDefraDBConfig_Host(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &DefraDBConfig{Url: "http://localhost:9181"}
 	if cfg.Host() != "http://localhost:9181" {
 		t.Errorf("Host() = %q, want %q", cfg.Host(), "http://localhost:9181")
@@ -132,7 +132,7 @@ t.Parallel()
 }
 
 func TestApplyDefaults_AllZeroValues(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &Config{}
 	applyDefaults(cfg)
 
@@ -154,7 +154,7 @@ t.Parallel()
 }
 
 func TestApplyDefaults_PresetValuesPreserved(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &Config{}
 	cfg.Indexer.ConcurrentBlocks = 4
 	cfg.Indexer.ReceiptWorkers = 8
@@ -182,7 +182,7 @@ t.Parallel()
 }
 
 func TestValidateConfig_NegativeStartHeight(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
 	cfg.Indexer.StartHeight = -1
@@ -197,7 +197,7 @@ t.Parallel()
 }
 
 func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = false
 	cfg.DefraDB.Url = ""
@@ -209,7 +209,7 @@ t.Parallel()
 }
 
 func TestValidateConfig_Valid(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
 	cfg.Indexer.StartHeight = 0
@@ -354,6 +354,7 @@ func TestApplyEnvOverrides_GethConfig(t *testing.T) {
 	t.Setenv("GETH_RPC_URL", "http://geth:8545")
 	t.Setenv("GETH_WS_URL", "ws://geth:8546")
 	t.Setenv("GETH_API_KEY", "myapikey")
+	t.Setenv("GETH_API_KEY_TYPE", "X-Api-Key")
 	applyEnvOverrides(cfg)
 
 	if cfg.Geth.NodeURL != "http://geth:8545" {

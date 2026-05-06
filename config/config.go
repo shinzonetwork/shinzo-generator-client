@@ -262,6 +262,9 @@ func applyEnvOverrides(cfg *Config) {
 	if gethApiKey := os.Getenv("GETH_API_KEY"); gethApiKey != "" {
 		cfg.Geth.APIKey = gethApiKey
 	}
+	if gethApiKeyType := os.Getenv("GETH_API_KEY_TYPE"); gethApiKeyType != "" {
+		cfg.Geth.APIKeyType = gethApiKeyType
+	}
 
 	// Indexer configuration
 	if startHeight := os.Getenv("INDEXER_START_HEIGHT"); startHeight != "" {
