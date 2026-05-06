@@ -22,6 +22,7 @@ services:
       - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
       - GETH_WS_URL=ws://ws.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
       - GETH_API_KEY=YOUR_API_KEY
+      - GETH_API_KEY_TYPE=X-goog-api-key
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
       - GOMEMLIMIT=14GiB
