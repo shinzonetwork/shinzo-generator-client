@@ -267,7 +267,7 @@ logger:
 		configContent := fmt.Sprintf(`
 defradb:
   url: "http://198.51.100.1:1"
-  embedded: false
+  embedded: true
   p2p:
     enabled: false
   store:
