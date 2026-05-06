@@ -34,4 +34,4 @@ Built from Source?: (Yes/No)
 GitHub Branch:
 
 **Additional context**
-Add any other context about the problem here.
+Add any logs here.
