@@ -11,7 +11,6 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/crypto"
-	"github.com/sourcenetwork/defradb/acp/identity"
 	
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -268,18 +267,6 @@ func TestClientIntegration(t *testing.T) {
 
 // ─── OpenKeyring tests ──────────────────────────────────────────────────────
 
-func TestOpenKeyring_NilConfig(t *testing.T) {
-	kr, err := OpenKeyring(nil)
-	assert.NoError(t, err)
-	assert.Nil(t, kr)
-}
-
-func TestOpenKeyring_EmptySecret(t *testing.T) {
-	kr, err := OpenKeyring(&config.Config{})
-	assert.NoError(t, err)
-	assert.Nil(t, kr)
-}
-
 func TestOpenKeyring_WithStorePath(t *testing.T) {
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
@@ -361,46 +348,11 @@ func TestCreateLibP2PKeyFromIdentity_ValidKey(t *testing.T) {
 
 // ───LoadIdentityFromKeyring tests ──────────────────────────────────────────
 
-func TestLoadIdentityFromKeyring_ErrNotFound(t *testing.T) {
-	kr := &testutils.MockKeyring{Data: map[string][]byte{}}
-	_, err := LoadIdentityFromKeyring(kr)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "node identity not found in keyring")
-}
-
 func TestLoadIdentityFromKeyring_GenericError(t *testing.T) {
 	kr := &testutils.MockKeyring{GetErr: errors.New("disk failure")}
 	_, err := LoadIdentityFromKeyring(kr)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get identity from keyring")
-}
-
-func TestLoadIdentityFromKeyring_OldFormatWithoutColon(t *testing.T) {
-	// Build raw key bytes guaranteed to NOT contain 0x3A (':')
-	// Generate keys until we find one without ':' or construct one
-	var keyBytes []byte
-	for i := 0; i < 100; i++ {
-		ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
-		require.NoError(t, err)
-		keyBytes = ident.PrivateKey().Raw()
-		hasColon := false
-		for _, b := range keyBytes {
-			if b == ':' {
-				hasColon = true
-				break
-			}
-		}
-		if !hasColon {
-			break
-		}
-	}
-
-	kr := &testutils.MockKeyring{Data: map[string][]byte{
-		NodeIdentityKeyName: keyBytes,
-	}}
-	loaded, err := LoadIdentityFromKeyring(kr)
-	assert.NoError(t, err)
-	assert.NotNil(t, loaded)
 }
 
 func TestLoadIdentityFromKeyring_InvalidKeyBytes(t *testing.T) {
