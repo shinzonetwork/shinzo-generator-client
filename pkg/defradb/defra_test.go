@@ -2,13 +2,25 @@ package defradb
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
+	"github.com/sourcenetwork/defradb/crypto"
+	"github.com/sourcenetwork/defradb/acp/identity"
+	
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// --- MOCKS ---
+
+
+// --- TESTS ---
 func TestStartDefra(t *testing.T) {
 	// Create a copy of DefaultConfig to avoid modifying the shared instance
 	testConfig := *DefaultConfig
@@ -252,4 +264,161 @@ func TestClientIntegration(t *testing.T) {
 	// Clean shutdown
 	err = client.Stop(ctx)
 	require.NoError(t, err)
+}
+
+// ─── OpenKeyring tests ──────────────────────────────────────────────────────
+
+func TestOpenKeyring_NilConfig(t *testing.T) {
+	kr, err := OpenKeyring(nil)
+	assert.NoError(t, err)
+	assert.Nil(t, kr)
+}
+
+func TestOpenKeyring_EmptySecret(t *testing.T) {
+	kr, err := OpenKeyring(&config.Config{})
+	assert.NoError(t, err)
+	assert.Nil(t, kr)
+}
+
+func TestOpenKeyring_WithStorePath(t *testing.T) {
+	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			KeyringSecret: "test-secret",
+			Store:         config.DefraDBStoreConfig{Path: t.TempDir()},
+		},
+	}
+	kr, err := OpenKeyring(cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, kr)
+}
+
+func TestOpenKeyring_EmptyStorePath(t *testing.T) {
+	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			KeyringSecret: "test-secret",
+			Store:         config.DefraDBStoreConfig{Path: ""},
+		},
+	}
+	kr, err := OpenKeyring(cfg)
+	assert.NoError(t, err)
+	assert.NotNil(t, kr)
+	os.RemoveAll("keys")
+}
+
+func TestOpenKeyring_MkdirAllFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	conflictPath := filepath.Join(tmpDir, "notadir")
+	os.WriteFile(conflictPath, []byte("block"), 0644)
+
+	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			KeyringSecret: "test-secret",
+			Store:         config.DefraDBStoreConfig{Path: conflictPath},
+		},
+	}
+	kr, err := OpenKeyring(cfg)
+	assert.Error(t, err)
+	assert.Nil(t, kr)
+	assert.Contains(t, err.Error(), "failed to create keyring directory")
+}
+
+// ─── CreateLibP2PKeyFromIdentity tests ──────────────────────────────────────
+
+func TestCreateLibP2PKeyFromIdentity_NotFullIdentity(t *testing.T) {
+	_, err := CreateLibP2PKeyFromIdentity(&testutils.MockIdentityNotFull{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "identity is not a FullIdentity")
+}
+
+func TestCreateLibP2PKeyFromIdentity_NilPrivateKey(t *testing.T) {
+	mock := &testutils.MockFullIdentity{PrivKey: nil}
+	_, err := CreateLibP2PKeyFromIdentity(mock)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get private key from identity")
+}
+
+func TestCreateLibP2PKeyFromIdentity_EmptyRawBytes(t *testing.T) {
+	mock := &testutils.MockFullIdentity{PrivKey: &testutils.MockPrivateKey{RawBytes: []byte{}}}
+	_, err := CreateLibP2PKeyFromIdentity(mock)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "private key has no raw bytes")
+}
+
+func TestCreateLibP2PKeyFromIdentity_WrongKeyLength(t *testing.T) {
+	mock := &testutils.MockFullIdentity{PrivKey: &testutils.MockPrivateKey{RawBytes: make([]byte, 16)}}
+	_, err := CreateLibP2PKeyFromIdentity(mock)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "expected 32-byte secp256k1 key, got 16 bytes")
+}
+
+func TestCreateLibP2PKeyFromIdentity_ValidKey(t *testing.T) {
+	// 32-byte key should work
+	mock := &testutils.MockFullIdentity{PrivKey: &testutils.MockPrivateKey{RawBytes: make([]byte, 32)}}
+	key, err := CreateLibP2PKeyFromIdentity(mock)
+	assert.NoError(t, err)
+	assert.NotNil(t, key)
+}
+
+// ───LoadIdentityFromKeyring tests ──────────────────────────────────────────
+
+func TestLoadIdentityFromKeyring_ErrNotFound(t *testing.T) {
+	kr := &testutils.MockKeyring{Data: map[string][]byte{}}
+	_, err := LoadIdentityFromKeyring(kr)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "node identity not found in keyring")
+}
+
+func TestLoadIdentityFromKeyring_GenericError(t *testing.T) {
+	kr := &testutils.MockKeyring{GetErr: errors.New("disk failure")}
+	_, err := LoadIdentityFromKeyring(kr)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get identity from keyring")
+}
+
+func TestLoadIdentityFromKeyring_OldFormatWithoutColon(t *testing.T) {
+	// Build raw key bytes guaranteed to NOT contain 0x3A (':')
+	// Generate keys until we find one without ':' or construct one
+	var keyBytes []byte
+	for i := 0; i < 100; i++ {
+		ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
+		require.NoError(t, err)
+		keyBytes = ident.PrivateKey().Raw()
+		hasColon := false
+		for _, b := range keyBytes {
+			if b == ':' {
+				hasColon = true
+				break
+			}
+		}
+		if !hasColon {
+			break
+		}
+	}
+
+	kr := &testutils.MockKeyring{Data: map[string][]byte{
+		NodeIdentityKeyName: keyBytes,
+	}}
+	loaded, err := LoadIdentityFromKeyring(kr)
+	assert.NoError(t, err)
+	assert.NotNil(t, loaded)
+}
+
+func TestLoadIdentityFromKeyring_InvalidKeyBytes(t *testing.T) {
+	data := append([]byte(string(crypto.KeyTypeSecp256k1)+":"), []byte("bad")...)
+	kr := &testutils.MockKeyring{Data: map[string][]byte{
+		NodeIdentityKeyName: data,
+	}}
+	_, err := LoadIdentityFromKeyring(kr)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to reconstruct private key")
+}
+
+func TestLoadIdentityFromKeyring_InvalidKeyType(t *testing.T) {
+	data := append([]byte("invalidtype:"), []byte("somebytes1234567890123456789012")...)
+	kr := &testutils.MockKeyring{Data: map[string][]byte{
+		NodeIdentityKeyName: data,
+	}}
+	_, err := LoadIdentityFromKeyring(kr)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to reconstruct private key")
 }

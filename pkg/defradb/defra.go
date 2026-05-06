@@ -49,7 +49,7 @@ var DefaultConfig *config.Config = &config.Config{
 
 var requiredPeers []string = []string{} // Here, we can add some "big peers" to give nodes a starting place when building their peer network
 const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
-const nodeIdentityKeyName string = "node-identity-key"
+const NodeIdentityKeyName string = "node-identity-key"
 
 // Key Management Implementation Notes:
 //
@@ -71,9 +71,12 @@ const nodeIdentityKeyName string = "node-identity-key"
 // - Proper error handling for corrupted or missing keys
 // - Requires DEFRA_KEYRING_SECRET environment variable or config
 
-// openKeyring opens a keyring from the config.
-// Returns an error if keyring cannot be opened (KeyringSecret is required).
-func openKeyring(cfg *config.Config) (keyring.Keyring, error) {
+// OpenKeyring opens the file-based keyring at {Store.Path}/keys using
+// KeyringSecret as the encryption secret. Returns an error if cfg is nil or
+// KeyringSecret is empty; callers that want a "no keyring → fall back" flow
+// should detect that error at their own call site rather than relying on a
+// silent nil return.
+func OpenKeyring(cfg *config.Config) (keyring.Keyring, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config cannot be nil")
 	}
@@ -100,13 +103,13 @@ func openKeyring(cfg *config.Config) (keyring.Keyring, error) {
 // getOrCreateNodeIdentity retrieves an existing node identity from keyring or creates a new one
 func getOrCreateNodeIdentity(cfg *config.Config) (identity.Identity, error) {
 	// Open keyring (required, no fallback)
-	kr, err := openKeyring(cfg)
+	kr, err := OpenKeyring(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open keyring: %w", err)
 	}
 
 	// Try to load existing identity from keyring
-	identityBytes, err := kr.Get(nodeIdentityKeyName)
+	identityBytes, err := kr.Get(NodeIdentityKeyName)
 	if err != nil {
 		if !errors.Is(err, keyring.ErrNotFound) {
 			return nil, fmt.Errorf("failed to get identity from keyring: %w", err)
@@ -129,7 +132,7 @@ func getOrCreateNodeIdentity(cfg *config.Config) (identity.Identity, error) {
 
 	// Load existing identity from keyring
 	logger.Sugar.Info("Loading existing DefraDB identity from keyring")
-	return loadNodeIdentityFromKeyring(identityBytes)
+	return LoadIdentityFromBytes(identityBytes)
 }
 
 // saveNodeIdentityToKeyring saves the private key bytes of a node identity to the keyring
@@ -157,7 +160,7 @@ func saveNodeIdentityToKeyring(kr keyring.Keyring, nodeIdentity identity.Identit
 	identityBytes := append([]byte(keyType+":"), keyBytes...)
 
 	// Save to keyring
-	if err := kr.Set(nodeIdentityKeyName, identityBytes); err != nil {
+	if err := kr.Set(NodeIdentityKeyName, identityBytes); err != nil {
 		return fmt.Errorf("failed to save identity to keyring: %w", err)
 	}
 
@@ -165,8 +168,10 @@ func saveNodeIdentityToKeyring(kr keyring.Keyring, nodeIdentity identity.Identit
 	return nil
 }
 
-// loadNodeIdentityFromKeyring loads a node identity from keyring bytes
-func loadNodeIdentityFromKeyring(identityBytes []byte) (identity.Identity, error) {
+// LoadIdentityFromBytes parses identity bytes in the keyring's "keyType:rawKeyBytes"
+// format (the same format DefraDB CLI writes) and rebuilds the FullIdentity.
+// Pre-prefix bytes are assumed to be secp256k1 for backward compatibility.
+func LoadIdentityFromBytes(identityBytes []byte) (identity.Identity, error) {
 	// Parse the format: "keyType:rawKeyBytes"
 	sepPos := bytes.Index(identityBytes, []byte(":"))
 	if sepPos == -1 {
@@ -178,14 +183,12 @@ func loadNodeIdentityFromKeyring(identityBytes []byte) (identity.Identity, error
 	keyType := string(identityBytes[:sepPos])
 	keyBytes := identityBytes[sepPos+1:]
 
-	// Reconstruct private key from bytes
 	privateKey, err := crypto.PrivateKeyFromBytes(crypto.KeyType(keyType), keyBytes)
 	if err != nil {
 		var emptyIdentity identity.Identity
 		return emptyIdentity, fmt.Errorf("failed to reconstruct private key: %w", err)
 	}
 
-	// Reconstruct identity from private key
 	fullIdentity, err := identity.FromPrivateKey(privateKey)
 	if err != nil {
 		var emptyIdentity identity.Identity
@@ -194,6 +197,17 @@ func loadNodeIdentityFromKeyring(identityBytes []byte) (identity.Identity, error
 
 	logger.Sugar.Info("DefraDB identity successfully loaded from keyring")
 	return fullIdentity, nil
+}
+
+// LoadIdentityFromKeyring fetches the node-identity entry from kr and parses it
+// into an Identity. Convenience wrapper for callers that already hold an open
+// keyring and don't need the create-if-missing branch.
+func LoadIdentityFromKeyring(kr keyring.Keyring) (identity.Identity, error) {
+	identityBytes, err := kr.Get(NodeIdentityKeyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get identity from keyring: %w", err)
+	}
+	return LoadIdentityFromBytes(identityBytes)
 }
 
 // GetOrCreateNodeIdentity retrieves an existing node identity from keyring or creates a new one.
@@ -211,9 +225,11 @@ func GetIdentityContext(ctx context.Context, cfg *config.Config) (context.Contex
 	return identity.WithContext(ctx, immutable.Some[identity.Identity](nodeIdentity)), nil
 }
 
-// createLibP2PKeyFromIdentity creates a LibP2P private key from a DefraDB identity
-// This ensures the LibP2P peer ID is deterministically derived from the same identity
-func createLibP2PKeyFromIdentity(nodeIdentity identity.Identity) (libp2pcrypto.PrivKey, error) {
+// CreateLibP2PKeyFromIdentity derives a deterministic libp2p Ed25519 private
+// key from a DefraDB secp256k1 identity. The 32-byte secp256k1 key bytes are
+// used as the seed, so the libp2p peer ID stays stable across restarts and
+// matches across every component that calls this with the same identity.
+func CreateLibP2PKeyFromIdentity(nodeIdentity identity.Identity) (libp2pcrypto.PrivKey, error) {
 	// Cast to FullIdentity to access private key
 	fullIdentity, ok := nodeIdentity.(identity.FullIdentity)
 	if !ok {
@@ -268,7 +284,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	}
 
 	// Create LibP2P private key from the same identity to ensure consistent peer ID
-	libp2pPrivKey, err := createLibP2PKeyFromIdentity(nodeIdentity)
+	libp2pPrivKey, err := CreateLibP2PKeyFromIdentity(nodeIdentity)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating LibP2P private key from identity: %v", err)
 	}
@@ -537,7 +553,7 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 
 	// Create LibP2P private key from the same identity to ensure consistent peer ID
-	libp2pPrivKey, err := createLibP2PKeyFromIdentity(nodeIdentity)
+	libp2pPrivKey, err := CreateLibP2PKeyFromIdentity(nodeIdentity)
 	if err != nil {
 		return fmt.Errorf("error creating LibP2P private key from identity: %v", err)
 	}

@@ -1,97 +1,29 @@
 package signer
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
-	"github.com/sourcenetwork/defradb/keyring"
 	"github.com/sourcenetwork/defradb/node"
 )
 
-const (
-	keyFileName         string = "defra_identity.key"
-	nodeIdentityKeyName string = "node-identity-key"
-)
+const keyFileName string = "defra_identity.key"
 
 // Function variables for dependency injection in tests.
 var (
-	loadIdentityFromStoreFn    = loadIdentityFromStore
-	createLibP2PKeyFromIdentFn = createLibP2PKeyFromIdentity
-	identityFromPrivateKeyFn   = identity.FromPrivateKey
-	generateEd25519KeyFn       = libp2pcrypto.GenerateEd25519Key
-	ed25519PubKeyFromStringFn  = func(hex string) (crypto.PublicKey, error) {
+	loadIdentityFromStoreFn   = loadIdentityFromStore
+	ed25519PubKeyFromStringFn = func(hex string) (crypto.PublicKey, error) {
 		return crypto.PublicKeyFromString(crypto.KeyTypeEd25519, hex)
 	}
 )
-
-// openKeyring opens a keyring from the config, if available.
-// Returns nil if keyring is not configured or cannot be opened.
-func openKeyring(cfg *config.Config) (keyring.Keyring, error) {
-	if cfg == nil || cfg.DefraDB.KeyringSecret == "" {
-		return nil, nil
-	}
-
-	// Use file-based keyring (default for DefraDB)
-	// Keyring path defaults to "keys" directory in store path, or "keys" in current dir
-	keyringPath := filepath.Join(cfg.DefraDB.Store.Path, "keys")
-	if cfg.DefraDB.Store.Path == "" {
-		keyringPath = "keys"
-	}
-
-	// Ensure directory exists
-	if err := os.MkdirAll(keyringPath, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create keyring directory: %w", err)
-	}
-
-	secret := []byte(cfg.DefraDB.KeyringSecret)
-	return keyring.OpenFileKeyring(keyringPath, secret)
-}
-
-// loadIdentityFromKeyring loads the DefraDB identity from the keyring.
-func loadIdentityFromKeyring(kr keyring.Keyring) (identity.FullIdentity, error) {
-	identityBytes, err := kr.Get(nodeIdentityKeyName)
-	if err != nil {
-		if errors.Is(err, keyring.ErrNotFound) {
-			return nil, fmt.Errorf("node identity not found in keyring")
-		}
-		return nil, fmt.Errorf("failed to get identity from keyring: %w", err)
-	}
-
-	// Parse the format: "keyType:rawKeyBytes"
-	sepPos := bytes.Index(identityBytes, []byte(":"))
-	if sepPos == -1 {
-		// Old format without key type prefix, assume secp256k1
-		identityBytes = append([]byte(crypto.KeyTypeSecp256k1+":"), identityBytes...)
-		sepPos = len(crypto.KeyTypeSecp256k1)
-	}
-
-	keyType := string(identityBytes[:sepPos])
-	keyBytes := identityBytes[sepPos+1:]
-
-	// Reconstruct private key from bytes
-	privateKey, err := crypto.PrivateKeyFromBytes(crypto.KeyType(keyType), keyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reconstruct private key: %w", err)
-	}
-
-	// Reconstruct identity from private key
-	fullIdentity, err := identityFromPrivateKeyFn(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reconstruct identity from private key: %w", err)
-	}
-
-	return fullIdentity, nil
-}
 
 // loadIdentityFromFile loads the DefraDB identity from a file.
 func loadIdentityFromFile(storePath string) (identity.FullIdentity, error) {
@@ -116,7 +48,7 @@ func loadIdentityFromFile(storePath string) (identity.FullIdentity, error) {
 	}
 
 	// Reconstruct identity from private key
-	fullIdentity, err := identityFromPrivateKeyFn(privateKey)
+	fullIdentity, err := identity.FromPrivateKey(privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to reconstruct identity from private key: %w", err)
 	}
@@ -124,59 +56,25 @@ func loadIdentityFromFile(storePath string) (identity.FullIdentity, error) {
 	return fullIdentity, nil
 }
 
-// loadIdentityFromStore loads the DefraDB identity, trying keyring first, then falling back to file.
+// loadIdentityFromStore loads the DefraDB identity, trying the keyring first
+// (via pkg/defradb's shared helpers) and falling back to the file-based store
+// if the keyring is unconfigured, missing the entry, or unreadable. The keyring
+// path is the modern DefraDB default; the file fallback supports older
+// installations that pre-date keyring storage
 func loadIdentityFromStore(cfg *config.Config, storePath string) (identity.FullIdentity, error) {
 	// Try keyring first if config is available
 	if cfg != nil {
-		kr, err := openKeyring(cfg)
-		if err == nil && kr != nil {
-			identity, err := loadIdentityFromKeyring(kr)
-			if err == nil {
-				return identity, nil
+		if kr, err := defradb.OpenKeyring(cfg); err == nil {
+			if id, err := defradb.LoadIdentityFromKeyring(kr); err == nil {
+				if full, ok := id.(identity.FullIdentity); ok {
+					return full, nil
+				}
 			}
-			// If keyring fails, fall through to file-based
 		}
 	}
 
 	// Fall back to file-based storage
 	return loadIdentityFromFile(storePath)
-}
-
-// createLibP2PKeyFromIdentity creates a LibP2P private key from a DefraDB identity.
-// This ensures the LibP2P peer ID is deterministically derived from the same identity.
-func createLibP2PKeyFromIdentity(nodeIdentity identity.Identity) (libp2pcrypto.PrivKey, error) {
-	// Cast to FullIdentity to access private key
-	fullIdentity, ok := nodeIdentity.(identity.FullIdentity)
-	if !ok {
-		return nil, fmt.Errorf("identity is not a FullIdentity, cannot extract private key")
-	}
-
-	// Get the private key from the identity
-	privateKey := fullIdentity.PrivateKey()
-	if privateKey == nil {
-		return nil, fmt.Errorf("failed to get private key from identity")
-	}
-
-	// Get raw key bytes
-	keyBytes := privateKey.Raw()
-	if len(keyBytes) == 0 {
-		return nil, fmt.Errorf("private key has no raw bytes")
-	}
-
-	// DefraDB expects Ed25519 keys, but DefraDB identities use secp256k1
-	// We need to derive an Ed25519 key deterministically from the secp256k1 key
-	// Use the secp256k1 key bytes as seed for Ed25519 key generation
-	if len(keyBytes) != 32 {
-		return nil, fmt.Errorf("expected 32-byte secp256k1 key, got %d bytes", len(keyBytes))
-	}
-
-	// Generate Ed25519 key from secp256k1 seed
-	libp2pPrivKey, _, err := generateEd25519KeyFn(strings.NewReader(string(keyBytes)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate Ed25519 key from identity seed: %w", err)
-	}
-
-	return libp2pPrivKey, nil
 }
 
 // getStorePath attempts to determine the store path from the config or node.
@@ -254,7 +152,7 @@ func SignWithP2PKeys(message string, defraNode *node.Node, cfg *config.Config) (
 	}
 
 	// Create LibP2P private key from the identity
-	libp2pPrivKey, err := createLibP2PKeyFromIdentFn(fullIdentity)
+	libp2pPrivKey, err := defradb.CreateLibP2PKeyFromIdentity(fullIdentity)
 	if err != nil {
 		return "", fmt.Errorf("failed to create LibP2P key from identity: %w", err)
 	}
@@ -328,7 +226,7 @@ func GetP2PPublicKey(defraNode *node.Node, cfg *config.Config) (string, error) {
 	}
 
 	// Create LibP2P private key from the identity
-	libp2pPrivKey, err := createLibP2PKeyFromIdentFn(fullIdentity)
+	libp2pPrivKey, err := defradb.CreateLibP2PKeyFromIdentity(fullIdentity)
 	if err != nil {
 		return "", fmt.Errorf("failed to create LibP2P key from identity: %w", err)
 	}

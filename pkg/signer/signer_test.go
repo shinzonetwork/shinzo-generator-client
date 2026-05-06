@@ -3,85 +3,22 @@ package signer
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	pb "github.com/libp2p/go-libp2p/core/crypto/pb"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
-	"github.com/sourcenetwork/defradb/keyring"
 	"github.com/sourcenetwork/defradb/node"
-	"github.com/sourcenetwork/immutable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockKeyring implements keyring.Keyring for testing.
-type mockKeyring struct {
-	data   map[string][]byte
-	getErr error
-}
-
-func (m *mockKeyring) Get(name string) ([]byte, error) {
-	if m.getErr != nil {
-		return nil, m.getErr
-	}
-	v, ok := m.data[name]
-	if !ok {
-		return nil, keyring.ErrNotFound
-	}
-	return v, nil
-}
-
-func (m *mockKeyring) Set(name string, data []byte) error {
-	if m.data == nil {
-		m.data = make(map[string][]byte)
-	}
-	m.data[name] = data
-	return nil
-}
-
-func (m *mockKeyring) Delete(name string) error {
-	delete(m.data, name)
-	return nil
-}
-
-func (m *mockKeyring) List() ([]string, error) {
-	keys := make([]string, 0, len(m.data))
-	for k := range m.data {
-		keys = append(keys, k)
-	}
-	return keys, nil
-}
-
-// mockPrivateKey implements crypto.PrivateKey for testing edge cases.
-type mockPrivateKey struct {
-	rawBytes []byte
-	signErr  error
-	signData []byte
-	pubKey   crypto.PublicKey
-}
-
-func (m *mockPrivateKey) Equal(crypto.Key) bool       { return false }
-func (m *mockPrivateKey) Raw() []byte                 { return m.rawBytes }
-func (m *mockPrivateKey) String() string              { return "mock-private-key" }
-func (m *mockPrivateKey) Type() crypto.KeyType        { return crypto.KeyTypeSecp256k1 }
-func (m *mockPrivateKey) Underlying() any             { return nil }
-func (m *mockPrivateKey) GetPublic() crypto.PublicKey { return m.pubKey }
-func (m *mockPrivateKey) Sign(data []byte) ([]byte, error) {
-	if m.signErr != nil {
-		return nil, m.signErr
-	}
-	return m.signData, nil
-}
 
 // mockPublicKey implements crypto.PublicKey for testing edge cases.
 type mockPublicKey struct {
@@ -96,46 +33,6 @@ func (m *mockPublicKey) Underlying() any                     { return nil }
 func (m *mockPublicKey) Verify([]byte, []byte) (bool, error) { return false, nil }
 func (m *mockPublicKey) DID() (string, error)                { return "", nil }
 
-// mockFullIdentity implements identity.FullIdentity for testing.
-type mockFullIdentity struct {
-	privKey crypto.PrivateKey
-	pubKey  crypto.PublicKey
-}
-
-func (m *mockFullIdentity) PublicKey() crypto.PublicKey { return m.pubKey }
-func (m *mockFullIdentity) DID() string                 { return "did:key:mock" }
-func (m *mockFullIdentity) ToPublicRawIdentity() identity.PublicRawIdentity {
-	return identity.PublicRawIdentity{}
-}
-func (m *mockFullIdentity) BearerToken() string           { return "" }
-func (m *mockFullIdentity) PrivateKey() crypto.PrivateKey { return m.privKey }
-func (m *mockFullIdentity) IntoRawIdentity() identity.RawIdentity {
-	return identity.RawIdentity{}
-}
-func (m *mockFullIdentity) NewToken(
-	duration time.Duration,
-	audience immutable.Option[string],
-	authorizedAccount immutable.Option[string],
-) ([]byte, error) {
-	return nil, nil
-}
-func (m *mockFullIdentity) SetBearerToken(token string) {}
-func (m *mockFullIdentity) UpdateToken(
-	duration time.Duration,
-	audience immutable.Option[string],
-	authorizedAccount immutable.Option[string],
-) error {
-	return nil
-}
-
-// mockIdentityNotFull implements identity.Identity but NOT FullIdentity.
-type mockIdentityNotFull struct{}
-
-func (m *mockIdentityNotFull) PublicKey() crypto.PublicKey { return nil }
-func (m *mockIdentityNotFull) DID() string                 { return "did:key:mock" }
-func (m *mockIdentityNotFull) ToPublicRawIdentity() identity.PublicRawIdentity {
-	return identity.PublicRawIdentity{}
-}
 
 // mockLibP2PPrivKey implements libp2pcrypto.PrivKey for testing.
 type mockLibP2PPrivKey struct {
@@ -169,13 +66,6 @@ func swapLoadIdentity(t *testing.T, fn func(*config.Config, string) (identity.Fu
 	t.Cleanup(func() { loadIdentityFromStoreFn = orig })
 }
 
-// swapCreateLibP2PKey replaces the libp2p key creator and restores it on cleanup.
-func swapCreateLibP2PKey(t *testing.T, fn func(identity.Identity) (libp2pcrypto.PrivKey, error)) {
-	t.Helper()
-	orig := createLibP2PKeyFromIdentFn
-	createLibP2PKeyFromIdentFn = fn
-	t.Cleanup(func() { createLibP2PKeyFromIdentFn = orig })
-}
 
 // setupTestNode creates a DefraDB node with keyring for testing
 func setupTestNode(t *testing.T) (*node.Node, *config.Config) {
@@ -468,125 +358,6 @@ func TestSignWithP2PKeys_LongMessage(t *testing.T) {
 	assert.NoError(t, VerifyP2PSignature(pub, string(longMsg), sig))
 }
 
-// ─── openKeyring tests ──────────────────────────────────────────────────────
-
-func TestOpenKeyring_NilConfig(t *testing.T) {
-	kr, err := openKeyring(nil)
-	assert.NoError(t, err)
-	assert.Nil(t, kr)
-}
-
-func TestOpenKeyring_EmptySecret(t *testing.T) {
-	kr, err := openKeyring(&config.Config{})
-	assert.NoError(t, err)
-	assert.Nil(t, kr)
-}
-
-func TestOpenKeyring_WithStorePath(t *testing.T) {
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret",
-			Store:         config.DefraDBStoreConfig{Path: t.TempDir()},
-		},
-	}
-	kr, err := openKeyring(cfg)
-	assert.NoError(t, err)
-	assert.NotNil(t, kr)
-}
-
-func TestOpenKeyring_EmptyStorePath(t *testing.T) {
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret",
-			Store:         config.DefraDBStoreConfig{Path: ""},
-		},
-	}
-	kr, err := openKeyring(cfg)
-	assert.NoError(t, err)
-	assert.NotNil(t, kr)
-	os.RemoveAll("keys")
-}
-
-func TestOpenKeyring_MkdirAllFails(t *testing.T) {
-	tmpDir := t.TempDir()
-	conflictPath := filepath.Join(tmpDir, "notadir")
-	os.WriteFile(conflictPath, []byte("block"), 0644)
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret",
-			Store:         config.DefraDBStoreConfig{Path: conflictPath},
-		},
-	}
-	kr, err := openKeyring(cfg)
-	assert.Error(t, err)
-	assert.Nil(t, kr)
-	assert.Contains(t, err.Error(), "failed to create keyring directory")
-}
-
-// ─── loadIdentityFromKeyring tests ──────────────────────────────────────────
-
-func TestLoadIdentityFromKeyring_ErrNotFound(t *testing.T) {
-	kr := &mockKeyring{data: map[string][]byte{}}
-	_, err := loadIdentityFromKeyring(kr)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "node identity not found in keyring")
-}
-
-func TestLoadIdentityFromKeyring_GenericError(t *testing.T) {
-	kr := &mockKeyring{getErr: errors.New("disk failure")}
-	_, err := loadIdentityFromKeyring(kr)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get identity from keyring")
-}
-
-func TestLoadIdentityFromKeyring_OldFormatWithoutColon(t *testing.T) {
-	// Build raw key bytes guaranteed to NOT contain 0x3A (':')
-	// Generate keys until we find one without ':' or construct one
-	var keyBytes []byte
-	for i := 0; i < 100; i++ {
-		ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
-		require.NoError(t, err)
-		keyBytes = ident.PrivateKey().Raw()
-		hasColon := false
-		for _, b := range keyBytes {
-			if b == ':' {
-				hasColon = true
-				break
-			}
-		}
-		if !hasColon {
-			break
-		}
-	}
-
-	kr := &mockKeyring{data: map[string][]byte{
-		nodeIdentityKeyName: keyBytes,
-	}}
-	loaded, err := loadIdentityFromKeyring(kr)
-	assert.NoError(t, err)
-	assert.NotNil(t, loaded)
-}
-
-func TestLoadIdentityFromKeyring_InvalidKeyBytes(t *testing.T) {
-	data := append([]byte(string(crypto.KeyTypeSecp256k1)+":"), []byte("bad")...)
-	kr := &mockKeyring{data: map[string][]byte{
-		nodeIdentityKeyName: data,
-	}}
-	_, err := loadIdentityFromKeyring(kr)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to reconstruct private key")
-}
-
-func TestLoadIdentityFromKeyring_InvalidKeyType(t *testing.T) {
-	data := append([]byte("invalidtype:"), []byte("somebytes1234567890123456789012")...)
-	kr := &mockKeyring{data: map[string][]byte{
-		nodeIdentityKeyName: data,
-	}}
-	_, err := loadIdentityFromKeyring(kr)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to reconstruct private key")
-}
 
 // ─── loadIdentityFromFile tests ─────────────────────────────────────────────
 
@@ -688,42 +459,6 @@ func TestGetP2PPublicKey_NoStorePath(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to get store path")
 }
 
-// ─── createLibP2PKeyFromIdentity tests ──────────────────────────────────────
-
-func TestCreateLibP2PKeyFromIdentity_NotFullIdentity(t *testing.T) {
-	_, err := createLibP2PKeyFromIdentity(&mockIdentityNotFull{})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "identity is not a FullIdentity")
-}
-
-func TestCreateLibP2PKeyFromIdentity_NilPrivateKey(t *testing.T) {
-	mock := &mockFullIdentity{privKey: nil}
-	_, err := createLibP2PKeyFromIdentity(mock)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get private key from identity")
-}
-
-func TestCreateLibP2PKeyFromIdentity_EmptyRawBytes(t *testing.T) {
-	mock := &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: []byte{}}}
-	_, err := createLibP2PKeyFromIdentity(mock)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "private key has no raw bytes")
-}
-
-func TestCreateLibP2PKeyFromIdentity_WrongKeyLength(t *testing.T) {
-	mock := &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 16)}}
-	_, err := createLibP2PKeyFromIdentity(mock)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "expected 32-byte secp256k1 key, got 16 bytes")
-}
-
-func TestCreateLibP2PKeyFromIdentity_ValidKey(t *testing.T) {
-	// 32-byte key should work
-	mock := &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 32)}}
-	key, err := createLibP2PKeyFromIdentity(mock)
-	assert.NoError(t, err)
-	assert.NotNil(t, key)
-}
 
 // ─── SignWithDefraKeys error paths via mocked loader ────────────────────────
 
@@ -738,7 +473,7 @@ func TestSignWithDefraKeys_LoadIdentityFails(t *testing.T) {
 
 func TestSignWithDefraKeys_NilPrivateKey(t *testing.T) {
 	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{privKey: nil}, nil
+		return &testutils.MockFullIdentity{PrivKey: nil}, nil
 	})
 	_, err := SignWithDefraKeys("msg", nil, cfgWithStorePath(t.TempDir()))
 	assert.Error(t, err)
@@ -747,10 +482,10 @@ func TestSignWithDefraKeys_NilPrivateKey(t *testing.T) {
 
 func TestSignWithDefraKeys_SignError(t *testing.T) {
 	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{
-			privKey: &mockPrivateKey{
-				rawBytes: make([]byte, 32),
-				signErr:  fmt.Errorf("signing hardware failure"),
+		return &testutils.MockFullIdentity{
+			PrivKey: &testutils.MockPrivateKey{
+				RawBytes: make([]byte, 32),
+				SignErr:  fmt.Errorf("signing hardware failure"),
 			},
 		}, nil
 	})
@@ -770,57 +505,6 @@ func TestSignWithP2PKeys_LoadIdentityFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
 
-func TestSignWithP2PKeys_CreateLibP2PKeyFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 32)}}, nil
-	})
-	swapCreateLibP2PKey(t, func(_ identity.Identity) (libp2pcrypto.PrivKey, error) {
-		return nil, fmt.Errorf("injected key error")
-	})
-	_, err := SignWithP2PKeys("msg", nil, cfgWithStorePath(t.TempDir()))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create LibP2P key from identity")
-}
-
-func TestSignWithP2PKeys_RawKeyError(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 32)}}, nil
-	})
-	swapCreateLibP2PKey(t, func(_ identity.Identity) (libp2pcrypto.PrivKey, error) {
-		return &mockLibP2PPrivKey{rawErr: fmt.Errorf("raw error")}, nil
-	})
-	_, err := SignWithP2PKeys("msg", nil, cfgWithStorePath(t.TempDir()))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get raw key bytes from LibP2P key")
-}
-
-func TestSignWithP2PKeys_UnexpectedKeyLength(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 32)}}, nil
-	})
-	swapCreateLibP2PKey(t, func(_ identity.Identity) (libp2pcrypto.PrivKey, error) {
-		return &mockLibP2PPrivKey{rawBytes: make([]byte, 48)}, nil
-	})
-	_, err := SignWithP2PKeys("msg", nil, cfgWithStorePath(t.TempDir()))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unexpected Ed25519 key length")
-}
-
-func TestSignWithP2PKeys_32ByteKey(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 32)}}, nil
-	})
-	// Return a 32-byte raw key (the seed-only path)
-	seed := make([]byte, 32)
-	seed[0] = 0x01
-	swapCreateLibP2PKey(t, func(_ identity.Identity) (libp2pcrypto.PrivKey, error) {
-		return &mockLibP2PPrivKey{rawBytes: seed}, nil
-	})
-	sig, err := SignWithP2PKeys("msg", nil, cfgWithStorePath(t.TempDir()))
-	assert.NoError(t, err)
-	assert.NotEmpty(t, sig)
-}
-
 // ─── GetDefraPublicKey error paths ──────────────────────────────────────────
 
 func TestGetDefraPublicKey_LoadIdentityFails(t *testing.T) {
@@ -834,7 +518,7 @@ func TestGetDefraPublicKey_LoadIdentityFails(t *testing.T) {
 
 func TestGetDefraPublicKey_NilPublicKey(t *testing.T) {
 	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{pubKey: nil}, nil
+		return &testutils.MockFullIdentity{PubKey: nil}, nil
 	})
 	_, err := GetDefraPublicKey(nil, cfgWithStorePath(t.TempDir()))
 	assert.Error(t, err)
@@ -850,89 +534,6 @@ func TestGetP2PPublicKey_LoadIdentityFails(t *testing.T) {
 	_, err := GetP2PPublicKey(nil, cfgWithStorePath(t.TempDir()))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
-}
-
-func TestGetP2PPublicKey_CreateLibP2PKeyFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 32)}}, nil
-	})
-	swapCreateLibP2PKey(t, func(_ identity.Identity) (libp2pcrypto.PrivKey, error) {
-		return nil, fmt.Errorf("injected key error")
-	})
-	_, err := GetP2PPublicKey(nil, cfgWithStorePath(t.TempDir()))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create LibP2P key from identity")
-}
-
-func TestGetP2PPublicKey_RawPubKeyError(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 32)}}, nil
-	})
-	swapCreateLibP2PKey(t, func(_ identity.Identity) (libp2pcrypto.PrivKey, error) {
-		return &mockLibP2PPrivKey{
-			rawBytes: make([]byte, 64),
-			pubKey:   &mockLibP2PPubKey{rawErr: fmt.Errorf("raw pub error")},
-		}, nil
-	})
-	_, err := GetP2PPublicKey(nil, cfgWithStorePath(t.TempDir()))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get raw public key bytes")
-}
-
-// ─── loadIdentityFromKeyring: identity.FromPrivateKey error ─────────────────
-
-func TestLoadIdentityFromKeyring_FromPrivateKeyFails(t *testing.T) {
-	orig := identityFromPrivateKeyFn
-	identityFromPrivateKeyFn = func(_ crypto.PrivateKey) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected DID error")
-	}
-	t.Cleanup(func() { identityFromPrivateKeyFn = orig })
-
-	ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-	raw := ident.PrivateKey().Raw()
-	data := append([]byte(string(crypto.KeyTypeSecp256k1)+":"), raw...)
-
-	kr := &mockKeyring{data: map[string][]byte{nodeIdentityKeyName: data}}
-	_, err = loadIdentityFromKeyring(kr)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to reconstruct identity from private key")
-}
-
-// ─── loadIdentityFromFile: identity.FromPrivateKey error ────────────────────
-
-func TestLoadIdentityFromFile_FromPrivateKeyFails(t *testing.T) {
-	orig := identityFromPrivateKeyFn
-	identityFromPrivateKeyFn = func(_ crypto.PrivateKey) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected DID error")
-	}
-	t.Cleanup(func() { identityFromPrivateKeyFn = orig })
-
-	ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-	keyBytes := ident.PrivateKey().Raw()
-
-	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0644)
-
-	_, err = loadIdentityFromFile(tmpDir)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to reconstruct identity from private key")
-}
-
-// ─── createLibP2PKeyFromIdentity: GenerateEd25519Key error ──────────────────
-
-func TestCreateLibP2PKeyFromIdentity_GenerateEd25519Fails(t *testing.T) {
-	orig := generateEd25519KeyFn
-	generateEd25519KeyFn = func(r io.Reader) (libp2pcrypto.PrivKey, libp2pcrypto.PubKey, error) {
-		return nil, nil, fmt.Errorf("injected keygen error")
-	}
-	t.Cleanup(func() { generateEd25519KeyFn = orig })
-
-	mock := &mockFullIdentity{privKey: &mockPrivateKey{rawBytes: make([]byte, 32)}}
-	_, err := createLibP2PKeyFromIdentity(mock)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to generate Ed25519 key from identity seed")
 }
 
 // ─── VerifyP2PSignature: non-Ed25519 underlying key ────────────────────────
