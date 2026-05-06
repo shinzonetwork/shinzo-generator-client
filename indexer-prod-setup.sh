@@ -12,7 +12,7 @@ services:
       - shinzo-net
     mem_limit: 16g
     mem_reservation: 13g
-    user: "1003:1006"
+    user: "0:0"
     ports:
       - "9171:9171"
     volumes:
