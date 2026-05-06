@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -253,21 +254,30 @@ logger:
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
 	})
-
 	t.Run("signal handling shuts down gracefully", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
-		// Use external DefraDB with a non-routable TEST-NET-2 (RFC 5737) address.
-		// TCP SYN to this IP gets no response, so WaitForDefraDB's HTTP client
-		// hangs for its 5s timeout on the first attempt. The SIGTERM at 500ms
-		// wins the select race before errChan receives anything.
-		// Note: 127.0.0.1:1 can't be used because some CI runners have port 1
-		// accessible, causing WaitForDefraDB to return immediately.
+		// Start a TCP listener that accepts connections but never responds.
+		// This makes WaitForDefraDB's HTTP client hang indefinitely, giving
+		// the SIGTERM time to win the select race in run().
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer ln.Close()
+		go func() {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				_ = conn // accept but never respond — HTTP client hangs
+			}
+		}()
+
 		configContent := fmt.Sprintf(`
 defradb:
-  url: "http://198.51.100.1:1"
-  embedded: true
+  url: "http://%s"
+  embedded: false
   p2p:
     enabled: false
   store:
@@ -288,14 +298,11 @@ snapshot:
   enabled: false
 logger:
   development: true
-`, tmpDir)
+`, ln.Addr().String(), tmpDir)
 
-		err := os.WriteFile(configPath, []byte(configContent), 0o600)
+		err = os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		// Send SIGTERM after a short delay to trigger graceful shutdown path.
-		// The goroutine will be blocked in WaitForDefraDB retries, so the
-		// select in run() will pick up our signal.
 		go func() {
 			time.Sleep(500 * time.Millisecond)
 			p, _ := os.FindProcess(os.Getpid())
@@ -303,7 +310,6 @@ logger:
 		}()
 
 		err = run([]string{"-config", configPath})
-		// Signal handling path returns nil
 		assert.NoError(t, err)
 	})
 
