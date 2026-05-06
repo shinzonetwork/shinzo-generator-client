@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
 const uuidSize = 16
@@ -144,7 +145,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 	}
 
 	// Pack transaction IDs
-	if txIDs, ok := otherDocIDs["Ethereum__Mainnet__Transaction"]; ok && len(txIDs) > 0 {
+	if txIDs, ok := otherDocIDs[constants.CollectionTransaction]; ok && len(txIDs) > 0 {
 		packed, err := packDocIDs(txIDs)
 		if err != nil {
 			return fmt.Errorf("invalid tx docID: %w", err)
@@ -153,7 +154,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 	}
 
 	// Pack log IDs
-	if logIDs, ok := otherDocIDs["Ethereum__Mainnet__Log"]; ok && len(logIDs) > 0 {
+	if logIDs, ok := otherDocIDs[constants.CollectionLog]; ok && len(logIDs) > 0 {
 		packed, err := packDocIDs(logIDs)
 		if err != nil {
 			return fmt.Errorf("invalid log docID: %w", err)
@@ -162,7 +163,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 	}
 
 	// Pack access list entry IDs
-	if aleIDs, ok := otherDocIDs["Ethereum__Mainnet__AccessListEntry"]; ok && len(aleIDs) > 0 {
+	if aleIDs, ok := otherDocIDs[constants.CollectionAccessListEntry]; ok && len(aleIDs) > 0 {
 		packed, err := packDocIDs(aleIDs)
 		if err != nil {
 			return fmt.Errorf("invalid ALE docID: %w", err)
@@ -258,20 +259,20 @@ func (q *IndexerQueue) DrainByDocCount(excess int, collections CollectionConfig)
 		blockIDs = append(blockIDs, RestoreDocID(entry.BlockDocID))
 
 		if txIDs := UnpackDocIDs(entry.TransactionIDs); len(txIDs) > 0 {
-			result.DocIDsByCollection["Ethereum__Mainnet__Transaction"] = append(
-				result.DocIDsByCollection["Ethereum__Mainnet__Transaction"], txIDs...)
+			result.DocIDsByCollection[constants.CollectionTransaction] = append(
+				result.DocIDsByCollection[constants.CollectionTransaction], txIDs...)
 		}
 		if logIDs := UnpackDocIDs(entry.LogIDs); len(logIDs) > 0 {
-			result.DocIDsByCollection["Ethereum__Mainnet__Log"] = append(
-				result.DocIDsByCollection["Ethereum__Mainnet__Log"], logIDs...)
+			result.DocIDsByCollection[constants.CollectionLog] = append(
+				result.DocIDsByCollection[constants.CollectionLog], logIDs...)
 		}
 		if aleIDs := UnpackDocIDs(entry.AccessListIDs); len(aleIDs) > 0 {
-			result.DocIDsByCollection["Ethereum__Mainnet__AccessListEntry"] = append(
-				result.DocIDsByCollection["Ethereum__Mainnet__AccessListEntry"], aleIDs...)
+			result.DocIDsByCollection[constants.CollectionAccessListEntry] = append(
+				result.DocIDsByCollection[constants.CollectionAccessListEntry], aleIDs...)
 		}
 		if entry.HasBatchSig {
-			result.DocIDsByCollection["Ethereum__Mainnet__BatchSignature"] = append(
-				result.DocIDsByCollection["Ethereum__Mainnet__BatchSignature"], RestoreDocID(entry.BatchSigID))
+			result.DocIDsByCollection[constants.CollectionBatchSignature] = append(
+				result.DocIDsByCollection[constants.CollectionBatchSignature], RestoreDocID(entry.BatchSigID))
 		}
 	}
 
@@ -316,20 +317,20 @@ func (q *IndexerQueue) Drain(keep int, collections CollectionConfig) *DrainResul
 		blockIDs = append(blockIDs, RestoreDocID(entry.BlockDocID))
 
 		if txIDs := UnpackDocIDs(entry.TransactionIDs); len(txIDs) > 0 {
-			result.DocIDsByCollection["Ethereum__Mainnet__Transaction"] = append(
-				result.DocIDsByCollection["Ethereum__Mainnet__Transaction"], txIDs...)
+			result.DocIDsByCollection[constants.CollectionTransaction] = append(
+				result.DocIDsByCollection[constants.CollectionTransaction], txIDs...)
 		}
 		if logIDs := UnpackDocIDs(entry.LogIDs); len(logIDs) > 0 {
-			result.DocIDsByCollection["Ethereum__Mainnet__Log"] = append(
-				result.DocIDsByCollection["Ethereum__Mainnet__Log"], logIDs...)
+			result.DocIDsByCollection[constants.CollectionLog] = append(
+				result.DocIDsByCollection[constants.CollectionLog], logIDs...)
 		}
 		if aleIDs := UnpackDocIDs(entry.AccessListIDs); len(aleIDs) > 0 {
-			result.DocIDsByCollection["Ethereum__Mainnet__AccessListEntry"] = append(
-				result.DocIDsByCollection["Ethereum__Mainnet__AccessListEntry"], aleIDs...)
+			result.DocIDsByCollection[constants.CollectionAccessListEntry] = append(
+				result.DocIDsByCollection[constants.CollectionAccessListEntry], aleIDs...)
 		}
 		if entry.HasBatchSig {
-			result.DocIDsByCollection["Ethereum__Mainnet__BatchSignature"] = append(
-				result.DocIDsByCollection["Ethereum__Mainnet__BatchSignature"], RestoreDocID(entry.BatchSigID))
+			result.DocIDsByCollection[constants.CollectionBatchSignature] = append(
+				result.DocIDsByCollection[constants.CollectionBatchSignature], RestoreDocID(entry.BatchSigID))
 		}
 	}
 

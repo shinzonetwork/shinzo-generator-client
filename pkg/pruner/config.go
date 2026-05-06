@@ -1,5 +1,9 @@
 package pruner
 
+import (
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+)
+
 // Config represents pruner configuration for removing old documents.
 type Config struct {
 	Enabled         bool  `yaml:"enabled"`
@@ -24,13 +28,13 @@ type CollectionConfig struct {
 // DefaultCollectionConfig returns the default Ethereum mainnet collection config.
 func DefaultCollectionConfig() CollectionConfig {
 	return CollectionConfig{
-		BlockCollection:  "Ethereum__Mainnet__Block",
+		BlockCollection:  constants.CollectionBlock,
 		BlockNumberField: "number",
 		DependentCollections: []string{
-			"Ethereum__Mainnet__BatchSignature",
-			"Ethereum__Mainnet__AccessListEntry",
-			"Ethereum__Mainnet__Log",
-			"Ethereum__Mainnet__Transaction",
+			constants.CollectionBatchSignature,
+			constants.CollectionAccessListEntry,
+			constants.CollectionLog,
+			constants.CollectionTransaction,
 		},
 	}
 }

@@ -4,17 +4,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
 func TestDefaultCollectionConfig(t *testing.T) {
 	cfg := DefaultCollectionConfig()
-	assert.Equal(t, "Ethereum__Mainnet__Block", cfg.BlockCollection)
+	assert.Equal(t, constants.CollectionBlock, cfg.BlockCollection)
 	assert.Equal(t, "number", cfg.BlockNumberField)
 	assert.Len(t, cfg.DependentCollections, 4)
-	assert.Contains(t, cfg.DependentCollections, "Ethereum__Mainnet__Transaction")
-	assert.Contains(t, cfg.DependentCollections, "Ethereum__Mainnet__Log")
-	assert.Contains(t, cfg.DependentCollections, "Ethereum__Mainnet__AccessListEntry")
-	assert.Contains(t, cfg.DependentCollections, "Ethereum__Mainnet__BatchSignature")
+	assert.Contains(t, cfg.DependentCollections, constants.CollectionTransaction)
+	assert.Contains(t, cfg.DependentCollections, constants.CollectionLog)
+	assert.Contains(t, cfg.DependentCollections, constants.CollectionAccessListEntry)
+	assert.Contains(t, cfg.DependentCollections, constants.CollectionBatchSignature)
 }
 
 func TestConfigMaxDocs(t *testing.T) {

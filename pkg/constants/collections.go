@@ -47,6 +47,7 @@ var (
 	CollectionLog               = fmt.Sprintf("%s__Log", DefaultCollectionPrefix)
 	CollectionAccessListEntry   = fmt.Sprintf("%s__AccessListEntry", DefaultCollectionPrefix)
 	CollectionBlockSignature    = fmt.Sprintf("%s__BlockSignature", DefaultCollectionPrefix)
+	CollectionBatchSignature    = fmt.Sprintf("%s__BatchSignature", DefaultCollectionPrefix)
 	CollectionSnapshotSignature = fmt.Sprintf("%s__SnapshotSignature", DefaultCollectionPrefix)
 
 	AllCollections = []string{

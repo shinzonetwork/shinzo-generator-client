@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
@@ -118,7 +119,7 @@ func TestNewPruner(t *testing.T) {
 	t.Run("default collection config", func(t *testing.T) {
 		p := NewPruner(cfg, nil)
 		require.NotNil(t, p)
-		assert.Equal(t, "Ethereum__Mainnet__Block", p.collections.BlockCollection)
+		assert.Equal(t, constants.CollectionBlock, p.collections.BlockCollection)
 	})
 
 	t.Run("custom collection config", func(t *testing.T) {
@@ -243,7 +244,7 @@ func TestExtractBlockNumber(t *testing.T) {
 
 	t.Run("empty blocks array ([]interface{})", func(t *testing.T) {
 		data := map[string]interface{}{
-			"Ethereum__Mainnet__Block": []interface{}{},
+			constants.CollectionBlock: []interface{}{},
 		}
 		result, err := p.extractBlockNumber(data)
 		assert.NoError(t, err)
@@ -252,7 +253,7 @@ func TestExtractBlockNumber(t *testing.T) {
 
 	t.Run("blocks with data ([]interface{})", func(t *testing.T) {
 		data := map[string]interface{}{
-			"Ethereum__Mainnet__Block": []interface{}{
+			constants.CollectionBlock: []interface{}{
 				map[string]interface{}{"number": float64(42)},
 			},
 		}
@@ -263,7 +264,7 @@ func TestExtractBlockNumber(t *testing.T) {
 
 	t.Run("blocks with typed map array", func(t *testing.T) {
 		data := map[string]interface{}{
-			"Ethereum__Mainnet__Block": []map[string]interface{}{
+			constants.CollectionBlock: []map[string]interface{}{
 				{"number": float64(99)},
 			},
 		}
@@ -274,7 +275,7 @@ func TestExtractBlockNumber(t *testing.T) {
 
 	t.Run("empty typed map array", func(t *testing.T) {
 		data := map[string]interface{}{
-			"Ethereum__Mainnet__Block": []map[string]interface{}{},
+			constants.CollectionBlock: []map[string]interface{}{},
 		}
 		result, err := p.extractBlockNumber(data)
 		assert.NoError(t, err)
@@ -283,7 +284,7 @@ func TestExtractBlockNumber(t *testing.T) {
 
 	t.Run("typed map array missing number field", func(t *testing.T) {
 		data := map[string]interface{}{
-			"Ethereum__Mainnet__Block": []map[string]interface{}{
+			constants.CollectionBlock: []map[string]interface{}{
 				{"other_field": "value"},
 			},
 		}
@@ -294,7 +295,7 @@ func TestExtractBlockNumber(t *testing.T) {
 
 	t.Run("interface array with non-map element", func(t *testing.T) {
 		data := map[string]interface{}{
-			"Ethereum__Mainnet__Block": []interface{}{
+			constants.CollectionBlock: []interface{}{
 				"not a map",
 			},
 		}
@@ -305,7 +306,7 @@ func TestExtractBlockNumber(t *testing.T) {
 
 	t.Run("interface array missing number field", func(t *testing.T) {
 		data := map[string]interface{}{
-			"Ethereum__Mainnet__Block": []interface{}{
+			constants.CollectionBlock: []interface{}{
 				map[string]interface{}{"other": "value"},
 			},
 		}

@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
 // ─── UUID Helpers ────────────────────────────────────────────────────────────
@@ -131,7 +133,7 @@ func TestIndexerQueueTrackAndDrain(t *testing.T) {
 		err := q.TrackBlockDocIDs(i,
 			"bae-550e8400-e29b-41d4-a716-446655440000",
 			map[string][]string{
-				"Ethereum__Mainnet__Transaction": {"bae-660e8400-e29b-41d4-a716-446655440001"},
+				constants.CollectionTransaction: {"bae-660e8400-e29b-41d4-a716-446655440001"},
 			},
 			"",
 		)
@@ -170,11 +172,11 @@ func TestIndexerQueueDrainByDocCount(t *testing.T) {
 	err := q.TrackBlockDocIDs(1,
 		"bae-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{
-			"Ethereum__Mainnet__Transaction": {
+			constants.CollectionTransaction: {
 				"bae-660e8400-e29b-41d4-a716-446655440001",
 				"bae-770e8400-e29b-41d4-a716-446655440002",
 			},
-			"Ethereum__Mainnet__Log": {
+			constants.CollectionLog: {
 				"bae-880e8400-e29b-41d4-a716-446655440003",
 			},
 		},
@@ -208,17 +210,17 @@ func TestIndexerQueueTrackInvalidDocIDs(t *testing.T) {
 
 	// Invalid transaction docID
 	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000",
-		map[string][]string{"Ethereum__Mainnet__Transaction": {"invalid"}}, "")
+		map[string][]string{constants.CollectionTransaction: {"invalid"}}, "")
 	assert.Error(t, err)
 
 	// Invalid log docID
 	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000",
-		map[string][]string{"Ethereum__Mainnet__Log": {"invalid"}}, "")
+		map[string][]string{constants.CollectionLog: {"invalid"}}, "")
 	assert.Error(t, err)
 
 	// Invalid ALE docID
 	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000",
-		map[string][]string{"Ethereum__Mainnet__AccessListEntry": {"invalid"}}, "")
+		map[string][]string{constants.CollectionAccessListEntry: {"invalid"}}, "")
 	assert.Error(t, err)
 
 	// Invalid batch sig docID
@@ -304,9 +306,9 @@ func TestIndexerQueueSave_WithEntries(t *testing.T) {
 	err := q.TrackBlockDocIDs(1,
 		"bae-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{
-			"Ethereum__Mainnet__Transaction":     {"bae-660e8400-e29b-41d4-a716-446655440001"},
-			"Ethereum__Mainnet__Log":             {"bae-770e8400-e29b-41d4-a716-446655440002"},
-			"Ethereum__Mainnet__AccessListEntry": {"bae-880e8400-e29b-41d4-a716-446655440003"},
+			constants.CollectionTransaction:     {"bae-660e8400-e29b-41d4-a716-446655440001"},
+			constants.CollectionLog:             {"bae-770e8400-e29b-41d4-a716-446655440002"},
+			constants.CollectionAccessListEntry: {"bae-880e8400-e29b-41d4-a716-446655440003"},
 		},
 		"bae-990e8400-e29b-41d4-a716-446655440004",
 	)
@@ -337,9 +339,9 @@ func TestIndexerQueueDrain_WithAllDocTypes(t *testing.T) {
 	err := q.TrackBlockDocIDs(1,
 		"bae-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{
-			"Ethereum__Mainnet__Transaction":     {"bae-110e8400-e29b-41d4-a716-446655440001"},
-			"Ethereum__Mainnet__Log":             {"bae-220e8400-e29b-41d4-a716-446655440002"},
-			"Ethereum__Mainnet__AccessListEntry": {"bae-330e8400-e29b-41d4-a716-446655440003"},
+			constants.CollectionTransaction:     {"bae-110e8400-e29b-41d4-a716-446655440001"},
+			constants.CollectionLog:             {"bae-220e8400-e29b-41d4-a716-446655440002"},
+			constants.CollectionAccessListEntry: {"bae-330e8400-e29b-41d4-a716-446655440003"},
 		},
 		"bae-440e8400-e29b-41d4-a716-446655440004",
 	)
@@ -358,11 +360,11 @@ func TestIndexerQueueDrain_WithAllDocTypes(t *testing.T) {
 	assert.Equal(t, 1, result.BlockCount)
 
 	// Verify all collections are in the result
-	assert.Contains(t, result.DocIDsByCollection, "Ethereum__Mainnet__Block")
-	assert.Contains(t, result.DocIDsByCollection, "Ethereum__Mainnet__Transaction")
-	assert.Contains(t, result.DocIDsByCollection, "Ethereum__Mainnet__Log")
-	assert.Contains(t, result.DocIDsByCollection, "Ethereum__Mainnet__AccessListEntry")
-	assert.Contains(t, result.DocIDsByCollection, "Ethereum__Mainnet__BatchSignature")
+	assert.Contains(t, result.DocIDsByCollection, constants.CollectionBlock)
+	assert.Contains(t, result.DocIDsByCollection, constants.CollectionTransaction)
+	assert.Contains(t, result.DocIDsByCollection, constants.CollectionLog)
+	assert.Contains(t, result.DocIDsByCollection, constants.CollectionAccessListEntry)
+	assert.Contains(t, result.DocIDsByCollection, constants.CollectionBatchSignature)
 }
 
 func TestIndexerQueueDrainByDocCount_NotEnoughDocs(t *testing.T) {
