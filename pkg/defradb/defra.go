@@ -48,8 +48,10 @@ var DefaultConfig *config.Config = &config.Config{
 }
 
 var requiredPeers []string = []string{} // Here, we can add some "big peers" to give nodes a starting place when building their peer network
-const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
-const NodeIdentityKeyName string = "node-identity-key"
+const (
+	defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
+	NodeIdentityKeyName  string = "node-identity-key"
+)
 
 // Key Management Implementation Notes:
 //
@@ -92,7 +94,7 @@ func OpenKeyring(cfg *config.Config) (keyring.Keyring, error) {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(keyringPath, 0755); err != nil {
+	if err := os.MkdirAll(keyringPath, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create keyring directory: %w", err)
 	}
 
@@ -100,7 +102,7 @@ func OpenKeyring(cfg *config.Config) (keyring.Keyring, error) {
 	return keyring.OpenFileKeyring(keyringPath, secret)
 }
 
-// getOrCreateNodeIdentity retrieves an existing node identity from keyring or creates a new one
+// getOrCreateNodeIdentity retrieves an existing node identity from keyring or creates a new one.
 func getOrCreateNodeIdentity(cfg *config.Config) (identity.Identity, error) {
 	// Open keyring (required, no fallback)
 	kr, err := OpenKeyring(cfg)
@@ -135,7 +137,7 @@ func getOrCreateNodeIdentity(cfg *config.Config) (identity.Identity, error) {
 	return LoadIdentityFromBytes(identityBytes)
 }
 
-// saveNodeIdentityToKeyring saves the private key bytes of a node identity to the keyring
+// saveNodeIdentityToKeyring saves the private key bytes of a node identity to the keyring.
 func saveNodeIdentityToKeyring(kr keyring.Keyring, nodeIdentity identity.Identity) error {
 	// Cast to FullIdentity to access private key
 	fullIdentity, ok := nodeIdentity.(identity.FullIdentity)
@@ -286,19 +288,19 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	// Create LibP2P private key from the same identity to ensure consistent peer ID
 	libp2pPrivKey, err := CreateLibP2PKeyFromIdentity(nodeIdentity)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error creating LibP2P private key from identity: %v", err)
+		return nil, nil, fmt.Errorf("error creating LibP2P private key from identity: %w", err)
 	}
 
 	// Get raw bytes for P2P private key configuration (DefraDB 0.20 API TBD)
 	libp2pKeyBytes, err := libp2pPrivKey.Raw()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting LibP2P private key bytes: %v", err)
+		return nil, nil, fmt.Errorf("error getting LibP2P private key bytes: %w", err)
 	}
 
 	// Get real IP address to replace loopback addresses
 	ipAddress, err := utils.GetLANIP()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get LAN IP address: %v", err)
+		return nil, nil, fmt.Errorf("failed to get LAN IP address: %w", err)
 	}
 
 	// Replace loopback addresses in URL with real IP
@@ -383,7 +385,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 
 	defraNode, err := node.New(ctx, allOpts...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create defra node: %v ", err)
+		return nil, nil, fmt.Errorf("failed to create defra node: %w ", err)
 	}
 
 	if replicationFilter != nil {
@@ -392,7 +394,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 
 	err = defraNode.Start(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start defra node: %v ", err)
+		return nil, nil, fmt.Errorf("failed to start defra node: %w ", err)
 	}
 
 	err = schemaApplier.ApplySchema(ctx, defraNode)
@@ -401,7 +403,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 			logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
 		} else {
 			defer defraNode.Close(ctx)
-			return nil, nil, fmt.Errorf("failed to apply schema: %v", err)
+			return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
 		}
 	}
 
@@ -427,7 +429,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	return defraNode, networkHandler, nil
 }
 
-// A simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test
+// A simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test.
 func StartDefraInstanceWithTestConfig(t *testing.T, cfg *config.Config, schemaApplier SchemaApplier, collectionsOfInterest ...string) (*node.Node, error) {
 	ipAddress, err := utils.GetLANIP()
 	if err != nil {
@@ -502,7 +504,7 @@ func Subscribe[T any](ctx context.Context, defraNode *node.Node, subscription st
 
 // marshalUnmarshal converts a generic interface{} to a specific typed struct
 // using JSON marshal/unmarshal. This is the same pattern used throughout the query client.
-func marshalUnmarshal(data interface{}, target interface{}) error {
+func marshalUnmarshal(data any, target any) error {
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %w", err)
@@ -514,14 +516,14 @@ func marshalUnmarshal(data interface{}, target interface{}) error {
 // NEW CLIENT API - Clean alternative to StartDefraInstance
 // ====================================================================
 
-// Client provides a clean interface for DefraDB operations
+// Client provides a clean interface for DefraDB operations.
 type Client struct {
 	node    *node.Node
 	network *NetworkHandler
 	config  *config.Config
 }
 
-// NewClient creates a new client instance (doesn't start anything)
+// NewClient creates a new client instance (doesn't start anything).
 func NewClient(cfg *config.Config) (*Client, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config cannot be nil")
@@ -532,7 +534,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	}, nil
 }
 
-// Start initializes key generation, node startup, and network handler
+// Start initializes key generation, node startup, and network handler.
 func (c *Client) Start(ctx context.Context) error {
 	if c.node != nil {
 		return fmt.Errorf("client already started")
@@ -555,19 +557,19 @@ func (c *Client) Start(ctx context.Context) error {
 	// Create LibP2P private key from the same identity to ensure consistent peer ID
 	libp2pPrivKey, err := CreateLibP2PKeyFromIdentity(nodeIdentity)
 	if err != nil {
-		return fmt.Errorf("error creating LibP2P private key from identity: %v", err)
+		return fmt.Errorf("error creating LibP2P private key from identity: %w", err)
 	}
 
 	// Get raw bytes for P2P private key configuration
 	libp2pKeyBytes, err := libp2pPrivKey.Raw()
 	if err != nil {
-		return fmt.Errorf("error getting LibP2P private key bytes: %v", err)
+		return fmt.Errorf("error getting LibP2P private key bytes: %w", err)
 	}
 
 	// Get real IP address to replace loopback addresses
 	ipAddress, err := utils.GetLANIP()
 	if err != nil {
-		return fmt.Errorf("failed to get LAN IP address: %v", err)
+		return fmt.Errorf("failed to get LAN IP address: %w", err)
 	}
 
 	// Replace loopback addresses in URL with real IP
@@ -645,12 +647,12 @@ func (c *Client) Start(ctx context.Context) error {
 
 	c.node, err = node.New(ctx, allOpts...)
 	if err != nil {
-		return fmt.Errorf("failed to create defra node: %v", err)
+		return fmt.Errorf("failed to create defra node: %w", err)
 	}
 
 	err = c.node.Start(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to start defra node: %v", err)
+		return fmt.Errorf("failed to start defra node: %w", err)
 	}
 
 	// Create network handler
@@ -668,7 +670,7 @@ func (c *Client) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop cleanly shuts down the client
+// Stop cleanly shuts down the client.
 func (c *Client) Stop(ctx context.Context) error {
 	if c.node == nil {
 		return nil
@@ -680,7 +682,7 @@ func (c *Client) Stop(ctx context.Context) error {
 	return err
 }
 
-// ApplySchema applies a GraphQL schema string to the started node
+// ApplySchema applies a GraphQL schema string to the started node.
 func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 	if c.node == nil {
 		return fmt.Errorf("client must be started before applying schema")
@@ -696,18 +698,18 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 			logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
 			return nil
 		}
-		return fmt.Errorf("failed to apply schema: %v", err)
+		return fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	return nil
 }
 
-// GetNode returns the underlying DefraDB node
+// GetNode returns the underlying DefraDB node.
 func (c *Client) GetNode() *node.Node {
 	return c.node
 }
 
-// GetNetworkHandler returns the network handler
+// GetNetworkHandler returns the network handler.
 func (c *Client) GetNetworkHandler() *NetworkHandler {
 	return c.network
 }

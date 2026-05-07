@@ -33,7 +33,6 @@ func (m *mockPublicKey) Underlying() any                     { return nil }
 func (m *mockPublicKey) Verify([]byte, []byte) (bool, error) { return false, nil }
 func (m *mockPublicKey) DID() (string, error)                { return "", nil }
 
-
 // mockLibP2PPrivKey implements libp2pcrypto.PrivKey for testing.
 type mockLibP2PPrivKey struct {
 	rawBytes []byte
@@ -66,8 +65,7 @@ func swapLoadIdentity(t *testing.T, fn func(*config.Config, string) (identity.Fu
 	t.Cleanup(func() { loadIdentityFromStoreFn = orig })
 }
 
-
-// setupTestNode creates a DefraDB node with keyring for testing
+// setupTestNode creates a DefraDB node with keyring for testing.
 func setupTestNode(t *testing.T) (*node.Node, *config.Config) {
 	testConfig := &config.Config{
 		DefraDB: config.DefraDBConfig{
@@ -358,7 +356,6 @@ func TestSignWithP2PKeys_LongMessage(t *testing.T) {
 	assert.NoError(t, VerifyP2PSignature(pub, string(longMsg), sig))
 }
 
-
 // ─── loadIdentityFromFile tests ─────────────────────────────────────────────
 
 func TestLoadIdentityFromFile_NotFound(t *testing.T) {
@@ -369,7 +366,7 @@ func TestLoadIdentityFromFile_NotFound(t *testing.T) {
 
 func TestLoadIdentityFromFile_InvalidHex(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0o644)
 	_, err := loadIdentityFromFile(tmpDir)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to decode key hex")
@@ -377,7 +374,7 @@ func TestLoadIdentityFromFile_InvalidHex(t *testing.T) {
 
 func TestLoadIdentityFromFile_InvalidKeyData(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0o644)
 	_, err := loadIdentityFromFile(tmpDir)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to reconstruct private key")
@@ -389,7 +386,7 @@ func TestLoadIdentityFromFile_ValidKeyFile(t *testing.T) {
 	keyBytes := ident.PrivateKey().Raw()
 
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0644)
+	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0o644)
 
 	loaded, err := loadIdentityFromFile(tmpDir)
 	assert.NoError(t, err)
@@ -417,8 +414,8 @@ func TestGetStorePath_EmptyConfigPath(t *testing.T) {
 }
 
 func TestGetStorePath_FindsKeyInCommonLocation(t *testing.T) {
-	os.MkdirAll(".defra", 0755)
-	os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0644)
+	os.MkdirAll(".defra", 0o755)
+	os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0o644)
 	defer os.RemoveAll(".defra")
 
 	path, err := getStorePath(nil, nil)
@@ -458,7 +455,6 @@ func TestGetP2PPublicKey_NoStorePath(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get store path")
 }
-
 
 // ─── SignWithDefraKeys error paths via mocked loader ────────────────────────
 

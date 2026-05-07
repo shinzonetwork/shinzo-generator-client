@@ -12,7 +12,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// NetworkHandler manages P2P networking for DefraDB
+// NetworkHandler manages P2P networking for DefraDB.
 type NetworkHandler struct {
 	node *node.Node
 	cfg  *config.Config
@@ -36,7 +36,7 @@ type NetworkHandler struct {
 	wg     sync.WaitGroup
 }
 
-// NewNetworkHandler creates a new network handler
+// NewNetworkHandler creates a new network handler.
 func NewNetworkHandler(defraNode *node.Node, cfg *config.Config) *NetworkHandler {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -70,7 +70,7 @@ func NewNetworkHandler(defraNode *node.Node, cfg *config.Config) *NetworkHandler
 	}
 }
 
-// StartNetwork activates P2P networking and begins connection attempts
+// StartNetwork activates P2P networking and begins connection attempts.
 func (nh *NetworkHandler) StartNetwork() error {
 	nh.peersMu.Lock()
 	defer nh.peersMu.Unlock()
@@ -99,7 +99,7 @@ func (nh *NetworkHandler) StartNetwork() error {
 	return nil
 }
 
-// StopNetwork deactivates P2P networking gracefully
+// StopNetwork deactivates P2P networking gracefully.
 func (nh *NetworkHandler) StopNetwork() error {
 	nh.peersMu.Lock()
 
@@ -136,28 +136,28 @@ func (nh *NetworkHandler) StopNetwork() error {
 	return nil
 }
 
-// IsNetworkActive returns whether P2P networking is currently active
+// IsNetworkActive returns whether P2P networking is currently active.
 func (nh *NetworkHandler) IsNetworkActive() bool {
 	nh.peersMu.RLock()
 	defer nh.peersMu.RUnlock()
 	return nh.networkActive
 }
 
-// IsHostRunning returns whether the host is running
+// IsHostRunning returns whether the host is running.
 func (nh *NetworkHandler) IsHostRunning() bool {
 	nh.peersMu.RLock()
 	defer nh.peersMu.RUnlock()
 	return nh.hostRunning
 }
 
-// SetHostRunning updates the host running state
+// SetHostRunning updates the host running state.
 func (nh *NetworkHandler) SetHostRunning(running bool) {
 	nh.peersMu.Lock()
 	defer nh.peersMu.Unlock()
 	nh.hostRunning = running
 }
 
-// ToggleNetwork switches P2P networking on/off
+// ToggleNetwork switches P2P networking on/off.
 func (nh *NetworkHandler) ToggleNetwork() error {
 	if nh.IsNetworkActive() {
 		return nh.StopNetwork()
@@ -165,7 +165,7 @@ func (nh *NetworkHandler) ToggleNetwork() error {
 	return nh.StartNetwork()
 }
 
-// connectWithRetryLocked attempts to connect to a peer with exponential backoff
+// connectWithRetryLocked attempts to connect to a peer with exponential backoff.
 func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 	peer, exists := nh.peers[peerAddr]
 	if !exists {
@@ -178,7 +178,7 @@ func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 	peer.State = StateConnecting
 	peer.RetryCount = 0
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		peer.LastAttempt = time.Now()
 		peer.RetryCount = attempt + 1
 
@@ -203,10 +203,7 @@ func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 		default:
 		}
 
-		delay := baseDelay * time.Duration(1<<attempt)
-		if delay > 30*time.Second {
-			delay = 30 * time.Second
-		}
+		delay := min(baseDelay*time.Duration(1<<attempt), 30*time.Second)
 
 		logger.Sugar.Debugf("Connection attempt %d/%d to %s failed: %v. Retrying in %v",
 			attempt+1, maxRetries, peerAddr, err, delay)
@@ -226,7 +223,7 @@ func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 	return fmt.Errorf("failed to connect to peer %s after %d retries: %w", peerAddr, maxRetries, peer.LastError)
 }
 
-// startReconnectionLoop starts the background reconnection goroutine
+// startReconnectionLoop starts the background reconnection goroutine.
 func (nh *NetworkHandler) startReconnectionLoop() {
 	if !nh.cfg.DefraDB.P2P.EnableAutoReconnect {
 		return
@@ -234,9 +231,7 @@ func (nh *NetworkHandler) startReconnectionLoop() {
 	interval := time.Duration(nh.cfg.DefraDB.P2P.ReconnectIntervalMs) * time.Millisecond
 	nh.reconnectStop = make(chan struct{})
 	nh.reconnectTicker = time.NewTicker(interval)
-	nh.wg.Add(1)
-	go func() {
-		defer nh.wg.Done()
+	nh.wg.Go(func() {
 		defer nh.reconnectTicker.Stop()
 		for {
 			select {
@@ -249,11 +244,11 @@ func (nh *NetworkHandler) startReconnectionLoop() {
 				nh.reconnectDisconnectedPeers()
 			}
 		}
-	}()
+	})
 	nh.startNoPeersEventListener()
 }
 
-// startNoPeersEventListener subscribes to P2PNoPeers events and triggers immediate reconnection
+// startNoPeersEventListener subscribes to P2PNoPeers events and triggers immediate reconnection.
 func (nh *NetworkHandler) startNoPeersEventListener() {
 	if nh.node == nil || nh.node.DB == nil {
 		return
@@ -263,9 +258,7 @@ func (nh *NetworkHandler) startNoPeersEventListener() {
 		logger.Sugar.Warnf("Failed to subscribe to P2PNoPeers events: %v", err)
 		return
 	}
-	nh.wg.Add(1)
-	go func() {
-		defer nh.wg.Done()
+	nh.wg.Go(func() {
 		for {
 			select {
 			case <-nh.reconnectStop:
@@ -281,11 +274,11 @@ func (nh *NetworkHandler) startNoPeersEventListener() {
 				}
 			}
 		}
-	}()
+	})
 	logger.Sugar.Info("P2PNoPeers event listener started")
 }
 
-// forceReconnectAll marks all peers as disconnected and triggers immediate reconnection
+// forceReconnectAll marks all peers as disconnected and triggers immediate reconnection.
 func (nh *NetworkHandler) forceReconnectAll() {
 	nh.peersMu.Lock()
 	for _, peer := range nh.peers {
@@ -299,7 +292,7 @@ func (nh *NetworkHandler) forceReconnectAll() {
 	nh.reconnectDisconnectedPeers()
 }
 
-// checkPeerHealth verifies that peers we think are connected are still connected
+// checkPeerHealth verifies that peers we think are connected are still connected.
 func (nh *NetworkHandler) checkPeerHealth() {
 	if nh.node == nil || nh.node.DB == nil {
 		return
@@ -345,7 +338,7 @@ func (nh *NetworkHandler) checkPeerHealth() {
 	}
 }
 
-// extractPeerID extracts the peer ID from a multiaddr string
+// extractPeerID extracts the peer ID from a multiaddr string.
 func extractPeerID(multiaddr string) string {
 	const p2pPrefix = "/p2p/"
 	for i := len(multiaddr) - len(p2pPrefix); i >= 0; i-- {
@@ -356,7 +349,7 @@ func extractPeerID(multiaddr string) string {
 	return ""
 }
 
-// reconnectDisconnectedPeers attempts to reconnect to all disconnected or failed peers
+// reconnectDisconnectedPeers attempts to reconnect to all disconnected or failed peers.
 func (nh *NetworkHandler) reconnectDisconnectedPeers() {
 	nh.peersMu.RLock()
 	disconnectedPeers := []string{}
@@ -379,7 +372,7 @@ func (nh *NetworkHandler) reconnectDisconnectedPeers() {
 	}
 }
 
-// attemptReconnect attempts to reconnect to a single peer
+// attemptReconnect attempts to reconnect to a single peer.
 func (nh *NetworkHandler) attemptReconnect(peerAddr string) {
 	nh.peersMu.Lock()
 	defer nh.peersMu.Unlock()
@@ -396,7 +389,7 @@ func (nh *NetworkHandler) attemptReconnect(peerAddr string) {
 	}
 }
 
-// AddPeer adds a new peer at runtime
+// AddPeer adds a new peer at runtime.
 func (nh *NetworkHandler) AddPeer(peerAddr string) error {
 	nh.peersMu.Lock()
 	defer nh.peersMu.Unlock()
@@ -409,16 +402,14 @@ func (nh *NetworkHandler) AddPeer(peerAddr string) error {
 	}
 	logger.Sugar.Infof("Added new peer: %s", peerAddr)
 	if nh.networkActive {
-		nh.wg.Add(1)
-		go func() {
-			defer nh.wg.Done()
+		nh.wg.Go(func() {
 			nh.attemptReconnect(peerAddr)
-		}()
+		})
 	}
 	return nil
 }
 
-// RemovePeer removes a peer from the handler
+// RemovePeer removes a peer from the handler.
 func (nh *NetworkHandler) RemovePeer(peerAddr string) error {
 	nh.peersMu.Lock()
 	defer nh.peersMu.Unlock()
@@ -430,7 +421,7 @@ func (nh *NetworkHandler) RemovePeer(peerAddr string) error {
 	return nil
 }
 
-// GetPeers returns a copy of all peer states
+// GetPeers returns a copy of all peer states.
 func (nh *NetworkHandler) GetPeers() map[string]PeerState {
 	nh.peersMu.RLock()
 	defer nh.peersMu.RUnlock()
@@ -441,7 +432,7 @@ func (nh *NetworkHandler) GetPeers() map[string]PeerState {
 	return result
 }
 
-// GetConnectedPeers returns a list of connected peer addresses
+// GetConnectedPeers returns a list of connected peer addresses.
 func (nh *NetworkHandler) GetConnectedPeers() []string {
 	nh.peersMu.RLock()
 	defer nh.peersMu.RUnlock()
@@ -454,7 +445,7 @@ func (nh *NetworkHandler) GetConnectedPeers() []string {
 	return connected
 }
 
-// GetPeerState returns the state of a specific peer
+// GetPeerState returns the state of a specific peer.
 func (nh *NetworkHandler) GetPeerState(peerAddr string) (PeerState, bool) {
 	nh.peersMu.RLock()
 	defer nh.peersMu.RUnlock()
@@ -464,7 +455,7 @@ func (nh *NetworkHandler) GetPeerState(peerAddr string) (PeerState, bool) {
 	return PeerState{}, false
 }
 
-// GetConnectionStats returns connection statistics
+// GetConnectionStats returns connection statistics.
 func (nh *NetworkHandler) GetConnectionStats() ConnectionStats {
 	nh.peersMu.RLock()
 	defer nh.peersMu.RUnlock()
@@ -488,7 +479,7 @@ func (nh *NetworkHandler) GetConnectionStats() ConnectionStats {
 	return stats
 }
 
-// ConnectionStats provides summary statistics about peer connections
+// ConnectionStats provides summary statistics about peer connections.
 type ConnectionStats struct {
 	TotalPeers        int  `json:"total_peers"`
 	ConnectedPeers    int  `json:"connected_peers"`

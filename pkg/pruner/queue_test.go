@@ -261,7 +261,7 @@ func TestIndexerQueueSaveEmptyRemovesFile(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "queue.gob")
 
 	// Create a file
-	os.WriteFile(filePath, []byte("data"), 0644)
+	os.WriteFile(filePath, []byte("data"), 0o644)
 
 	q := NewIndexerQueue()
 	q.LoadFromFile(filePath)
@@ -285,7 +285,7 @@ func TestIndexerQueueLoadFromFileInvalidData(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "bad_queue.gob")
 
-	os.WriteFile(filePath, []byte("not valid gob data"), 0644)
+	os.WriteFile(filePath, []byte("not valid gob data"), 0o644)
 
 	q := NewIndexerQueue()
 	_, err := q.LoadFromFile(filePath)
@@ -394,7 +394,6 @@ func TestIndexerQueueTrackBlockDocIDs_EmptyBlockDocID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, q.Len())
 }
-
 
 func TestIndexerQueueLoadFromFile_WithPrefix(t *testing.T) {
 	initDocIDPrefix()

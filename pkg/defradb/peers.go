@@ -63,7 +63,7 @@ func connectToPeers(ctx context.Context, defraNode *node.Node, peers []string) e
 
 	err := defraNode.DB.Connect(ctx, peers)
 	if err != nil {
-		return fmt.Errorf("error connecting to peer: %v", err)
+		return fmt.Errorf("error connecting to peer: %w", err)
 	}
 
 	return nil

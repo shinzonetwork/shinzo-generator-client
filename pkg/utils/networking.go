@@ -11,7 +11,7 @@ var dialFunc = net.Dial
 func GetLANIP() (string, error) {
 	conn, err := dialFunc("udp", "8.8.8.8:80")
 	if err != nil {
-		return "", fmt.Errorf("Error retrieving ip address: %v", err)
+		return "", fmt.Errorf("Error retrieving ip address: %w", err)
 	}
 	defer conn.Close()
 

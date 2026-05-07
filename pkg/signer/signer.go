@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
@@ -60,7 +60,7 @@ func loadIdentityFromFile(storePath string) (identity.FullIdentity, error) {
 // (via pkg/defradb's shared helpers) and falling back to the file-based store
 // if the keyring is unconfigured, missing the entry, or unreadable. The keyring
 // path is the modern DefraDB default; the file fallback supports older
-// installations that pre-date keyring storage
+// installations that pre-date keyring storage.
 func loadIdentityFromStore(cfg *config.Config, storePath string) (identity.FullIdentity, error) {
 	// Try keyring first if config is available
 	if cfg != nil {

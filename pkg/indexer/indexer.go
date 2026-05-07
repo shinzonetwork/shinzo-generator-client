@@ -15,16 +15,16 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/signer"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
@@ -65,7 +65,7 @@ type ChainIndexer struct {
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
-	defraNode                 *node.Node             // Embedded DefraDB node (nil if using external)
+	defraNode                 *node.Node              // Embedded DefraDB node (nil if using external)
 	networkHandler            *defradb.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
 	pruner                    *pruner.Pruner        // Document pruner for removing old blocks.
@@ -180,10 +180,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 // initDefra starts or connects to DefraDB and returns an updated context with identity.
 func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraStarted bool) (context.Context, error) {
 	if !defraStarted {
-		
 
 		logger.Sugar.Debugf("P2P config: ListenAddr: '%s', BootstrapPeers: %v, Enabled: %t",
-		cfg.DefraDB.P2P.ListenAddr, cfg.DefraDB.P2P.BootstrapPeers, cfg.DefraDB.P2P.Enabled)
+			cfg.DefraDB.P2P.ListenAddr, cfg.DefraDB.P2P.BootstrapPeers, cfg.DefraDB.P2P.Enabled)
 
 		var replicationFilter client.ReplicationFilter
 		if !cfg.DefraDB.P2P.AcceptIncoming {
@@ -193,7 +192,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		defraNode, networkHandler, err := defradb.StartDefraInstance(cfg,
 			defradb.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
 		if err != nil {
-			return ctx, fmt.Errorf("Failed to start DefraDB instance: %W", err)
+			return ctx, fmt.Errorf("Failed to start DefraDB instance: %w", err)
 		}
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler
@@ -373,10 +372,6 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		i.hasIndexedAtLeastOneBlock = true
 	})
 }
-
-
-
-
 
 // StopIndexing halts the indexer and cleanly shuts down all subsystems.
 func (i *ChainIndexer) StopIndexing() {

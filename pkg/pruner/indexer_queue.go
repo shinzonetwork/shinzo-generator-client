@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
@@ -420,7 +421,7 @@ func UnpackDocIDs(packed []byte) []string {
 	}
 	count := len(packed) / uuidSize
 	ids := make([]string, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		var uuid [uuidSize]byte
 		copy(uuid[:], packed[i*uuidSize:(i+1)*uuidSize])
 		ids[i] = RestoreDocID(uuid)

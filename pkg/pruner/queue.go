@@ -2,7 +2,7 @@ package pruner
 
 // PrunerQueue is the interface for queue implementations used by the pruner.
 // Implemented by IndexerQueue - a compact packed-UUID queue for indexers that know docIDs at creation time
-// Potentially suitable for common library
+// Potentially suitable for common library.
 type PrunerQueue interface {
 	// Len returns the total number of entries in the queue.
 	Len() int

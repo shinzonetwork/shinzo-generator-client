@@ -2822,7 +2822,6 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 
 	keyringSecret := "test-secret-for-sign-identity-123"
 
-
 	// Start DefraDB to create identity and keys
 	td := testutils.SetupTestDefraDB(t)
 
@@ -3125,7 +3124,7 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      99980, // specific start height
-			ConcurrentBlocks: 1, // concurrent
+			ConcurrentBlocks: 1,     // concurrent
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -3158,7 +3157,6 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 	indexer.shouldIndex = false
 	indexer.StopIndexing()
 }
-
 
 // ---------------------------------------------------------------------------
 // fetchAndProcessBlock — receipt fallback to individual fetch

@@ -35,15 +35,15 @@ const (
 	// keyTypeES256K is the key type string for secp256k1 keys in DefraDB.
 	keyTypeES256K = "ES256K"
 	// Test collection names derived from the default prefix
-	// testBlockCollection is a constant for block collections
+	// testBlockCollection is a constant for block collections.
 	testBlockCollection = constants.DefaultCollectionPrefix + "__Block"
-	// testTransactionCollection is a constant for transaction collections
+	// testTransactionCollection is a constant for transaction collections.
 	testTransactionCollection = constants.DefaultCollectionPrefix + "__Transaction"
-	// testLogCollection is a constant for log collections
+	// testLogCollection is a constant for log collections.
 	testLogCollection = constants.DefaultCollectionPrefix + "__Log"
-	// testAccessListCollection is a constant for ALE collections
+	// testAccessListCollection is a constant for ALE collections.
 	testAccessListCollection = constants.DefaultCollectionPrefix + "__AccessListEntry"
-	// testBlockSignatureCollection is a constant for blockSignature collections
+	// testBlockSignatureCollection is a constant for blockSignature collections.
 	testBlockSignatureCollection = constants.DefaultCollectionPrefix + "__BlockSignature"
 )
 

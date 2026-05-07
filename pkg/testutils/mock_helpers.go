@@ -1,11 +1,14 @@
 package testutils
+
 import (
 	"time"
-	"github.com/sourcenetwork/defradb/keyring"
-	"github.com/sourcenetwork/defradb/crypto"
-	"github.com/sourcenetwork/immutable"
+
 	"github.com/sourcenetwork/defradb/acp/identity"
+	"github.com/sourcenetwork/defradb/crypto"
+	"github.com/sourcenetwork/defradb/keyring"
+	"github.com/sourcenetwork/immutable"
 )
+
 // MockKeyring implements keyring.Keyring for testing.
 type MockKeyring struct {
 	Data   map[string][]byte
@@ -60,6 +63,7 @@ func (m *MockFullIdentity) PrivateKey() crypto.PrivateKey { return m.PrivKey }
 func (m *MockFullIdentity) IntoRawIdentity() identity.RawIdentity {
 	return identity.RawIdentity{}
 }
+
 func (m *MockFullIdentity) NewToken(
 	duration time.Duration,
 	audience immutable.Option[string],

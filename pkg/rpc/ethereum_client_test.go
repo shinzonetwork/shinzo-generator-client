@@ -404,7 +404,7 @@ func TestConvertTransaction_EIP1559(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(1000),
 		Data:      []byte("data"),
 	}
@@ -441,7 +441,7 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 		Nonce:      1,
 		GasPrice:   big.NewInt(20000000000),
 		Gas:        21000,
-		To:         toPtr(common.HexToAddress("0xto")),
+		To:         new(common.HexToAddress("0xto")),
 		Value:      big.NewInt(1000),
 		Data:       []byte("data"),
 		AccessList: accessList,
@@ -715,7 +715,7 @@ func TestGetFromAddress_SignedEIP155(t *testing.T) {
 		Nonce:    1,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -740,7 +740,7 @@ func TestGetFromAddress_SignedDynamicFee(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(1000),
 	}
 
@@ -1206,7 +1206,7 @@ func TestGetFromAddress_HomesteadSigner(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1229,7 +1229,7 @@ func TestGetFromAddress_FrontierSigner(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1255,7 +1255,7 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1351,7 +1351,7 @@ func TestConvertGethBlock_FailedTxConversion(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 	signer := ethtypes.NewEIP155Signer(big.NewInt(1))
@@ -1403,7 +1403,7 @@ func TestGetFromAddress_AllSignersFail(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(0),
 	}
 	// Create unsigned DynamicFeeTx — has non-zero ChainID but no valid signature
@@ -1753,7 +1753,7 @@ func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 		V:        big.NewInt(27),
 		R:        big.NewInt(0),
@@ -1776,7 +1776,7 @@ func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 	tx := ethtypes.NewTx(inner)
@@ -1803,7 +1803,7 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 		Nonce:    42,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1838,7 +1838,7 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 		Nonce:    42,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 		V:        newV,
 		R:        r,
@@ -1863,8 +1863,9 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 
 // --- Test helpers ---
 
+//go:fix inline
 func toPtr(addr common.Address) *common.Address {
-	return &addr
+	return new(addr)
 }
 
 func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {

@@ -8,18 +8,17 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/crypto"
-	
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // --- MOCKS ---
 
-
-// --- TESTS ---
+// --- TESTS ---.
 func TestStartDefra(t *testing.T) {
 	// Create a copy of DefaultConfig to avoid modifying the shared instance
 	testConfig := *DefaultConfig
@@ -295,7 +294,7 @@ func TestOpenKeyring_EmptyStorePath(t *testing.T) {
 func TestOpenKeyring_MkdirAllFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	conflictPath := filepath.Join(tmpDir, "notadir")
-	os.WriteFile(conflictPath, []byte("block"), 0644)
+	os.WriteFile(conflictPath, []byte("block"), 0o644)
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
