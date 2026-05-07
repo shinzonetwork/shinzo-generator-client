@@ -71,6 +71,7 @@ http {
     add_header 'Access-Control-Max-Age' 3600 always;
     add_header 'Vary' 'Origin' always;
 
+    # Health endpoint
     location = /health {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/health;
@@ -78,7 +79,7 @@ http {
       proxy_set_header X-Forwarded-Host $host;
       proxy_set_header X-Forwarded-Proto $scheme;
     }
-
+    # Optional - registration endpoint
     location = /registration {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/registration;
@@ -95,6 +96,7 @@ http {
       proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Metrics endpoint
     location = /metrics {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/metrics;
@@ -103,6 +105,7 @@ http {
       proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Snapshots endpoint
     location = /snapshots {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/snapshots;

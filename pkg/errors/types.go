@@ -31,6 +31,9 @@ const (
 	Error
 	// Critical - System cannot continue, requires immediate attention.
 	Critical
+
+	// Unknown severity level for undefined cases.
+	Unknown = "UNKNOWN"
 )
 
 func (s Severity) String() string {

@@ -441,7 +441,6 @@ func (h *BlockHandler) buildAndCreateSingleTxnDocs(ctx context.Context, txn clie
 	if err != nil {
 		return "", nil, nil, nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build block document", err)
 	}
-
 	if err := cols.block.AddDocument(ctx, blockDoc); err != nil {
 		if errors.IsErrAlreadyExists(err) {
 			return "", nil, nil, nil, fmt.Errorf("block already exists") //nolint: err113
@@ -977,19 +976,19 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Block, blockInt int64) (string, error) {
 	txn, err := h.db.NewTxn(false)
 	if err != nil {
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
+		return "", err
 	}
 
 	colBlock, err := txn.GetCollectionByName(ctx, h.collections.Block)
 	if err != nil {
 		txn.Discard()
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err)
+		return "", ctx, errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err) //nolint: err113
 	}
 
 	blockDoc, err := h.buildBlockDocument(ctx, block, blockInt, colBlock)
 	if err != nil {
 		txn.Discard()
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to build block document", err)
+		return "", ctx, errors.NewQueryFailed("defra", "createBlockBatched", "failed to build block document", err)
 	}
 
 	if err := colBlock.AddDocument(ctx, blockDoc); err != nil {
@@ -997,13 +996,13 @@ func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Blo
 		if errors.IsErrAlreadyExists(err) {
 			return "", fmt.Errorf("block already exists") //nolint: err113
 		}
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create block", err)
+		return "", ctx, errors.NewQueryFailed("defra", "createBlockBatched", "failed to create block", err)
 	}
 
 	blockID := blockDoc.ID().String()
 
 	if err := txn.Commit(); err != nil {
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
+		return "", ctx, errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
 	}
 
 	return blockID, nil
