@@ -271,6 +271,7 @@ func applyChainEnvOverrides(cfg *Config) {
 	if gethApiKeyType := os.Getenv("GETH_API_KEY_TYPE"); gethApiKeyType != "" {
 		cfg.Geth.APIKeyType = gethApiKeyType
 	}
+}
 
 // applyIndexerEnvOverrides applies indexer environment variable overrides.
 func applyIndexerEnvOverrides(cfg *Config) {
