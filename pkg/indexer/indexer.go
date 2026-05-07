@@ -174,8 +174,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers", cfg.Indexer.ConcurrentBlocks)
 		return i.runConcurrentIndexing(ctx, ethClient, blockHandler, nextBlockToProcess, cfg)
 	}
-
-	return i.runSequentialIndexing(ctx, ethClient, blockHandler, nextBlockToProcess)
+	return nil
 }
 
 // initDefra starts or connects to DefraDB and returns an updated context with identity.
@@ -194,7 +193,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		defraNode, networkHandler, err := defradb.StartDefraInstance(cfg,
 			defradb.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
 		if err != nil {
-			return fmt.Errorf("Failed to start DefraDB instance: %v", err)
+			return ctx, fmt.Errorf("Failed to start DefraDB instance: %W", err)
 		}
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler
@@ -348,16 +347,6 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 			i.healthServer.SetSnapshotter(i.snapshotter)
 		}
 	}
-}
-
-	// Use concurrent processing if configured and using embedded DefraDB
-	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
-		logger.Sugar.Infof("Using concurrent block processing with %d workers",
-			cfg.Indexer.ConcurrentBlocks)
-		return i.runConcurrentIndexing(ctx, client, blockHandler, nextBlockToProcess, cfg)
-	}
-
-	return nil
 }
 
 // runConcurrentIndexing runs the indexer with concurrent block processing.

@@ -71,7 +71,7 @@ func swapLoadIdentity(t *testing.T, fn func(*config.Config, string) (identity.Fu
 func setupTestNode(t *testing.T) (*node.Node, *config.Config) {
 	testConfig := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			Url:           "http://localhost:0",
+			URL:           "http://localhost:0",
 			KeyringSecret: "test-secret",
 			P2P: config.DefraDBP2PConfig{
 				BootstrapPeers: []string{},
