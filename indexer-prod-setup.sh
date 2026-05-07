@@ -19,9 +19,10 @@ services:
       - ~/data/defradb:/app/.defra
       - ~/data/lens:/app/.defra/lens
     environment:
-      - GETH_RPC_URL=https://json-rpc.aouzyll7wj7e9xe4g7t82w88c.blockchainnodeengine.com
-      - GETH_WS_URL=wss://ws.aouzyll7wj7e9xe4g7t82w88c.blockchainnodeengine.com
-      - GETH_API_KEY=<YOUR_API_KEY_HERE>
+      - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
+      - GETH_WS_URL=ws://ws.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
+      - GETH_API_KEY=YOUR_API_KEY
+      - GETH_API_KEY_TYPE=x-goog-api-key      
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
       - GOMEMLIMIT=14GiB

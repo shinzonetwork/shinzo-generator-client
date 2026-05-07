@@ -1876,3 +1876,51 @@ func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {
 	addr := crypto.PubkeyToAddress(key.PublicKey)
 	return key, addr
 }
+
+// --- normalizeHeaderName Tests ---
+
+func TestNormalizeHeaderName(t *testing.T) {
+	tests := []struct {
+		name           string
+		apiKeyType     string
+		expectedHeader string
+	}{
+		{"x-goog-api-key lowercase", "x-goog-api-key", "x-goog-api-key"},
+		{"X-Goog-Api-Key mixed case", "X-Goog-Api-Key", "x-goog-api-key"},
+		{"x-api-key lowercase", "x-api-key", "x-api-key"},
+		{"X-Api-Key mixed case", "X-Api-Key", "x-api-key"},
+		{"custom header", "X-Custom-Header", "x-custom-header"},
+		{"trims whitespace", "  X-Api-Key  ", "x-api-key"},
+		{"empty string stays empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeHeaderName(tt.apiKeyType)
+			assert.Equal(t, tt.expectedHeader, result)
+		})
+	}
+}
+
+// --- isGCPProvider Tests ---
+
+func TestIsGCPProvider(t *testing.T) {
+	tests := []struct {
+		name       string
+		headerName string
+		expected   bool
+	}{
+		{"x-goog-api-key is GCP", "x-goog-api-key", true},
+		{"contains goog anywhere", "my-goog-header", true},
+		{"x-api-key is not GCP", "x-api-key", false},
+		{"empty is not GCP", "", false},
+		{"unknown is not GCP", "unknown", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isGCPProvider(tt.headerName)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

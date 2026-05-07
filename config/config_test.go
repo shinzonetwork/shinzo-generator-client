@@ -354,6 +354,7 @@ func TestApplyEnvOverrides_GethConfig(t *testing.T) {
 	t.Setenv("GETH_RPC_URL", "http://geth:8545")
 	t.Setenv("GETH_WS_URL", "ws://geth:8546")
 	t.Setenv("GETH_API_KEY", "myapikey")
+	t.Setenv("GETH_API_KEY_TYPE", "X-Api-Key")
 	applyEnvOverrides(cfg)
 
 	if cfg.Geth.NodeURL != "http://geth:8545" {
