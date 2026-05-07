@@ -271,8 +271,8 @@ func (q *IndexerQueue) DrainByDocCount(excess int, collections CollectionConfig)
 				result.DocIDsByCollection[constants.CollectionAccessListEntry], aleIDs...)
 		}
 		if entry.HasBatchSig {
-			result.DocIDsByCollection[constants.CollectionBatchSignature] = append(
-				result.DocIDsByCollection[constants.CollectionBatchSignature], RestoreDocID(entry.BatchSigID))
+			result.DocIDsByCollection[constants.CollectionBlockSignature] = append(
+				result.DocIDsByCollection[constants.CollectionBlockSignature], RestoreDocID(entry.BatchSigID))
 		}
 	}
 
@@ -329,8 +329,8 @@ func (q *IndexerQueue) Drain(keep int, collections CollectionConfig) *DrainResul
 				result.DocIDsByCollection[constants.CollectionAccessListEntry], aleIDs...)
 		}
 		if entry.HasBatchSig {
-			result.DocIDsByCollection[constants.CollectionBatchSignature] = append(
-				result.DocIDsByCollection[constants.CollectionBatchSignature], RestoreDocID(entry.BatchSigID))
+			result.DocIDsByCollection[constants.CollectionBlockSignature] = append(
+				result.DocIDsByCollection[constants.CollectionBlockSignature], RestoreDocID(entry.BatchSigID))
 		}
 	}
 

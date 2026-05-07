@@ -31,7 +31,7 @@ func DefaultCollectionConfig() CollectionConfig {
 		BlockCollection:  constants.CollectionBlock,
 		BlockNumberField: "number",
 		DependentCollections: []string{
-			constants.CollectionBatchSignature,
+			constants.CollectionBlockSignature,
 			constants.CollectionAccessListEntry,
 			constants.CollectionLog,
 			constants.CollectionTransaction,

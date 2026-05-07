@@ -15,7 +15,7 @@ func TestDefaultCollectionConfig(t *testing.T) {
 	assert.Contains(t, cfg.DependentCollections, constants.CollectionTransaction)
 	assert.Contains(t, cfg.DependentCollections, constants.CollectionLog)
 	assert.Contains(t, cfg.DependentCollections, constants.CollectionAccessListEntry)
-	assert.Contains(t, cfg.DependentCollections, constants.CollectionBatchSignature)
+	assert.Contains(t, cfg.DependentCollections, constants.CollectionBlockSignature)
 }
 
 func TestConfigMaxDocs(t *testing.T) {

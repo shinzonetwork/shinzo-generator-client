@@ -364,7 +364,7 @@ func TestIndexerQueueDrain_WithAllDocTypes(t *testing.T) {
 	assert.Contains(t, result.DocIDsByCollection, constants.CollectionTransaction)
 	assert.Contains(t, result.DocIDsByCollection, constants.CollectionLog)
 	assert.Contains(t, result.DocIDsByCollection, constants.CollectionAccessListEntry)
-	assert.Contains(t, result.DocIDsByCollection, constants.CollectionBatchSignature)
+	assert.Contains(t, result.DocIDsByCollection, constants.CollectionBlockSignature)
 }
 
 func TestIndexerQueueDrainByDocCount_NotEnoughDocs(t *testing.T) {
