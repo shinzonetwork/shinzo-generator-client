@@ -1,12 +1,12 @@
 package types
 
-// AccessListEntry represents an access list entry for EIP-2930 transactions
+// AccessListEntry represents an access list entry for EIP-2930 transactions.
 type AccessListEntry struct {
 	Address     string   `json:"address"`
 	StorageKeys []string `json:"storageKeys"`
 }
 
-// TransactionReceipt represents an Ethereum transaction receipt
+// TransactionReceipt represents an Ethereum transaction receipt.
 type TransactionReceipt struct {
 	TransactionHash   string `json:"transactionHash"`
 	TransactionIndex  string `json:"transactionIndex"`
@@ -21,6 +21,7 @@ type TransactionReceipt struct {
 	Status            string `json:"status"`
 }
 
+// Block represents an Ethereum block.
 type Block struct {
 	Hash             string        `json:"hash"`
 	Number           string        `json:"number"`
@@ -45,6 +46,7 @@ type Block struct {
 	Transactions     []Transaction `json:"transactions,omitempty"`
 }
 
+// Transaction represents an Ethereum transaction.
 type Transaction struct {
 	Hash                 string            `json:"hash"`
 	BlockHash            string            `json:"blockHash"`
@@ -60,7 +62,7 @@ type Transaction struct {
 	Nonce                string            `json:"nonce"`
 	TransactionIndex     int               `json:"transactionIndex"`
 	Type                 string            `json:"type"`
-	ChainId              string            `json:"chainId,omitempty"`
+	ChainID              string            `json:"chainId,omitempty"`
 	AccessList           []AccessListEntry `json:"accessList,omitempty"`
 	V                    string            `json:"v"`
 	R                    string            `json:"r"`
@@ -72,6 +74,7 @@ type Transaction struct {
 	Logs                 []Log             `json:"logs,omitempty"`
 }
 
+// Log represents an Ethereum event log.
 type Log struct {
 	Address          string   `json:"address"`
 	Topics           []string `json:"topics"`
@@ -84,40 +87,34 @@ type Log struct {
 	Removed          bool     `json:"removed"`
 }
 
+// Response represents a GraphQL response containing document IDs.
 type Response struct {
 	Data map[string][]struct {
 		DocID string `json:"_docID"` // the document ID of the item in the collection
 	} `json:"data"` // the data returned from the query
 }
 
+// Request represents a GraphQL request with a type and query.
 type Request struct {
 	Type  string `json:"type"`
 	Query string `json:"query"`
 }
 
-type Error struct {
-	Level   int    `json:"level"`
-	Message string `json:"message"`
-}
-
+// DefraDoc wraps a document stored in DefraDB.
 type DefraDoc struct {
 	JSON any `json:"json"`
 }
 
+// UpdateTransactionStruct holds the data needed to update a transaction's block association.
 type UpdateTransactionStruct struct {
-	BlockId string `json:"blockId"`
+	BlockId string `json:"blockId"` //nolint:revive // legacy JSON field name maintained for compatibility
 	TxHash  string `json:"txHash"`
 }
 
+// UpdateLogStruct holds the data needed to update a log's block and transaction association.
 type UpdateLogStruct struct {
-	BlockId  string `json:"blockId"`
-	TxId     string `json:"txId"`
+	BlockId  string `json:"blockId"` //nolint:revive // legacy JSON field name maintained for compatibility
+	TxId     string `json:"txId"`    //nolint:revive // legacy JSON field name maintained for compatibility
 	TxHash   string `json:"txHash"`
 	LogIndex string `json:"logIndex"`
-}
-
-type UpdateEventStruct struct {
-	LogIndex string `json:"logIndex"`
-	TxHash   string `json:"txHash"`
-	LogDocId string `json:"logDocId"`
 }

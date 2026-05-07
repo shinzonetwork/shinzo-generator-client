@@ -1,13 +1,14 @@
 package utils
 
 import (
+	stderrors "errors"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 )
 
 func TestNumberToHex(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    int64
@@ -30,7 +31,7 @@ t.Parallel()
 }
 
 func TestNumberToHex_UnsignedTypes(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Run("uint8", func(t *testing.T) {
 		got := NumberToHex(uint8(255))
 		if got != "0xff" {
@@ -54,7 +55,7 @@ t.Parallel()
 }
 
 func TestHexToInt(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name      string
 		input     string
@@ -82,10 +83,7 @@ t.Parallel()
 				if errors.IsDataError(err) == false && err != nil {
 					// For empty string, the underlying is nil so it's still a DataError
 					var indexerErr errors.IndexerError
-					if ie, ok := err.(errors.IndexerError); ok {
-						indexerErr = ie
-					}
-					if indexerErr != nil && indexerErr.Code() != "INVALID_HEX" {
+					if stderrors.As(err, &indexerErr) && indexerErr.Code() != "INVALID_HEX" {
 						t.Errorf("expected INVALID_HEX error code, got %q", indexerErr.Code())
 					}
 				}

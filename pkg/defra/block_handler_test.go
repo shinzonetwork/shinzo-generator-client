@@ -20,21 +20,21 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 )
 
-// TestMain sets up testing environment
+// TestMain sets up testing environment.
 func TestMain(m *testing.M) {
-	// Initialize logger for all tests
+	// Initialize logger for all tests.
 	logger.InitConsoleOnly(true)
 
-	// Run tests
+	// Run tests.
 	code := m.Run()
 
-	// Exit with test result code
+	// Exit with test result code.
 	os.Exit(code)
 }
 
 func TestNewBlockHandler_NilNode(t *testing.T) {
-t.Parallel()
-	// Test that nil node returns error
+	t.Parallel()
+	// Test that nil node returns error.
 	handler, err := NewBlockHandler(nil, 1000, nil)
 	if err == nil {
 		t.Error("Expected error for nil node, got nil")
@@ -45,19 +45,19 @@ t.Parallel()
 }
 
 func TestNewBlockHandler_DefaultMaxDocs(t *testing.T) {
-t.Parallel()
-	// Test that maxDocsPerTxn defaults to 1000 when <= 0
-	// Note: This test would require a real DefraDB node, so we skip it
-	// The logic is tested by verifying the constructor returns an error for nil node
+	t.Parallel()
+	// Test that maxDocsPerTxn defaults to 1000 when <= 0.
+	// Note: This test would require a real DefraDB node, so we skip it.
+	// The logic is tested by verifying the constructor returns an error for nil node.
 	t.Skip("Requires embedded DefraDB node")
 }
 
 func TestStructuredLogging_ConfigurationError(t *testing.T) {
-t.Parallel()
-	// Test structured logging with configuration errors
+	t.Parallel()
+	// Test structured logging with configuration errors.
 	testLogger := testutils.NewTestLogger(t)
 
-	// Create a configuration error
+	// Create a configuration error.
 	host := "localhost"
 	port := 9181
 	originalErr := errors.New("connection refused")
@@ -72,11 +72,11 @@ t.Parallel()
 		shinzoerrors.WithMetadata("port", port),
 	)
 
-	// Log with structured context
+	// Log with structured context.
 	logCtx := shinzoerrors.LogContext(handlerErr)
-	testLogger.Logger.With(logCtx).Error("Handler creation failed")
+	testLogger.Logger.With("context", logCtx).Error("Handler creation failed")
 
-	// Verify the structured logging worked
+	// Verify the structured logging worked.
 	testLogger.AssertLogLevel("ERROR")
 	testLogger.AssertLogContains("Handler creation failed")
 	testLogger.AssertLogStructuredContext("defra", "NewBlockHandler")
@@ -86,8 +86,8 @@ t.Parallel()
 }
 
 func TestStructuredLogging_NilHandlerError(t *testing.T) {
-t.Parallel()
-	// Test structured logging for nil handler scenario
+	t.Parallel()
+	// Test structured logging for nil handler scenario.
 	testLogger := testutils.NewTestLogger(t)
 
 	host := "localhost"
@@ -103,11 +103,11 @@ t.Parallel()
 		shinzoerrors.WithMetadata("port", port),
 	)
 
-	// Log with structured context
+	// Log with structured context.
 	logCtx := shinzoerrors.LogContext(nilErr)
-	testLogger.Logger.With(logCtx).Error("Nil handler after creation")
+	testLogger.Logger.With("context", logCtx).Error("Nil handler after creation")
 
-	// Verify the structured logging worked
+	// Verify the structured logging worked.
 	testLogger.AssertLogLevel("ERROR")
 	testLogger.AssertLogContains("Nil handler after creation")
 	testLogger.AssertLogStructuredContext("defra", "NewBlockHandler")
@@ -117,8 +117,8 @@ t.Parallel()
 }
 
 func TestConvertHexToInt(t *testing.T) {
-t.Parallel()
-	// Set up test logger
+	t.Parallel()
+	// Set up test logger.
 	testLogger := testutils.NewTestLogger(t)
 
 	tests := []struct {
@@ -140,7 +140,7 @@ t.Parallel()
 			result, err := utils.HexToInt(tt.input)
 			if err != nil {
 				logCtx := shinzoerrors.LogContext(err)
-				testLogger.Logger.With(logCtx).Error("ConvertHexToInt failed")
+				testLogger.Logger.With("context", logCtx).Error("ConvertHexToInt failed")
 				t.Errorf("Unexpected error: %v", err)
 			}
 			if result != tt.expected {
@@ -151,7 +151,7 @@ t.Parallel()
 }
 
 func TestConvertHexToInt_UnhappyPaths(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -182,7 +182,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestRetryBackoff(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name     string
 		attempt  int
@@ -209,10 +209,10 @@ t.Parallel()
 }
 
 func TestRetryBackoff_MonotonicallyIncreasing(t *testing.T) {
-t.Parallel()
-	// Verify that backoff values are monotonically non-decreasing
+	t.Parallel()
+	// Verify that backoff values are monotonically non-decreasing.
 	var prev time.Duration
-	for attempt := 0; attempt < 20; attempt++ {
+	for attempt := range 20 {
 		current := retryBackoff(attempt)
 		assert.GreaterOrEqual(t, current, prev,
 			"retryBackoff(%d) = %v should be >= retryBackoff(%d) = %v",
@@ -222,12 +222,12 @@ t.Parallel()
 }
 
 func TestRetryBackoff_NeverExceedsCap(t *testing.T) {
-t.Parallel()
-	cap := 8 * time.Second
-	for attempt := 0; attempt < 50; attempt++ {
+	t.Parallel()
+	time := 8 * time.Second
+	for attempt := range 50 { // nolint:mnd
 		result := retryBackoff(attempt)
-		assert.LessOrEqual(t, result, cap,
-			"retryBackoff(%d) = %v exceeds cap %v", attempt, result, cap)
+		assert.LessOrEqual(t, result, time,
+			"retryBackoff(%d) = %v exceeds cap %v", attempt, result, time)
 	}
 }
 
@@ -236,7 +236,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestTruncate(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -262,11 +262,11 @@ t.Parallel()
 }
 
 // ---------------------------------------------------------------------------
-// GetPortFromUrl tests
+// GetPortFromURL tests
 // ---------------------------------------------------------------------------
 
-func TestGetPortFromUrl(t *testing.T) {
-t.Parallel()
+func TestGetPortFromURL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		url      string
@@ -288,9 +288,9 @@ t.Parallel()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GetPortFromUrl(tt.url)
+			result := GetPortFromURL(tt.url)
 			assert.Equal(t, tt.expected, result,
-				"GetPortFromUrl(%q) = %d, want %d", tt.url, result, tt.expected)
+				"GetPortFromURL(%q) = %d, want %d", tt.url, result, tt.expected)
 		})
 	}
 }
@@ -300,13 +300,13 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestWaitForDefraDB_ImmediateSuccess(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Server that returns 200 OK on POST to /api/v0/graphql
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "POST", r.Method)
 		assert.Equal(t, "/api/v0/graphql", r.URL.Path)
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"data":{"__schema":{"types":[]}}}`)
+		_, _ = fmt.Fprint(w, `{"data":{"__schema":{"types":[]}}}`)
 	}))
 	defer server.Close()
 
@@ -315,18 +315,18 @@ t.Parallel()
 }
 
 func TestWaitForDefraDB_SuccessAfterRetries(t *testing.T) {
-t.Parallel()
-	// Server that fails twice then succeeds on the third attempt
+	t.Parallel()
+	// Server that fails twice then succeeds on the third attempt.
 	var callCount atomic.Int32
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		count := callCount.Add(1)
 		if count <= 2 {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"data":{"__schema":{"types":[]}}}`)
+		_, _ = fmt.Fprint(w, `{"data":{"__schema":{"types":[]}}}`)
 	}))
 	defer server.Close()
 
@@ -337,8 +337,8 @@ t.Parallel()
 }
 
 func TestWaitForDefraDB_FailureInvalidURL(t *testing.T) {
-t.Parallel()
-	// Use a URL that will fail to connect immediately (port 0 is never open)
+	t.Parallel()
+	// Use a URL that will fail to connect immediately (port 0 is never open).
 	// This is faster than waiting for 15 real retries with 1s sleep.
 	// The function will fail with connection refused on every attempt.
 	err := WaitForDefraDB("http://127.0.0.1:0")
@@ -347,8 +347,8 @@ t.Parallel()
 }
 
 func TestWaitForDefraDB_InvalidRequestURL(t *testing.T) {
-t.Parallel()
-	// URL with control character causes NewRequestWithContext to fail
+	t.Parallel()
+	// URL with control character causes NewRequestWithContext to fail.
 	err := WaitForDefraDB("http://\x7f")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create request")
@@ -358,7 +358,7 @@ t.Parallel()
 // SetDocIDTracker tests
 // ---------------------------------------------------------------------------
 
-// mockDocIDTracker is a simple mock implementing DocIDTrackerInterface
+// mockDocIDTracker is a simple mock implementing DocIDTrackerInterface.
 type mockDocIDTracker struct {
 	trackedBlocks  []int64
 	trackedResults []*BlockCreationResult
@@ -371,7 +371,7 @@ func (m *mockDocIDTracker) TrackBlock(_ context.Context, blockNumber int64, resu
 }
 
 func TestSetDocIDTracker(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Construct a BlockHandler directly (bypassing NewBlockHandler which requires a real node)
 	// to test SetDocIDTracker in isolation.
 	handler := &BlockHandler{
@@ -391,7 +391,7 @@ t.Parallel()
 }
 
 func TestSetDocIDTracker_ReplaceExisting(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	handler := &BlockHandler{
 		maxDocsPerTxn: 1000,
 	}
@@ -409,7 +409,7 @@ t.Parallel()
 }
 
 func TestSetDocIDTracker_SetNil(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	handler := &BlockHandler{
 		maxDocsPerTxn: 1000,
 	}
@@ -425,11 +425,11 @@ t.Parallel()
 }
 
 // ---------------------------------------------------------------------------
-// NewBlockHandler maxDocsPerTxn default value test
+// NewBlockHandler maxDocsPerTxn default value test.
 // ---------------------------------------------------------------------------
 
 func TestNewBlockHandler_ZeroMaxDocs(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// NewBlockHandler with nil node will fail before checking maxDocsPerTxn,
 	// so we verify the default logic by constructing directly and checking the field.
 	// The constructor sets maxDocsPerTxn = 1000 when input <= 0.
@@ -452,7 +452,7 @@ t.Parallel()
 // ---------------------------------------------------------------------------
 
 func TestBlockCreationResult_Fields(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	result := &BlockCreationResult{
 		BlockID:          "block-123",
 		BlockNumber:      42,
@@ -471,7 +471,7 @@ t.Parallel()
 }
 
 func TestBlockCreationResult_EmptySlices(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	result := &BlockCreationResult{}
 
 	assert.Nil(t, result.TransactionIDs, "TransactionIDs should be nil when not set")
@@ -481,11 +481,11 @@ t.Parallel()
 }
 
 // ---------------------------------------------------------------------------
-// MockDocIDTracker behavior tests
+// MockDocIDTracker behavior tests.
 // ---------------------------------------------------------------------------
 
 func TestMockDocIDTracker_TrackBlock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tracker := &mockDocIDTracker{}
 
 	result := &BlockCreationResult{
@@ -512,21 +512,21 @@ t.Parallel()
 	assert.Equal(t, int64(101), tracker.trackedBlocks[1])
 }
 
-// --- GetPortFromUrl edge cases ---
+// --- GetPortFromURL edge cases ---
 
-func TestGetPortFromUrl_NoColons(t *testing.T) {
-t.Parallel()
+func TestGetPortFromURL_NoColons(t *testing.T) {
+	t.Parallel()
 	// URL with no colons at all → fewer than 2 parts
-	assert.Equal(t, -1, GetPortFromUrl("localhost"))
+	assert.Equal(t, -1, GetPortFromURL("localhost"))
 }
 
-func TestGetPortFromUrl_NonNumericPort(t *testing.T) {
-t.Parallel()
+func TestGetPortFromURL_NonNumericPort(t *testing.T) {
+	t.Parallel()
 	// URL with non-numeric port → Atoi fails
-	assert.Equal(t, -1, GetPortFromUrl("http://127.0.0.1:abc"))
+	assert.Equal(t, -1, GetPortFromURL("http://127.0.0.1:abc"))
 }
 
-func TestGetPortFromUrl_LocalhostNonNumericPort(t *testing.T) {
-t.Parallel()
-	assert.Equal(t, -1, GetPortFromUrl("http://localhost:notaport"))
+func TestGetPortFromURL_LocalhostNonNumericPort(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, -1, GetPortFromURL("http://localhost:notaport"))
 }

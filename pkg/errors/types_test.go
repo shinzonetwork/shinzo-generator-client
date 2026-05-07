@@ -1,12 +1,12 @@
 package errors
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 )
 
 func TestSeverity_String(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		severity Severity
 		expected string
@@ -28,7 +28,7 @@ t.Parallel()
 }
 
 func TestRetryBehavior_String(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tests := []struct {
 		behavior RetryBehavior
 		expected string
@@ -49,8 +49,8 @@ t.Parallel()
 }
 
 func TestBaseError_Error_WithUnderlying(t *testing.T) {
-t.Parallel()
-	underlying := fmt.Errorf("connection refused")
+	t.Parallel()
+	underlying := errors.New("connection refused") //nolint: err113
 	e := &baseError{
 		code:       "TEST_CODE",
 		message:    "test message",
@@ -63,7 +63,7 @@ t.Parallel()
 }
 
 func TestBaseError_Error_WithoutUnderlying(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	e := &baseError{
 		code:    "TEST_CODE",
 		message: "test message",
@@ -75,8 +75,8 @@ t.Parallel()
 }
 
 func TestBaseError_Accessors(t *testing.T) {
-t.Parallel()
-	underlying := fmt.Errorf("wrapped")
+	t.Parallel()
+	underlying := errors.New("wrapped") //nolint: err113
 	ctx := ErrorContext{
 		Component: "test",
 		Operation: "TestOp",
@@ -105,13 +105,13 @@ t.Parallel()
 	if e.Context().Operation != "TestOp" {
 		t.Errorf("Context().Operation = %q, want %q", e.Context().Operation, "TestOp")
 	}
-	if e.Unwrap() != underlying {
+	if !errors.Is(e.Unwrap(), underlying) { //nolint:err113
 		t.Errorf("Unwrap() = %v, want %v", e.Unwrap(), underlying)
 	}
 }
 
 func TestErrorTypes_ImplementIndexerError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	var _ IndexerError = &NetworkError{}
 	var _ IndexerError = &DataError{}
 	var _ IndexerError = &StorageError{}

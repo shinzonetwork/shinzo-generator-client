@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
@@ -21,37 +22,37 @@ type ImportResult struct {
 
 // ImportKV reads a .kvsnap.gz file and writes KV pairs directly to the rootstore.
 func ImportKV(ctx context.Context, defraNode *node.Node, filePath string) (*ImportResult, error) {
-	f, err := os.Open(filePath)
+	f, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
-		return nil, fmt.Errorf("open snapshot: %w", err)
+		return nil, fmt.Errorf("open snapshot: %w", err) //nolint: err113
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
-		return nil, fmt.Errorf("gzip reader: %w", err)
+		return nil, fmt.Errorf("gzip reader: %w", err) //nolint: err113
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	// Read header (length-prefixed JSON)
 	var lenBuf [4]byte
-	if _, err := io.ReadFull(gr, lenBuf[:]); err != nil {
-		return nil, fmt.Errorf("read header length: %w", err)
+	if _, readErr := io.ReadFull(gr, lenBuf[:]); readErr != nil {
+		return nil, fmt.Errorf("read header length: %w", readErr) //nolint: err113
 	}
 	headerLen := binary.BigEndian.Uint32(lenBuf[:])
 
 	headerBytes := make([]byte, headerLen)
-	if _, err := io.ReadFull(gr, headerBytes); err != nil {
-		return nil, fmt.Errorf("read header: %w", err)
+	if _, readErr := io.ReadFull(gr, headerBytes); readErr != nil {
+		return nil, fmt.Errorf("read header: %w", readErr) //nolint: err113
 	}
 
 	var header kvSnapshotHeader
-	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return nil, fmt.Errorf("parse header: %w", err)
+	if unmarshalErr := json.Unmarshal(headerBytes, &header); unmarshalErr != nil {
+		return nil, fmt.Errorf("parse header: %w", unmarshalErr) //nolint: err113
 	}
 
 	if header.Magic != "DFKV" {
-		return nil, fmt.Errorf("invalid snapshot magic: %q (expected DFKV)", header.Magic)
+		return nil, fmt.Errorf("invalid snapshot magic: %q (expected DFKV)", header.Magic) //nolint: err113
 	}
 
 	logger.Sugar.Infof("Importing KV snapshot: blocks %d-%d (version=%d, created=%s)",
@@ -59,7 +60,7 @@ func ImportKV(ctx context.Context, defraNode *node.Node, filePath string) (*Impo
 
 	count, err := defraNode.DB.ImportRawKVs(ctx, gr)
 	if err != nil {
-		return nil, fmt.Errorf("import raw KVs: %w", err)
+		return nil, fmt.Errorf("import raw KVs: %w", err) //nolint: err113
 	}
 
 	logger.Sugar.Infof("KV import complete: %d KV pairs imported for blocks %d-%d",

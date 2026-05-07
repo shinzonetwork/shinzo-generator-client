@@ -1,0 +1,67 @@
+version: "2"
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - dogsled
+    - dupl
+    - dupword
+    - embeddedstructfieldcheck
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - exptostd
+    - funlen
+    - gocheckcompilerdirectives
+    - gochecknoglobals
+    - goconst
+    - gocritic
+    - godoclint
+    - godot
+    - gosec
+    - govet
+    - importas
+    - inamedparam
+    - ineffassign
+    - loggercheck
+    - misspell
+    - mnd
+    - modernize
+    - nilerr
+    - nilnil
+    - revive
+    - staticcheck
+    - tagalign
+    - unconvert
+    - unused
+    - wastedassign
+    # - err113 # TODO - enable this linter and fix the issues it finds. by creating errors file with all reusable errors in it.
+  settings:
+    funlen:
+      lines: 100
+    revive:
+      enable-default-rules: true
+      rules:
+        - name: package-comments
+          disabled: true
+  exclusions:
+    rules:
+      # Exclude some linters from running on tests files.
+      - path: _test\.go
+        linters:
+          - containedctx
+          - dupl
+          - gochecknoglobals
+          - mnd
+          - funlen
+
+formatters:
+  enable:
+    - gofumpt
