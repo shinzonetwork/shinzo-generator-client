@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
 	"gopkg.in/yaml.v3"
 )

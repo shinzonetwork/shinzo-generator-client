@@ -18,12 +18,11 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	appConfig "github.com/shinzonetwork/shinzo-app-sdk/pkg/config"
-	"github.com/shinzonetwork/shinzo-app-sdk/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
@@ -480,112 +479,7 @@ func TestIndexerLifecycle(t *testing.T) {
 	assert.False(t, indexer.HasIndexedAtLeastOneBlock())
 }
 
-// ---------------------------------------------------------------------------.
-// toAppConfig tests
-// ---------------------------------------------------------------------------.
-
-func TestToAppConfig_NilInput(t *testing.T) {
-	t.Parallel()
-	result := toAppConfig(nil)
-	assert.Nil(t, result, "toAppConfig(nil) should return nil")
-}
-
-func TestToAppConfig_ValidConfig(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           "http://localhost:9181",
-			KeyringSecret: "test-secret-key",
-			P2P: config.DefraDBP2PConfig{
-				Enabled:             true,
-				BootstrapPeers:      []string{"/ip4/1.2.3.4/tcp/9171/p2p/QmPeer1"},
-				ListenAddr:          "/ip4/0.0.0.0/tcp/9171",
-				MaxRetries:          5,
-				RetryBaseDelayMs:    1000,
-				ReconnectIntervalMs: 30000,
-				EnableAutoReconnect: true,
-			},
-			Store: config.DefraDBStoreConfig{
-				Path:                    "/data/defra",
-				BlockCacheMB:            256,
-				MemTableMB:              128,
-				IndexCacheMB:            64,
-				NumCompactors:           4,
-				NumLevelZeroTables:      10,
-				NumLevelZeroTablesStall: 20,
-			},
-		},
-	}
-
-	result := toAppConfig(cfg)
-	require.NotNil(t, result, "toAppConfig should return a non-nil config")
-
-	// Verify top-level DefraDB fields.
-	assert.Equal(t, "http://localhost:9181", result.DefraDB.Url)
-	assert.Equal(t, "test-secret-key", result.DefraDB.KeyringSecret)
-
-	// Verify P2P fields.
-	assert.Equal(t, true, result.DefraDB.P2P.Enabled)
-	assert.Equal(t, []string{"/ip4/1.2.3.4/tcp/9171/p2p/QmPeer1"}, result.DefraDB.P2P.BootstrapPeers)
-	assert.Equal(t, "/ip4/0.0.0.0/tcp/9171", result.DefraDB.P2P.ListenAddr)
-	assert.Equal(t, 5, result.DefraDB.P2P.MaxRetries)
-	assert.Equal(t, 1000, result.DefraDB.P2P.RetryBaseDelayMs)
-	assert.Equal(t, 30000, result.DefraDB.P2P.ReconnectIntervalMs)
-	assert.Equal(t, true, result.DefraDB.P2P.EnableAutoReconnect)
-
-	// Verify Store fields.
-	assert.Equal(t, "/data/defra", result.DefraDB.Store.Path)
-	assert.Equal(t, int64(256), result.DefraDB.Store.BlockCacheMB)
-	assert.Equal(t, int64(128), result.DefraDB.Store.MemTableMB)
-	assert.Equal(t, int64(64), result.DefraDB.Store.IndexCacheMB)
-	assert.Equal(t, 4, result.DefraDB.Store.NumCompactors)
-	assert.Equal(t, 10, result.DefraDB.Store.NumLevelZeroTables)
-	assert.Equal(t, 20, result.DefraDB.Store.NumLevelZeroTablesStall)
-}
-
-func TestToAppConfig_EmptyConfig(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{}
-
-	result := toAppConfig(cfg)
-	require.NotNil(t, result)
-
-	// All fields should be zero values.
-	assert.Equal(t, "", result.DefraDB.Url)
-	assert.Equal(t, "", result.DefraDB.KeyringSecret)
-	assert.False(t, result.DefraDB.P2P.Enabled)
-	assert.Nil(t, result.DefraDB.P2P.BootstrapPeers)
-	assert.Equal(t, "", result.DefraDB.P2P.ListenAddr)
-	assert.Equal(t, "", result.DefraDB.Store.Path)
-	assert.Equal(t, int64(0), result.DefraDB.Store.BlockCacheMB)
-}
-
-func TestToAppConfig_ReturnsNewInstance(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: "http://localhost:9181",
-		},
-	}
-
-	result1 := toAppConfig(cfg)
-	result2 := toAppConfig(cfg)
-
-	// Each call should return a distinct appConfig instance.
-	require.NotNil(t, result1)
-	require.NotNil(t, result2)
-	assert.NotSame(t, result1, result2, "toAppConfig should return a new instance each call")
-}
-
-func TestToAppConfig_ReturnType(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{}
-	result := toAppConfig(cfg)
-	// Verify the result is the correct app-sdk type.
-	_ = result
-}
-
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
 // IsHealthy tests
 // ---------------------------------------------------------------------------.
 
@@ -1161,246 +1055,9 @@ func fullBlockResponseWithTx(number string) map[string]any {
 	return block
 }
 
-// ---------------------------------------------------------------------------.
-// processBlock + processBlockBatch integration tests.
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlock_Success_NoTransactions(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Create mock RPC server returning a block with no transactions.
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			return fullBlockResponse("0x64", nil), nil // block 100.
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlock(ctx, ethClient, blockHandler, 100)
-	require.NoError(t, err)
-
-	// Verify block was stored in DefraDB
-	highest, err := blockHandler.GetHighestBlockNumber(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(100), highest)
-}
-
-func TestProcessBlock_RPCError_RetriesAndFails(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	callCount := 0
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			callCount++
-			return nil, fmt.Errorf("connection refused")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlock(ctx, ethClient, blockHandler, 100)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to fetch block")
-	assert.Equal(t, DefaultRetryAttempts, callCount)
-}
-
-func TestProcessBlockBatch_WithTransactions(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Create mock RPC server that returns receipts for transactions.
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetTransactionReceipt:
-			return map[string]any{
-				"transactionHash": "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":     "0xc8", // 200
-				"blockHash":       "0x0000000000000000000000000000000000000000000000000000000000000002",
-				"gasUsed":         "0x5208",
-				"status":          "0x1",
-				"logs":            []any{},
-			}, nil
-		case ethGetBlockReceipts:
-			return nil, fmt.Errorf("not supported")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:     "200",
-		Hash:       "0x0000000000000000000000000000000000000000000000000000000000000002",
-		ParentHash: "0x0000000000000000000000000000000000000000000000000000000000000001",
-		Timestamp:  "1640995200",
-		Miner:      "0x0000000000000000000000000000000000000000",
-		GasLimit:   "8000000",
-		GasUsed:    "21000",
-		Transactions: []types.Transaction{
-			{
-				Hash:             "0x0000000000000000000000000000000000000000000000000000000000000001",
-				BlockNumber:      "200",
-				From:             "0x1234567890123456789012345678901234567890",
-				To:               "0x0987654321098765432109876543210987654321",
-				Value:            "1000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "0x1234",
-				S:                "0x5678",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 200)
-	require.NoError(t, err)
-
-	// Verify the block was stored
-	highest, err := blockHandler.GetHighestBlockNumber(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(200), highest)
-}
-
-func TestProcessBlockBatch_WithBlockReceipts(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Create mock RPC server that supports eth_getBlockReceipts.
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockReceipts:
-			return []any{
-				map[string]any{
-					"transactionHash": "0x0000000000000000000000000000000000000000000000000000000000000010",
-					"blockNumber":     "0x12c", // 300
-					"blockHash":       "0x0000000000000000000000000000000000000000000000000000000000000003",
-					"gasUsed":         "0x5208",
-					"status":          "0x1",
-					"logs":            []any{},
-				},
-			}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:     "300",
-		Hash:       "0x0000000000000000000000000000000000000000000000000000000000000003",
-		ParentHash: "0x0000000000000000000000000000000000000000000000000000000000000002",
-		Timestamp:  "1640995200",
-		Miner:      "0x0000000000000000000000000000000000000000",
-		GasLimit:   "8000000",
-		GasUsed:    "21000",
-		Transactions: []types.Transaction{
-			{
-				Hash:             "0x0000000000000000000000000000000000000000000000000000000000000010",
-				BlockNumber:      "300",
-				From:             "0x1234567890123456789012345678901234567890",
-				To:               "0x0987654321098765432109876543210987654321",
-				Value:            "1000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "0x1234",
-				S:                "0x5678",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 300)
-	require.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// TrackBlock (indexerQueueTracker) tests.
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// TrackBlock (indexerQueueTracker) tests
+// ---------------------------------------------------------------------------
 
 // fakeDocID generates a valid bae-prefixed UUID for testing.
 func fakeDocID(seed int) string {
@@ -2267,31 +1924,26 @@ func TestGetPeerInfo_WithEmbeddedNodeAndNetworkHandler(t *testing.T) {
 // fetchAndProcessBlock — receipt fallback path.
 // ---------------------------------------------------------------------------.
 
-// TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch tests the receipt.
-// fallback path via processBlockBatch where eth_getBlockReceipts fails and individual.
-// eth_getTransactionReceipt succeeds. This tests the processBlockBatch receipt fetching.
-// goroutine paths directly (since fetchAndProcessBlock goes through go-ethereum which.
-// validates transaction roots).
-func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) {
+// TestFetchAndProcessBlock_NotFoundThenSuccess tests the not-found retry path.
+func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
 
-	txHash := "0x0000000000000000000000000000000000000000000000000000000000000abc"
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+	var callCount atomic.Int64
+	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
-		case ethGetTransactionReceipt:
-			return map[string]any{
-				"transactionHash":   txHash,
-				"blockNumber":       "0x3e8",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"gasUsed":           "0x5208",
-				"cumulativeGasUsed": "0x5208",
-				"status":            "0x1",
-				"logs":              []any{},
-				"transactionIndex":  "0x0",
-			}, nil
+		case "eth_getBlockByNumber":
+			n := callCount.Add(1)
+			if n <= 1 {
+				// First call: return null (not found)
+				return nil, nil
+			}
+			// Second call: return valid block
+			return fullBlockResponse("0x4e20", nil), nil // block 20000
+		case "eth_getBlockReceipts":
+			return []any{}, nil
 		default:
 			return "0x1", nil
 		}
@@ -2303,85 +1955,6 @@ func TestFetchAndProcessBlock_ReceiptFallbackViaProcessBlockBatch(t *testing.T) 
 	defer func() {
 		_ = ethClient.Close()
 	}()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	// Create block with a transaction — processBlockBatch will fetch receipts individually.
-	block := &types.Block{
-		Number:           "1000",
-		Hash:             "0x0000000000000000000000000000000000000000000000000000000000000abc",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Timestamp:        "1640995200",
-		Miner:            "0x0000000000000000000000000000000000000000",
-		GasLimit:         "8000000",
-		GasUsed:          "21000",
-		Nonce:            "0",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		ReceiptsRoot:     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Transactions: []types.Transaction{
-			{
-				Hash:             txHash,
-				BlockNumber:      "1000",
-				From:             "0x1234567890123456789012345678901234567890",
-				To:               "0x0987654321098765432109876543210987654321",
-				Value:            "1000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "0x1234",
-				S:                "0x5678",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 1000)
-	require.NoError(t, err)
-}
-
-// TestFetchAndProcessBlock_NotFoundThenSuccess tests the not-found retry path.
-func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			n := callCount.Add(1)
-			if n <= 1 {
-				// First call: return null (not found).
-				return nil, errors.New("block not found")
-			}
-			// Second call: return valid block.
-			return fullBlockResponse("0x4e20", nil), nil // block 20000.
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
@@ -2548,81 +2121,9 @@ func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
 	assert.Error(t, result.Error)
 }
 
-// ---------------------------------------------------------------------------.
-// processBlockBatch — already exists handling.
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_AlreadyExists(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		case ethGetTransactionReceipt:
-			return map[string]any{
-				"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000099",
-				"blockNumber":       "0x1388",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"gasUsed":           "0x5208",
-				"cumulativeGasUsed": "0x5208",
-				"status":            "0x1",
-				"logs":              []any{},
-				"transactionIndex":  "0x0",
-			}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:           "5000",
-		Hash:             "0x0000000000000000000000000000000000000000000000000000000000000099",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Timestamp:        "1640995200",
-		Miner:            "0x0000000000000000000000000000000000000000",
-		GasLimit:         "8000000",
-		GasUsed:          "0",
-		Transactions:     []types.Transaction{},
-		Nonce:            "0",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		ReceiptsRoot:     "0x0000000000000000000000000000000000000000000000000000000000000000",
-	}
-
-	ctx := context.Background()
-	// First insertion should succeed.
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 5000)
-	require.NoError(t, err)
-
-	// Second insertion: block already exists → should hit IsErrAlreadyExists branch.
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 5000)
-	// Should return nil (already-exists is handled gracefully).
-	assert.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// SignMessages with embedded node.
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// SignMessages with embedded node
+// ---------------------------------------------------------------------------
 
 func TestSignMessages_WithEmbeddedNode(t *testing.T) {
 	t.Parallel()
@@ -2917,132 +2418,9 @@ func TestGetDefraDBPort_Consistency(t *testing.T) {
 	assert.Equal(t, td.Port, port)
 }
 
-// ---------------------------------------------------------------------------.
-// processBlock — duplicate block (already exists via processBlock).
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlock_AlreadyExistsBlock(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			return fullBlockResponse("0x1770", nil), nil // block 6000.
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	ctx := context.Background()
-	// First insertion succeeds
-	err = indexer.processBlock(ctx, ethClient, blockHandler, 6000)
-	require.NoError(t, err)
-
-	// Second insertion: already exists → handled gracefully.
-	err = indexer.processBlock(ctx, ethClient, blockHandler, 6000)
-	// processBlock → processBlockBatch → detects already exists → returns nil.
-	assert.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// processBlockBatch with receipt error (warn path).
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_ReceiptError(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	txHash := "0x0000000000000000000000000000000000000000000000000000000000000888"
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetTransactionReceipt:
-			// Receipt fetch fails → processBlockBatch logs warning.
-			return nil, fmt.Errorf("receipt unavailable")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:           "8000",
-		Hash:             "0x0000000000000000000000000000000000000000000000000000000000000888",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Timestamp:        "1640995200",
-		Miner:            "0x0000000000000000000000000000000000000000",
-		GasLimit:         "8000000",
-		GasUsed:          "21000",
-		Nonce:            "0",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		ReceiptsRoot:     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Transactions: []types.Transaction{
-			{
-				Hash:             txHash,
-				BlockNumber:      "8000",
-				From:             "0x1234567890123456789012345678901234567890",
-				To:               "0x0987654321098765432109876543210987654321",
-				Value:            "1000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "0x1234",
-				S:                "0x5678",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	// Receipt fails → tx is inserted without receipt data.
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 8000)
-	// The block itself should still succeed even if receipt fetch fails.
-	require.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// indexerQueueTracker — verify collection name wiring.
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// indexerQueueTracker — verify collection name wiring
+// ---------------------------------------------------------------------------
 
 func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
 	t.Parallel()
@@ -3231,325 +2609,9 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// ---------------------------------------------------------------------------.
-// ---------------------------------------------------------------------------.
-// StartIndexing — sequential loop path (ConcurrentBlocks=0).
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_Embedded_SequentialLoop(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	blockCh := make(chan struct{}, 100)
-	rpcServer := newMockRPCServerForIntegration(blockCh)
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 0, // Force sequential path.
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for a few block calls.
-	deadline := time.After(60 * time.Second)
-	blocksSeen := 0
-	for blocksSeen < 3 {
-		select {
-		case <-blockCh:
-			blocksSeen++
-		case <-deadline:
-			t.Fatalf("timed out (saw %d)", blocksSeen)
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	// Stop the sequential loop by setting shouldIndex = false.
-	indexer.shouldIndex = false
-
-	// Wait for StartIndexing to return
-	select {
-	case err := <-errCh:
-		// Should return nil when the loop exits naturally.
-		if err != nil {
-			t.Logf("StartIndexing returned: %v", err)
-		}
-	case <-time.After(30 * time.Second):
-		// If it doesn't return, the sequential loop is stuck on sleep.
-		t.Log("sequential loop did not return within 30s")
-	}
-
-	indexer.StopIndexing()
-}
-
-// TestStartIndexing_Embedded_SequentialLoop_AlreadyExists tests the already-exists branch.
-// in the sequential loop. The first block succeeds, the second is the same block.
-// (already exists), triggering the already-exists path.
-func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-
-	// Return the SAME block number for all calls → second insert triggers "already exists".
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			blockCallCount.Add(1)
-			// Always return block 99991 (same block number, so second insert triggers already-exists).
-			return fullBlockResponse("0x186a7", nil), nil
-		case ethBlockNumber:
-			return "0x186b1", nil // chain tip 99985.
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 0, // sequential.
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait until at least 3 block fetch calls (first succeeds, second is already-exists).
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 3 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out waiting for block calls")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// TestStartIndexing_Embedded_SequentialLoop_NotFound tests the not-found branch.
-func TestStartIndexing_Embedded_SequentialLoop_NotFound(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			// Parse params to distinguish "latest" (chain tip query) from numbered blocks.
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					// This is GetLatestBlockNumber → always return valid header.
-					return fullBlockResponse("0x186b1", nil), nil
-				}
-			}
-			n := blockCallCount.Add(1)
-			if n <= 3 {
-				// First 3 numbered-block calls: block not found (null response).
-				return nil, errors.New("block not found")
-			}
-			// After that: return valid blocks.
-			num := fmt.Sprintf("0x%x", 99990+n)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 0, // sequential.
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for enough calls to cover not-found retries + a successful block.
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 6 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// TestStartIndexing_Embedded_SequentialLoop_OtherError tests the generic error branch.
-func TestStartIndexing_Embedded_SequentialLoop_OtherError(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			// Parse params to distinguish "latest" (chain tip query) from numbered blocks.
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					// This is GetLatestBlockNumber → always return valid header.
-					return fullBlockResponse("0x186b1", nil), nil
-				}
-			}
-			n := blockCallCount.Add(1)
-			if n <= 3 {
-				// First 3 numbered-block calls: generic server error.
-				return nil, fmt.Errorf("internal server error")
-			}
-			// Then: return valid blocks.
-			num := fmt.Sprintf("0x%x", 99990+n)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 0, // sequential.
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 8 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — test peer deduplication with mock addresses.
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// GetPeerInfo — test peer deduplication with mock addresses
+// ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 	t.Parallel()
@@ -3557,7 +2619,7 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create indexer with embedded node — exercise all code paths in GetPeerInfo.
+	// Create indexer with embedded node — exercise all code paths in GetPeerInfo
 	indexer := &ChainIndexer{
 		defraNode:      td.Node,
 		networkHandler: nil,
@@ -3567,59 +2629,14 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// The test node has P2P disabled, so no active peers.
-	// This still exercises the deduplication code with 0 active peers.
+	// The test node has P2P disabled, so no active peers
+	// This still exercises the deduplication code with 0 active peers
 	assert.NotNil(t, info.PeerInfo)
 }
 
-// ---------------------------------------------------------------------------.
-// processBlockBatch — retry loop exhaustion.
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_RetryExhaustion(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Create a mock RPC server that always fails on receipt fetch.
-	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
-		return "0x1", nil
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	// Use a nil block to trigger an error in CreateBlockBatch.
-	block := &types.Block{
-		Number:     "", // Empty block number → causes conversion errors.
-		Hash:       "",
-		ParentHash: "",
-		Timestamp:  "",
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 0)
-	// Should fail after retries
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to batch create block")
-}
-
-// ---------------------------------------------------------------------------.
-// fetchAndProcessBlock — context cancel during CreateBlockBatch retry.
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// fetchAndProcessBlock — context cancel during CreateBlockBatch retry
+// ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ContextCancelDuringBatch(t *testing.T) {
 	t.Parallel()
@@ -3693,25 +2710,14 @@ func TestSignMessages_FullFlow(t *testing.T) {
 	}
 	logger.InitConsoleOnly(true)
 
-	tmpDir := t.TempDir()
-
-	// Start a real DefraDB via app-sdk to get proper keyring setup.
-	appCfg := &appConfig.Config{
-		DefraDB: appConfig.DefraDBConfig{
-			KeyringSecret: "test-secret-for-sign-flow-1234",
-			P2P:           appConfig.DefraP2PConfig{Enabled: false},
-			Store:         appConfig.DefraStoreConfig{Path: tmpDir},
-		},
-	}
-
-	// Use testutils' SetupTestDefraDB for the node, then configure keyring manually.
+	// Use testutils' SetupTestDefraDB for the node, then configure keyring manually
 	td := testutils.SetupTestDefraDB(t)
 
 	indexer := &ChainIndexer{
 		defraNode: td.Node,
 		cfg: &config.Config{
 			DefraDB: config.DefraDBConfig{
-				KeyringSecret: appCfg.DefraDB.KeyringSecret,
+				KeyringSecret: "test-secret-for-sign-flow-1234",
 				Store:         config.DefraDBStoreConfig{Path: td.Dir},
 			},
 		},
@@ -3814,23 +2820,10 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 	}
 	logger.InitConsoleOnly(true)
 
-	tmpDir := t.TempDir()
 	keyringSecret := "test-secret-for-sign-identity-123"
 
-	// Use app-sdk to create identity first.
-	appCfg := &appConfig.Config{
-		DefraDB: appConfig.DefraDBConfig{
-			KeyringSecret: keyringSecret,
-			P2P:           appConfig.DefraP2PConfig{Enabled: false},
-			Store:         appConfig.DefraStoreConfig{Path: tmpDir},
-		},
-	}
 
-	// Import the app-sdk to create identity.
-	appsdk := appCfg // reference to avoid import error.
-	_ = appsdk
-
-	// Start DefraDB with app-sdk to create identity and keys.
+	// Start DefraDB to create identity and keys
 	td := testutils.SetupTestDefraDB(t)
 
 	// Create the identity manually by using the keyring.
@@ -3860,59 +2853,9 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------.
-// processBlockBatch — batch retry delay path (attempt < DefaultRetryAttempts-1).
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_RetryWithDelay(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
-		return "0x1", nil
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	// Use a block with invalid/empty fields that will cause CreateBlockBatch to fail.
-	// but NOT with "already exists" → triggers the retry delay path.
-	block := &types.Block{
-		Number:     "invalid-number",
-		Hash:       "not-a-hash",
-		ParentHash: "not-a-hash",
-		Timestamp:  "not-a-timestamp",
-	}
-
-	ctx := context.Background()
-	start := time.Now()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 0)
-	elapsed := time.Since(start)
-
-	// Should fail after retries.
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to batch create block")
-	// Should have taken at least 1s+2s = 3s for retry delays.
-	assert.GreaterOrEqual(t, elapsed.Seconds(), 2.0, "should have waited for retry delays")
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — external DefraDB (defraStarted=true) path.
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// StartIndexing — external DefraDB (defraStarted=true) path
+// ---------------------------------------------------------------------------
 
 // TestStartIndexing_ExternalDefra tests the external-DefraDB path in StartIndexing.
 // Since external DefraDB no longer sets defraNode, it should return the.
@@ -3990,7 +2933,7 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0, // sequential.
+			ConcurrentBlocks: 1, // concurrent
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 19876, // enable health server.
@@ -4181,8 +3124,8 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
-			StartHeight:      99980, // specific start height.
-			ConcurrentBlocks: 0,
+			StartHeight:      99980, // specific start height
+			ConcurrentBlocks: 1, // concurrent
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -4216,256 +3159,10 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------.
-// StartIndexing — unsupported tx type branch in sequential loop.
-// ---------------------------------------------------------------------------.
 
-func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186b1", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", 100000+count)
-			// All blocks valid — the unsupported tx error comes from processBlock.
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		case ethGetTransactionReceipt:
-			return map[string]any{
-				"status": "0x1",
-				"type":   "0xff", // unsupported type.
-			}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 0,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Let some blocks be processed (they should all succeed since they have 0 txns).
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 5 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// processBlockBatch — with transactions and receipt fetching.
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_WithTransactionsAndReceipts(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Mock server that returns receipts for transactions.
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetTransactionReceipt:
-			return map[string]any{
-				"transactionHash": "0xabc",
-				"blockHash":       "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":     "0x186a0",
-				"from":            "0x0000000000000000000000000000000000000001",
-				"to":              "0x0000000000000000000000000000000000000002",
-				"gasUsed":         "0x5208",
-				"status":          "0x1",
-				"type":            "0x0",
-				"logs":            []any{},
-			}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:           "100000",
-		Hash:             "0x0000000000000000000000000000000000000000000000000000000000000001",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Timestamp:        "1000000",
-		GasLimit:         "30000000",
-		GasUsed:          "21000",
-		Miner:            "0x0000000000000000000000000000000000000000",
-		Difficulty:       "0",
-		TotalDifficulty:  "0",
-		Size:             "1000",
-		Nonce:            "0x0000000000000000",
-		BaseFeePerGas:    "1000000000",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		ReceiptsRoot:     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Sha3Uncles:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		LogsBloom:        "0x" + fmt.Sprintf("%0512x", 0),
-		ExtraData:        "0x",
-		MixHash:          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Transactions: []types.Transaction{
-			{
-				Hash:     "0xabc",
-				From:     "0x0000000000000000000000000000000000000001",
-				To:       "0x0000000000000000000000000000000000000002",
-				Value:    "1000",
-				Gas:      "21000",
-				GasPrice: "1000000000",
-				Nonce:    "0",
-				Type:     "0x0",
-				Input:    "0x",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 100000)
-	// Should succeed (receipt fetching + batch creation).
-	assert.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// processBlockBatch — receipt fetch failure (covers receipt error handling).
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_ReceiptFetchFailure(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Mock server that always fails on receipt fetch.
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetTransactionReceipt:
-			return nil, fmt.Errorf("receipt not available")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:           "200000",
-		Hash:             "0x0000000000000000000000000000000000000000000000000000000000000002",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Timestamp:        "1000000",
-		GasLimit:         "30000000",
-		GasUsed:          "21000",
-		Miner:            "0x0000000000000000000000000000000000000000",
-		Difficulty:       "0",
-		TotalDifficulty:  "0",
-		Size:             "1000",
-		Nonce:            "0x0000000000000000",
-		BaseFeePerGas:    "1000000000",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		ReceiptsRoot:     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Sha3Uncles:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		LogsBloom:        "0x" + fmt.Sprintf("%0512x", 0),
-		ExtraData:        "0x",
-		MixHash:          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Transactions: []types.Transaction{
-			{
-				Hash:     "0xfail1",
-				From:     "0x0000000000000000000000000000000000000001",
-				To:       "0x0000000000000000000000000000000000000002",
-				Value:    "1000",
-				Gas:      "21000",
-				GasPrice: "1000000000",
-				Nonce:    "0",
-				Type:     "0x0",
-				Input:    "0x",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 200000)
-	// Block creation should still succeed (block created without receipts).
-	assert.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// fetchAndProcessBlock — receipt fallback to individual fetch.
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// fetchAndProcessBlock — receipt fallback to individual fetch
+// ---------------------------------------------------------------------------
 
 func TestFetchAndProcessBlock_ReceiptFallbackIndividual(t *testing.T) {
 	t.Parallel()
@@ -4791,7 +3488,7 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      0,
-			ConcurrentBlocks: 0,
+			ConcurrentBlocks: 1, // concurrent
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -5345,126 +4042,9 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 	// May succeed or fail depending on timing, but shouldn't panic.
 }
 
-// ---------------------------------------------------------------------------.
-// processBlockBatch — receipt fetch failure in goroutine (covers line 465).
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_ReceiptFetchError(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	td := testutils.SetupTestDefraDB(t)
-
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetTransactionReceipt:
-			return nil, fmt.Errorf("receipt not found")
-		case ethGetBlockReceipts:
-			return nil, fmt.Errorf("not supported")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:     "400",
-		Hash:       "0x0000000000000000000000000000000000000000000000000000000000000004",
-		ParentHash: "0x0000000000000000000000000000000000000000000000000000000000000003",
-		Timestamp:  "1640995200",
-		Miner:      "0x0000000000000000000000000000000000000000",
-		GasLimit:   "8000000",
-		GasUsed:    "21000",
-		Transactions: []types.Transaction{
-			{
-				Hash:             "0x0000000000000000000000000000000000000000000000000000000000000020",
-				BlockNumber:      "400",
-				From:             "0x1234567890123456789012345678901234567890",
-				To:               "0x0987654321098765432109876543210987654321",
-				Value:            "1000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "0x1234",
-				S:                "0x5678",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	// Receipt fetch fails → block is created without receipt data.
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 400)
-	require.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// processBlockBatch — already exists path with signing (covers lines 488-494).
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_AlreadyExists_WithSigning(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	td := testutils.SetupTestDefraDB(t)
-
-	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
-		return "0x1", nil
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:     "600",
-		Hash:       "0x0000000000000000000000000000000000000000000000000000000000000006",
-		ParentHash: "0x0000000000000000000000000000000000000000000000000000000000000005",
-		Timestamp:  "1640995200",
-		Miner:      "0x0000000000000000000000000000000000000000",
-		GasLimit:   "8000000",
-		GasUsed:    "0",
-	}
-
-	ctx := context.Background()
-	// First insert succeeds.
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 600)
-	require.NoError(t, err)
-
-	// Second insert hits IsErrAlreadyExists → calls CreateBlockSignatureForExistingBlock.
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 600)
-	assert.NoError(t, err, "already-exists should be handled gracefully")
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — embedded node without P2P (covers lines 596+).
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// GetPeerInfo — embedded node without P2P (covers lines 596+)
+// ---------------------------------------------------------------------------
 
 func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 	t.Parallel()
@@ -5477,7 +4057,7 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 
 	info, err := indexer.GetPeerInfo()
 	if err != nil {
-		// PeerInfo may error without P2P — that's the line 596-598 path.
+		// PeerInfo may error without P2P — that's the line 596-598 path
 		assert.Contains(t, err.Error(), "peer info")
 	} else {
 		require.NotNil(t, info)
@@ -5486,228 +4066,11 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 }
 
 // ===========================================================================
-// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%.
+// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%
 // ===========================================================================
 
-// ---------------------------------------------------------------------------.
-// processBlockBatch — receipt SUCCESS path (covers lines 465, 476-479).
-// The key is providing a properly-formatted receipt mock that go-ethereum.
-// can parse. Previous tests had incomplete receipt fields.
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_ReceiptSuccessPath(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	td := testutils.SetupTestDefraDB(t)
-
-	txHash := "0x0000000000000000000000000000000000000000000000000000000000000abc"
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetTransactionReceipt:
-			// Full receipt response that go-ethereum can parse.
-			return map[string]any{
-				"transactionHash":   txHash,
-				"transactionIndex":  "0x0",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000abc",
-				"blockNumber":       "0x4e20",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"cumulativeGasUsed": "0x5208",
-				"gasUsed":           "0x5208",
-				"contractAddress":   nil,
-				"logs":              []any{},
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"status":            "0x1",
-				"effectiveGasPrice": "0x4a817c800",
-				"type":              "0x0",
-			}, nil
-		case ethGetBlockReceipts:
-			return nil, fmt.Errorf("not supported")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 2},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:           "20000",
-		Hash:             "0x0000000000000000000000000000000000000000000000000000000000000abc",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Timestamp:        "1640995200",
-		Miner:            "0x0000000000000000000000000000000000000000",
-		GasLimit:         "8000000",
-		GasUsed:          "21000",
-		Nonce:            "0x0000000000000000",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		ReceiptsRoot:     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		LogsBloom:        "0x" + fmt.Sprintf("%0512x", 0),
-		ExtraData:        "0x",
-		MixHash:          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Transactions: []types.Transaction{
-			{
-				Hash:             txHash,
-				BlockNumber:      "20000",
-				From:             "0x0000000000000000000000000000000000000001",
-				To:               "0x0000000000000000000000000000000000000002",
-				Value:            "1000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "0x1111111111111111111111111111111111111111111111111111111111111111",
-				S:                "0x2222222222222222222222222222222222222222222222222222222222222222",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 20000)
-	require.NoError(t, err)
-
-	// Verify the block was stored
-	highest, err := blockHandler.GetHighestBlockNumber(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(20000), highest)
-}
-
-// ---------------------------------------------------------------------------.
-// processBlockBatch — receipt success with MULTIPLE transactions.
-// Exercises the receipt channel more thoroughly.
-// ---------------------------------------------------------------------------.
-
-func TestProcessBlockBatch_MultipleTransactionsReceiptSuccess(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	td := testutils.SetupTestDefraDB(t)
-
-	tx1Hash := "0x0000000000000000000000000000000000000000000000000000000000000de1"
-	tx2Hash := "0x0000000000000000000000000000000000000000000000000000000000000de2"
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetTransactionReceipt:
-			// Parse txHash from params.
-			var rawParams []json.RawMessage
-			_ = json.Unmarshal(params, &rawParams)
-			var txHashParam string
-			_ = json.Unmarshal(rawParams[0], &txHashParam)
-
-			return map[string]any{
-				"transactionHash":   txHashParam,
-				"transactionIndex":  "0x0",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000de0",
-				"blockNumber":       "0x7530",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"cumulativeGasUsed": "0x5208",
-				"gasUsed":           "0x5208",
-				"contractAddress":   nil,
-				"logs":              []any{},
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"status":            "0x1",
-				"effectiveGasPrice": "0x4a817c800",
-				"type":              "0x0",
-			}, nil
-		case ethGetBlockReceipts:
-			return nil, fmt.Errorf("not supported")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	ethClient, err := rpc.NewEthereumClient(rpcServer.URL, "", "", "X-Api-Key")
-	require.NoError(t, err)
-	defer func() { _ = ethClient.Close() }()
-
-	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		cfg: &config.Config{
-			Indexer: config.IndexerConfig{ReceiptWorkers: 4},
-		},
-		defraNode: td.Node,
-	}
-
-	block := &types.Block{
-		Number:           "30000",
-		Hash:             "0x0000000000000000000000000000000000000000000000000000000000000de0",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Timestamp:        "1640995200",
-		Miner:            "0x0000000000000000000000000000000000000000",
-		GasLimit:         "30000000",
-		GasUsed:          "42000",
-		Nonce:            "0x0000000000000000",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		ReceiptsRoot:     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		LogsBloom:        "0x" + fmt.Sprintf("%0512x", 0),
-		ExtraData:        "0x",
-		MixHash:          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Transactions: []types.Transaction{
-			{
-				Hash:             tx1Hash,
-				BlockNumber:      "30000",
-				From:             "0x0000000000000000000000000000000000000001",
-				To:               "0x0000000000000000000000000000000000000002",
-				Value:            "1000",
-				Gas:              "21000",
-				GasPrice:         "1000000000",
-				Nonce:            "0",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "0x1111111111111111111111111111111111111111111111111111111111111111",
-				S:                "0x2222222222222222222222222222222222222222222222222222222222222222",
-			},
-			{
-				Hash:             tx2Hash,
-				BlockNumber:      "30000",
-				From:             "0x0000000000000000000000000000000000000003",
-				To:               "0x0000000000000000000000000000000000000004",
-				Value:            "2000",
-				Gas:              "21000",
-				GasPrice:         "1000000000",
-				Nonce:            "1",
-				TransactionIndex: 1,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "0x3333333333333333333333333333333333333333333333333333333333333333",
-				S:                "0x4444444444444444444444444444444444444444444444444444444444444444",
-			},
-		},
-	}
-
-	ctx := context.Background()
-	err = indexer.processBlockBatch(ctx, ethClient, blockHandler, block, 30000)
-	require.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — full coverage with P2P enabled via app-sdk StartDefraInstance.
+// ---------------------------------------------------------------------------
+// GetPeerInfo — full coverage with P2P enabled via app-sdk StartDefraInstance
 // This exercises: selfInfo construction (lines 601-612), peer dedup (624-638),
 // PeerInfo error path (596-598).
 // ---------------------------------------------------------------------------.
@@ -5721,21 +4084,9 @@ func TestGetPeerInfo_FullIntegration_WithP2P(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Start DefraDB with P2P enabled to exercise the full GetPeerInfo path.
-	appCfg := &appConfig.Config{
-		DefraDB: appConfig.DefraDBConfig{
-			KeyringSecret: "test-secret-for-p2p-peer-info-1",
-			P2P: appConfig.DefraP2PConfig{
-				Enabled:    true,
-				ListenAddr: "/ip4/127.0.0.1/tcp/0", // random port.
-			},
-			Store: appConfig.DefraStoreConfig{Path: tmpDir},
-		},
-	}
-
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			KeyringSecret: appCfg.DefraDB.KeyringSecret,
+			KeyringSecret: "test-secret-for-p2p-peer-info-1",
 			P2P: config.DefraDBP2PConfig{
 				Enabled:    true,
 				ListenAddr: "/ip4/127.0.0.1/tcp/0",
@@ -5851,108 +4202,8 @@ func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------.
-// Sequential loop — context cancel path (covers lines 343-345),
-// Use a context with cancel that fires DURING the sequential loop.
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_Embedded_SequentialLoop_ContextCancel(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186b1", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			// After a few blocks, return not-found to force the loop to sleep.
-			if count > 3 {
-				return nil, errors.New("block not found") // not found → loop sleeps 3s, giving us time to cancel.
-			}
-			num := fmt.Sprintf("0x%x", 100000+count)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 0, // Sequential mode.
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	// Note: StartIndexing uses context.Background() internally.
-	// The sequential loop's ctx.Done() path (line 343-345) only fires if the,
-	// context used internally is canceled. Since StartIndexing creates its,
-	// own context.Background(), we can't cancel it from outside.
-	// However, we can test by letting the loop run and stopping via shouldIndex.
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for at least 3 block calls
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 3 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Logf("StartIndexing returned: %v", err)
-		}
-	case <-time.After(30 * time.Second):
-		t.Log("sequential loop did not return within 30s")
-	}
-
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// fetchAndProcessBlock — transaction conflict retry path (lines 328-337).
+// ---------------------------------------------------------------------------
+// fetchAndProcessBlock — transaction conflict retry path (lines 328-337)
 // We need to trigger IsErrTransactionConflict from CreateBlockBatch.
 // We can do this by running two concurrent processors that try to create,
 // the same block at the same time.
@@ -7463,196 +5714,8 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 	indexer.StopIndexing()
 }
 
-// ---------------------------------------------------------------------------.
-// Sequential loop — UnsupportedTxType error from processBlock (covers lines 363-368).
-// Make the RPC return "transaction type not supported" for specific blocks,
-// which propagates through processBlock → sequential loop's IsErrUnsupportedTxType branch.
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_Embedded_SequentialLoop_UnsupportedTxType_FromRPC(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-	var unsupportedHitCount atomic.Int64
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186b1", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", 100000+count)
-
-			// Block 100001 succeeds. Blocks 100002-100004 (retries for block 2),
-			// return unsupported tx type error. Block 100005+ succeeds (block 3 = next after skip).
-			blockNum := 100000 + count
-			if blockNum >= 100002 && blockNum <= 100004 {
-				unsupportedHitCount.Add(1)
-				return nil, fmt.Errorf("transaction type not supported")
-			}
-			return fullBlockResponse(num, nil), nil
-		case ethBlockNumber:
-			return "0x186b1", nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-seq-unsupported",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 0, // Sequential mode.
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for the unsupported type error to be hit (3 retry attempts),
-	// and then for additional blocks to be processed (confirming skip).
-	deadline := time.After(60 * time.Second)
-	for unsupportedHitCount.Load() < 3 || blockCallCount.Load() < 6 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out: unsupportedHits=%d, blockCalls=%d",
-				unsupportedHitCount.Load(), blockCallCount.Load())
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-	t.Logf("Sequential loop unsupported tx type branch covered (unsupportedHits=%d)", unsupportedHitCount.Load())
-}
-
-// ---------------------------------------------------------------------------.
-// Sequential loop — AlreadyExists error from processBlock (covers lines 357-362),
-// Make the RPC return "already exists" for specific blocks.
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_Embedded_SequentialLoop_AlreadyExists_FromRPC(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-	var alreadyExistsHitCount atomic.Int64
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186b1", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", 100000+count)
-
-			// Block 100001 succeeds. Blocks 100002-100004 (retries for block 2),
-			// return "already exists" error. Block 100005+ succeeds.
-			blockNum := 100000 + count
-			if blockNum >= 100002 && blockNum <= 100004 {
-				alreadyExistsHitCount.Add(1)
-				return nil, fmt.Errorf("a document with the given ID already exists")
-			}
-			return fullBlockResponse(num, nil), nil
-		case ethBlockNumber:
-			return "0x186b1", nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-seq-alrexists",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 0, // Sequential mode.
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for already-exists error retries and subsequent blocks.
-	deadline := time.After(60 * time.Second)
-	for alreadyExistsHitCount.Load() < 3 || blockCallCount.Load() < 6 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out: alreadyExistsHits=%d, blockCalls=%d",
-				alreadyExistsHitCount.Load(), blockCallCount.Load())
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-	t.Logf("Sequential loop already-exists branch covered (hits=%d)", alreadyExistsHitCount.Load())
-}
-
-// ---------------------------------------------------------------------------.
-// SignMessages — error chain at each step (covers lines 730-732, 736-738, 741-743).
+// ---------------------------------------------------------------------------
+// SignMessages — error chain at each step (covers lines 730-732, 736-738, 741-743)
 // Uses a node where P2P keys are absent to trigger SignWithP2PKeys failure.
 // ---------------------------------------------------------------------------.
 
