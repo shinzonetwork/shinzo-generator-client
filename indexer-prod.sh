@@ -1,4 +1,6 @@
-# Generate private key, certificate signing request, and self-signed certificate
+# Sets up SSL certificates, installs Docker, and starts the indexer via 
+# docker-compose. Run this after indexer-prod-setup.sh has been executed.
+
 set -e &&
 sudo mkdir -p ~/ssl &&
 sudo openssl genrsa -out ~/ssl/nginx.key 2048 &&

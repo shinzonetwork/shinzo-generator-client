@@ -1,3 +1,6 @@
+# Writes docker-compose.yml and nginx.conf to the home directory. Run this 
+# before indexer-prod.sh to configure the indexer and nginx reverse proxy.
+
 sudo tee ~/docker-compose.yml <<'EOF'
 networks:
   shinzo-net:
