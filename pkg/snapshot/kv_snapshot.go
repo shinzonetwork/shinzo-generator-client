@@ -17,48 +17,84 @@ import (
 
 // kvSnapshotHeader is written at the start of a .kvsnap.gz file.
 type kvSnapshotHeader struct {
-	Magic                string   `json:"magic"`
-	Version              int      `json:"version"`
-	StartBlock           int64    `json:"start_block"`
-	EndBlock             int64    `json:"end_block"`
-	CreatedAt            string   `json:"created_at"`
-	BlockSigMerkleRoots  []string `json:"block_sig_merkle_roots,omitempty"`
+	Magic               string   `json:"magic"`
+	Version             int      `json:"version"`
+	StartBlock          int64    `json:"start_block"`
+	EndBlock            int64    `json:"end_block"`
+	CreatedAt           string   `json:"created_at"`
+	BlockSigMerkleRoots []string `json:"block_sig_merkle_roots,omitempty"`
 }
 
 // createKVSnapshot exports raw Badger KV pairs for a block range to a binary file.
 func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock int64) error {
 	filename := fmt.Sprintf("snapshot_%d_%d.kvsnap.gz", startBlock, endBlock)
 	filePath := filepath.Join(s.cfg.Dir, filename)
+
+	roots, err := s.writeKVSnapshotFile(ctx, filePath, startBlock, endBlock)
+	if err != nil {
+		return err
+	}
+
+	if err := signSnapshotWithRoots(ctx, s.defraNode, filename, startBlock, endBlock, roots, len(roots)); err != nil {
+		return fmt.Errorf("snapshot signing failed for %s: %w", filename, err)
+	}
+
+	return nil
+}
+
+// writeKVSnapshotFile writes the snapshot to a temp file and atomically renames it.
+func (s *Snapshotter) writeKVSnapshotFile(ctx context.Context, filePath string, startBlock, endBlock int64) ([][]byte, error) {
 	tmpPath := filePath + ".tmp"
 
-	f, err := os.Create(tmpPath)
+	f, err := os.Create(filepath.Clean(tmpPath))
 	if err != nil {
-		return fmt.Errorf("create file: %w", err)
+		return nil, fmt.Errorf("create file: %w", err)
 	}
 
 	gw := gzip.NewWriter(f)
-
-	// Ensure cleanup on any error path
 	committed := false
 	defer func() {
 		if !committed {
-			gw.Close()
-			f.Close()
-			os.Remove(tmpPath)
+			_ = gw.Close()
+			_ = f.Close()
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
-	// Query block sig merkle roots to embed in header for host-side verification
+	roots, err := s.writeKVSnapshotContents(ctx, gw, startBlock, endBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := gw.Close(); err != nil {
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(filepath.Clean(tmpPath))
+		return nil, err
+	}
+
+	committed = true
+	if err := os.Rename(filepath.Clean(tmpPath), filepath.Clean(filePath)); err != nil {
+		_ = os.Remove(filepath.Clean(tmpPath))
+		return nil, err
+	}
+
+	return roots, nil
+}
+
+// writeKVSnapshotContents writes the header, KV pairs, and EOF marker to the gzip writer.
+func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writer, startBlock, endBlock int64) ([][]byte, error) {
 	roots, _, err := getBlockSigMerkleRoots(ctx, s.defraNode, startBlock, endBlock)
 	if err != nil {
 		logger.Sugar.Warnf("KV snapshot: failed to get block sig roots: %v", err)
 	}
+
 	var rootsHex []string
 	for _, r := range roots {
 		rootsHex = append(rootsHex, hex.EncodeToString(r))
 	}
 
-	// Write header as length-prefixed JSON
 	header := kvSnapshotHeader{
 		Magic:               "DFKV",
 		Version:             1,
@@ -69,19 +105,35 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 	}
 	headerBytes, err := json.Marshal(header)
 	if err != nil {
-		return fmt.Errorf("marshal header: %w", err)
+		return nil, fmt.Errorf("marshal header: %w", err)
 	}
 
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes)))
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes))) //nolint:gosec
 	if _, err := gw.Write(lenBuf[:]); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := gw.Write(headerBytes); err != nil {
-		return err
+		return nil, err
 	}
 
-	// Collections to export with their block number field name
+	totalKVs, err := s.exportCollectionKVs(ctx, gw, startBlock, endBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	binary.BigEndian.PutUint32(lenBuf[:], 0)
+	if _, err := gw.Write(lenBuf[:]); err != nil {
+		return nil, err
+	}
+
+	logger.Sugar.Infof("KV snapshot written (%d KV pairs)", totalKVs)
+
+	return roots, nil
+}
+
+// exportCollectionKVs exports KV pairs for all collections in the block range.
+func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, startBlock, endBlock int64) (int, error) {
 	collections := []struct {
 		name       string
 		blockField string
@@ -97,50 +149,21 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 	for _, col := range collections {
 		docIDs, err := s.queryDocIDs(ctx, col.name, col.blockField, startBlock, endBlock)
 		if err != nil {
-			return fmt.Errorf("query docIDs for %s: %w", col.name, err)
+			return 0, fmt.Errorf("query docIDs for %s: %w", col.name, err)
 		}
-
 		if len(docIDs) == 0 {
 			continue
 		}
 
 		n, err := s.defraNode.DB.ExportDocKVs(ctx, col.name, docIDs, gw, true)
 		if err != nil {
-			return fmt.Errorf("export KVs for %s: %w", col.name, err)
+			return 0, fmt.Errorf("export KVs for %s: %w", col.name, err)
 		}
 		totalKVs += n
 		logger.Sugar.Debugf("Exported %d KV pairs for %s (%d docs)", n, col.name, len(docIDs))
 	}
 
-	// Write EOF marker (key_len = 0)
-	binary.BigEndian.PutUint32(lenBuf[:], 0)
-	if _, err := gw.Write(lenBuf[:]); err != nil {
-		return err
-	}
-
-	if err := gw.Close(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-
-	// Atomic rename — past this point, cleanup should not remove the file
-	committed = true
-	if err := os.Rename(tmpPath, filePath); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-
-	logger.Sugar.Infof("KV snapshot created: %s (%d KV pairs)", filename, totalKVs)
-
-	// Sign the snapshot using the same roots embedded in the header
-	if err := signSnapshotWithRoots(s.ctx, s.defraNode, filename, startBlock, endBlock, roots, len(roots)); err != nil {
-		return fmt.Errorf("snapshot signing failed for %s: %w", filename, err)
-	}
-
-	return nil
+	return totalKVs, nil
 }
 
 // queryDocIDs returns all document IDs for a collection in the given block range.
@@ -149,9 +172,7 @@ func (s *Snapshotter) queryDocIDs(ctx context.Context, collection, blockField st
 
 	for chunkStart := startBlock; chunkStart <= endBlock; chunkStart += queryChunkSize {
 		chunkEnd := chunkStart + queryChunkSize - 1
-		if chunkEnd > endBlock {
-			chunkEnd = endBlock
-		}
+		chunkEnd = min(chunkEnd, endBlock)
 
 		query := fmt.Sprintf(
 			`query { %s(filter: {%s: {_geq: %d, _leq: %d}}) { _docID } }`,
@@ -160,7 +181,7 @@ func (s *Snapshotter) queryDocIDs(ctx context.Context, collection, blockField st
 
 		result := s.defraNode.DB.ExecRequest(ctx, query)
 		if len(result.GQL.Errors) > 0 {
-			return nil, fmt.Errorf("query %s [%d-%d]: %v", collection, chunkStart, chunkEnd, result.GQL.Errors[0])
+			return nil, fmt.Errorf("query %s [%d-%d]: %w", collection, chunkStart, chunkEnd, result.GQL.Errors[0])
 		}
 
 		data, ok := result.GQL.Data.(map[string]any)

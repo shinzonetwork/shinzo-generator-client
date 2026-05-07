@@ -9,7 +9,7 @@ import (
 )
 
 func TestGetSchema(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	s := GetSchema()
 	if s == "" {
 		t.Fatal("GetSchema() returned empty string")
@@ -20,7 +20,7 @@ t.Parallel()
 }
 
 func TestGetBranchableSchema(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	s := GetBranchableSchema()
 	if s == "" {
 		t.Fatal("GetBranchableSchema() returned empty string")
@@ -31,14 +31,14 @@ t.Parallel()
 }
 
 func TestIsBranchable_WithTag(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	if !IsBranchable() {
 		t.Error("IsBranchable() should return true when built with branchable tag")
 	}
 }
 
 func TestGetSchemaForBuild_WithTag(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	s := GetSchemaForBuild()
 	if s == "" {
 		t.Fatal("GetSchemaForBuild() returned empty string")

@@ -24,11 +24,11 @@ const graphqlURL = "http://127.0.0.1:9181/api/v0/graphql"
 var defraNode *node.Node
 
 func TestMain(m *testing.M) {
-	// Initialize logger for integration tests first
+	// Initialize logger for integration tests first.
 	logger.InitWithFiles(true)
 	logger.Test("TestMain - Starting self-contained integration tests with mock data")
 
-	// Clean up any existing integration DefraDB data
+	// Clean up any existing integration DefraDB data.
 	logger.Test("Cleaning up existing integration DefraDB data...")
 	cleanupPaths := []string{
 		"./.defra",
@@ -40,11 +40,11 @@ func TestMain(m *testing.M) {
 		}
 	}
 
-	// Start embedded DefraDB directly for mock data testing (no indexer needed)
+	// Start embedded DefraDB directly for mock data testing (no indexer needed).
 	logger.Test("Starting embedded DefraDB for mock data testing...")
 	ctx := context.Background()
 
-	// Create DefraDB node directly without indexer
+	// Create DefraDB node directly without indexer.
 	opts := options.Node().
 		SetDisableAPI(false).
 		SetDisableP2P(true)
@@ -57,13 +57,13 @@ func TestMain(m *testing.M) {
 		logger.Sugar.Fatalf("Failed to create DefraDB node: %v", err)
 	}
 
-	// node.Start returns only after the HTTP API is healthy (calls HealthCheck internally)
+	// node.Start returns only after the HTTP API is healthy (calls HealthCheck internally).
 	err = defraNode.Start(ctx)
 	if err != nil {
 		logger.Sugar.Fatalf("Failed to start DefraDB node: %v", err)
 	}
 
-	// Apply schema synchronously — no race with mock data insertion
+	// Apply schema synchronously — no race with mock data insertion.
 	err = applySchema(ctx, defraNode)
 	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
 		logger.Sugar.Fatalf("Failed to apply schema: %v", err)
@@ -71,7 +71,7 @@ func TestMain(m *testing.M) {
 
 	logger.Test("DefraDB node started successfully with schema applied")
 
-	// Insert mock test data
+	// Insert mock test data.
 	logger.Test("Inserting mock test data...")
 	if err := insertMockData(); err != nil {
 		logger.Sugar.Errorf("Failed to insert mock data: %v", err)
@@ -79,14 +79,14 @@ func TestMain(m *testing.M) {
 	}
 	logger.Test("Mock data inserted successfully!")
 
-	// Run tests
+	// Run tests.
 	exitCode := m.Run()
 
-	// Teardown
+	// Teardown.
 	logger.Test("TestMain - Teardown")
 	if defraNode != nil {
 		ctx := context.Background()
-		defraNode.Close(ctx)
+		_ = defraNode.Close(ctx)
 		logger.Test("DefraDB node closed")
 	}
 
@@ -94,13 +94,13 @@ func TestMain(m *testing.M) {
 }
 
 func TestGraphQLConnection(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	logger.Test("Testing GraphQL connection")
 	resp, err := http.Post(graphqlURL, "application/json", bytes.NewBuffer([]byte(`{"query":"query { __typename }"}`)))
 	if err != nil {
 		t.Fatalf("Failed to connect to GraphQL endpoint: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		t.Fatalf("Unexpected status code: %d", resp.StatusCode)
 	}
@@ -124,7 +124,7 @@ func postGraphQLQuery(t *testing.T, query string, variables map[string]any) map[
 	if err != nil {
 		t.Fatalf("Failed to POST query: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		t.Fatalf("Unexpected status code: %d", resp.StatusCode)
 	}
@@ -136,7 +136,7 @@ func postGraphQLQuery(t *testing.T, query string, variables map[string]any) map[
 	return result
 }
 
-// Helper to find the project root by looking for go.mod
+// Helper to find the project root by looking for go.mod.
 func getProjectRoot(t *testing.T) string {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -154,9 +154,9 @@ func getProjectRoot(t *testing.T) string {
 	}
 }
 
-// Helper to extract a named query from a .graphql file
+// Helper to extract a named query from a .graphql file.
 func loadGraphQLQuery(filename, queryName string) (string, error) {
-	data, err := os.ReadFile(filename)
+	data, err := os.ReadFile(filepath.Clean(filename))
 	if err != nil {
 		return "", err
 	}
@@ -165,7 +165,7 @@ func loadGraphQLQuery(filename, queryName string) (string, error) {
 	if start == -1 {
 		return "", fmt.Errorf("query %s not found", queryName)
 	}
-	// Find the next "query " after start, or end of file
+	// Find the next "query " after start, or end of file.
 	next := strings.Index(content[start+1:], "query ")
 	var query string
 	if next == -1 {
@@ -187,10 +187,10 @@ func MakeQuery(t *testing.T, queryPath string, query string, args map[string]any
 }
 
 func insertMockData() error {
-	// Store DocIDs for relationship establishment
+	// Store DocIDs for relationship establishment.
 	var block1DocID, block2DocID, tx1DocID, tx2DocID string
 
-	// Create Block 1
+	// Create Block 1.
 	block1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionBlock) + `
@@ -221,17 +221,17 @@ func insertMockData() error {
 		}`,
 	}
 
-	// Execute Block 1 creation and extract DocID
+	// Execute Block 1 creation and extract DocID.
 	jsonData, err := json.Marshal(block1Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal block1 mutation: %v", err)
+		return fmt.Errorf("failed to marshal block1 mutation: %w", err)
 	}
 
 	resp, err := http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("block1 creation failed: %v", err)
+		return fmt.Errorf("failed to post block1 mutation: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -240,19 +240,19 @@ func insertMockData() error {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read block1 response: %v", err)
+		return fmt.Errorf("failed to read block1 response: %w", err)
 	}
 
 	var block1Resp map[string]any
-	if err := json.Unmarshal(body, &block1Resp); err != nil {
-		return fmt.Errorf("failed to parse block1 response: %v", err)
+	if err = json.Unmarshal(body, &block1Resp); err != nil {
+		return fmt.Errorf("failed to unmarshal block1 response: %w", err)
 	}
 
 	if errors, hasErrors := block1Resp["errors"]; hasErrors {
 		return fmt.Errorf("GraphQL errors in block1 creation: %v", errors)
 	}
 
-	// Extract Block 1 DocID
+	// Extract Block 1 DocID.
 	if data, ok := block1Resp["data"].(map[string]any); ok {
 		if createBlock, ok := data[fmt.Sprintf("create_%s", constants.CollectionBlock)].([]any); ok && len(createBlock) > 0 {
 			if blockData, ok := createBlock[0].(map[string]any); ok {
@@ -264,7 +264,7 @@ func insertMockData() error {
 		}
 	}
 
-	// Create Block 2
+	// Create Block 2.
 	block2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionBlock) + `
@@ -295,38 +295,38 @@ func insertMockData() error {
 		}`,
 	}
 
-	// Execute Block 2 creation and extract DocID
+	// Execute Block 2 creation and extract DocID.
 	jsonData, err = json.Marshal(block2Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal block2 mutation: %v", err)
+		return fmt.Errorf("failed to marshal block2 mutation: %w", err)
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("block2 creation failed: %v", err)
+		return fmt.Errorf("failed to post block2 mutation: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ = io.ReadAll(resp.Body)
 		return fmt.Errorf("block2 creation failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read block2 response: %v", err)
+		return fmt.Errorf("failed to read block2 response: %w", err)
 	}
 
 	var block2Resp map[string]any
-	if err := json.Unmarshal(body, &block2Resp); err != nil {
-		return fmt.Errorf("failed to parse block2 response: %v", err)
+	if err = json.Unmarshal(body, &block2Resp); err != nil {
+		return fmt.Errorf("failed to unmarshal block2 response: %w", err)
 	}
 
 	if errors, hasErrors := block2Resp["errors"]; hasErrors {
 		return fmt.Errorf("GraphQL errors in block2 creation: %v", errors)
 	}
 
-	// Extract Block 2 DocID
+	// Extract Block 2 DocID.
 	if data, ok := block2Resp["data"].(map[string]any); ok {
 		if createBlock, ok := data[fmt.Sprintf("create_%s", constants.CollectionBlock)].([]any); ok && len(createBlock) > 0 {
 			if blockData, ok := createBlock[0].(map[string]any); ok {
@@ -338,7 +338,7 @@ func insertMockData() error {
 		}
 	}
 
-	// Create Transaction 1 with relationship to Block 1
+	// Create Transaction 1 with relationship to Block 1.
 	tx1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionTransaction) + fmt.Sprintf(`
@@ -370,38 +370,38 @@ func insertMockData() error {
 		}`, block1DocID),
 	}
 
-	// Execute Transaction 1 creation
+	// Execute Transaction 1 creation.
 	jsonData, err = json.Marshal(tx1Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal tx1 mutation: %v", err)
+		return fmt.Errorf("failed to marshal tx1 mutation: %w", err) //nolint: err113
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("tx1 creation failed: %v", err)
+		return fmt.Errorf("failed to post tx1 mutation: %w", err) //nolint: err113
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("tx1 creation failed with status %d: %s", resp.StatusCode, string(body))
+		body, _ = io.ReadAll(resp.Body)
+		return fmt.Errorf("tx1 creation failed with status %d: %s", resp.StatusCode, string(body)) //nolint: err113
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read tx1 response: %v", err)
+		return fmt.Errorf("failed to read tx1 response: %w", err) //nolint: err113
 	}
 
 	var tx1Resp map[string]any
-	if err := json.Unmarshal(body, &tx1Resp); err != nil {
-		return fmt.Errorf("failed to parse tx1 response: %v", err)
+	if err = json.Unmarshal(body, &tx1Resp); err != nil {
+		return fmt.Errorf("failed to unmarshal tx1 response: %w", err) //nolint: err113
 	}
 
 	if errors, hasErrors := tx1Resp["errors"]; hasErrors {
-		return fmt.Errorf("GraphQL errors in tx1 creation: %v", errors)
+		return fmt.Errorf("GraphQL errors in tx1 creation: %v", errors) //nolint: err113
 	}
 
-	// Extract Transaction 1 DocID
+	// Extract Transaction 1 DocID.
 	if data, ok := tx1Resp["data"].(map[string]any); ok {
 		if createTx, ok := data[fmt.Sprintf("create_%s", constants.CollectionTransaction)].([]any); ok && len(createTx) > 0 {
 			if txData, ok := createTx[0].(map[string]any); ok {
@@ -413,7 +413,7 @@ func insertMockData() error {
 		}
 	}
 
-	// Create Transaction 2 with relationship to Block 2
+	// Create Transaction 2 with relationship to Block 2.
 	tx2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionTransaction) + fmt.Sprintf(`
@@ -445,38 +445,40 @@ func insertMockData() error {
 		}`, block2DocID),
 	}
 
-	// Execute Transaction 2 creation
+	// Execute Transaction 2 creation.
 	jsonData, err = json.Marshal(tx2Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal tx2 mutation: %v", err)
+		return fmt.Errorf("failed to marshal tx2 mutation: %w", err) //nolint: err113
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("tx2 creation failed: %v", err)
+		return fmt.Errorf("failed to post tx2 mutation: %w", err) //nolint: err113
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("tx2 creation failed with status %d: %s", resp.StatusCode, string(body))
+		body, _ = io.ReadAll(resp.Body)
+		return fmt.Errorf("tx2 creation failed with status %d: %s", resp.StatusCode, string(body)) //nolint: err113
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read tx2 response: %v", err)
+		return fmt.Errorf("failed to read tx2 response: %w", err) //nolint: err113
 	}
 
 	var tx2Resp map[string]any
-	if err := json.Unmarshal(body, &tx2Resp); err != nil {
-		return fmt.Errorf("failed to parse tx2 response: %v", err)
+	if err = json.Unmarshal(body, &tx2Resp); err != nil {
+		return fmt.Errorf("failed to unmarshal tx2 response: %w", err) //nolint: err113
 	}
 
 	if errors, hasErrors := tx2Resp["errors"]; hasErrors {
-		return fmt.Errorf("GraphQL errors in tx2 creation: %v", errors)
+		return fmt.Errorf("GraphQL errors in tx2 creation: %v", errors) //nolint: err113
 	}
 
-	// Extract Transaction 2 DocID
+	// Extract Transaction 2 DocID.
 	if data, ok := tx2Resp["data"].(map[string]any); ok {
 		if createTx, ok := data[fmt.Sprintf("create_%s", constants.CollectionTransaction)].([]any); ok && len(createTx) > 0 {
 			if txData, ok := createTx[0].(map[string]any); ok {
@@ -488,7 +490,7 @@ func insertMockData() error {
 		}
 	}
 
-	// Create Log 1 for Transaction 1
+	// Create Log 1 for Transaction 1.
 	log1Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionLog) + fmt.Sprintf(`
@@ -511,40 +513,42 @@ func insertMockData() error {
 		}`, block1DocID, tx1DocID),
 	}
 
-	// Execute Log 1 creation
+	// Execute Log 1 creation.
 	jsonData, err = json.Marshal(log1Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal log1 mutation: %v", err)
+		return fmt.Errorf("failed to marshal log1 mutation: %w", err) //nolint: err113
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("log1 creation failed: %v", err)
+		return fmt.Errorf("failed to post log1 mutation: %w", err) //nolint: err113
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("log1 creation failed with status %d: %s", resp.StatusCode, string(body))
+		body, _ = io.ReadAll(resp.Body)
+		return fmt.Errorf("log1 creation failed with status %d: %s", resp.StatusCode, string(body)) //nolint: err113
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read log1 response: %v", err)
+		return fmt.Errorf("failed to read log1 response: %w", err) //nolint: err113
 	}
 
 	var log1Resp map[string]any
-	if err := json.Unmarshal(body, &log1Resp); err != nil {
-		return fmt.Errorf("failed to parse log1 response: %v", err)
+	if err = json.Unmarshal(body, &log1Resp); err != nil {
+		return fmt.Errorf("failed to unmarshal log1 response: %w", err) //nolint: err113
 	}
 
 	if errors, hasErrors := log1Resp["errors"]; hasErrors {
-		return fmt.Errorf("GraphQL errors in log1 creation: %v", errors)
+		return fmt.Errorf("GraphQL errors in log1 creation: %v", errors) //nolint: err113
 	}
 
 	logger.Testf("Log 1 created successfully: %s", string(body))
 
-	// Create Log 2 for Transaction 2
+	// Create Log 2 for Transaction 2.
 	log2Mutation := map[string]any{
 		"query": fmt.Sprintf(`mutation {
 			create_%s(input: {`, constants.CollectionLog) + fmt.Sprintf(`
@@ -567,35 +571,37 @@ func insertMockData() error {
 		}`, block2DocID, tx2DocID),
 	}
 
-	// Execute Log 2 creation
+	// Execute Log 2 creation.
 	jsonData, err = json.Marshal(log2Mutation)
 	if err != nil {
-		return fmt.Errorf("failed to marshal log2 mutation: %v", err)
+		return fmt.Errorf("failed to marshal log2 mutation: %w", err) //nolint: err113
 	}
 
 	resp, err = http.Post("http://127.0.0.1:9181/api/v0/graphql", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("log2 creation failed: %v", err)
+		return fmt.Errorf("failed to post log2 mutation: %w", err) //nolint: err113
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("log2 creation failed with status %d: %s", resp.StatusCode, string(body))
+		body, _ = io.ReadAll(resp.Body)
+		return fmt.Errorf("log2 creation failed with status %d: %s", resp.StatusCode, string(body)) //nolint: err113
 	}
 
 	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read log2 response: %v", err)
+		return fmt.Errorf("failed to read log2 response: %w", err) //nolint: err113
 	}
 
 	var log2Resp map[string]any
-	if err := json.Unmarshal(body, &log2Resp); err != nil {
-		return fmt.Errorf("failed to parse log2 response: %v", err)
+	if err = json.Unmarshal(body, &log2Resp); err != nil {
+		return fmt.Errorf("failed to unmarshal log2 response: %w", err) //nolint: err113
 	}
 
 	if errors, hasErrors := log2Resp["errors"]; hasErrors {
-		return fmt.Errorf("GraphQL errors in log2 creation: %v", errors)
+		return fmt.Errorf("GraphQL errors in log2 creation: %v", errors) //nolint: err113
 	}
 
 	logger.Testf("Log 2 created successfully: %s", string(body))
@@ -604,7 +610,7 @@ func insertMockData() error {
 	return nil
 }
 
-// applySchema applies the GraphQL schema to DefraDB node
+// applySchema applies the GraphQL schema to DefraDB node.
 func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
 

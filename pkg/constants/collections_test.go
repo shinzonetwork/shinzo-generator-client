@@ -31,12 +31,15 @@ func TestCollectionConstants(t *testing.T) {
 
 func TestAllCollections(t *testing.T) {
 	t.Parallel()
-	if AllCollections == nil {
+
+	collections := DefaultCollections()
+
+	if collections == nil {
 		t.Fatal("AllCollections should not be nil")
 	}
 
-	if len(AllCollections) != 6 {
-		t.Fatalf("expected 6 collections, got %d", len(AllCollections))
+	if len(collections) != 6 {
+		t.Fatalf("expected 6 collections, got %d", len(collections))
 	}
 
 	expected := []string{
@@ -49,8 +52,8 @@ func TestAllCollections(t *testing.T) {
 	}
 
 	for i, exp := range expected {
-		if AllCollections[i] != exp {
-			t.Errorf("AllCollections[%d]: expected %q, got %q", i, exp, AllCollections[i])
+		if collections[i] != exp {
+			t.Errorf("collections[%d]: expected %q, got %q", i, exp, collections[i])
 		}
 	}
 }

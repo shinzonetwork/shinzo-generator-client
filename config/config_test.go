@@ -34,7 +34,7 @@ logger:
   development: true
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
@@ -43,8 +43,8 @@ logger:
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	if cfg.DefraDB.Url != "http://localhost:9181" {
-		t.Errorf("Expected url 'http://localhost:9181', got '%s'", cfg.DefraDB.Url)
+	if cfg.DefraDB.URL != "http://localhost:9181" {
+		t.Errorf("Expected url 'http://localhost:9181', got '%s'", cfg.DefraDB.URL)
 	}
 	if cfg.DefraDB.KeyringSecret != "test_secret" {
 		t.Errorf("Expected keyring_secret 'test_secret', got '%s'", cfg.DefraDB.KeyringSecret)
@@ -73,7 +73,7 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "invalid_config.yaml")
 
-	if err := os.WriteFile(configPath, []byte("defradb:\n  url: \"invalid yaml\n"), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte("defradb:\n  url: \"invalid yaml\n"), 0o600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 			configPath := filepath.Join(tempDir, "config.yaml")
 			configContent := "defradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
 
-			if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 				t.Fatalf("Failed to write test config file: %v", err)
 			}
 
@@ -125,7 +125,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 
 func TestDefraDBConfig_Host(t *testing.T) {
 	t.Parallel()
-	cfg := &DefraDBConfig{Url: "http://localhost:9181"}
+	cfg := &DefraDBConfig{URL: "http://localhost:9181"}
 	if cfg.Host() != "http://localhost:9181" {
 		t.Errorf("Host() = %q, want %q", cfg.Host(), "http://localhost:9181")
 	}
@@ -200,7 +200,7 @@ func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = false
-	cfg.DefraDB.Url = ""
+	cfg.DefraDB.URL = ""
 
 	err := validateConfig(cfg)
 	if err == nil {
@@ -223,8 +223,8 @@ func TestApplyEnvOverrides_DefraDBUrl(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_URL", "http://custom:9181")
 	applyEnvOverrides(cfg)
-	if cfg.DefraDB.Url != "http://custom:9181" {
-		t.Errorf("DEFRADB_URL override failed: got %q", cfg.DefraDB.Url)
+	if cfg.DefraDB.URL != "http://custom:9181" {
+		t.Errorf("DEFRADB_URL override failed: got %q", cfg.DefraDB.URL)
 	}
 }
 
@@ -235,8 +235,8 @@ func TestApplyEnvOverrides_DefraDBHost_WithPort(t *testing.T) {
 	t.Setenv("DEFRADB_HOST", "myhost")
 	t.Setenv("DEFRADB_PORT", "1234")
 	applyEnvOverrides(cfg)
-	if cfg.DefraDB.Url != "http://myhost:1234" {
-		t.Errorf("DEFRADB_HOST+PORT override failed: got %q", cfg.DefraDB.Url)
+	if cfg.DefraDB.URL != "http://myhost:1234" {
+		t.Errorf("DEFRADB_HOST+PORT override failed: got %q", cfg.DefraDB.URL)
 	}
 }
 
@@ -246,8 +246,8 @@ func TestApplyEnvOverrides_DefraDBHost_WithoutPort(t *testing.T) {
 	t.Setenv("DEFRADB_HOST", "myhost")
 	t.Setenv("DEFRADB_PORT", "")
 	applyEnvOverrides(cfg)
-	if cfg.DefraDB.Url != "http://myhost:9181" {
-		t.Errorf("DEFRADB_HOST without PORT should default to 9181, got %q", cfg.DefraDB.Url)
+	if cfg.DefraDB.URL != "http://myhost:9181" {
+		t.Errorf("DEFRADB_HOST without PORT should default to 9181, got %q", cfg.DefraDB.URL)
 	}
 }
 
@@ -520,7 +520,7 @@ indexer:
   start_height: 1000
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
@@ -546,7 +546,7 @@ indexer:
   start_height: 1000
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
