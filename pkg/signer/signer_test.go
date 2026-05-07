@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
-	pb "github.com/libp2p/go-libp2p/core/crypto/pb"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
@@ -33,29 +31,6 @@ func (m *mockPublicKey) Underlying() any                     { return nil }
 func (m *mockPublicKey) Verify([]byte, []byte) (bool, error) { return false, nil }
 func (m *mockPublicKey) DID() (string, error)                { return "", nil }
 
-// mockLibP2PPrivKey implements libp2pcrypto.PrivKey for testing.
-type mockLibP2PPrivKey struct {
-	rawBytes []byte
-	rawErr   error
-	pubKey   libp2pcrypto.PubKey
-}
-
-func (m *mockLibP2PPrivKey) Type() pb.KeyType                 { return pb.KeyType_Ed25519 }
-func (m *mockLibP2PPrivKey) Raw() ([]byte, error)             { return m.rawBytes, m.rawErr }
-func (m *mockLibP2PPrivKey) Equals(libp2pcrypto.Key) bool     { return false }
-func (m *mockLibP2PPrivKey) Sign(data []byte) ([]byte, error) { return nil, nil }
-func (m *mockLibP2PPrivKey) GetPublic() libp2pcrypto.PubKey   { return m.pubKey }
-
-// mockLibP2PPubKey implements libp2pcrypto.PubKey for testing.
-type mockLibP2PPubKey struct {
-	rawBytes []byte
-	rawErr   error
-}
-
-func (m *mockLibP2PPubKey) Type() pb.KeyType                             { return pb.KeyType_Ed25519 }
-func (m *mockLibP2PPubKey) Raw() ([]byte, error)                         { return m.rawBytes, m.rawErr }
-func (m *mockLibP2PPubKey) Equals(libp2pcrypto.Key) bool                 { return false }
-func (m *mockLibP2PPubKey) Verify(data []byte, sig []byte) (bool, error) { return false, nil }
 
 // swapLoadIdentity replaces the identity loader and restores it on cleanup.
 func swapLoadIdentity(t *testing.T, fn func(*config.Config, string) (identity.FullIdentity, error)) {
