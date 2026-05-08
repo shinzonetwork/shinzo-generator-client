@@ -1,3 +1,7 @@
+networks:
+  shinzo-net:
+    driver: bridge
+
 services:
   indexer:
     container_name: shinzo-indexer

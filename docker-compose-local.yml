@@ -1,3 +1,7 @@
+networks:
+  shinzo-net:
+    driver: bridge
+
 services:
   indexer:
     container_name: shinzo-indexer
@@ -36,7 +40,7 @@ services:
         max-size: "50m"
         max-file: "3"
     volumes:
-      - ~/data/defradb:/app/.defra
+      - ~/shinzo-data/defradb:/app/.defra
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s

@@ -1,6 +1,6 @@
 # Use this to deploy to a vm with nginx reverse proxy.
 # This file users the root user 
-# user: "0:0" for docker permissions.
+# user: "1001:1001" [shinzo-indexer] for docker permissions.
 
 networks:
   shinzo-net:
