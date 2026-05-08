@@ -12,6 +12,7 @@ services:
       - GETH_RPC_URL=${GETH_RPC_URL}
       - GETH_WS_URL=${GETH_WS_URL}
       - GETH_API_KEY=${GETH_API_KEY}
+      - GETH_API_KEY_TYPE=${GETH_API_KEY_TYPE}
       
       # DefraDB Configuration (embedded)
       - DEFRADB_KEYRING_SECRET=${DEFRADB_KEYRING_SECRET:-}
