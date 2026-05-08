@@ -8,9 +8,10 @@ networks:
 
 services:
   shinzo-indexer:
-    image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
-    user: "0:0"
     container_name: shinzo-indexer
+    platform: linux/amd64
+    image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+    user: "1001:1001" # shinzo-indexer identity
     restart: unless-stopped
     networks:
       - shinzo-net
@@ -19,12 +20,12 @@ services:
     ports:
       - "9171:9171"
     volumes:
-      - ~/data/defradb:/app/.defra
-      - ~/data/lens:/app/.defra/lens
+      - ~/shinzo-data/defradb:/app/.defra
     environment:
       - GETH_RPC_URL=https://json-rpc.aouzyll7wj7e9xe4g7t82w88c.blockchainnodeengine.com
       - GETH_WS_URL=wss://ws.aouzyll7wj7e9xe4g7t82w88c.blockchainnodeengine.com
       - GETH_API_KEY=<YOUR_API_KEY_HERE>
+      - GETH_API_KEY_TYPE=x-goog-api-key
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
       - GOMEMLIMIT=14GiB
@@ -36,6 +37,12 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
   nginx:
     image: nginx:alpine
     ports:
