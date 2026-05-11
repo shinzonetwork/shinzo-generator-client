@@ -12,6 +12,8 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+const maxPeerConnectBackoff = 30 * time.Second
+
 // NetworkHandler manages P2P networking for DefraDB.
 type NetworkHandler struct {
 	node *node.Node
@@ -203,7 +205,7 @@ func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 		default:
 		}
 
-		delay := min(baseDelay*time.Duration(1<<attempt), 30*time.Second)
+		delay := min(baseDelay*time.Duration(1<<attempt), maxPeerConnectBackoff)
 
 		logger.Sugar.Debugf("Connection attempt %d/%d to %s failed: %v. Retrying in %v",
 			attempt+1, maxRetries, peerAddr, err, delay)

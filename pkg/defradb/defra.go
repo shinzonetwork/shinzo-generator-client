@@ -33,9 +33,9 @@ var DefaultConfig *config.Config = &config.Config{
 			Enabled:             true, // P2P enabled by default
 			BootstrapPeers:      requiredPeers,
 			ListenAddr:          defaultListenAddress,
-			MaxRetries:          5,
-			RetryBaseDelayMs:    1000,  // 1 second
-			ReconnectIntervalMs: 60000, // 60 seconds
+			MaxRetries:          defaultP2PMaxRetries,
+			RetryBaseDelayMs:    defaultP2PRetryBaseDelayMs,    // 1 second
+			ReconnectIntervalMs: defaultP2PReconnectIntervalMs, // 60 seconds
 			EnableAutoReconnect: true,
 		},
 		Store: config.DefraDBStoreConfig{
@@ -51,6 +51,14 @@ var requiredPeers []string = []string{} // Here, we can add some "big peers" to 
 const (
 	defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 	NodeIdentityKeyName  string = "node-identity-key"
+
+	defaultP2PMaxRetries            = 5
+	defaultP2PRetryBaseDelayMs      = 1000
+	defaultP2PReconnectIntervalMs   = 60000
+	secp256k1PrivKeyBytes           = 32
+	log2BytesPerMebibyte            = 20
+	defaultBadgerValueLogFileSizeMB = 64
+	subscriptionResultChanCapacity  = 100_000
 )
 
 // Key Management Implementation Notes:
@@ -253,7 +261,7 @@ func CreateLibP2PKeyFromIdentity(nodeIdentity identity.Identity) (libp2pcrypto.P
 	// DefraDB expects Ed25519 keys, but DefraDB identities use secp256k1
 	// We need to derive an Ed25519 key deterministically from the secp256k1 key
 	// Use the secp256k1 key bytes as seed for Ed25519 key generation
-	if len(keyBytes) != 32 {
+	if len(keyBytes) != secp256k1PrivKeyBytes {
 		return nil, fmt.Errorf("expected 32-byte secp256k1 key, got %d bytes", len(keyBytes))
 	}
 
@@ -329,17 +337,17 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	// Apply badger memory configuration if specified
 	var storeOpts []func(*options.NodeOptions)
 	if cfg.DefraDB.Store.BlockCacheMB > 0 {
-		size := cfg.DefraDB.Store.BlockCacheMB << 20
+		size := cfg.DefraDB.Store.BlockCacheMB << log2BytesPerMebibyte
 		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerBlockCacheSize = size })
 		logger.Sugar.Infof("Badger block cache size: %dMB", cfg.DefraDB.Store.BlockCacheMB)
 	}
 	if cfg.DefraDB.Store.MemTableMB > 0 {
-		size := cfg.DefraDB.Store.MemTableMB << 20
+		size := cfg.DefraDB.Store.MemTableMB << log2BytesPerMebibyte
 		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerMemTableSize = size })
 		logger.Sugar.Infof("Badger memtable size: %dMB", cfg.DefraDB.Store.MemTableMB)
 	}
 	if cfg.DefraDB.Store.IndexCacheMB > 0 {
-		size := cfg.DefraDB.Store.IndexCacheMB << 20
+		size := cfg.DefraDB.Store.IndexCacheMB << log2BytesPerMebibyte
 		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerIndexCacheSize = size })
 		logger.Sugar.Infof("Badger index cache size: %dMB", cfg.DefraDB.Store.IndexCacheMB)
 	}
@@ -360,9 +368,9 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	}
 	vlogSizeMB := cfg.DefraDB.Store.ValueLogFileSizeMB
 	if vlogSizeMB <= 0 {
-		vlogSizeMB = 64
+		vlogSizeMB = defaultBadgerValueLogFileSizeMB
 	}
-	nb.Store().SetBadgerFileSize(vlogSizeMB << 20)
+	nb.Store().SetBadgerFileSize(vlogSizeMB << log2BytesPerMebibyte)
 	logger.Sugar.Infof("Badger value log file size: %dMB", vlogSizeMB)
 
 	// Add P2P configuration options
@@ -462,7 +470,7 @@ func Subscribe[T any](ctx context.Context, defraNode *node.Node, subscription st
 		return nil, fmt.Errorf("subscription channel is nil - DefraDB may not support subscriptions for this query: %s", subscription)
 	}
 
-	resultChan := make(chan T, 100000)
+	resultChan := make(chan T, subscriptionResultChanCapacity)
 
 	go func() {
 		defer close(resultChan)
@@ -598,15 +606,15 @@ func (c *Client) Start(ctx context.Context) error {
 	// Apply badger memory configuration if specified
 	var storeOpts []func(*options.NodeOptions)
 	if c.config.DefraDB.Store.BlockCacheMB > 0 {
-		size := c.config.DefraDB.Store.BlockCacheMB << 20
+		size := c.config.DefraDB.Store.BlockCacheMB << log2BytesPerMebibyte
 		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerBlockCacheSize = size })
 	}
 	if c.config.DefraDB.Store.MemTableMB > 0 {
-		size := c.config.DefraDB.Store.MemTableMB << 20
+		size := c.config.DefraDB.Store.MemTableMB << log2BytesPerMebibyte
 		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerMemTableSize = size })
 	}
 	if c.config.DefraDB.Store.IndexCacheMB > 0 {
-		size := c.config.DefraDB.Store.IndexCacheMB << 20
+		size := c.config.DefraDB.Store.IndexCacheMB << log2BytesPerMebibyte
 		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerIndexCacheSize = size })
 	}
 	if c.config.DefraDB.Store.NumCompactors > 0 {
@@ -624,9 +632,9 @@ func (c *Client) Start(ctx context.Context) error {
 	{
 		vlogSizeMB := c.config.DefraDB.Store.ValueLogFileSizeMB
 		if vlogSizeMB <= 0 {
-			vlogSizeMB = 64
+			vlogSizeMB = defaultBadgerValueLogFileSizeMB
 		}
-		nb.Store().SetBadgerFileSize(vlogSizeMB << 20)
+		nb.Store().SetBadgerFileSize(vlogSizeMB << log2BytesPerMebibyte)
 	}
 
 	if len(listenAddress) > 0 {

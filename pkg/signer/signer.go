@@ -167,9 +167,9 @@ func SignWithP2PKeys(message string, defraNode *node.Node, cfg *config.Config) (
 	// Ed25519.NewKeyFromSeed expects exactly 32 bytes (the seed)
 	// If we got 64 bytes, take only the first 32 bytes (the seed portion)
 	var ed25519Seed []byte
-	if len(rawKeyBytes) == 64 {
-		ed25519Seed = rawKeyBytes[:32]
-	} else if len(rawKeyBytes) == 32 {
+	if len(rawKeyBytes) == ed25519.PrivateKeySize {
+		ed25519Seed = rawKeyBytes[:ed25519.SeedSize]
+	} else if len(rawKeyBytes) == ed25519.SeedSize {
 		ed25519Seed = rawKeyBytes
 	} else {
 		return "", fmt.Errorf("unexpected Ed25519 key length: expected 32 or 64 bytes, got %d", len(rawKeyBytes))

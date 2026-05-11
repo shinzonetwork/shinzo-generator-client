@@ -9,6 +9,8 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+const bootstrapPeerMultiaddrParts = 2 // [address, peerID] split on "/p2p/"
+
 // BootstrapIntoPeers converts bootstrap peer strings into DefraDB peer info values.
 func BootstrapIntoPeers(configuredBootstrapPeers []string) ([]client.PeerInfo, []error) {
 	peers := []client.PeerInfo{}
@@ -16,7 +18,7 @@ func BootstrapIntoPeers(configuredBootstrapPeers []string) ([]client.PeerInfo, [
 
 	for i, peer := range configuredBootstrapPeers {
 		parts := strings.Split(peer, "/p2p/")
-		if len(parts) != 2 {
+		if len(parts) != bootstrapPeerMultiaddrParts {
 			errors = append(errors, fmt.Errorf("peer at index %d is invalid and will be skipped. Given: %v", i, configuredBootstrapPeers))
 			continue
 		}

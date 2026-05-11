@@ -12,7 +12,11 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
-const uuidSize = 16
+const (
+	uuidSize                    = 16
+	uuidHexWithoutHyphensLen    = 32 // hex-encoded uuidSize bytes
+	indexerQueueEntriesPrealloc = 128
+)
 
 // docIDPrefix is the constant version prefix shared by all DefraDB document IDs.
 var (
@@ -48,7 +52,7 @@ type IndexerQueue struct {
 // NewIndexerQueue creates a new empty indexer queue.
 func NewIndexerQueue() *IndexerQueue {
 	return &IndexerQueue{
-		entries: make([]BlockEntry, 0, 128),
+		entries: make([]BlockEntry, 0, indexerQueueEntriesPrealloc),
 	}
 }
 
@@ -379,7 +383,7 @@ func extractUUID(docID string) ([uuidSize]byte, error) {
 // parseUUIDHex parses a UUID string (with hyphens) into 16 raw bytes.
 func parseUUIDHex(uuidStr string) ([uuidSize]byte, error) {
 	clean := strings.ReplaceAll(uuidStr, "-", "")
-	if len(clean) != 32 {
+	if len(clean) != uuidHexWithoutHyphensLen {
 		return [uuidSize]byte{}, fmt.Errorf("invalid UUID: %s", uuidStr)
 	}
 	var result [uuidSize]byte
