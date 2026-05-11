@@ -16,8 +16,8 @@ services:
     ports:
       - "9171:9171"
     volumes:
-      - ~/data/defradb:/app/.defra
-      - ~/data/lens:/app/.defra/lens
+      - ~/shinzo-data/defradb:/app/.defra
+      - ~/shinzo-data/lens:/app/.defra/lens
     environment:
       - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
       - GETH_WS_URL=ws://ws.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
