@@ -7,7 +7,7 @@ import (
 
 // dialFunc abstracts net.Dial for testability.
 var dialFunc = net.Dial
-
+// GetLANIP is a helper function that gets a local address network IP.
 func GetLANIP() (string, error) {
 	conn, err := dialFunc("udp", "8.8.8.8:80")
 	if err != nil {

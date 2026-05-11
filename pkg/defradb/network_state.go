@@ -8,15 +8,15 @@ import (
 type ConnectionState int
 
 const (
-	// StateDisconnected: Not connected to the peer.
+	// StateDisconnected is the state where the peer is not connected.
 	StateDisconnected ConnectionState = iota
-	// StateConnecting: Attempting to establish connection.
+	// StateConnecting is the state where the node is attempting to connect.
 	StateConnecting
-	// StateConnected: Successfully connected to the peer.
+	// StateConnected is the state where the peer connection is established.
 	StateConnected
-	// StateReconnecting: Lost connection, attempting to reconnect.
+	// StateReconnecting is the state where a lost connection is being retried.
 	StateReconnecting
-	// StateFailed: Connection failed after max retries.
+	// StateFailed is the state where connection attempts exceeded retry limits.
 	StateFailed
 )
 

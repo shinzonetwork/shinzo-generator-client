@@ -131,6 +131,7 @@ func chainPrefixFromConfig(cfg *config.Config) string {
 	return fmt.Sprintf("%s__%s", name, network)
 }
 
+// StartIndexing initializes dependencies and starts concurrent block indexing.
 func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	ctx := context.Background()
 	cfg := i.cfg

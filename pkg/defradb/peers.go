@@ -9,6 +9,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// BootstrapIntoPeers converts bootstrap peer strings into DefraDB peer info values.
 func BootstrapIntoPeers(configuredBootstrapPeers []string) ([]client.PeerInfo, []error) {
 	peers := []client.PeerInfo{}
 	errors := []error{}
@@ -32,6 +33,7 @@ func BootstrapIntoPeers(configuredBootstrapPeers []string) ([]client.PeerInfo, [
 	return peers, errors
 }
 
+// PeersIntoBootstrap converts DefraDB peer info values into bootstrap peer strings.
 func PeersIntoBootstrap(peers []client.PeerInfo) ([]string, []error) {
 	bootstrapPeers := []string{}
 	errors := []error{}
