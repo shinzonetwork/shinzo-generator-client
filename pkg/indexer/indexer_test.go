@@ -4889,7 +4889,7 @@ func setupTestDefraDBWithP2P(t *testing.T) *node.Node {
 		t.Fatalf("Failed to create DefraDB node with P2P: %v", err)
 	}
 	if err := defraNode.Start(ctx); err != nil {
-		t.Fatalf("Failed to start DefraDB node with P2P: %v", err)
+		t.Fatalf("failed to start DefraDB node with P2P: %v", err)
 	}
 
 	t.Cleanup(func() {

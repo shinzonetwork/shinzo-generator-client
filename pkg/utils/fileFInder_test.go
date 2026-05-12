@@ -24,7 +24,7 @@ func TestFindFile_ExactPath(t *testing.T) {
 func TestFindFile_NotFound(t *testing.T) {
 	_, err := FindFile("nonexistent_file_that_does_not_exist.xyz")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Could not find file")
+	assert.Contains(t, err.Error(), "could not find file")
 }
 
 func TestFindFile_ParentDirectory(t *testing.T) {

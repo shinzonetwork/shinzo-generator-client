@@ -147,7 +147,7 @@ func TestPrunerStart_Disabled(t *testing.T) {
 	cfg := &Config{Enabled: false}
 	p := NewPruner(cfg, nil)
 
-	err := p.Start(nil)
+	err := p.Start(context.TODO())
 	assert.NoError(t, err)
 	assert.False(t, p.isRunning)
 }
@@ -156,7 +156,7 @@ func TestPrunerStart_NilNode(t *testing.T) {
 	cfg := &Config{Enabled: true}
 	p := NewPruner(cfg, nil)
 
-	err := p.Start(nil)
+	err := p.Start(context.TODO())
 	assert.NoError(t, err)
 	assert.False(t, p.isRunning)
 }

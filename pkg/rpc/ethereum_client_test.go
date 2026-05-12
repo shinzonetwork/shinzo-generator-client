@@ -1863,11 +1863,6 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 
 // --- Test helpers ---
 
-//go:fix inline
-func toPtr(addr common.Address) *common.Address {
-	return new(addr)
-}
-
 func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {
 	// Use a fixed test private key
 	key, err := crypto.HexToECDSA("fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19")

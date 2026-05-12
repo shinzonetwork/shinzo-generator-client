@@ -21,5 +21,5 @@ func FindFile(expectedPath string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("Could not find file in any path searched: %v", possiblePaths)
+	return "", fmt.Errorf("could not find file in any path searched: %v", possiblePaths)
 }

@@ -29,5 +29,5 @@ func TestGetLANIP_DialError(t *testing.T) {
 	ip, err := GetLANIP()
 	assert.Error(t, err)
 	assert.Empty(t, ip)
-	assert.Contains(t, err.Error(), "Error retrieving ip address")
+	assert.Contains(t, err.Error(), "error retrieving ip address")
 }

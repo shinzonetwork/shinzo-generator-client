@@ -193,7 +193,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		defraNode, networkHandler, err := defradb.StartDefraInstance(cfg,
 			defradb.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
 		if err != nil {
-			return ctx, fmt.Errorf("Failed to start DefraDB instance: %w", err)
+			return ctx, fmt.Errorf("failed to start DefraDB instance: %w", err)
 		}
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler

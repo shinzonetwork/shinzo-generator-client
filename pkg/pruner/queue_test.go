@@ -24,7 +24,7 @@ func TestParseUUIDHex(t *testing.T) {
 	t.Run("valid UUID", func(t *testing.T) {
 		uuid, err := parseUUIDHex("550e8400-e29b-41d4-a716-446655440000")
 		require.NoError(t, err)
-		assert.Equal(t, 16, len(uuid))
+		require.Len(t, uuid, 16)
 	})
 
 	t.Run("invalid UUID length", func(t *testing.T) {
@@ -52,7 +52,7 @@ func TestExtractUUID(t *testing.T) {
 	t.Run("valid docID", func(t *testing.T) {
 		uuid, err := extractUUID("bae-550e8400-e29b-41d4-a716-446655440000")
 		require.NoError(t, err)
-		assert.Equal(t, 16, len(uuid))
+		require.Len(t, uuid, 16)
 		assert.Equal(t, "bae", docIDPrefix)
 	})
 

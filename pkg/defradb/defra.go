@@ -25,6 +25,8 @@ import (
 	"github.com/sourcenetwork/immutable/enumerable"
 )
 
+// DefaultConfig is the baseline application config for running DefraDB with P2P enabled,
+// local store path, and defaults for bootstrap peers and retry behavior.
 var DefaultConfig *config.Config = &config.Config{
 	DefraDB: config.DefraDBConfig{
 		URL:           "http://localhost:9181",
@@ -50,7 +52,9 @@ var DefaultConfig *config.Config = &config.Config{
 var requiredPeers []string = []string{} // Here, we can add some "big peers" to give nodes a starting place when building their peer network
 const (
 	defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
-	NodeIdentityKeyName  string = "node-identity-key"
+
+	// NodeIdentityKeyName is the keyring entry name for the node's libp2p identity private key.
+	NodeIdentityKeyName string = "node-identity-key"
 
 	defaultP2PMaxRetries            = 5
 	defaultP2PRetryBaseDelayMs      = 1000
@@ -274,6 +278,10 @@ func CreateLibP2PKeyFromIdentity(nodeIdentity identity.Identity) (libp2pcrypto.P
 	return libp2pPrivKey, nil
 }
 
+// StartDefraInstance configures and starts a DefraDB node from cfg (identity,
+// store, HTTP URL, P2P), merges nodeOpts, assigns replicationFilter when
+// non-nil, applies schema via schemaApplier, registers collectionsOfInterest
+// for P2P, and returns the running node and its NetworkHandler.
 func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpts []options.Enumerable[options.NodeOptions], replicationFilter client.ReplicationFilter, collectionsOfInterest ...string) (*node.Node, *NetworkHandler, error) {
 	ctx := context.Background()
 
@@ -312,11 +320,11 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	}
 
 	// Replace loopback addresses in URL with real IP
-	defraUrl := cfg.DefraDB.URL
-	defraUrl = strings.Replace(defraUrl, "http://localhost", ipAddress, 1)
-	defraUrl = strings.Replace(defraUrl, "http://127.0.0.1", ipAddress, 1)
-	defraUrl = strings.Replace(defraUrl, "localhost", ipAddress, 1)
-	defraUrl = strings.Replace(defraUrl, "127.0.0.1", ipAddress, 1)
+	defraURL := cfg.DefraDB.URL
+	defraURL = strings.Replace(defraURL, "http://localhost", ipAddress, 1)
+	defraURL = strings.Replace(defraURL, "http://127.0.0.1", ipAddress, 1)
+	defraURL = strings.Replace(defraURL, "localhost", ipAddress, 1)
+	defraURL = strings.Replace(defraURL, "127.0.0.1", ipAddress, 1)
 
 	// Replace loopback addresses in listen address with real IP
 	listenAddress := cfg.DefraDB.P2P.ListenAddr
@@ -331,7 +339,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 		SetDisableP2P(false) // Enable P2P networking
 	nb.P2P().SetEnablePubSub(true)
 	nb.Store().SetPath(cfg.DefraDB.Store.Path)
-	nb.HTTP().SetAddress(defraUrl)
+	nb.HTTP().SetAddress(defraURL)
 	nb.DB().SetNodeIdentity(nodeIdentity)
 
 	// Apply badger memory configuration if specified
@@ -444,12 +452,12 @@ func StartDefraInstanceWithTestConfig(t *testing.T, cfg *config.Config, schemaAp
 		return nil, err
 	}
 	listenAddress := fmt.Sprintf("/ip4/%s/tcp/0", ipAddress)
-	defraUrl := fmt.Sprintf("%s:0", ipAddress)
+	defraURL := fmt.Sprintf("%s:0", ipAddress)
 	if cfg == nil {
 		cfg = DefaultConfig
 	}
 	cfg.DefraDB.Store.Path = t.TempDir()
-	cfg.DefraDB.URL = defraUrl
+	cfg.DefraDB.URL = defraURL
 	cfg.DefraDB.P2P.ListenAddr = listenAddress
 	cfg.DefraDB.KeyringSecret = "testSecret"
 	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, collectionsOfInterest...)
@@ -581,11 +589,11 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 
 	// Replace loopback addresses in URL with real IP
-	defraUrl := c.config.DefraDB.URL
-	defraUrl = strings.Replace(defraUrl, "http://localhost", ipAddress, 1)
-	defraUrl = strings.Replace(defraUrl, "http://127.0.0.1", ipAddress, 1)
-	defraUrl = strings.Replace(defraUrl, "localhost", ipAddress, 1)
-	defraUrl = strings.Replace(defraUrl, "127.0.0.1", ipAddress, 1)
+	defraURL := c.config.DefraDB.URL
+	defraURL = strings.Replace(defraURL, "http://localhost", ipAddress, 1)
+	defraURL = strings.Replace(defraURL, "http://127.0.0.1", ipAddress, 1)
+	defraURL = strings.Replace(defraURL, "localhost", ipAddress, 1)
+	defraURL = strings.Replace(defraURL, "127.0.0.1", ipAddress, 1)
 
 	// Replace loopback addresses in listen address with real IP
 	listenAddress := c.config.DefraDB.P2P.ListenAddr
@@ -600,7 +608,7 @@ func (c *Client) Start(ctx context.Context) error {
 		SetDisableP2P(false)
 	nb.P2P().SetEnablePubSub(true)
 	nb.Store().SetPath(c.config.DefraDB.Store.Path)
-	nb.HTTP().SetAddress(defraUrl)
+	nb.HTTP().SetAddress(defraURL)
 	nb.DB().SetNodeIdentity(nodeIdentity)
 
 	// Apply badger memory configuration if specified

@@ -198,7 +198,7 @@ func (q *IndexerQueue) DocCount() int {
 	defer q.mu.Unlock()
 	total := 0
 	for _, entry := range q.entries {
-		total += 1 // block doc itself
+		total ++ // block doc itself
 		total += len(entry.TransactionIDs) / uuidSize
 		total += len(entry.LogIDs) / uuidSize
 		total += len(entry.AccessListIDs) / uuidSize
@@ -228,7 +228,7 @@ func (q *IndexerQueue) DrainByDocCount(excess int, collections CollectionConfig)
 	docsAccumulated := 0
 	cutoff := 0
 	for i, entry := range q.entries {
-		docsAccumulated += 1 // block doc
+		docsAccumulated ++ // block doc
 		docsAccumulated += len(entry.TransactionIDs) / uuidSize
 		docsAccumulated += len(entry.LogIDs) / uuidSize
 		docsAccumulated += len(entry.AccessListIDs) / uuidSize

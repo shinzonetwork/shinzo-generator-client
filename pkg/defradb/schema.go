@@ -39,12 +39,12 @@ func (schema *SchemaApplierFromFile) ApplySchema(ctx context.Context, defraNode 
 
 	schemaPath, err := utils.FindFile(schema.DefaultPath)
 	if err != nil {
-		return fmt.Errorf("Failed to find schema file: %w", err)
+		return fmt.Errorf("failed to find schema file: %w", err)
 	}
 
 	schemaBytes, err := os.ReadFile(schemaPath)
 	if err != nil {
-		return fmt.Errorf("Failed to read schema file: %w", err)
+		return fmt.Errorf("failed to read schema file: %w", err)
 	}
 
 	_, err = defraNode.DB.AddSchema(ctx, string(schemaBytes))
@@ -65,6 +65,6 @@ func NewSchemaApplierFromProvidedSchema(schema string) *SchemaApplierFromProvide
 
 // ApplySchema applies the provided schema text to the given DefraDB node.
 func (schema *SchemaApplierFromProvidedSchema) ApplySchema(ctx context.Context, defraNode *node.Node) error {
-	_, err := defraNode.DB.AddSchema(ctx, string(schema.ProvidedSchema))
+	_, err := defraNode.DB.AddSchema(ctx, schema.ProvidedSchema)
 	return err
 }
