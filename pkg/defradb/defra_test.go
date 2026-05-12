@@ -299,7 +299,7 @@ func TestOpenKeyring_EmptyStorePath(t *testing.T) {
 func TestOpenKeyring_MkdirAllFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	conflictPath := filepath.Join(tmpDir, "notadir")
-	err := os.WriteFile(conflictPath, []byte("block"), 0o644)
+	err := os.WriteFile(conflictPath, []byte("block"), 0o600)
 	require.NoError(t, err)
 
 	cfg := &config.Config{

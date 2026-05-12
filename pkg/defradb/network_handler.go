@@ -33,7 +33,7 @@ type NetworkHandler struct {
 	reconnectStop   chan struct{}
 
 	// Context management
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // used for lifecycle management of background goroutines
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }

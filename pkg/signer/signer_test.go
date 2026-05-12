@@ -340,7 +340,7 @@ func TestLoadIdentityFromFile_NotFound(t *testing.T) {
 
 func TestLoadIdentityFromFile_InvalidHex(t *testing.T) {
 	tmpDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0o644)
+	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0o600)
 	require.NoError(t, err)
 	_, err = loadIdentityFromFile(tmpDir)
 	assert.Error(t, err)
@@ -349,7 +349,7 @@ func TestLoadIdentityFromFile_InvalidHex(t *testing.T) {
 
 func TestLoadIdentityFromFile_InvalidKeyData(t *testing.T) {
 	tmpDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0o644)
+	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0o600)
 	require.NoError(t, err)
 	_, err = loadIdentityFromFile(tmpDir)
 	assert.Error(t, err)
@@ -362,7 +362,7 @@ func TestLoadIdentityFromFile_ValidKeyFile(t *testing.T) {
 	keyBytes := ident.PrivateKey().Raw()
 
 	tmpDir := t.TempDir()
-	err = os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0o644)
+	err = os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0o600)
 	require.NoError(t, err)
 
 	loaded, err := loadIdentityFromFile(tmpDir)
@@ -391,9 +391,9 @@ func TestGetStorePath_EmptyConfigPath(t *testing.T) {
 }
 
 func TestGetStorePath_FindsKeyInCommonLocation(t *testing.T) {
-	err := os.MkdirAll(".defra", 0o755)
+	err := os.MkdirAll(".defra", 0o750)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0o644)
+	err = os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0o600)
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(".defra") }()
 

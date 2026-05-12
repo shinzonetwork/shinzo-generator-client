@@ -107,7 +107,7 @@ func OpenKeyring(cfg *config.Config) (keyring.Keyring, error) {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(keyringPath, 0o755); err != nil {
+	if err := os.MkdirAll(keyringPath, 0o750); err != nil { //nolint:mnd
 		return nil, fmt.Errorf("failed to create keyring directory: %w", err)
 	}
 
