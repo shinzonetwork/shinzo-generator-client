@@ -440,15 +440,17 @@ func TestStop_WithQueueSave(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	q := NewIndexerQueue()
-	q.LoadFromFile(tmpDir + "/queue.gob")
+	_, err := q.LoadFromFile(tmpDir + "/queue.gob")
+	require.NoError(t, err)
 
 	initDocIDPrefix()
-	q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	require.NoError(t, err)
 	p.SetQueue(q)
 
 	ctx := t.Context()
 
-	err := p.Start(ctx)
+	err = p.Start(ctx)
 	require.NoError(t, err)
 
 	// Stop should save the queue

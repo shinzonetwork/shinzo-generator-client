@@ -324,7 +324,7 @@ func TestConnectToPeers(t *testing.T) {
 		peerString, errors := PeersIntoBootstrap(peers)
 		require.Len(t, errors, 0)
 
-		connectToPeers(ctx, nil, peerString)
+		_ = connectToPeers(ctx, nil, peerString)
 	})
 
 	t.Run("empty peers list", func(t *testing.T) {
@@ -346,7 +346,7 @@ func TestConnectToPeers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to start test Defra node: %v", err)
 		}
-		defer testNode.Close(ctx)
+		defer func() { _ = testNode.Close(ctx) }()
 
 		// Create some valid peer info (these will fail to connect since they're not real peers, but should not panic)
 		peers := []client.PeerInfo{
@@ -378,7 +378,7 @@ func TestConnectToPeers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to start test Defra node: %v", err)
 		}
-		defer testNode.Close(ctx)
+		defer func() { _ = testNode.Close(ctx) }()
 
 		peers := []string{}
 
@@ -397,7 +397,7 @@ func TestConnectToPeers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to start first Defra node: %v", err)
 		}
-		defer node1.Close(ctx)
+		defer func() { _ = node1.Close(ctx) }()
 
 		// Start second Defra node with a different listen address
 		testConfig2 := DefaultConfig
@@ -406,7 +406,7 @@ func TestConnectToPeers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to start second Defra node: %v", err)
 		}
-		defer node2.Close(ctx)
+		defer func() { _ = node2.Close(ctx) }()
 
 		// Get the peer info from node1 to connect node2 to it
 		node1PeerInfo, err := node1.DB.PeerInfo(ctx)

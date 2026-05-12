@@ -13,8 +13,8 @@ func TestFindFile_ExactPath(t *testing.T) {
 	// Create a temp file in the current directory
 	tmpFile, err := os.CreateTemp(".", "testfile-*.txt")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_ = tmpFile.Close()
 
 	found, err := FindFile(tmpFile.Name())
 	require.NoError(t, err)
@@ -35,8 +35,8 @@ func TestFindFile_ParentDirectory(t *testing.T) {
 
 	tmpFile, err := os.CreateTemp(absParent, "testfile-parent-*.txt")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	_ = tmpFile.Close()
 
 	// FindFile should find it via the "../" prefix
 	baseName := filepath.Base(tmpFile.Name())

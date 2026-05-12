@@ -83,7 +83,7 @@ func cfgWithStorePath(path string) *config.Config {
 
 func TestSignWithDefraKeys(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	signature, err := SignWithDefraKeys("Hello, World!", defraNode, cfg)
 	require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestSignWithDefraKeys(t *testing.T) {
 
 func TestSignWithP2PKeys(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	signature, err := SignWithP2PKeys("Hello, World!", defraNode, cfg)
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestSignWithP2PKeys(t *testing.T) {
 
 func TestGetDefraPublicKey(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	publicKey, err := GetDefraPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestGetDefraPublicKey(t *testing.T) {
 
 func TestGetP2PPublicKey(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	publicKey, err := GetP2PPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestGetP2PPublicKey(t *testing.T) {
 
 func TestSignAndVerifyDefraSignature(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	message := "Test message for DefraDB signature"
 
@@ -144,7 +144,7 @@ func TestSignAndVerifyDefraSignature(t *testing.T) {
 
 func TestSignAndVerifyP2PSignature(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	message := "Test message for P2P signature"
 
@@ -169,7 +169,7 @@ func TestSignAndVerifyP2PSignature(t *testing.T) {
 
 func TestVerifyDefraSignature_InvalidInputs(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	publicKey, err := GetDefraPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -199,7 +199,7 @@ func TestVerifyDefraSignature_InvalidInputs(t *testing.T) {
 
 func TestVerifyP2PSignature_InvalidInputs(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	publicKey, err := GetP2PPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -229,7 +229,7 @@ func TestVerifyP2PSignature_InvalidInputs(t *testing.T) {
 
 func TestSignWithDefraKeys_Consistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	msg := "Consistent message"
 	sig1, err := SignWithDefraKeys(msg, defraNode, cfg)
@@ -241,7 +241,7 @@ func TestSignWithDefraKeys_Consistency(t *testing.T) {
 
 func TestSignWithP2PKeys_Consistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	msg := "Consistent message"
 	sig1, err := SignWithP2PKeys(msg, defraNode, cfg)
@@ -253,7 +253,7 @@ func TestSignWithP2PKeys_Consistency(t *testing.T) {
 
 func TestPublicKeyConsistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	pk1, _ := GetDefraPublicKey(defraNode, cfg)
 	pk2, _ := GetDefraPublicKey(defraNode, cfg)
@@ -266,7 +266,7 @@ func TestPublicKeyConsistency(t *testing.T) {
 
 func TestCrossKeyVerification(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	msg := "Test message"
 	defraSig, _ := SignWithDefraKeys(msg, defraNode, cfg)
@@ -284,7 +284,7 @@ func TestCrossKeyVerification(t *testing.T) {
 
 func TestSignWithDefraKeys_EmptyMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	sig, err := SignWithDefraKeys("", defraNode, cfg)
 	require.NoError(t, err)
@@ -294,7 +294,7 @@ func TestSignWithDefraKeys_EmptyMessage(t *testing.T) {
 
 func TestSignWithP2PKeys_EmptyMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	sig, err := SignWithP2PKeys("", defraNode, cfg)
 	require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestSignWithP2PKeys_EmptyMessage(t *testing.T) {
 
 func TestSignWithDefraKeys_LongMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	longMsg := make([]byte, 10000)
 	for i := range longMsg {
@@ -318,7 +318,7 @@ func TestSignWithDefraKeys_LongMessage(t *testing.T) {
 
 func TestSignWithP2PKeys_LongMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	defer func() { _ = defraNode.Close(context.Background()) }()
 
 	longMsg := make([]byte, 10000)
 	for i := range longMsg {
@@ -340,16 +340,18 @@ func TestLoadIdentityFromFile_NotFound(t *testing.T) {
 
 func TestLoadIdentityFromFile_InvalidHex(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0o644)
-	_, err := loadIdentityFromFile(tmpDir)
+	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0o644)
+	require.NoError(t, err)
+	_, err = loadIdentityFromFile(tmpDir)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to decode key hex")
 }
 
 func TestLoadIdentityFromFile_InvalidKeyData(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0o644)
-	_, err := loadIdentityFromFile(tmpDir)
+	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0o644)
+	require.NoError(t, err)
+	_, err = loadIdentityFromFile(tmpDir)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to reconstruct private key")
 }
@@ -360,7 +362,8 @@ func TestLoadIdentityFromFile_ValidKeyFile(t *testing.T) {
 	keyBytes := ident.PrivateKey().Raw()
 
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0o644)
+	err = os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0o644)
+	require.NoError(t, err)
 
 	loaded, err := loadIdentityFromFile(tmpDir)
 	assert.NoError(t, err)
@@ -388,9 +391,11 @@ func TestGetStorePath_EmptyConfigPath(t *testing.T) {
 }
 
 func TestGetStorePath_FindsKeyInCommonLocation(t *testing.T) {
-	os.MkdirAll(".defra", 0o755)
-	os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0o644)
-	defer os.RemoveAll(".defra")
+	err := os.MkdirAll(".defra", 0o755)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0o644)
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(".defra") }()
 
 	path, err := getStorePath(nil, nil)
 	assert.NoError(t, err)

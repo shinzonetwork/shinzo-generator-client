@@ -32,7 +32,7 @@ func TestStartDefra(t *testing.T) {
 	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 	myNode, _, err := StartDefraInstance(&testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
 	require.NoError(t, err)
-	myNode.Close(context.Background())
+	_ = myNode.Close(context.Background())
 }
 
 func TestStartDefraUsingConfig(t *testing.T) {
@@ -47,7 +47,7 @@ func TestStartDefraUsingConfig(t *testing.T) {
 
 	myNode, _, err := StartDefraInstance(testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
 	require.NoError(t, err)
-	myNode.Close(context.Background())
+	_ = myNode.Close(context.Background())
 }
 
 func TestSubsequentRestartsYieldTheSameIdentity(t *testing.T) {
@@ -154,7 +154,7 @@ func TestClientApplySchema(t *testing.T) {
 	// Start the client
 	err = client.Start(ctx)
 	require.NoError(t, err)
-	defer client.Stop(ctx)
+	defer func() { _ = client.Stop(ctx) }()
 
 	// Apply a simple schema
 	schema := `
@@ -202,7 +202,7 @@ func TestClientApplyEmptySchemaFails(t *testing.T) {
 	// Start the client
 	err = client.Start(ctx)
 	require.NoError(t, err)
-	defer client.Stop(ctx)
+	defer func() { _ = client.Stop(ctx) }()
 
 	// Try to apply empty schema - should fail
 	err = client.ApplySchema(ctx, "")
@@ -293,13 +293,14 @@ func TestOpenKeyring_EmptyStorePath(t *testing.T) {
 	kr, err := OpenKeyring(cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, kr)
-	os.RemoveAll("keys")
+	_ = os.RemoveAll("keys")
 }
 
 func TestOpenKeyring_MkdirAllFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	conflictPath := filepath.Join(tmpDir, "notadir")
-	os.WriteFile(conflictPath, []byte("block"), 0o644)
+	err := os.WriteFile(conflictPath, []byte("block"), 0o644)
+	require.NoError(t, err)
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{

@@ -419,7 +419,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 		if strings.Contains(err.Error(), "collection already exists") {
 			logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
 		} else {
-			defer defraNode.Close(ctx)
+			defer func() { _ = defraNode.Close(ctx) }()
 			return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
 		}
 	}

@@ -69,7 +69,7 @@ func (q *IndexerQueue) LoadFromFile(path string) (int, error) {
 		}
 		return 0, fmt.Errorf("failed to open queue file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var snap indexerQueueSnapshot
 	if err := gob.NewDecoder(f).Decode(&snap); err != nil {
@@ -106,7 +106,7 @@ func (q *IndexerQueue) Save() error {
 	q.mu.Unlock()
 
 	if len(snap.Entries) == 0 {
-		os.Remove(q.filePath)
+		_ = os.Remove(q.filePath)
 		return nil
 	}
 
@@ -117,18 +117,18 @@ func (q *IndexerQueue) Save() error {
 	}
 
 	if err := gob.NewEncoder(f).Encode(snap); err != nil {
-		f.Close()
-		os.Remove(tmpPath)
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to encode queue: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, q.filePath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 

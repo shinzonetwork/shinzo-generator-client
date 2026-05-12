@@ -263,7 +263,7 @@ logger:
 		// the SIGTERM time to win the select race in run().
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
-		defer ln.Close()
+		defer func() { _ = ln.Close() }()
 		go func() {
 			for {
 				conn, err := ln.Accept()

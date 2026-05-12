@@ -14,7 +14,7 @@ func GetLANIP() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error retrieving ip address: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 
