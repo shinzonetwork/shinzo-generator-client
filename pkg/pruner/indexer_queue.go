@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -61,7 +62,7 @@ func NewIndexerQueue() *IndexerQueue {
 func (q *IndexerQueue) LoadFromFile(path string) (int, error) {
 	q.filePath = path
 
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
@@ -110,7 +111,7 @@ func (q *IndexerQueue) Save() error {
 	}
 
 	tmpPath := q.filePath + ".tmp"
-	f, err := os.Create(tmpPath)
+	f, err := os.Create(filepath.Clean(tmpPath)) //nolint:gosec
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}

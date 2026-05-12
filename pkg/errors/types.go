@@ -20,6 +20,9 @@ const (
 
 	// Unknown severity level for undefined cases.
 	Unknown = "UNKNOWN"
+
+	severityErrorStr     = "ERROR"
+	retryableBehaviorStr = "RETRYABLE"
 )
 
 func (s Severity) String() string {
@@ -29,7 +32,7 @@ func (s Severity) String() string {
 	case Warning:
 		return "WARNING"
 	case Error:
-		return "ERROR"
+		return severityErrorStr
 	case Critical:
 		return "CRITICAL"
 	default:
@@ -54,7 +57,7 @@ func (r RetryBehavior) String() string {
 	case NonRetryable:
 		return "NON_RETRYABLE"
 	case Retryable:
-		return "RETRYABLE"
+		return retryableBehaviorStr
 	case RetryableWithBackoff:
 		return "RETRYABLE_WITH_BACKOFF"
 	default:

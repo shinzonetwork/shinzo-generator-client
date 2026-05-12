@@ -437,10 +437,11 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 			}
 		}
 	default:
-		return nil, nil
+		// Unknown format or nil data
+		return nil, nil //nolint:nilerr
 	}
 
-	return docIDs, nil
+	return docIDs, nil //nolint:nilerr
 }
 
 // purgeByDocIDs deletes documents by their docIDs.

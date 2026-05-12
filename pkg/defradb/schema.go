@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
@@ -42,7 +43,7 @@ func (schema *SchemaApplierFromFile) ApplySchema(ctx context.Context, defraNode 
 		return fmt.Errorf("failed to find schema file: %w", err)
 	}
 
-	schemaBytes, err := os.ReadFile(schemaPath)
+	schemaBytes, err := os.ReadFile(filepath.Clean(schemaPath))
 	if err != nil {
 		return fmt.Errorf("failed to read schema file: %w", err)
 	}

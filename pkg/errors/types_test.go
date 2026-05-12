@@ -13,9 +13,9 @@ func TestSeverity_String(t *testing.T) {
 	}{
 		{Info, "INFO"},
 		{Warning, "WARNING"},
-		{Error, "ERROR"},
+		{Error, severityErrorStr},
 		{Critical, "CRITICAL"},
-		{Severity(99), "UNKNOWN"},
+		{Severity(99), Unknown},
 	}
 
 	for _, tt := range tests {
@@ -34,9 +34,9 @@ func TestRetryBehavior_String(t *testing.T) {
 		expected string
 	}{
 		{NonRetryable, "NON_RETRYABLE"},
-		{Retryable, "RETRYABLE"},
+		{Retryable, retryableBehaviorStr},
 		{RetryableWithBackoff, "RETRYABLE_WITH_BACKOFF"},
-		{RetryBehavior(99), "UNKNOWN"},
+		{RetryBehavior(99), Unknown},
 	}
 
 	for _, tt := range tests {

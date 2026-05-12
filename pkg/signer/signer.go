@@ -30,7 +30,7 @@ func loadIdentityFromFile(storePath string) (identity.FullIdentity, error) {
 	keyPath := filepath.Join(storePath, keyFileName)
 
 	// Read the stored key file
-	keyHex, err := os.ReadFile(keyPath)
+	keyHex, err := os.ReadFile(filepath.Clean(keyPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read key file at %s: %w", keyPath, err)
 	}
@@ -94,7 +94,7 @@ func getStorePath(_ *node.Node, cfg *config.Config) (string, error) {
 
 	// Try each path to see if it contains the key file
 	for _, path := range possiblePaths {
-		keyPath := filepath.Join(path, keyFileName)
+		keyPath := filepath.Clean(filepath.Join(path, keyFileName))
 		if _, err := os.Stat(keyPath); err == nil {
 			return path, nil
 		}
@@ -167,11 +167,12 @@ func SignWithP2PKeys(message string, defraNode *node.Node, cfg *config.Config) (
 	// Ed25519.NewKeyFromSeed expects exactly 32 bytes (the seed)
 	// If we got 64 bytes, take only the first 32 bytes (the seed portion)
 	var ed25519Seed []byte
-	if len(rawKeyBytes) == ed25519.PrivateKeySize {
+	switch len(rawKeyBytes) {
+	case ed25519.PrivateKeySize:
 		ed25519Seed = rawKeyBytes[:ed25519.SeedSize]
-	} else if len(rawKeyBytes) == ed25519.SeedSize {
+	case ed25519.SeedSize:
 		ed25519Seed = rawKeyBytes
-	} else {
+	default:
 		return "", fmt.Errorf("unexpected Ed25519 key length: expected 32 or 64 bytes, got %d", len(rawKeyBytes))
 	}
 

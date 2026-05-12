@@ -325,13 +325,13 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 }
 
-func TestRunPrune_NilQueue(t *testing.T) {
+func TestRunPrune_NilQueue(_ *testing.T) {
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
 	_ = NewPruner(cfg, nil)
 	// runPrune with nil queue calls filterBasedPrune which needs a node
 }
 
-func TestRunPrune_WithIndexerQueue(t *testing.T) {
+func TestRunPrune_WithIndexerQueue(_ *testing.T) {
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
 	p := NewPruner(cfg, nil)
 	q := NewIndexerQueue()
@@ -339,7 +339,7 @@ func TestRunPrune_WithIndexerQueue(t *testing.T) {
 	_ = p // dispatch tested via runPrune type switch
 }
 
-func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
+func TestRunIndexerQueuePrune_BelowThreshold(_ *testing.T) {
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
 	_ = NewPruner(cfg, nil)
 	// Queue has 0 entries, below maxBlocks=100
@@ -858,7 +858,7 @@ func TestStartStop_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
-func TestGetMetrics_Concurrent(t *testing.T) {
+func TestGetMetrics_Concurrent(_ *testing.T) {
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
 	p := NewPruner(cfg, nil)
 
