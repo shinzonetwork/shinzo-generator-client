@@ -789,7 +789,7 @@ func TestRunIndexerQueuePrune_BelowThreshold_WithNode(t *testing.T) {
 }
 
 func TestRunPrune_DefaultQueueType(t *testing.T) {
-	// Test the default case in runPrune switch by using a custom PrunerQueue implementation
+	// Test the default case in runPrune switch by using a custom Queue implementation
 	n := startTestNode(t)
 	cols := testCollections()
 	cfg := &Config{Enabled: true, MaxBlocks: 1000}
@@ -803,7 +803,7 @@ func TestRunPrune_DefaultQueueType(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// mockQueue implements PrunerQueue but is neither IndexerQueue nor EventQueue.
+// mockQueue implements Queue but is neither IndexerQueue nor EventQueue.
 type mockQueue struct{}
 
 func (m *mockQueue) Len() int    { return 0 }

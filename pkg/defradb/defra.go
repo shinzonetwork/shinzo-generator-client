@@ -49,7 +49,7 @@ var DefaultConfig *config.Config = &config.Config{
 	},
 }
 
-var requiredPeers []string = []string{} // Here, we can add some "big peers" to give nodes a starting place when building their peer network
+var requiredPeers = []string{} // Here, we can add some "big peers" to give nodes a starting place when building their peer network
 const (
 	defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 

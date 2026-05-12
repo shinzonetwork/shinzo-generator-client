@@ -21,7 +21,7 @@ type SchemaApplier interface {
 type MockSchemaApplierThatSucceeds struct{}
 
 // ApplySchema implements SchemaApplier and intentionally performs no-op success.
-func (schema *MockSchemaApplierThatSucceeds) ApplySchema(ctx context.Context, defraNode *node.Node) error {
+func (schema *MockSchemaApplierThatSucceeds) ApplySchema(_ context.Context, _ *node.Node) error {
 	return nil
 }
 

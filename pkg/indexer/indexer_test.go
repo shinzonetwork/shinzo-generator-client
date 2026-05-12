@@ -3738,7 +3738,7 @@ func TestPruneQueueFilePath(t *testing.T) {
 // StartIndexing — resume from pruner queue (covers lines 219-221, 243-252).
 // ---------------------------------------------------------------------------.
 
-func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
+func TestStartIndexing_ResumeFromQueue(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

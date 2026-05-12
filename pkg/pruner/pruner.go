@@ -20,7 +20,7 @@ type Pruner struct {
 	cfg         *Config
 	collections CollectionConfig
 	defraNode   *node.Node
-	queue       PrunerQueue // IndexerQueue or EventQueue
+	queue       Queue // IndexerQueue or EventQueue
 	stopChan    chan struct{}
 	wg          sync.WaitGroup
 	mu          sync.RWMutex
@@ -56,7 +56,7 @@ func NewPruner(cfg *Config, defraNode *node.Node, collections ...CollectionConfi
 }
 
 // SetQueue sets the queue implementation for queue-based pruning.
-func (p *Pruner) SetQueue(queue PrunerQueue) {
+func (p *Pruner) SetQueue(queue Queue) {
 	p.queue = queue
 }
 

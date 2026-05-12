@@ -81,21 +81,21 @@ func (m *MockFullIdentity) IntoRawIdentity() identity.RawIdentity {
 
 // NewToken returns no token and no error for testing flows.
 func (m *MockFullIdentity) NewToken(
-	duration time.Duration,
-	audience immutable.Option[string],
-	authorizedAccount immutable.Option[string],
+	_ time.Duration,
+	_ immutable.Option[string],
+	_ immutable.Option[string],
 ) ([]byte, error) {
 	return nil, nil
 }
 
 // SetBearerToken is a no-op for the mock full identity.
-func (m *MockFullIdentity) SetBearerToken(token string) {}
+func (m *MockFullIdentity) SetBearerToken(_ string) {}
 
 // UpdateToken is a no-op update that returns nil in tests.
 func (m *MockFullIdentity) UpdateToken(
-	duration time.Duration,
-	audience immutable.Option[string],
-	authorizedAccount immutable.Option[string],
+	_ time.Duration,
+	_ immutable.Option[string],
+	_ immutable.Option[string],
 ) error {
 	return nil
 }
@@ -139,7 +139,7 @@ func (m *MockPrivateKey) Underlying() any { return nil }
 func (m *MockPrivateKey) GetPublic() crypto.PublicKey { return m.PubKey }
 
 // Sign returns injected signature data or an error for testing.
-func (m *MockPrivateKey) Sign(data []byte) ([]byte, error) {
+func (m *MockPrivateKey) Sign(_ []byte) ([]byte, error) {
 	if m.SignErr != nil {
 		return nil, m.SignErr
 	}

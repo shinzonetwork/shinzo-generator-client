@@ -22,7 +22,7 @@ func TestGetLANIP_DialError(t *testing.T) {
 	original := dialFunc
 	defer func() { dialFunc = original }()
 
-	dialFunc = func(network, address string) (net.Conn, error) {
+	dialFunc = func(_, _ string) (net.Conn, error) {
 		return nil, errors.New("no network")
 	}
 
