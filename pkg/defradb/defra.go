@@ -63,6 +63,7 @@ const (
 	log2BytesPerMebibyte            = 20
 	defaultBadgerValueLogFileSizeMB = 64
 	subscriptionResultChanCapacity  = 100_000
+	testKeyringSecret               = "testSecret"
 )
 
 // Key Management Implementation Notes:
@@ -445,7 +446,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	return defraNode, networkHandler, nil
 }
 
-// A simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test.
+// StartDefraInstanceWithTestConfig is a simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test.
 func StartDefraInstanceWithTestConfig(t *testing.T, cfg *config.Config, schemaApplier SchemaApplier, collectionsOfInterest ...string) (*node.Node, error) {
 	ipAddress, err := utils.GetLANIP()
 	if err != nil {
@@ -459,7 +460,7 @@ func StartDefraInstanceWithTestConfig(t *testing.T, cfg *config.Config, schemaAp
 	cfg.DefraDB.Store.Path = t.TempDir()
 	cfg.DefraDB.URL = defraURL
 	cfg.DefraDB.P2P.ListenAddr = listenAddress
-	cfg.DefraDB.KeyringSecret = "testSecret"
+	cfg.DefraDB.KeyringSecret = testKeyringSecret
 	node, _, err := StartDefraInstance(cfg, schemaApplier, nil, nil, collectionsOfInterest...)
 	return node, err
 }

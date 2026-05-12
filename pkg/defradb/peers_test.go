@@ -10,6 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testPeer1Addr = "127.0.0.1:4001"
+	testPeer1ID   = "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"
+	testPeer1Full = testPeer1Addr + "/p2p/" + testPeer1ID
+	testPeer2Addr = "192.168.1.100:4002"
+	testPeer2ID   = "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m"
+	testPeer2Full = testPeer2Addr + "/p2p/" + testPeer2ID
+)
+
 func TestBootstrapIntoPeers(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -19,26 +28,26 @@ func TestBootstrapIntoPeers(t *testing.T) {
 	}{
 		{
 			name:  "valid single peer",
-			input: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"},
+			input: []string{testPeer1Full},
 			expectedPeers: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 			},
 			expectedErrors: 0,
 		},
 		{
 			name:  "valid multiple peers",
-			input: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8", "192.168.1.100:4002/p2p/12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m"},
+			input: []string{testPeer1Full, testPeer2Full},
 			expectedPeers: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 				{
-					Addresses: []string{"192.168.1.100:4002"},
-					ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+					Addresses: []string{testPeer2Addr},
+					ID:        testPeer2ID,
 				},
 			},
 			expectedErrors: 0,
@@ -63,15 +72,15 @@ func TestBootstrapIntoPeers(t *testing.T) {
 		},
 		{
 			name:  "mixed valid and invalid peers",
-			input: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8", "invalid", "192.168.1.100:4002/p2p/12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m"},
+			input: []string{testPeer1Full, "invalid", testPeer2Full},
 			expectedPeers: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 				{
-					Addresses: []string{"192.168.1.100:4002"},
-					ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+					Addresses: []string{testPeer2Addr},
+					ID:        testPeer2ID,
 				},
 			},
 			expectedErrors: 1,
@@ -131,28 +140,28 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			name: "valid single peer",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 			},
-			expectedBootstrap: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"},
+			expectedBootstrap: []string{testPeer1Full},
 			expectedErrors:    0,
 		},
 		{
 			name: "valid multiple peers",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 				{
-					Addresses: []string{"192.168.1.100:4002"},
-					ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+					Addresses: []string{testPeer2Addr},
+					ID:        testPeer2ID,
 				},
 			},
 			expectedBootstrap: []string{
-				"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
-				"192.168.1.100:4002/p2p/12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+				testPeer1Full,
+				testPeer2Full,
 			},
 			expectedErrors: 0,
 		},
@@ -160,7 +169,7 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			name: "peer with empty ID",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
+					Addresses: []string{testPeer1Addr},
 					ID:        "",
 				},
 			},
@@ -173,7 +182,7 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			input: []client.PeerInfo{
 				{
 					Addresses: []string{},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					ID:        testPeer1ID,
 				},
 			},
 			expectedBootstrap:    []string{},
@@ -184,11 +193,11 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			name: "peer with multiple addresses - uses first",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001", "192.168.1.100:4002", "10.0.0.1:4003"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr, testPeer2Addr, "10.0.0.1:4003"},
+					ID:        testPeer1ID,
 				},
 			},
-			expectedBootstrap: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"},
+			expectedBootstrap: []string{testPeer1Full},
 			expectedErrors:    0,
 		},
 		{
@@ -201,19 +210,19 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			name: "mixed valid and invalid peers",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 				{
-					Addresses: []string{"192.168.1.100:4002"},
+					Addresses: []string{testPeer2Addr},
 					ID:        "",
 				},
 				{
 					Addresses: []string{},
-					ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+					ID:        testPeer2ID,
 				},
 			},
-			expectedBootstrap:    []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"},
+			expectedBootstrap:    []string{testPeer1Full},
 			expectedErrors:       2,
 			expectedErrorIndices: []int{1, 2},
 		},
@@ -263,8 +272,8 @@ func TestPeersIntoBootstrap(t *testing.T) {
 func TestBootstrapIntoPeersAndBack(t *testing.T) {
 	// Test round-trip conversion
 	originalBootstrap := []string{
-		"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
-		"192.168.1.100:4002/p2p/12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+		testPeer1Full,
+		testPeer2Full,
 	}
 
 	// Convert bootstrap strings to peers
@@ -300,8 +309,8 @@ func TestConnectToPeers(t *testing.T) {
 		ctx := context.Background()
 		peers := []client.PeerInfo{
 			{
-				Addresses: []string{"127.0.0.1:4001"},
-				ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+				Addresses: []string{testPeer1Addr},
+				ID:        testPeer1ID,
 			},
 		}
 
@@ -342,12 +351,12 @@ func TestConnectToPeers(t *testing.T) {
 		// Create some valid peer info (these will fail to connect since they're not real peers, but should not panic)
 		peers := []client.PeerInfo{
 			{
-				Addresses: []string{"127.0.0.1:4001"},
-				ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+				Addresses: []string{testPeer1Addr},
+				ID:        testPeer1ID,
 			},
 			{
-				Addresses: []string{"192.168.1.100:4002"},
-				ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+				Addresses: []string{testPeer2Addr},
+				ID:        testPeer2ID,
 			},
 		}
 		peerStrings, errors := PeersIntoBootstrap(peers)

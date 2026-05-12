@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 )
+
 // FindFile is used to find file from provide path in project root or bin/ and pkg/ directory paths.
 func FindFile(expectedPath string) (string, error) {
 	possiblePaths := []string{

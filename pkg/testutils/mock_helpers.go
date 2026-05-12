@@ -59,16 +59,21 @@ type MockFullIdentity struct {
 
 // PublicKey returns the configured mock public key.
 func (m *MockFullIdentity) PublicKey() crypto.PublicKey { return m.PubKey }
+
 // DID returns a fixed mock DID string.
-func (m *MockFullIdentity) DID() string                 { return "did:key:mock" }
+func (m *MockFullIdentity) DID() string { return "did:key:mock" }
+
 // ToPublicRawIdentity returns an empty mock public raw identity.
 func (m *MockFullIdentity) ToPublicRawIdentity() identity.PublicRawIdentity {
 	return identity.PublicRawIdentity{}
 }
+
 // BearerToken returns an empty token for mock identity usage.
-func (m *MockFullIdentity) BearerToken() string           { return "" }
+func (m *MockFullIdentity) BearerToken() string { return "" }
+
 // PrivateKey returns the configured mock private key.
 func (m *MockFullIdentity) PrivateKey() crypto.PrivateKey { return m.PrivKey }
+
 // IntoRawIdentity returns an empty mock raw identity.
 func (m *MockFullIdentity) IntoRawIdentity() identity.RawIdentity {
 	return identity.RawIdentity{}
@@ -82,8 +87,10 @@ func (m *MockFullIdentity) NewToken(
 ) ([]byte, error) {
 	return nil, nil
 }
+
 // SetBearerToken is a no-op for the mock full identity.
 func (m *MockFullIdentity) SetBearerToken(token string) {}
+
 // UpdateToken is a no-op update that returns nil in tests.
 func (m *MockFullIdentity) UpdateToken(
 	duration time.Duration,
@@ -98,8 +105,10 @@ type MockIdentityNotFull struct{}
 
 // PublicKey returns nil to represent missing full identity behavior.
 func (m *MockIdentityNotFull) PublicKey() crypto.PublicKey { return nil }
+
 // DID returns a fixed mock DID string.
-func (m *MockIdentityNotFull) DID() string                 { return "did:key:mock" }
+func (m *MockIdentityNotFull) DID() string { return "did:key:mock" }
+
 // ToPublicRawIdentity returns an empty mock public raw identity.
 func (m *MockIdentityNotFull) ToPublicRawIdentity() identity.PublicRawIdentity {
 	return identity.PublicRawIdentity{}
@@ -114,13 +123,22 @@ type MockPrivateKey struct {
 }
 
 // Equal reports false for all key comparisons in this mock.
-func (m *MockPrivateKey) Equal(crypto.Key) bool       { return false }
+func (m *MockPrivateKey) Equal(crypto.Key) bool { return false }
+
 // Raw returns configured raw private key bytes.
-func (m *MockPrivateKey) Raw() []byte                 { return m.RawBytes }
-func (m *MockPrivateKey) String() string              { return "mock-private-key" }
-func (m *MockPrivateKey) Type() crypto.KeyType        { return crypto.KeyTypeSecp256k1 }
-func (m *MockPrivateKey) Underlying() any             { return nil }
+func (m *MockPrivateKey) Raw() []byte    { return m.RawBytes }
+func (m *MockPrivateKey) String() string { return "mock-private-key" }
+
+// Type returns a fixed mock key type (Secp256k1).
+func (m *MockPrivateKey) Type() crypto.KeyType { return crypto.KeyTypeSecp256k1 }
+
+// Underlying returns nil for the mock private key.
+func (m *MockPrivateKey) Underlying() any { return nil }
+
+// GetPublic returns the configured mock public key.
 func (m *MockPrivateKey) GetPublic() crypto.PublicKey { return m.PubKey }
+
+// Sign returns injected signature data or an error for testing.
 func (m *MockPrivateKey) Sign(data []byte) ([]byte, error) {
 	if m.SignErr != nil {
 		return nil, m.SignErr

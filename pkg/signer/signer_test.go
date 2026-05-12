@@ -31,7 +31,6 @@ func (m *mockPublicKey) Underlying() any                     { return nil }
 func (m *mockPublicKey) Verify([]byte, []byte) (bool, error) { return false, nil }
 func (m *mockPublicKey) DID() (string, error)                { return "", nil }
 
-
 // swapLoadIdentity replaces the identity loader and restores it on cleanup.
 func swapLoadIdentity(t *testing.T, fn func(*config.Config, string) (identity.FullIdentity, error)) {
 	t.Helper()

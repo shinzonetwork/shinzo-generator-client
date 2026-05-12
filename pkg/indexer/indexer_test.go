@@ -49,6 +49,11 @@ const (
 	ethChainID = "eth_chainId"
 	// ethGetTransactionReceipt is used in tests to identify the transaction receipt RPC call.
 	ethGetTransactionReceipt = "eth_getTransactionReceipt"
+
+	testDefraURL         = "http://localhost:9181"
+	testMinerAddr        = "0x1111111111111111111111111111111111111111"
+	testSha3Uncles       = "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+	testTransactionsRoot = "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 )
 
 // TestIndexing_StartDefraFirst is now replaced by mock-based integration tests.
@@ -101,7 +106,7 @@ func TestCreateIndexerWithNilConfig(t *testing.T) {
 func TestIndexerStateManagement(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: testDefraURL},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -123,7 +128,7 @@ func TestIndexerStateManagement(t *testing.T) {
 func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: testDefraURL},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -139,7 +144,7 @@ func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
 func TestStopIndexing(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: testDefraURL},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -191,19 +196,20 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 		Hash:             "0x1234567890abcdef",
 		ParentHash:       "0xabcdef1234567890",
 		Timestamp:        "1640995200",
-		Miner:            "0x1111111111111111111111111111111111111111",
+		Miner:            testMinerAddr,
 		GasLimit:         "8000000",
 		GasUsed:          "21000",
 		Difficulty:       "1000000",
 		TotalDifficulty:  "5000000",
 		Nonce:            "0x1234567890abcdef",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		Sha3Uncles:       testSha3Uncles,
 		LogsBloom:        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+		TransactionsRoot: testTransactionsRoot,
 		StateRoot:        "0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544",
-		ReceiptsRoot:     "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		Size:             "1000",
-		ExtraData:        "0x",
+		ReceiptsRoot:     testTransactionsRoot,
+
+		Size:      "1000",
+		ExtraData: "0x",
 		Transactions: []types.Transaction{
 			{
 				Hash:             "0xabc123",
@@ -226,7 +232,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL: "http://localhost:9181",
+			URL: testDefraURL,
 		},
 	}
 	indexer, err := CreateIndexer(cfg)
@@ -284,7 +290,7 @@ func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
 		Hash:         "0x1234567890abcdef",
 		ParentHash:   "0xabcdef1234567890",
 		Timestamp:    "1640995200",
-		Miner:        "0x1111111111111111111111111111111111111111",
+		Miner:        testMinerAddr,
 		GasLimit:     "8000000",
 		GasUsed:      "0",
 		Transactions: []types.Transaction{}, // Empty transactions.
@@ -396,7 +402,7 @@ func TestBlockProcessingLogic(t *testing.T) {
 		Hash:       "0xtest123",
 		ParentHash: "0xparent123",
 		Timestamp:  "1640995200",
-		Miner:      "0x1111111111111111111111111111111111111111",
+		Miner:      testMinerAddr,
 		GasLimit:   "8000000",
 		GasUsed:    "21000",
 		Transactions: []types.Transaction{
@@ -452,7 +458,7 @@ func TestIndexerLifecycle(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL: "http://localhost:9181",
+			URL: testDefraURL,
 			Store: config.DefraDBStoreConfig{
 				Path: "/tmp/test_indexer",
 			},
@@ -979,13 +985,13 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 }
 
 func fullBlockResponse(number string, txs []any) map[string]any {
-	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+	emptyTrieRoot := testTransactionsRoot
 	block := map[string]any{
 		"number":           number,
 		"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
 		"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"nonce":            "0x0000000000000000",
-		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		"sha3Uncles":       testSha3Uncles,
 		"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
 		"transactionsRoot": emptyTrieRoot,
 		"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -1035,7 +1041,7 @@ func fullBlockResponseWithTx(number string) map[string]any {
 		"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
 		"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"nonce":            "0x0000000000000000",
-		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		"sha3Uncles":       testSha3Uncles,
 		"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
 		"transactionsRoot": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", // non-empty → indicates txns present.
 		"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -1490,8 +1496,9 @@ func TestStartIndexing_ExternalDefraDB_WaitFails(t *testing.T) {
 	// Point to a non-listening address so WaitForDefraDB fails.
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL: "http://127.0.0.1:1",
+			URL: testDefraURL,
 		},
+
 		Logger: config.LoggerConfig{Development: true},
 	}
 

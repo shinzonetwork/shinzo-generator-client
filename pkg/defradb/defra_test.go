@@ -16,15 +16,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testURL              = "127.0.0.1:0"
+	testKeyringSecretAlt = "test-secret"
+)
+
 // --- MOCKS ---
 
 // --- TESTS ---.
 func TestStartDefra(t *testing.T) {
 	// Create a copy of DefaultConfig to avoid modifying the shared instance
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.URL = "127.0.0.1:0"
+	testConfig.DefraDB.URL = testURL
 	testConfig.DefraDB.Store.Path = t.TempDir() // Use isolated temp directory for each test
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 	myNode, _, err := StartDefraInstance(&testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
 	require.NoError(t, err)
 	myNode.Close(context.Background())
@@ -38,7 +43,7 @@ func TestStartDefraUsingConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	testConfig.DefraDB.Store.Path = t.TempDir() // Use isolated temp directory for each test
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	myNode, _, err := StartDefraInstance(testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
 	require.NoError(t, err)
@@ -47,7 +52,7 @@ func TestStartDefraUsingConfig(t *testing.T) {
 
 func TestSubsequentRestartsYieldTheSameIdentity(t *testing.T) {
 	testConfig := DefaultConfig
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 	myNode, _, err := StartDefraInstance(testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
 	require.NoError(t, err)
 
@@ -77,7 +82,7 @@ func TestSubsequentRestartsYieldTheSameIdentity(t *testing.T) {
 
 func TestNewClient(t *testing.T) {
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	client, err := NewClient(&testConfig)
 	require.NoError(t, err)
@@ -88,9 +93,9 @@ func TestNewClient(t *testing.T) {
 
 func TestClientStartAndStop(t *testing.T) {
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.URL = "127.0.0.1:0"
+	testConfig.DefraDB.URL = testURL
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	client, err := NewClient(&testConfig)
 	require.NoError(t, err)
@@ -112,9 +117,9 @@ func TestClientStartAndStop(t *testing.T) {
 
 func TestClientStartTwiceFails(t *testing.T) {
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.URL = "127.0.0.1:0"
+	testConfig.DefraDB.URL = testURL
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	client, err := NewClient(&testConfig)
 	require.NoError(t, err)
@@ -137,9 +142,9 @@ func TestClientStartTwiceFails(t *testing.T) {
 
 func TestClientApplySchema(t *testing.T) {
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.URL = "127.0.0.1:0"
+	testConfig.DefraDB.URL = testURL
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	client, err := NewClient(&testConfig)
 	require.NoError(t, err)
@@ -169,7 +174,7 @@ func TestClientApplySchema(t *testing.T) {
 
 func TestClientApplySchemaBeforeStartFails(t *testing.T) {
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	client, err := NewClient(&testConfig)
 	require.NoError(t, err)
@@ -185,9 +190,9 @@ func TestClientApplySchemaBeforeStartFails(t *testing.T) {
 
 func TestClientApplyEmptySchemaFails(t *testing.T) {
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.URL = "127.0.0.1:0"
+	testConfig.DefraDB.URL = testURL
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	client, err := NewClient(&testConfig)
 	require.NoError(t, err)
@@ -214,7 +219,7 @@ func TestClientNilConfigFails(t *testing.T) {
 
 func TestClientStopBeforeStartSucceeds(t *testing.T) {
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	client, err := NewClient(&testConfig)
 	require.NoError(t, err)
@@ -229,9 +234,9 @@ func TestClientStopBeforeStartSucceeds(t *testing.T) {
 
 func TestClientIntegration(t *testing.T) {
 	testConfig := *DefaultConfig
-	testConfig.DefraDB.URL = "127.0.0.1:0"
+	testConfig.DefraDB.URL = testURL
 	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = "testSecret"
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
 
 	client, err := NewClient(&testConfig)
 	require.NoError(t, err)
@@ -269,7 +274,7 @@ func TestClientIntegration(t *testing.T) {
 func TestOpenKeyring_WithStorePath(t *testing.T) {
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret",
+			KeyringSecret: testKeyringSecretAlt,
 			Store:         config.DefraDBStoreConfig{Path: t.TempDir()},
 		},
 	}
@@ -281,7 +286,7 @@ func TestOpenKeyring_WithStorePath(t *testing.T) {
 func TestOpenKeyring_EmptyStorePath(t *testing.T) {
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret",
+			KeyringSecret: testKeyringSecretAlt,
 			Store:         config.DefraDBStoreConfig{Path: ""},
 		},
 	}
@@ -298,7 +303,7 @@ func TestOpenKeyring_MkdirAllFails(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret",
+			KeyringSecret: testKeyringSecretAlt,
 			Store:         config.DefraDBStoreConfig{Path: conflictPath},
 		},
 	}
