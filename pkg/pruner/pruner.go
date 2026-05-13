@@ -307,17 +307,17 @@ func (p *Pruner) runStorageGC() {
 func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 	highest, err := p.getHighestBlockNumber(ctx)
 	if err != nil || highest == 0 {
-		return nil
+		return nil //nolint:nilerr
 	}
 
 	lowest, err := p.getLowestBlockNumber(ctx)
 	if err != nil || lowest == 0 {
-		return nil
+		return nil //nolint:nilerr
 	}
 
 	dbBlockCount := highest - lowest + 1
 	if dbBlockCount <= p.cfg.MaxBlocks {
-		return nil
+		return nil //nolint:nilerr
 	}
 
 	excess := dbBlockCount - p.cfg.MaxBlocks
