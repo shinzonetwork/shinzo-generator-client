@@ -19,14 +19,9 @@ func TestGetLANIP(t *testing.T) {
 }
 
 func TestGetLANIP_DialError(t *testing.T) {
-	original := dialFunc
-	defer func() { dialFunc = original }()
-
-	dialFunc = func(_, _ string) (net.Conn, error) {
+	ip, err := getLANIPWithDialer(func(_, _ string) (net.Conn, error) {
 		return nil, errors.New("no network")
-	}
-
-	ip, err := GetLANIP()
+	})
 	assert.Error(t, err)
 	assert.Empty(t, ip)
 	assert.Contains(t, err.Error(), "error retrieving ip address")

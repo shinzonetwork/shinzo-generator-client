@@ -31,14 +31,6 @@ func (m *mockPublicKey) Underlying() any                     { return nil }
 func (m *mockPublicKey) Verify([]byte, []byte) (bool, error) { return false, nil }
 func (m *mockPublicKey) DID() (string, error)                { return "", nil }
 
-// swapLoadIdentity replaces the identity loader and restores it on cleanup.
-func swapLoadIdentity(t *testing.T, fn func(*config.Config, string) (identity.FullIdentity, error)) {
-	t.Helper()
-	orig := loadIdentityFromStoreFn
-	loadIdentityFromStoreFn = fn
-	t.Cleanup(func() { loadIdentityFromStoreFn = orig })
-}
-
 // setupTestNode creates a DefraDB node with keyring for testing.
 func setupTestNode(t *testing.T) (*node.Node, *config.Config) {
 	testConfig := &config.Config{
@@ -438,33 +430,36 @@ func TestGetP2PPublicKey_NoStorePath(t *testing.T) {
 // ─── SignWithDefraKeys error paths via mocked loader ────────────────────────
 
 func TestSignWithDefraKeys_LoadIdentityFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected load error")
-	})
-	_, err := SignWithDefraKeys("msg", nil, cfgWithStorePath(t.TempDir()))
+	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return nil, fmt.Errorf("injected load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
 
 func TestSignWithDefraKeys_NilPrivateKey(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &testutils.MockFullIdentity{PrivKey: nil}, nil
-	})
-	_, err := SignWithDefraKeys("msg", nil, cfgWithStorePath(t.TempDir()))
+	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return &testutils.MockFullIdentity{PrivKey: nil}, nil
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "identity does not have a private key")
 }
 
 func TestSignWithDefraKeys_SignError(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &testutils.MockFullIdentity{
-			PrivKey: &testutils.MockPrivateKey{
-				RawBytes: make([]byte, 32),
-				SignErr:  fmt.Errorf("signing hardware failure"),
-			},
-		}, nil
-	})
-	_, err := SignWithDefraKeys("msg", nil, cfgWithStorePath(t.TempDir()))
+	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return &testutils.MockFullIdentity{
+				PrivKey: &testutils.MockPrivateKey{
+					RawBytes: make([]byte, 32),
+					SignErr:  fmt.Errorf("signing hardware failure"),
+				},
+			}, nil
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to sign message")
 }
@@ -472,10 +467,11 @@ func TestSignWithDefraKeys_SignError(t *testing.T) {
 // ─── SignWithP2PKeys error paths via mocked loader/creator ──────────────────
 
 func TestSignWithP2PKeys_LoadIdentityFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected load error")
-	})
-	_, err := SignWithP2PKeys("msg", nil, cfgWithStorePath(t.TempDir()))
+	_, err := signWithP2PKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return nil, fmt.Errorf("injected load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
@@ -483,19 +479,21 @@ func TestSignWithP2PKeys_LoadIdentityFails(t *testing.T) {
 // ─── GetDefraPublicKey error paths ──────────────────────────────────────────
 
 func TestGetDefraPublicKey_LoadIdentityFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected load error")
-	})
-	_, err := GetDefraPublicKey(nil, cfgWithStorePath(t.TempDir()))
+	_, err := getDefraPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return nil, fmt.Errorf("injected load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
 
 func TestGetDefraPublicKey_NilPublicKey(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &testutils.MockFullIdentity{PubKey: nil}, nil
-	})
-	_, err := GetDefraPublicKey(nil, cfgWithStorePath(t.TempDir()))
+	_, err := getDefraPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return &testutils.MockFullIdentity{PubKey: nil}, nil
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "identity does not have a public key")
 }
@@ -503,10 +501,11 @@ func TestGetDefraPublicKey_NilPublicKey(t *testing.T) {
 // ─── GetP2PPublicKey error paths ────────────────────────────────────────────
 
 func TestGetP2PPublicKey_LoadIdentityFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected load error")
-	})
-	_, err := GetP2PPublicKey(nil, cfgWithStorePath(t.TempDir()))
+	_, err := getP2PPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return nil, fmt.Errorf("injected load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
@@ -514,14 +513,12 @@ func TestGetP2PPublicKey_LoadIdentityFails(t *testing.T) {
 // ─── VerifyP2PSignature: non-Ed25519 underlying key ────────────────────────
 
 func TestVerifyP2PSignature_NotEd25519Underlying(t *testing.T) {
-	orig := ed25519PubKeyFromStringFn
-	ed25519PubKeyFromStringFn = func(_ string) (crypto.PublicKey, error) {
-		// Return a mock whose Underlying() is not ed25519.PublicKey
-		return &mockPublicKey{rawBytes: make([]byte, 32)}, nil
-	}
-	t.Cleanup(func() { ed25519PubKeyFromStringFn = orig })
-
-	err := VerifyP2PSignature("aabb", "msg", "aabb")
+	err := verifyP2PSignatureInternal("aabb", "msg", "aabb",
+		func(_ string) (crypto.PublicKey, error) {
+			// Return a mock whose Underlying() is not ed25519.PublicKey
+			return &mockPublicKey{rawBytes: make([]byte, 32)}, nil
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "public key is not Ed25519")
 }

@@ -19,12 +19,6 @@ const (
 	indexerQueueEntriesPrealloc = 128
 )
 
-// docIDPrefix is the constant version prefix shared by all DefraDB document IDs.
-var (
-	docIDPrefix     string
-	docIDPrefixOnce sync.Once
-)
-
 // BlockEntry holds all document IDs created for a single block.
 type BlockEntry struct {
 	BlockNumber    int64
@@ -45,9 +39,11 @@ type indexerQueueSnapshot struct {
 // IndexerQueue is an in-memory ordered queue of indexed blocks with compact UUID storage.
 // Used by indexers that know all docIDs at block creation time.
 type IndexerQueue struct {
-	mu       sync.Mutex
-	entries  []BlockEntry
-	filePath string
+	mu              sync.Mutex
+	entries         []BlockEntry
+	filePath        string
+	docIDPrefix     string    // lazily-set prefix shared by all doc IDs in this queue
+	docIDPrefixOnce sync.Once // ensures docIDPrefix is initialized exactly once
 }
 
 // NewIndexerQueue creates a new empty indexer queue.
@@ -82,8 +78,8 @@ func (q *IndexerQueue) LoadFromFile(path string) (int, error) {
 	q.mu.Unlock()
 
 	if snap.DocIDPrefix != "" {
-		docIDPrefixOnce.Do(func() {
-			docIDPrefix = snap.DocIDPrefix
+		q.docIDPrefixOnce.Do(func() {
+			q.docIDPrefix = snap.DocIDPrefix
 		})
 	}
 
@@ -99,7 +95,7 @@ func (q *IndexerQueue) Save() error {
 
 	q.mu.Lock()
 	snap := indexerQueueSnapshot{
-		DocIDPrefix: docIDPrefix,
+		DocIDPrefix: q.docIDPrefix,
 		Entries:     make([]BlockEntry, len(q.entries)),
 	}
 	copy(snap.Entries, q.entries)
@@ -143,7 +139,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 	}
 
 	if blockDocID != "" {
-		uuid, err := extractUUID(blockDocID)
+		uuid, err := q.extractUUID(blockDocID)
 		if err != nil {
 			return fmt.Errorf("invalid block docID: %w", err)
 		}
@@ -152,7 +148,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 
 	// Pack transaction IDs
 	if txIDs, ok := otherDocIDs[constants.CollectionTransaction]; ok && len(txIDs) > 0 {
-		packed, err := packDocIDs(txIDs)
+		packed, err := q.packDocIDs(txIDs)
 		if err != nil {
 			return fmt.Errorf("invalid tx docID: %w", err)
 		}
@@ -161,7 +157,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 
 	// Pack log IDs
 	if logIDs, ok := otherDocIDs[constants.CollectionLog]; ok && len(logIDs) > 0 {
-		packed, err := packDocIDs(logIDs)
+		packed, err := q.packDocIDs(logIDs)
 		if err != nil {
 			return fmt.Errorf("invalid log docID: %w", err)
 		}
@@ -170,7 +166,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 
 	// Pack access list entry IDs
 	if aleIDs, ok := otherDocIDs[constants.CollectionAccessListEntry]; ok && len(aleIDs) > 0 {
-		packed, err := packDocIDs(aleIDs)
+		packed, err := q.packDocIDs(aleIDs)
 		if err != nil {
 			return fmt.Errorf("invalid ALE docID: %w", err)
 		}
@@ -178,7 +174,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 	}
 
 	if batchSigID != "" {
-		uuid, err := extractUUID(batchSigID)
+		uuid, err := q.extractUUID(batchSigID)
 		if err != nil {
 			return fmt.Errorf("invalid batch sig docID: %w", err)
 		}
@@ -262,23 +258,23 @@ func (q *IndexerQueue) DrainByDocCount(excess int, collections CollectionConfig)
 
 	var blockIDs []string
 	for _, entry := range drained {
-		blockIDs = append(blockIDs, RestoreDocID(entry.BlockDocID))
+		blockIDs = append(blockIDs, q.RestoreDocID(entry.BlockDocID))
 
-		if txIDs := UnpackDocIDs(entry.TransactionIDs); len(txIDs) > 0 {
+		if txIDs := q.UnpackDocIDs(entry.TransactionIDs); len(txIDs) > 0 {
 			result.DocIDsByCollection[constants.CollectionTransaction] = append(
 				result.DocIDsByCollection[constants.CollectionTransaction], txIDs...)
 		}
-		if logIDs := UnpackDocIDs(entry.LogIDs); len(logIDs) > 0 {
+		if logIDs := q.UnpackDocIDs(entry.LogIDs); len(logIDs) > 0 {
 			result.DocIDsByCollection[constants.CollectionLog] = append(
 				result.DocIDsByCollection[constants.CollectionLog], logIDs...)
 		}
-		if aleIDs := UnpackDocIDs(entry.AccessListIDs); len(aleIDs) > 0 {
+		if aleIDs := q.UnpackDocIDs(entry.AccessListIDs); len(aleIDs) > 0 {
 			result.DocIDsByCollection[constants.CollectionAccessListEntry] = append(
 				result.DocIDsByCollection[constants.CollectionAccessListEntry], aleIDs...)
 		}
 		if entry.HasBatchSig {
 			result.DocIDsByCollection[constants.CollectionBlockSignature] = append(
-				result.DocIDsByCollection[constants.CollectionBlockSignature], RestoreDocID(entry.BatchSigID))
+				result.DocIDsByCollection[constants.CollectionBlockSignature], q.RestoreDocID(entry.BatchSigID))
 		}
 	}
 
@@ -320,23 +316,23 @@ func (q *IndexerQueue) Drain(keep int, collections CollectionConfig) *DrainResul
 
 	var blockIDs []string
 	for _, entry := range drained {
-		blockIDs = append(blockIDs, RestoreDocID(entry.BlockDocID))
+		blockIDs = append(blockIDs, q.RestoreDocID(entry.BlockDocID))
 
-		if txIDs := UnpackDocIDs(entry.TransactionIDs); len(txIDs) > 0 {
+		if txIDs := q.UnpackDocIDs(entry.TransactionIDs); len(txIDs) > 0 {
 			result.DocIDsByCollection[constants.CollectionTransaction] = append(
 				result.DocIDsByCollection[constants.CollectionTransaction], txIDs...)
 		}
-		if logIDs := UnpackDocIDs(entry.LogIDs); len(logIDs) > 0 {
+		if logIDs := q.UnpackDocIDs(entry.LogIDs); len(logIDs) > 0 {
 			result.DocIDsByCollection[constants.CollectionLog] = append(
 				result.DocIDsByCollection[constants.CollectionLog], logIDs...)
 		}
-		if aleIDs := UnpackDocIDs(entry.AccessListIDs); len(aleIDs) > 0 {
+		if aleIDs := q.UnpackDocIDs(entry.AccessListIDs); len(aleIDs) > 0 {
 			result.DocIDsByCollection[constants.CollectionAccessListEntry] = append(
 				result.DocIDsByCollection[constants.CollectionAccessListEntry], aleIDs...)
 		}
 		if entry.HasBatchSig {
 			result.DocIDsByCollection[constants.CollectionBlockSignature] = append(
-				result.DocIDsByCollection[constants.CollectionBlockSignature], RestoreDocID(entry.BatchSigID))
+				result.DocIDsByCollection[constants.CollectionBlockSignature], q.RestoreDocID(entry.BatchSigID))
 		}
 	}
 
@@ -367,16 +363,17 @@ func (q *IndexerQueue) HighestBlockNumber() int64 {
 	return highest
 }
 
-// ─── UUID packing helpers (exported for use by consumers) ────────────────────
+// ─── UUID packing helpers ─────────────────────────────────────────────────────
 
-// ExtractUUID extracts the 16-byte UUID from a docID string.
-func extractUUID(docID string) ([uuidSize]byte, error) {
+// extractUUID extracts the 16-byte UUID from a docID string and lazily
+// initialises the queue's docIDPrefix from the first prefix seen.
+func (q *IndexerQueue) extractUUID(docID string) ([uuidSize]byte, error) {
 	idx := strings.IndexByte(docID, '-')
 	if idx < 0 {
 		return [uuidSize]byte{}, fmt.Errorf("invalid docID format: %s", docID)
 	}
-	docIDPrefixOnce.Do(func() {
-		docIDPrefix = docID[:idx]
+	q.docIDPrefixOnce.Do(func() {
+		q.docIDPrefix = docID[:idx]
 	})
 	return parseUUIDHex(docID[idx+1:])
 }
@@ -399,18 +396,18 @@ func formatUUID(b [uuidSize]byte) string {
 }
 
 // RestoreDocID reconstructs a full docID string from packed UUID bytes.
-func RestoreDocID(uuid [uuidSize]byte) string {
-	return docIDPrefix + "-" + formatUUID(uuid)
+func (q *IndexerQueue) RestoreDocID(uuid [uuidSize]byte) string {
+	return q.docIDPrefix + "-" + formatUUID(uuid)
 }
 
 // packDocIDs converts docID strings to a single packed byte slice (16 bytes per UUID).
-func packDocIDs(docIDs []string) ([]byte, error) {
+func (q *IndexerQueue) packDocIDs(docIDs []string) ([]byte, error) {
 	if len(docIDs) == 0 {
 		return nil, nil
 	}
 	packed := make([]byte, 0, len(docIDs)*uuidSize)
 	for _, id := range docIDs {
-		uuid, err := extractUUID(id)
+		uuid, err := q.extractUUID(id)
 		if err != nil {
 			return nil, err
 		}
@@ -420,7 +417,7 @@ func packDocIDs(docIDs []string) ([]byte, error) {
 }
 
 // UnpackDocIDs converts packed UUID bytes back to docID strings.
-func UnpackDocIDs(packed []byte) []string {
+func (q *IndexerQueue) UnpackDocIDs(packed []byte) []string {
 	if len(packed) == 0 {
 		return nil
 	}
@@ -429,7 +426,7 @@ func UnpackDocIDs(packed []byte) []string {
 	for i := range count {
 		var uuid [uuidSize]byte
 		copy(uuid[:], packed[i*uuidSize:(i+1)*uuidSize])
-		ids[i] = RestoreDocID(uuid)
+		ids[i] = q.RestoreDocID(uuid)
 	}
 	return ids
 }

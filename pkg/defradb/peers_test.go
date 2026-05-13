@@ -341,7 +341,7 @@ func TestConnectToPeers(t *testing.T) {
 		ctx := context.Background()
 
 		// Start a test Defra node
-		testConfig := DefaultConfig
+		testConfig := NewDefaultConfig()
 		testNode, err := StartDefraInstanceWithTestConfig(t, testConfig, &MockSchemaApplierThatSucceeds{})
 		if err != nil {
 			t.Fatalf("Failed to start test Defra node: %v", err)
@@ -373,7 +373,7 @@ func TestConnectToPeers(t *testing.T) {
 		ctx := context.Background()
 
 		// Start a test Defra node
-		testConfig := DefaultConfig
+		testConfig := NewDefaultConfig()
 		testNode, err := StartDefraInstanceWithTestConfig(t, testConfig, &MockSchemaApplierThatSucceeds{})
 		if err != nil {
 			t.Fatalf("Failed to start test Defra node: %v", err)
@@ -391,7 +391,7 @@ func TestConnectToPeers(t *testing.T) {
 		ctx := context.Background()
 
 		// Start first Defra node with a specific listen address
-		testConfig1 := DefaultConfig
+		testConfig1 := NewDefaultConfig()
 		testConfig1.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/9171"
 		node1, err := StartDefraInstanceWithTestConfig(t, testConfig1, &MockSchemaApplierThatSucceeds{})
 		if err != nil {
@@ -400,7 +400,7 @@ func TestConnectToPeers(t *testing.T) {
 		defer func() { _ = node1.Close(ctx) }()
 
 		// Start second Defra node with a different listen address
-		testConfig2 := DefaultConfig
+		testConfig2 := NewDefaultConfig()
 		testConfig2.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/9172"
 		node2, err := StartDefraInstanceWithTestConfig(t, testConfig2, &MockSchemaApplierThatSucceeds{})
 		if err != nil {

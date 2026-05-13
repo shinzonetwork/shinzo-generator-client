@@ -25,31 +25,32 @@ import (
 	"github.com/sourcenetwork/immutable/enumerable"
 )
 
-// DefaultConfig is the baseline application config for running DefraDB with P2P enabled,
+// NewDefaultConfig returns the baseline application config for running DefraDB with P2P enabled,
 // local store path, and defaults for bootstrap peers and retry behavior.
-var DefaultConfig *config.Config = &config.Config{
-	DefraDB: config.DefraDBConfig{
-		URL:           "http://localhost:9181",
-		KeyringSecret: os.Getenv("DEFRA_KEYRING_SECRET"),
-		P2P: config.DefraDBP2PConfig{
-			Enabled:             true, // P2P enabled by default
-			BootstrapPeers:      requiredPeers,
-			ListenAddr:          defaultListenAddress,
-			MaxRetries:          defaultP2PMaxRetries,
-			RetryBaseDelayMs:    defaultP2PRetryBaseDelayMs,    // 1 second
-			ReconnectIntervalMs: defaultP2PReconnectIntervalMs, // 60 seconds
-			EnableAutoReconnect: true,
+func NewDefaultConfig() *config.Config {
+	return &config.Config{
+		DefraDB: config.DefraDBConfig{
+			URL:           "http://localhost:9181",
+			KeyringSecret: os.Getenv("DEFRA_KEYRING_SECRET"),
+			P2P: config.DefraDBP2PConfig{
+				Enabled:             true, // P2P enabled by default
+				BootstrapPeers:      nil,  // Can be populated before use; see applyRequiredP2PDefaults
+				ListenAddr:          defaultListenAddress,
+				MaxRetries:          defaultP2PMaxRetries,
+				RetryBaseDelayMs:    defaultP2PRetryBaseDelayMs,    // 1 second
+				ReconnectIntervalMs: defaultP2PReconnectIntervalMs, // 60 seconds
+				EnableAutoReconnect: true,
+			},
+			Store: config.DefraDBStoreConfig{
+				Path: ".defra",
+			},
 		},
-		Store: config.DefraDBStoreConfig{
-			Path: ".defra",
+		Logger: config.LoggerConfig{
+			Development: false,
 		},
-	},
-	Logger: config.LoggerConfig{
-		Development: false,
-	},
+	}
 }
 
-var requiredPeers = []string{} // Here, we can add some "big peers" to give nodes a starting place when building their peer network
 const (
 	defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 
@@ -280,7 +281,7 @@ func CreateLibP2PKeyFromIdentity(nodeIdentity identity.Identity) (libp2pcrypto.P
 }
 
 func applyRequiredP2PDefaults(cfg *config.Config) {
-	cfg.DefraDB.P2P.BootstrapPeers = append(cfg.DefraDB.P2P.BootstrapPeers, requiredPeers...)
+	// No required bootstrap peers currently; extend here when well-known peers are added.
 	if len(cfg.DefraDB.P2P.ListenAddr) == 0 {
 		cfg.DefraDB.P2P.ListenAddr = defaultListenAddress
 	}
@@ -505,7 +506,7 @@ func StartDefraInstanceWithTestConfig(t *testing.T, cfg *config.Config, schemaAp
 	listenAddress := fmt.Sprintf("/ip4/%s/tcp/0", ipAddress)
 	defraURL := fmt.Sprintf("%s:0", ipAddress)
 	if cfg == nil {
-		cfg = DefaultConfig
+		cfg = NewDefaultConfig()
 	}
 	cfg.DefraDB.Store.Path = t.TempDir()
 	cfg.DefraDB.URL = defraURL

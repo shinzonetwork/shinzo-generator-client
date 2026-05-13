@@ -443,7 +443,6 @@ func TestStop_WithQueueSave(t *testing.T) {
 	_, err := q.LoadFromFile(tmpDir + "/queue.gob")
 	require.NoError(t, err)
 
-	initDocIDPrefix()
 	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
 	require.NoError(t, err)
 	p.SetQueue(q)
@@ -756,7 +755,6 @@ func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {
 	p := NewPruner(cfg, n, cols)
 	ctx := context.Background()
 
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 

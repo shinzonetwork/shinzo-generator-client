@@ -3,7 +3,6 @@ package pruner
 import (
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,12 +12,6 @@ import (
 )
 
 // ─── UUID Helpers ────────────────────────────────────────────────────────────
-
-func initDocIDPrefix() {
-	// Reset the prefix for testing
-	docIDPrefixOnce = sync.Once{}
-	docIDPrefix = ""
-}
 
 func TestParseUUIDHex(t *testing.T) {
 	t.Run("valid UUID", func(t *testing.T) {
@@ -47,84 +40,85 @@ func TestFormatUUID(t *testing.T) {
 }
 
 func TestExtractUUID(t *testing.T) {
-	initDocIDPrefix()
+	q := NewIndexerQueue()
 
 	t.Run("valid docID", func(t *testing.T) {
-		uuid, err := extractUUID("bae-550e8400-e29b-41d4-a716-446655440000")
+		uuid, err := q.extractUUID("bae-550e8400-e29b-41d4-a716-446655440000")
 		require.NoError(t, err)
 		require.Len(t, uuid, 16)
-		assert.Equal(t, "bae", docIDPrefix)
+		assert.Equal(t, "bae", q.docIDPrefix)
 	})
 
 	t.Run("invalid docID no dash", func(t *testing.T) {
-		_, err := extractUUID("nodash")
+		_, err := q.extractUUID("nodash")
 		assert.Error(t, err)
 	})
 }
 
 func TestRestoreDocID(t *testing.T) {
-	initDocIDPrefix()
+	q := NewIndexerQueue()
 	// Set a known prefix
-	docIDPrefixOnce.Do(func() {
-		docIDPrefix = "bae"
+	q.docIDPrefixOnce.Do(func() {
+		q.docIDPrefix = "bae"
 	})
 
 	uuid, err := parseUUIDHex("550e8400-e29b-41d4-a716-446655440000")
 	require.NoError(t, err)
 
-	restored := RestoreDocID(uuid)
+	restored := q.RestoreDocID(uuid)
 	assert.Equal(t, "bae-550e8400-e29b-41d4-a716-446655440000", restored)
 }
 
 func TestPackUnpackDocIDs(t *testing.T) {
-	initDocIDPrefix()
+	q := NewIndexerQueue()
 
 	docIDs := []string{
 		"bae-550e8400-e29b-41d4-a716-446655440000",
 		"bae-660e8400-e29b-41d4-a716-446655440001",
 	}
 
-	packed, err := packDocIDs(docIDs)
+	packed, err := q.packDocIDs(docIDs)
 	require.NoError(t, err)
 	assert.Equal(t, 32, len(packed)) // 2 * 16 bytes
 
-	unpacked := UnpackDocIDs(packed)
+	unpacked := q.UnpackDocIDs(packed)
 	assert.Len(t, unpacked, 2)
 	assert.Equal(t, docIDs[0], unpacked[0])
 	assert.Equal(t, docIDs[1], unpacked[1])
 }
 
 func TestPackDocIDsEmpty(t *testing.T) {
-	packed, err := packDocIDs(nil)
+	q := NewIndexerQueue()
+	packed, err := q.packDocIDs(nil)
 	require.NoError(t, err)
 	assert.Nil(t, packed)
 
-	packed, err = packDocIDs([]string{})
+	packed, err = q.packDocIDs([]string{})
 	require.NoError(t, err)
 	assert.Nil(t, packed)
 }
 
 func TestUnpackDocIDsEmpty(t *testing.T) {
-	assert.Nil(t, UnpackDocIDs(nil))
-	assert.Nil(t, UnpackDocIDs([]byte{}))
+	q := NewIndexerQueue()
+	assert.Nil(t, q.UnpackDocIDs(nil))
+	assert.Nil(t, q.UnpackDocIDs([]byte{}))
 }
 
 func TestPackDocIDsInvalid(t *testing.T) {
-	_, err := packDocIDs([]string{"invalid"})
+	q := NewIndexerQueue()
+	_, err := q.packDocIDs([]string{"invalid"})
 	assert.Error(t, err)
 }
 
 // ─── IndexerQueue ────────────────────────────────────────────────────────────
 
 func TestIndexerQueueBasic(t *testing.T) {
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 	assert.Equal(t, 0, q.Len())
 	assert.Equal(t, int64(0), q.HighestBlockNumber())
 }
 
 func TestIndexerQueueTrackAndDrain(t *testing.T) {
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 	cols := DefaultCollectionConfig()
 
@@ -158,13 +152,11 @@ func TestIndexerQueueDrainNothingToDrain(t *testing.T) {
 	assert.Nil(t, q.Drain(10, cols))
 
 	// Queue smaller than keep
-	initDocIDPrefix()
 	q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
 	assert.Nil(t, q.Drain(10, cols))
 }
 
 func TestIndexerQueueDrainByDocCount(t *testing.T) {
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 	cols := DefaultCollectionConfig()
 
@@ -201,7 +193,6 @@ func TestIndexerQueueDrainByDocCount(t *testing.T) {
 }
 
 func TestIndexerQueueTrackInvalidDocIDs(t *testing.T) {
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 
 	// Invalid block docID
@@ -229,7 +220,6 @@ func TestIndexerQueueTrackInvalidDocIDs(t *testing.T) {
 }
 
 func TestIndexerQueueSaveLoad(t *testing.T) {
-	initDocIDPrefix()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "queue.gob")
 
@@ -295,7 +285,6 @@ func TestIndexerQueueLoadFromFileInvalidData(t *testing.T) {
 // ─── Additional queue edge case tests ────────────────────────────────────────
 
 func TestIndexerQueueSave_WithEntries(t *testing.T) {
-	initDocIDPrefix()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "save_test.gob")
 
@@ -331,7 +320,6 @@ func TestIndexerQueueSave_WithEntries(t *testing.T) {
 }
 
 func TestIndexerQueueDrain_WithAllDocTypes(t *testing.T) {
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 	cols := DefaultCollectionConfig()
 
@@ -368,7 +356,6 @@ func TestIndexerQueueDrain_WithAllDocTypes(t *testing.T) {
 }
 
 func TestIndexerQueueDrainByDocCount_NotEnoughDocs(t *testing.T) {
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 	cols := DefaultCollectionConfig()
 
@@ -386,7 +373,6 @@ func TestIndexerQueueDrainByDocCount_NotEnoughDocs(t *testing.T) {
 }
 
 func TestIndexerQueueTrackBlockDocIDs_EmptyBlockDocID(t *testing.T) {
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 
 	// Track with empty block docID - should succeed (blockDocID == "")
@@ -396,7 +382,6 @@ func TestIndexerQueueTrackBlockDocIDs_EmptyBlockDocID(t *testing.T) {
 }
 
 func TestIndexerQueueLoadFromFile_WithPrefix(t *testing.T) {
-	initDocIDPrefix()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "prefix_test.gob")
 
@@ -411,11 +396,10 @@ func TestIndexerQueueLoadFromFile_WithPrefix(t *testing.T) {
 	err = q.Save()
 	require.NoError(t, err)
 
-	// Reset prefix and load
-	initDocIDPrefix()
+	// Load into a fresh queue and verify the prefix is restored
 	q2 := NewIndexerQueue()
 	count, err := q2.LoadFromFile(filePath)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
-	assert.Equal(t, "bae", docIDPrefix)
+	assert.Equal(t, "bae", q2.docIDPrefix)
 }
