@@ -51,7 +51,7 @@ func ImportKV(ctx context.Context, defraNode *node.Node, filePath string) (*Impo
 		return nil, fmt.Errorf("parse header: %w", unmarshalErr) //nolint: err113
 	}
 
-	if header.Magic != "DFKV" {
+	if header.Magic != "DFKV" { //nolint:goconst
 		return nil, fmt.Errorf("invalid snapshot magic: %q (expected DFKV)", header.Magic) //nolint: err113
 	}
 

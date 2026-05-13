@@ -429,7 +429,7 @@ func (h *BlockHandler) trackSingleTxnDocIDs(ctx context.Context, blockInt int64,
 func (h *BlockHandler) buildBlockDocument(ctx context.Context, block *types.Block, blockInt int64, col client.Collection) (*client.Document, error) {
 	data := map[string]any{
 		"hash":             block.Hash,
-		"number":           blockInt,
+		"number":           blockInt, //nolint:goconst
 		"timestamp":        block.Timestamp,
 		"parentHash":       block.ParentHash,
 		"difficulty":       block.Difficulty,
@@ -457,8 +457,8 @@ func (h *BlockHandler) buildTransactionDocument(ctx context.Context, tx *types.T
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	data := map[string]any{
 		"hash":                 tx.Hash,
-		"blockNumber":          txBlockNum,
-		"blockHash":            tx.BlockHash,
+		"blockNumber":          txBlockNum,   //nolint:goconst
+		"blockHash":            tx.BlockHash, //nolint:goconst
 		"transactionIndex":     tx.TransactionIndex,
 		"from":                 tx.From,
 		"to":                   tx.To,

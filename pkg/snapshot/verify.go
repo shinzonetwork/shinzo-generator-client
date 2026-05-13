@@ -145,9 +145,9 @@ func verifyCryptoSignature(sig *SnapshotSignatureData, result *VerifyResult) err
 // resolveKeyType maps a signature type string to a crypto.KeyType.
 func resolveKeyType(sigType string) (crypto.KeyType, error) {
 	switch sigType {
-	case "ES256K", "ecdsa-256k":
+	case "ES256K", "ecdsa-256k": //nolint:goconst
 		return crypto.KeyTypeSecp256k1, nil
-	case "Ed25519", "ed25519":
+	case "Ed25519", "ed25519": //nolint:goconst
 		return crypto.KeyTypeEd25519, nil
 	default:
 		return crypto.KeyTypeSecp256k1, errors.New("unsupported signature type") //nolint: err113
@@ -187,11 +187,11 @@ func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 			continue
 		}
 
-		if entry.Type != "block_signature" || entry.Data == nil {
+		if entry.Type != "block_signature" || entry.Data == nil { //nolint:goconst
 			continue
 		}
 
-		mrStr, ok := entry.Data["merkleRoot"].(string)
+		mrStr, ok := entry.Data["merkleRoot"].(string) //nolint:goconst
 		if !ok || mrStr == "" {
 			continue
 		}

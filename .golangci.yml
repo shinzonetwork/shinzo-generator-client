@@ -60,9 +60,10 @@ linters:
           - dupl
           - gochecknoglobals
           - goconst
+          - gosec
           - mnd
           - funlen
-
+          - errcheck
 formatters:
   enable:
     - gofumpt

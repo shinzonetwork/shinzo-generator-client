@@ -135,9 +135,9 @@ func signMerkleRoot(ctx context.Context, merkleRoot []byte) (sigType, sigIdentit
 
 	switch fullIdent.PrivateKey().Type() { //nolint:exhaustive // unsupported key types handled by default case
 	case crypto.KeyTypeSecp256k1:
-		sigType = "ES256K"
+		sigType = "ES256K" //nolint:goconst
 	case crypto.KeyTypeEd25519:
-		sigType = "Ed25519"
+		sigType = "Ed25519" //nolint:goconst
 	default:
 		return "", "", nil, fmt.Errorf("unsupported key type: %v", fullIdent.PrivateKey().Type()) //nolint: err113
 	}
@@ -167,7 +167,7 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 	data := map[string]any{
 		"startBlock":          sig.StartBlock,
 		"endBlock":            sig.EndBlock,
-		"merkleRoot":          sig.MerkleRoot,
+		"merkleRoot":          sig.MerkleRoot, //nolint:goconst
 		"blockCount":          sig.BlockCount,
 		"signatureType":       sig.SignatureType,
 		"signatureIdentity":   sig.SignatureIdentity,

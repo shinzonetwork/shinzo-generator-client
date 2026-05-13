@@ -29,7 +29,7 @@ type CollectionConfig struct {
 func DefaultCollectionConfig() CollectionConfig {
 	return CollectionConfig{
 		BlockCollection:  constants.CollectionBlock,
-		BlockNumberField: "number",
+		BlockNumberField: "number", //nolint:goconst
 		DependentCollections: []string{
 			constants.CollectionBlockSignature,
 			constants.CollectionAccessListEntry,

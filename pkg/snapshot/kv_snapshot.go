@@ -96,7 +96,7 @@ func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writ
 	}
 
 	header := kvSnapshotHeader{
-		Magic:               "DFKV",
+		Magic:               "DFKV", //nolint:goconst
 		Version:             1,
 		StartBlock:          startBlock,
 		EndBlock:            endBlock,
@@ -138,11 +138,11 @@ func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, 
 		name       string
 		blockField string
 	}{
-		{constants.CollectionBlock, "number"},
-		{constants.CollectionTransaction, "blockNumber"},
-		{constants.CollectionLog, "blockNumber"},
-		{constants.CollectionAccessListEntry, "blockNumber"},
-		{constants.CollectionBlockSignature, "blockNumber"},
+		{constants.CollectionBlock, "number"},                //nolint:goconst
+		{constants.CollectionTransaction, "blockNumber"},     //nolint:goconst
+		{constants.CollectionLog, "blockNumber"},             //nolint:goconst
+		{constants.CollectionAccessListEntry, "blockNumber"}, //nolint:goconst
+		{constants.CollectionBlockSignature, "blockNumber"},  //nolint:goconst
 	}
 
 	totalKVs := 0
