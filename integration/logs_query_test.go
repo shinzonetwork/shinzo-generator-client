@@ -24,7 +24,7 @@ func assertLogHasTopics(t *testing.T, logMap map[string]any) {
 }
 
 func TestGetAllTransactionLogs(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txHash := getArbitraryTransactionHash(t)
 	result := MakeQuery(t, logsQueryPath, "GetAllTransactionLogs", map[string]any{"txHash": txHash})
 	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
@@ -74,7 +74,7 @@ func getArbitraryBlock(t *testing.T) map[string]any {
 }
 
 func TestGetAllBlockLogs(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	block := getArbitraryBlock(t)
 	blockHash, ok := block["hash"].(string)
 	if !ok || len(blockHash) == 0 {
@@ -100,7 +100,7 @@ t.Parallel()
 }
 
 func TestGetAllLogsByTopic(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	topic := getArbitraryTopic(t)
 	result := MakeQuery(t, logsQueryPath, "GetAllLogsByTopic", map[string]any{"topic": topic})
 	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)

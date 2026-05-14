@@ -152,7 +152,8 @@ func TestIndexerQueueDrainNothingToDrain(t *testing.T) {
 	assert.Nil(t, q.Drain(10, cols))
 
 	// Queue smaller than keep
-	q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	err := q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	require.NoError(t, err)
 	assert.Nil(t, q.Drain(10, cols))
 }
 
@@ -231,8 +232,10 @@ func TestIndexerQueueSaveLoad(t *testing.T) {
 	assert.Equal(t, 0, count)
 
 	// Track entries
-	q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
-	q.TrackBlockDocIDs(2, "bae-660e8400-e29b-41d4-a716-446655440001", nil, "")
+	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	require.NoError(t, err)
+	err = q.TrackBlockDocIDs(2, "bae-660e8400-e29b-41d4-a716-446655440001", nil, "")
+	require.NoError(t, err)
 
 	// Save
 	err = q.Save()
@@ -251,13 +254,14 @@ func TestIndexerQueueSaveEmptyRemovesFile(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "queue.gob")
 
 	// Create a file
-	os.WriteFile(filePath, []byte("data"), 0o644)
+	err := os.WriteFile(filePath, []byte("data"), 0o644)
+	require.NoError(t, err)
 
 	q := NewIndexerQueue()
-	q.LoadFromFile(filePath)
+	q.LoadFromFile(filePath) //nolint:errcheck // Testing q.Save() not q.LoadFromFile()
 	// Queue is empty (file had invalid data, but LoadFromFile sets filePath)
 
-	err := q.Save()
+	err = q.Save()
 	require.NoError(t, err)
 
 	// File should be removed
@@ -275,10 +279,11 @@ func TestIndexerQueueLoadFromFileInvalidData(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "bad_queue.gob")
 
-	os.WriteFile(filePath, []byte("not valid gob data"), 0o644)
+	err := os.WriteFile(filePath, []byte("not valid gob data"), 0o644)
+	require.NoError(t, err)
 
 	q := NewIndexerQueue()
-	_, err := q.LoadFromFile(filePath)
+	_, err = q.LoadFromFile(filePath)
 	assert.Error(t, err)
 }
 
@@ -289,7 +294,7 @@ func TestIndexerQueueSave_WithEntries(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "save_test.gob")
 
 	q := NewIndexerQueue()
-	q.LoadFromFile(filePath)
+	q.LoadFromFile(filePath) //nolint:errcheck // Testing q.Save() not q.LoadFromFile()
 
 	// Add entries with various doc types
 	err := q.TrackBlockDocIDs(1,
@@ -386,10 +391,12 @@ func TestIndexerQueueLoadFromFile_WithPrefix(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "prefix_test.gob")
 
 	q := NewIndexerQueue()
-	q.LoadFromFile(filePath)
+	_, err := q.LoadFromFile(filePath)
+	// !!! REPLACE WITH MORE MEANINGFUL CHECK AFTER FIXING INDEXER PRUNER QUEUE ERROR HANDLING
+	require.Nil(t, err)
 
 	// Track so that docIDPrefix gets set
-	err := q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
 	require.NoError(t, err)
 
 	// Save
