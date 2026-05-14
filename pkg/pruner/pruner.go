@@ -20,7 +20,7 @@ type Pruner struct {
 	cfg         *Config
 	collections CollectionConfig
 	defraNode   *node.Node
-	queue       Queue // IndexerQueue or EventQueue
+	queue       Queue
 	stopChan    chan struct{}
 	wg          sync.WaitGroup
 	mu          sync.RWMutex
@@ -306,18 +306,22 @@ func (p *Pruner) runStorageGC() {
 // Used by the indexer queue (no P2P) and as a fallback when the queue is underfilled.
 func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 	highest, err := p.getHighestBlockNumber(ctx)
-	if err != nil || highest == 0 {
-		return nil //nolint:nilerr
+	if err != nil {
+		return err
 	}
 
 	lowest, err := p.getLowestBlockNumber(ctx)
-	if err != nil || lowest == 0 {
-		return nil //nolint:nilerr
+	if err != nil {
+		return err
+	}
+
+	if highest == 0 && lowest == 0 {
+		return nil
 	}
 
 	dbBlockCount := highest - lowest + 1
 	if dbBlockCount <= p.cfg.MaxBlocks {
-		return nil //nolint:nilerr
+		return nil
 	}
 
 	excess := dbBlockCount - p.cfg.MaxBlocks
@@ -438,7 +442,7 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 		}
 	default:
 		// Unknown format or nil data
-		return nil, nil //nolint:nilerr
+		return nil, nil
 	}
 
 	return docIDs, nil //nolint:nilerr
