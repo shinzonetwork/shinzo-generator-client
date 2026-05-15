@@ -34,6 +34,8 @@ type TestTx {
 }
 `
 
+const timeout = 10 * time.Second
+
 // testCollections returns a CollectionConfig matching the testSchema.
 func testCollections() CollectionConfig {
 	return CollectionConfig{
@@ -146,19 +148,24 @@ func TestPrunerSetQueue(t *testing.T) {
 func TestPrunerStart_Disabled(t *testing.T) {
 	cfg := &Config{Enabled: false}
 	p := NewPruner(cfg, nil)
-
-	err := p.Start(context.TODO())
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	err := p.Start(ctx)
 	assert.NoError(t, err)
 	assert.False(t, p.isRunning)
+	cancel()
+	p.Stop()
 }
 
 func TestPrunerStart_NilNode(t *testing.T) {
 	cfg := &Config{Enabled: true}
 	p := NewPruner(cfg, nil)
 
-	err := p.Start(context.TODO())
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	err := p.Start(ctx)
 	assert.NoError(t, err)
 	assert.False(t, p.isRunning)
+	cancel()
+	p.Stop()
 }
 
 func TestPrunerGetMetrics(t *testing.T) {
