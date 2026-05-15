@@ -96,7 +96,7 @@ func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writ
 	}
 
 	header := kvSnapshotHeader{
-		Magic:               "DFKV", //nolint:goconst
+		Magic:               constants.HeaderMagicValue,
 		Version:             1,
 		StartBlock:          startBlock,
 		EndBlock:            endBlock,

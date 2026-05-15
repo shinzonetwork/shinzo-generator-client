@@ -1752,7 +1752,7 @@ func TestCreateKVSnapshot_HeaderValid(t *testing.T) {
 	err = json.Unmarshal(headerBytes, &header)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DFKV", header.Magic)
+	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, 1, header.Version)
 	assert.Equal(t, int64(2000), header.StartBlock)
 	assert.Equal(t, int64(2004), header.EndBlock)
@@ -3080,7 +3080,7 @@ func TestImportKV_ValidHeaderEmptyKVs(t *testing.T) {
 	// Create a valid kvsnap file with proper header but just an EOF marker
 	p := writeKVSnapGz(t, dir, "empty_kvs.kvsnap.gz", func(gw *gzip.Writer) {
 		header := kvSnapshotHeader{
-			Magic:      "DFKV",
+			Magic:      constants.HeaderMagicValue,
 			Version:    1,
 			StartBlock: 0,
 			EndBlock:   0,
@@ -3302,7 +3302,7 @@ func TestListSnapshots_StatErrorSkipsFile(t *testing.T) {
 
 func TestKVSnapshotHeader_JSONRoundTrip(t *testing.T) {
 	header := kvSnapshotHeader{
-		Magic:               "DFKV",
+		Magic:               constants.HeaderMagicValue,
 		Version:             1,
 		StartBlock:          1000,
 		EndBlock:            1999,
@@ -3394,7 +3394,7 @@ func TestCreateKVSnapshot_AllCollections(t *testing.T) {
 	err = json.Unmarshal(headerBytes, &header)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DFKV", header.Magic)
+	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, int64(300), header.StartBlock)
 	assert.Equal(t, int64(302), header.EndBlock)
 }
@@ -3501,7 +3501,7 @@ func TestImportKV_HeaderWithBlockSigMerkleRoots(t *testing.T) {
 	// Create a kvsnap with roots in the header, then import
 	p := writeKVSnapGz(t, dir, "with_roots.kvsnap.gz", func(gw *gzip.Writer) {
 		header := kvSnapshotHeader{
-			Magic:               "DFKV",
+			Magic:               constants.HeaderMagicValue,
 			Version:             1,
 			StartBlock:          5000,
 			EndBlock:            5999,
@@ -3953,7 +3953,7 @@ func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
 	err = json.Unmarshal(headerBytes, &header)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DFKV", header.Magic)
+	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, int64(500), header.StartBlock)
 	assert.Equal(t, int64(502), header.EndBlock)
 	// BlockSigMerkleRoots should be populated
@@ -4199,7 +4199,7 @@ func TestImportKV_CorruptKVData(t *testing.T) {
 	dir := t.TempDir()
 	p := writeKVSnapGz(t, dir, "corrupt_kv.kvsnap.gz", func(gw *gzip.Writer) {
 		header := kvSnapshotHeader{
-			Magic:      "DFKV",
+			Magic:      constants.HeaderMagicValue,
 			Version:    1,
 			StartBlock: 0,
 			EndBlock:   0,
@@ -4355,7 +4355,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 	err = json.Unmarshal(headerBytes, &header)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DFKV", header.Magic)
+	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Len(t, header.BlockSigMerkleRoots, 5, "should have 5 block sig merkle roots from identity-signed blocks")
 
 	// Verify signature was created in DefraDB

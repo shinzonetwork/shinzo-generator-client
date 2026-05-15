@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
@@ -835,7 +836,7 @@ func writeTestKVSnapshot(t *testing.T, dir string, start, end int64) string {
 	gw := gzip.NewWriter(f)
 
 	header := map[string]any{
-		"magic":       "DFKV",
+		"magic":       constants.HeaderMagicValue,
 		"version":     1,
 		"start_block": start,
 		"end_block":   end,

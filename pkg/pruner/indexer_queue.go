@@ -107,7 +107,7 @@ func (q *IndexerQueue) Save() error {
 	}
 
 	tmpPath := q.filePath + ".tmp"
-	f, err := os.Create(filepath.Clean(tmpPath)) //nolint:gosec
+	f, err := os.Create(filepath.Clean(tmpPath))
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
