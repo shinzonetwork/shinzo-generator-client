@@ -660,8 +660,8 @@ func TestExtractBlockSigMerkleRoots_PlainJSONL(t *testing.T) {
 	mr2 := hexRoot("root2_data_bytes")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr1, "blockNumber": 1000}}),
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr2, "blockNumber": 1001}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr1, "blockNumber": 1000}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr2, "blockNumber": 1001}}),
 	}
 
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
@@ -682,7 +682,7 @@ func TestExtractBlockSigMerkleRoots_GzipFile(t *testing.T) {
 	mr1 := hexRoot("gzip_root_data")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr1}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr1}}),
 	}
 
 	p := writeGzipJSONLFile(t, dir, "test.jsonl.gz", lines)
@@ -721,7 +721,7 @@ func TestExtractBlockSigMerkleRoots_NonBlockSigEntriesSkipped(t *testing.T) {
 	lines := []string{
 		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{"number": 1000}}),
 		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 		mustJSON(t, map[string]any{"type": "log", "data": map[string]any{"logIndex": 0}}),
 	}
 
@@ -743,7 +743,7 @@ func TestExtractBlockSigMerkleRoots_InvalidJSONSkipped(t *testing.T) {
 	lines := []string{
 		"this is not json at all",
 		"{ broken json",
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 		"",
 	}
 
@@ -761,8 +761,8 @@ func TestExtractBlockSigMerkleRoots_EmptyMerkleRoot(t *testing.T) {
 	dir := t.TempDir()
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": ""}}),
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"other": "field"}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": ""}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"other": "field"}}),
 	}
 
 	p := writeJSONLFile(t, dir, "empty_roots.jsonl", lines)
@@ -778,8 +778,8 @@ func TestExtractBlockSigMerkleRoots_InvalidHexSkipped(t *testing.T) {
 	mr := hexRoot("valid_root")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": "not_valid_hex_zzz"}}),
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": "not_valid_hex_zzz"}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 
 	p := writeJSONLFile(t, dir, "bad_hex.jsonl", lines)
@@ -796,8 +796,8 @@ func TestExtractBlockSigMerkleRoots_NilData(t *testing.T) {
 	dir := t.TempDir()
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": nil}),
-		mustJSON(t, map[string]any{"type": "block_signature"}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": nil}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue}),
 	}
 
 	p := writeJSONLFile(t, dir, "nil_data.jsonl", lines)
@@ -826,7 +826,7 @@ func TestExtractBlockSigMerkleRoots_MultipleValidRootsInOrder(t *testing.T) {
 	var lines []string
 	for i, mr := range mrs {
 		lines = append(lines, mustJSON(t, map[string]any{
-			"type": "block_signature",
+			"type": constants.BlockSignatureTypeValue,
 			"data": map[string]any{"merkleRoot": mr, "blockNumber": 1000 + i},
 		}))
 	}
@@ -880,7 +880,7 @@ func TestVerifySnapshotWithSig_MerkleRootMismatch(t *testing.T) {
 	mr := hexRoot("actual_root_data")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -935,7 +935,7 @@ func TestVerifySnapshotWithSig_MatchingMerkleRootButBadSignatureHex(t *testing.T
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -969,7 +969,7 @@ func TestVerifySnapshotWithSig_UnsupportedSignatureType(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -1002,7 +1002,7 @@ func TestVerifySnapshotWithSig_BadMerkleRootHex(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2376,7 +2376,7 @@ func TestVerifySnapshotWithSig_InvalidMerkleRootHex(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 	sig := &SnapshotSignatureData{}
@@ -2401,7 +2401,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Ed25519(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2444,7 +2444,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Secp256k1(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2488,7 +2488,7 @@ func TestVerifySnapshotWithSig_WrongSignature(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2534,7 +2534,7 @@ func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2573,7 +2573,7 @@ func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 
 	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
@@ -2646,7 +2646,7 @@ func TestExtractBlockSigMerkleRoots_TruncatedGzipCausesReaderErr(t *testing.T) {
 	// Write a large amount of data so we have something to truncate
 	for i := range 100 {
 		line := mustJSON(t, map[string]any{
-			"type": "block_signature",
+			"type": constants.BlockSignatureTypeValue,
 			"data": map[string]any{"merkleRoot": hex.EncodeToString(bytes.Repeat([]byte{byte(i)}, 32))},
 		})
 		_, err = gw.Write([]byte(line + "\n"))
@@ -4531,7 +4531,7 @@ func TestVerifySnapshotWithSig_InvalidSignatureValueHex(t *testing.T) {
 	mr := hex.EncodeToString(root)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -4568,7 +4568,7 @@ func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -4613,7 +4613,7 @@ func TestVerifySnapshotWithSig_FullyValid(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -4659,7 +4659,7 @@ func TestVerifySnapshotWithSig_SignatureInvalid_NoError(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"merkleRoot": mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 

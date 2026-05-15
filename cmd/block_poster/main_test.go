@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -348,7 +349,7 @@ func createTestSnapshot(t *testing.T, dir, filename string, merkleRootHexes []st
 	gw := gzip.NewWriter(f)
 	for i, mrHex := range merkleRootHexes {
 		entry := map[string]any{
-			"type": "block_signature",
+			"type": constants.BlockSignatureTypeValue,
 			"data": map[string]any{
 				"blockNumber": i + 1,
 				"merkleRoot":  mrHex,

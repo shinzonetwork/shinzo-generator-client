@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 )
 
@@ -187,7 +188,7 @@ func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 			continue
 		}
 
-		if entry.Type != "block_signature" || entry.Data == nil { //nolint:goconst
+		if entry.Type != constants.BlockSignatureTypeValue || entry.Data == nil {
 			continue
 		}
 
