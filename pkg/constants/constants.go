@@ -6,5 +6,5 @@ const HeaderMagicValue = "DFKV"
 // NumberFieldValue is the string value "number" assigned to a field.
 const NumberFieldValue = "number"
 
-// BlockNumberFieldValue is the string value "blockNumber" assigned to a field.
+// BlockSignatureTypeValue the string value "block_signature" assigned to a type field.
 const BlockSignatureTypeValue = "block_signature"
