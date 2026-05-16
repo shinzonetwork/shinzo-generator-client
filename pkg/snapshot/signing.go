@@ -105,7 +105,7 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 
 	roots = make([][]byte, 0, len(docs))
 	for _, doc := range docs {
-		mrStr, ok := doc["merkleRoot"].(string)
+		mrStr, ok := doc[constants.MerkleRootKeyValue].(string)
 		if !ok || mrStr == "" {
 			continue
 		}
@@ -165,16 +165,16 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 	}
 
 	data := map[string]any{
-		"startBlock":          sig.StartBlock,
-		"endBlock":            sig.EndBlock,
-		"merkleRoot":          sig.MerkleRoot, //nolint:goconst
-		"blockCount":          sig.BlockCount,
-		"signatureType":       sig.SignatureType,
-		"signatureIdentity":   sig.SignatureIdentity,
-		"signatureValue":      sig.SignatureValue,
-		"snapshotFile":        sig.SnapshotFile,
-		"createdAt":           sig.CreatedAt,
-		"blockSigMerkleRoots": sig.BlockSigMerkleRoots,
+		"startBlock":                 sig.StartBlock,
+		"endBlock":                   sig.EndBlock,
+		constants.MerkleRootKeyValue: sig.MerkleRoot, //nolint:goconst
+		"blockCount":                 sig.BlockCount,
+		"signatureType":              sig.SignatureType,
+		"signatureIdentity":          sig.SignatureIdentity,
+		"signatureValue":             sig.SignatureValue,
+		"snapshotFile":               sig.SnapshotFile,
+		"createdAt":                  sig.CreatedAt,
+		"blockSigMerkleRoots":        sig.BlockSigMerkleRoots,
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
@@ -264,7 +264,7 @@ func parseSnapshotSignatureDoc(doc map[string]any) *SnapshotSignatureData {
 	if v, ok := doc["endBlock"].(int64); ok {
 		sig.EndBlock = v
 	}
-	if v, ok := doc["merkleRoot"].(string); ok {
+	if v, ok := doc[constants.MerkleRootKeyValue].(string); ok {
 		sig.MerkleRoot = v
 	}
 	if v, ok := doc["blockCount"].(int64); ok {

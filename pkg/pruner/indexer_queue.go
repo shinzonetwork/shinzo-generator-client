@@ -66,8 +66,8 @@ func (q *IndexerQueue) LoadFromFile(path string) (int, error) {
 		}
 		return 0, fmt.Errorf("failed to open queue file: %w", err)
 	}
-	defer func() { 
-		err = f.Close() 
+	defer func() {
+		err = f.Close()
 		if err != nil {
 			logger.Sugar.Warnf("Failed to close queue file: %v", err)
 		}

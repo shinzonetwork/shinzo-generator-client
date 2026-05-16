@@ -6,5 +6,8 @@ const HeaderMagicValue = "DFKV"
 // NumberFieldValue is the string value "number" assigned to a field.
 const NumberFieldValue = "number"
 
-// BlockSignatureTypeValue the string value "block_signature" assigned to a type field.
+// BlockSignatureTypeValue is the string value "block_signature" assigned to a type field.
 const BlockSignatureTypeValue = "block_signature"
+
+// MerkleRootKeyValue is the string value "merkleRoot" assigned to a key field.
+const MerkleRootKeyValue = "merkleRoot"

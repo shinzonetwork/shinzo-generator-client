@@ -192,7 +192,7 @@ func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 			continue
 		}
 
-		mrStr, ok := entry.Data["merkleRoot"].(string) //nolint:goconst
+		mrStr, ok := entry.Data[constants.MerkleRootKeyValue].(string)
 		if !ok || mrStr == "" {
 			continue
 		}
