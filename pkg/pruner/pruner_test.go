@@ -332,25 +332,45 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 }
 
-func TestRunPrune_NilQueue(_ *testing.T) {
+func TestRunPrune_NilQueue(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	_ = NewPruner(cfg, nil)
+	p := NewPruner(cfg, n, cols)
+	assert.Nil(t, p.queue)
 	// runPrune with nil queue calls filterBasedPrune which needs a node
+	ctx := t.Context()
+	err := p.runPrune(ctx)
+	assert.NoError(t, err)
 }
 
-func TestRunPrune_WithIndexerQueue(_ *testing.T) {
+func TestRunPrune_WithIndexerQueue(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, nil)
+	p := NewPruner(cfg, n, cols)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
-	_ = p // dispatch tested via runPrune type switch
+	assert.NotNil(t, p.queue)
+	// dispatch tested via runPrune type switch
+	ctx := t.Context()
+	err := p.runPrune(ctx)
+	assert.NoError(t, err)
 }
 
-func TestRunIndexerQueuePrune_BelowThreshold(_ *testing.T) {
+func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	_ = NewPruner(cfg, nil)
+	p := NewPruner(cfg, n, cols)
+	q := NewIndexerQueue()
+	p.SetQueue(q)
 	// Queue has 0 entries, below maxBlocks=100
+	assert.Zero(t, len(q.entries))
 	// This calls filterBasedPrune which needs node
+	ctx := t.Context()
+	err := p.runPrune(ctx)
+	assert.NoError(t, err)
 }
 
 // ─── Integration tests with real DefraDB node ───────────────────────────────
