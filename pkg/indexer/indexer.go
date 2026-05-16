@@ -400,7 +400,9 @@ func (i *ChainIndexer) StopIndexing() {
 
 	// Stop P2P network handler before closing the node
 	if i.networkHandler != nil {
-		_ = i.networkHandler.StopNetwork()
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultRetryDelay)
+		defer cancel()
+		_ = i.networkHandler.StopNetwork(&ctx)
 		i.networkHandler = nil
 	}
 

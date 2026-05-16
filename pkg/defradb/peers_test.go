@@ -324,7 +324,7 @@ func TestConnectToPeers(t *testing.T) {
 		peerString, errors := PeersIntoBootstrap(peers)
 		require.Len(t, errors, 0)
 
-		_ = connectToPeers(ctx, nil, peerString)
+		_ = connectToPeers(&ctx, nil, peerString)
 	})
 
 	t.Run("empty peers list", func(t *testing.T) {
@@ -332,7 +332,7 @@ func TestConnectToPeers(t *testing.T) {
 		peers := []string{}
 
 		// This should not panic even with nil node since there are no peers to connect to
-		err := connectToPeers(ctx, nil, peers)
+		err := connectToPeers(&ctx, nil, peers)
 
 		require.NoError(t, err)
 	})
@@ -365,7 +365,7 @@ func TestConnectToPeers(t *testing.T) {
 		}
 
 		// This should not panic and should return connection errors (since these are fake peers)
-		err = connectToPeers(ctx, testNode, peerStrings)
+		err = connectToPeers(&ctx, testNode, peerStrings)
 		require.Error(t, err)
 	})
 
@@ -383,7 +383,7 @@ func TestConnectToPeers(t *testing.T) {
 		peers := []string{}
 
 		// This should not panic and should return no errors
-		err = connectToPeers(ctx, testNode, peers)
+		err = connectToPeers(&ctx, testNode, peers)
 		require.NoError(t, err)
 	})
 
@@ -413,14 +413,14 @@ func TestConnectToPeers(t *testing.T) {
 		require.NoError(t, err)
 
 		// Now connect node2 to node1 using our connectToPeers function
-		err = connectToPeers(ctx, node2, node1PeerInfo)
+		err = connectToPeers(&ctx, node2, node1PeerInfo)
 		require.NoError(t, err)
 
 		// Test connecting node1 to node2 as well (bidirectional connection)
 		node2PeerInfo, err := node2.DB.PeerInfo(ctx)
 		require.NoError(t, err)
 
-		err = connectToPeers(ctx, node1, node2PeerInfo)
+		err = connectToPeers(&ctx, node1, node2PeerInfo)
 		require.NoError(t, err)
 	})
 }

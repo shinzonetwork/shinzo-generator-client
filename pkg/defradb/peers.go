@@ -60,12 +60,12 @@ func PeersIntoBootstrap(peers []client.PeerInfo) ([]string, []error) {
 	return bootstrapPeers, errors
 }
 
-func connectToPeers(ctx context.Context, defraNode *node.Node, peers []string) error {
+func connectToPeers(ctx *context.Context, defraNode *node.Node, peers []string) error {
 	if len(peers) == 0 {
 		return nil
 	}
 
-	err := defraNode.DB.Connect(ctx, peers)
+	err := defraNode.DB.Connect(*ctx, peers)
 	if err != nil {
 		return fmt.Errorf("error connecting to peer: %w", err)
 	}

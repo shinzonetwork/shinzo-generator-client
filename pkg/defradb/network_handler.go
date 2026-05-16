@@ -32,15 +32,14 @@ type NetworkHandler struct {
 	reconnectTicker *time.Ticker
 	reconnectStop   chan struct{}
 
-	// Context management
-	ctx    context.Context //nolint:containedctx // used for lifecycle management of background goroutines
+	// Context management // used for lifecycle management of background goroutines
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
 // NewNetworkHandler creates a new network handler.
-func NewNetworkHandler(defraNode *node.Node, cfg *config.Config) *NetworkHandler {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewNetworkHandler(ctx *context.Context, defraNode *node.Node, cfg *config.Config) *NetworkHandler {
+	_, cancel := context.WithCancel(*ctx)
 
 	peers := make(map[string]*PeerState)
 	for _, addr := range cfg.DefraDB.P2P.BootstrapPeers {
@@ -67,13 +66,12 @@ func NewNetworkHandler(defraNode *node.Node, cfg *config.Config) *NetworkHandler
 		networkActive:  false,
 		peers:          peers,
 		bootstrapPeers: cfg.DefraDB.P2P.BootstrapPeers,
-		ctx:            ctx,
 		cancel:         cancel,
 	}
 }
 
 // StartNetwork activates P2P networking and begins connection attempts.
-func (nh *NetworkHandler) StartNetwork() error {
+func (nh *NetworkHandler) StartNetwork(ctx *context.Context) error {
 	nh.peersMu.Lock()
 	defer nh.peersMu.Unlock()
 
@@ -86,7 +84,7 @@ func (nh *NetworkHandler) StartNetwork() error {
 
 	var connectedCount int
 	for addr := range nh.peers {
-		if err := nh.connectWithRetryLocked(addr); err != nil {
+		if err := nh.connectWithRetryLocked(ctx, addr); err != nil {
 			logger.Sugar.Warnf("Failed to connect to peer %s: %v", addr, err)
 		} else {
 			connectedCount++
@@ -95,14 +93,14 @@ func (nh *NetworkHandler) StartNetwork() error {
 
 	nh.networkActive = true
 
-	nh.startReconnectionLoop()
+	nh.startReconnectionLoop(ctx)
 
 	logger.Sugar.Infof("P2P network activated, connected to %d/%d peers", connectedCount, len(nh.peers))
 	return nil
 }
 
 // StopNetwork deactivates P2P networking gracefully.
-func (nh *NetworkHandler) StopNetwork() error {
+func (nh *NetworkHandler) StopNetwork(ctx *context.Context) error {
 	nh.peersMu.Lock()
 
 	if !nh.networkActive {
@@ -132,7 +130,7 @@ func (nh *NetworkHandler) StopNetwork() error {
 	nh.wg.Wait()
 
 	// Create new context for future use
-	nh.ctx, nh.cancel = context.WithCancel(context.Background())
+	*ctx, nh.cancel = context.WithCancel(context.Background())
 
 	logger.Sugar.Info("P2P network deactivated")
 	return nil
@@ -160,15 +158,15 @@ func (nh *NetworkHandler) SetHostRunning(running bool) {
 }
 
 // ToggleNetwork switches P2P networking on/off.
-func (nh *NetworkHandler) ToggleNetwork() error {
+func (nh *NetworkHandler) ToggleNetwork(ctx *context.Context) error {
 	if nh.IsNetworkActive() {
-		return nh.StopNetwork()
+		return nh.StopNetwork(ctx)
 	}
-	return nh.StartNetwork()
+	return nh.StartNetwork(ctx)
 }
 
 // connectWithRetryLocked attempts to connect to a peer with exponential backoff.
-func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
+func (nh *NetworkHandler) connectWithRetryLocked(ctx *context.Context, peerAddr string) error {
 	peer, exists := nh.peers[peerAddr]
 	if !exists {
 		return fmt.Errorf("peer not found: %s", peerAddr)
@@ -185,7 +183,7 @@ func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 		peer.RetryCount = attempt + 1
 
 		nh.peersMu.Unlock()
-		err := connectToPeers(nh.ctx, nh.node, []string{peerAddr})
+		err := connectToPeers(ctx, nh.node, []string{peerAddr})
 		nh.peersMu.Lock()
 
 		if err == nil {
@@ -199,9 +197,9 @@ func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 		peer.LastError = err
 
 		select {
-		case <-nh.ctx.Done():
+		case <-(*ctx).Done():
 			peer.State = StateDisconnected
-			return nh.ctx.Err()
+			return (*ctx).Err()
 		default:
 		}
 
@@ -212,10 +210,10 @@ func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 
 		nh.peersMu.Unlock()
 		select {
-		case <-nh.ctx.Done():
+		case <-(*ctx).Done():
 			nh.peersMu.Lock()
 			peer.State = StateDisconnected
-			return nh.ctx.Err()
+			return (*ctx).Err()
 		case <-time.After(delay):
 		}
 		nh.peersMu.Lock()
@@ -226,32 +224,33 @@ func (nh *NetworkHandler) connectWithRetryLocked(peerAddr string) error {
 }
 
 // startReconnectionLoop starts the background reconnection goroutine.
-func (nh *NetworkHandler) startReconnectionLoop() {
+func (nh *NetworkHandler) startReconnectionLoop(ctx *context.Context) {
 	if !nh.cfg.DefraDB.P2P.EnableAutoReconnect {
 		return
 	}
 	interval := time.Duration(nh.cfg.DefraDB.P2P.ReconnectIntervalMs) * time.Millisecond
 	nh.reconnectStop = make(chan struct{})
 	nh.reconnectTicker = time.NewTicker(interval)
+	detachedCtx := context.WithoutCancel(*ctx)
 	nh.wg.Go(func() {
 		defer nh.reconnectTicker.Stop()
 		for {
 			select {
 			case <-nh.reconnectStop:
 				return
-			case <-nh.ctx.Done():
+			case <-detachedCtx.Done():
 				return
 			case <-nh.reconnectTicker.C:
-				nh.checkPeerHealth()
-				nh.reconnectDisconnectedPeers()
+				nh.checkPeerHealth(&detachedCtx)
+				nh.reconnectDisconnectedPeers(&detachedCtx)
 			}
 		}
 	})
-	nh.startNoPeersEventListener()
+	nh.startNoPeersEventListener(ctx)
 }
 
 // startNoPeersEventListener subscribes to P2PNoPeers events and triggers immediate reconnection.
-func (nh *NetworkHandler) startNoPeersEventListener() {
+func (nh *NetworkHandler) startNoPeersEventListener(ctx *context.Context) {
 	if nh.node == nil || nh.node.DB == nil {
 		return
 	}
@@ -260,19 +259,20 @@ func (nh *NetworkHandler) startNoPeersEventListener() {
 		logger.Sugar.Warnf("Failed to subscribe to P2PNoPeers events: %v", err)
 		return
 	}
+	detachedCtx := context.WithoutCancel(*ctx)
 	nh.wg.Go(func() {
 		for {
 			select {
 			case <-nh.reconnectStop:
 				return
-			case <-nh.ctx.Done():
+			case <-detachedCtx.Done():
 				return
 			case msg, ok := <-sub.Message():
 				if !ok {
 					return
 				}
 				if _, ok := msg.Data.(event.P2PNoPeers); ok {
-					nh.forceReconnectAll()
+					nh.forceReconnectAll(&detachedCtx)
 				}
 			}
 		}
@@ -281,7 +281,7 @@ func (nh *NetworkHandler) startNoPeersEventListener() {
 }
 
 // forceReconnectAll marks all peers as disconnected and triggers immediate reconnection.
-func (nh *NetworkHandler) forceReconnectAll() {
+func (nh *NetworkHandler) forceReconnectAll(ctx *context.Context) {
 	nh.peersMu.Lock()
 	for _, peer := range nh.peers {
 		if peer.State == StateConnected {
@@ -291,16 +291,16 @@ func (nh *NetworkHandler) forceReconnectAll() {
 		}
 	}
 	nh.peersMu.Unlock()
-	nh.reconnectDisconnectedPeers()
+	nh.reconnectDisconnectedPeers(ctx)
 }
 
 // checkPeerHealth verifies that peers we think are connected are still connected.
-func (nh *NetworkHandler) checkPeerHealth() {
+func (nh *NetworkHandler) checkPeerHealth(ctx *context.Context) {
 	if nh.node == nil || nh.node.DB == nil {
 		return
 	}
 
-	peers, err := nh.node.DB.ActivePeers(nh.ctx)
+	peers, err := nh.node.DB.ActivePeers(*ctx)
 	if err != nil {
 		logger.Sugar.Debugf("Failed to get peer info from DefraDB: %v", err)
 		return
@@ -352,7 +352,7 @@ func extractPeerID(multiaddr string) string {
 }
 
 // reconnectDisconnectedPeers attempts to reconnect to all disconnected or failed peers.
-func (nh *NetworkHandler) reconnectDisconnectedPeers() {
+func (nh *NetworkHandler) reconnectDisconnectedPeers(ctx *context.Context) {
 	nh.peersMu.RLock()
 	disconnectedPeers := []string{}
 	for addr, state := range nh.peers {
@@ -367,15 +367,15 @@ func (nh *NetworkHandler) reconnectDisconnectedPeers() {
 	logger.Sugar.Debugf("Attempting to reconnect to %d disconnected peers", len(disconnectedPeers))
 	for _, peerAddr := range disconnectedPeers {
 		nh.wg.Add(1)
-		go func(addr string) {
+		go func(ctx *context.Context, addr string) {
 			defer nh.wg.Done()
-			nh.attemptReconnect(addr)
-		}(peerAddr)
+			nh.attemptReconnect(ctx, addr)
+		}(ctx, peerAddr)
 	}
 }
 
 // attemptReconnect attempts to reconnect to a single peer.
-func (nh *NetworkHandler) attemptReconnect(peerAddr string) {
+func (nh *NetworkHandler) attemptReconnect(ctx *context.Context, peerAddr string) {
 	nh.peersMu.Lock()
 	defer nh.peersMu.Unlock()
 	peer, exists := nh.peers[peerAddr]
@@ -386,13 +386,13 @@ func (nh *NetworkHandler) attemptReconnect(peerAddr string) {
 		return
 	}
 	peer.State = StateReconnecting
-	if err := nh.connectWithRetryLocked(peerAddr); err != nil {
+	if err := nh.connectWithRetryLocked(ctx, peerAddr); err != nil {
 		logger.Sugar.Warnf("Reconnection to peer %s failed: %v", peerAddr, err)
 	}
 }
 
 // AddPeer adds a new peer at runtime.
-func (nh *NetworkHandler) AddPeer(peerAddr string) error {
+func (nh *NetworkHandler) AddPeer(ctx *context.Context, peerAddr string) error {
 	nh.peersMu.Lock()
 	defer nh.peersMu.Unlock()
 	if _, exists := nh.peers[peerAddr]; exists {
@@ -404,8 +404,9 @@ func (nh *NetworkHandler) AddPeer(peerAddr string) error {
 	}
 	logger.Sugar.Infof("Added new peer: %s", peerAddr)
 	if nh.networkActive {
+		detachedCtx := context.WithoutCancel(*ctx)
 		nh.wg.Go(func() {
-			nh.attemptReconnect(peerAddr)
+			nh.attemptReconnect(&detachedCtx, peerAddr)
 		})
 	}
 	return nil

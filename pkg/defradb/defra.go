@@ -439,10 +439,10 @@ func applySchemaWithCollectionExistsTolerance(ctx context.Context, defraNode *no
 	return fmt.Errorf("failed to apply schema: %w", err)
 }
 
-func initializeNetworkHandler(defraNode *node.Node, cfg *config.Config) *NetworkHandler {
-	networkHandler := NewNetworkHandler(defraNode, cfg)
+func initializeNetworkHandler(ctx *context.Context, defraNode *node.Node, cfg *config.Config) *NetworkHandler {
+	networkHandler := NewNetworkHandler(ctx, defraNode, cfg)
 	if cfg.DefraDB.P2P.Enabled {
-		if err := networkHandler.StartNetwork(); err != nil {
+		if err := networkHandler.StartNetwork(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start P2P network: %v", err)
 		}
 	} else {
@@ -492,7 +492,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 		return nil, nil, fmt.Errorf("failed to add collections of interest %v: %w", collectionsOfInterest, err)
 	}
 
-	networkHandler := initializeNetworkHandler(defraNode, cfg)
+	networkHandler := initializeNetworkHandler(&ctx, defraNode, cfg)
 
 	return defraNode, networkHandler, nil
 }
@@ -628,7 +628,7 @@ func (c *Client) Start(ctx context.Context) error {
 		return err
 	}
 
-	c.network = initializeNetworkHandler(c.node, c.config)
+	c.network = initializeNetworkHandler(&ctx, c.node, c.config)
 
 	return nil
 }
