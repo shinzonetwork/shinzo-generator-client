@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 )
 
 const (
@@ -65,7 +66,12 @@ func (q *IndexerQueue) LoadFromFile(path string) (int, error) {
 		}
 		return 0, fmt.Errorf("failed to open queue file: %w", err)
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { 
+		err = f.Close() 
+		if err != nil {
+			logger.Sugar.Warnf("Failed to close queue file: %v", err)
+		}
+	}()
 
 	var snap indexerQueueSnapshot
 	if err := gob.NewDecoder(f).Decode(&snap); err != nil {
@@ -102,7 +108,10 @@ func (q *IndexerQueue) Save() error {
 	q.mu.Unlock()
 
 	if len(snap.Entries) == 0 {
-		_ = os.Remove(q.filePath)
+		err := os.Remove(q.filePath)
+		if err != nil {
+			logger.Sugar.Warnf("Failed to remove queue file: %v", err)
+		}
 		return nil
 	}
 
@@ -113,8 +122,14 @@ func (q *IndexerQueue) Save() error {
 	}
 
 	if err := gob.NewEncoder(f).Encode(snap); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpPath)
+		err := f.Close()
+		if err != nil {
+			logger.Sugar.Warnf("Failed to close temp file: %v", err)
+		}
+		err = os.Remove(tmpPath)
+		if err != nil {
+			logger.Sugar.Warnf("Failed to remove temp file: %v", err)
+		}
 		return fmt.Errorf("failed to encode queue: %w", err)
 	}
 
