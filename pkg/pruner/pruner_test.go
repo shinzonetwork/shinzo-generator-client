@@ -885,7 +885,7 @@ func TestStartStop_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
-func TestGetMetrics_Concurrent(_ *testing.T) {
+func TestGetMetrics_Concurrent(t *testing.T) {
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
 	p := NewPruner(cfg, nil)
 
@@ -893,7 +893,7 @@ func TestGetMetrics_Concurrent(_ *testing.T) {
 	for range 10 {
 		wg.Go(func() {
 			m := p.GetMetrics()
-			_ = m.IsRunning
+			assert.False(t, m.IsRunning)
 		})
 	}
 	wg.Wait()
