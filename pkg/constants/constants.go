@@ -14,3 +14,6 @@ const MerkleRootKeyValue = "merkleRoot"
 
 // BlockHashKeyValue is the string value "blockHash" assigned to a key field.
 const BlockHashKeyValue = "blockHash"
+
+// BlockNumberKeyValue is the string value "blockNumber" assigned to a key field.
+const BlockNumberKeyValue = "blockNumber"

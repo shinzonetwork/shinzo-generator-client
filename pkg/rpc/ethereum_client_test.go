@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -923,20 +923,20 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 		switch method {
 		case ethGetTransactionReceipt:
 			return map[string]any{
-				"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
-				"transactionIndex":  "0x0",
-				constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":       "0x64",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"cumulativeGasUsed": "0x5208",
-				"gasUsed":           "0x5208",
-				"contractAddress":   nil,
-				"logs":              []any{},
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"status":            "0x1",
-				"effectiveGasPrice": "0x4a817c800",
-				"type":              "0x0",
+				"transactionHash":           "0x0000000000000000000000000000000000000000000000000000000000000abc",
+				"transactionIndex":          "0x0",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"blockNumber":               "0x64",
+				"from":                      "0x0000000000000000000000000000000000000001",
+				"to":                        "0x0000000000000000000000000000000000000002",
+				"cumulativeGasUsed":         "0x5208",
+				"gasUsed":                   "0x5208",
+				"contractAddress":           nil,
+				"logs":                      []any{},
+				"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+				"status":                    "0x1",
+				"effectiveGasPrice":         "0x4a817c800",
+				"type":                      "0x0",
 			}, nil
 		default:
 			return "0x1", nil
@@ -983,17 +983,17 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
-					"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
-					"transactionIndex":  "0x0",
-					constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-					"blockNumber":       "0x64",
-					"cumulativeGasUsed": "0x5208",
-					"gasUsed":           "0x5208",
-					"logs":              []any{},
-					"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-					"status":            "0x1",
-					"effectiveGasPrice": "0x4a817c800",
-					"type":              "0x0",
+					"transactionHash":           "0x0000000000000000000000000000000000000000000000000000000000000abc",
+					"transactionIndex":          "0x0",
+					constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+					"blockNumber":               "0x64",
+					"cumulativeGasUsed":         "0x5208",
+					"gasUsed":                   "0x5208",
+					"logs":                      []any{},
+					"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+					"status":                    "0x1",
+					"effectiveGasPrice":         "0x4a817c800",
+					"type":                      "0x0",
 				},
 			}, nil
 		default:

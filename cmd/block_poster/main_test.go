@@ -351,8 +351,8 @@ func createTestSnapshot(t *testing.T, dir, filename string, merkleRootHexes []st
 		entry := map[string]any{
 			"type": constants.BlockSignatureTypeValue,
 			"data": map[string]any{
-				"blockNumber": i + 1,
-				"merkleRoot":  mrHex,
+				constants.BlockNumberKeyValue: i + 1,
+				constants.MerkleRootKeyValue:  mrHex,
 			},
 		}
 		line, err := json.Marshal(entry)

@@ -1019,21 +1019,21 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 // The transactionsRoot is set to a non-empty value so go-ethereum accepts it.
 func fullBlockResponseWithTx(number string) map[string]any {
 	tx := map[string]any{
-		"hash":             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"nonce":            "0x0",
-		constants.BlockHashKeyValue:        "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"blockNumber":      number,
-		"transactionIndex": "0x0",
-		"from":             "0x0000000000000000000000000000000000000001",
-		"to":               "0x0000000000000000000000000000000000000002",
-		"value":            "0x3e8",
-		"gas":              "0x5208",
-		"gasPrice":         "0x3b9aca00",
-		"input":            "0x",
-		"v":                "0x1b",
-		"r":                "0x1111111111111111111111111111111111111111111111111111111111111111",
-		"s":                "0x2222222222222222222222222222222222222222222222222222222222222222",
-		"type":             "0x0",
+		"hash":                      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"nonce":                     "0x0",
+		constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"blockNumber":               number,
+		"transactionIndex":          "0x0",
+		"from":                      "0x0000000000000000000000000000000000000001",
+		"to":                        "0x0000000000000000000000000000000000000002",
+		"value":                     "0x3e8",
+		"gas":                       "0x5208",
+		"gasPrice":                  "0x3b9aca00",
+		"input":                     "0x",
+		"v":                         "0x1b",
+		"r":                         "0x1111111111111111111111111111111111111111111111111111111111111111",
+		"s":                         "0x2222222222222222222222222222222222222222222222222222222222222222",
+		"type":                      "0x0",
 	}
 
 	block := map[string]any{
@@ -3240,19 +3240,19 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 		case ethGetTransactionReceipt:
 			// Return a valid receipt with all required go-ethereum fields.
 			return map[string]any{
-				"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":       "0x186a0",
-				"transactionIndex":  "0x0",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"gasUsed":           "0x5208",
-				"cumulativeGasUsed": "0x5208",
-				"contractAddress":   nil,
-				"status":            "0x1",
-				"type":              "0x0",
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"logs":              []any{},
+				"transactionHash":           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"blockNumber":               "0x186a0",
+				"transactionIndex":          "0x0",
+				"from":                      "0x0000000000000000000000000000000000000001",
+				"to":                        "0x0000000000000000000000000000000000000002",
+				"gasUsed":                   "0x5208",
+				"cumulativeGasUsed":         "0x5208",
+				"contractAddress":           nil,
+				"status":                    "0x1",
+				"type":                      "0x0",
+				"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+				"logs":                      []any{},
 			}, nil
 		default:
 			return "0x1", nil
@@ -4017,12 +4017,12 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 			// Slow response to give time for cancellation.
 			time.Sleep(500 * time.Millisecond)
 			return map[string]any{
-				"transactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				"blockNumber":     "0x3e8",
-				constants.BlockHashKeyValue:       "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"gasUsed":         "0x5208",
-				"status":          "0x1",
-				"logs":            []any{},
+				"transactionHash":           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"blockNumber":               "0x3e8",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"gasUsed":                   "0x5208",
+				"status":                    "0x1",
+				"logs":                      []any{},
 			}, nil
 		default:
 			return "0x1", nil
@@ -4832,20 +4832,20 @@ func TestFetchAndProcessBlock_WithTxAndBatchReceipts(t *testing.T) {
 		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
-					"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-					"transactionIndex":  "0x0",
-					constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-					"blockNumber":       "0xbbb0",
-					"from":              "0x0000000000000000000000000000000000000001",
-					"to":                "0x0000000000000000000000000000000000000002",
-					"cumulativeGasUsed": "0x5208",
-					"gasUsed":           "0x5208",
-					"contractAddress":   nil,
-					"logs":              []any{},
-					"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-					"status":            "0x1",
-					"effectiveGasPrice": "0x4a817c800",
-					"type":              "0x0",
+					"transactionHash":           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"transactionIndex":          "0x0",
+					constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+					"blockNumber":               "0xbbb0",
+					"from":                      "0x0000000000000000000000000000000000000001",
+					"to":                        "0x0000000000000000000000000000000000000002",
+					"cumulativeGasUsed":         "0x5208",
+					"gasUsed":                   "0x5208",
+					"contractAddress":           nil,
+					"logs":                      []any{},
+					"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+					"status":                    "0x1",
+					"effectiveGasPrice":         "0x4a817c800",
+					"type":                      "0x0",
 				},
 			}, nil
 		default:
@@ -4978,20 +4978,20 @@ func TestFetchAndProcessBlock_IndividualReceiptSuccess(t *testing.T) {
 			return nil, fmt.Errorf("not supported") // Force fallback.
 		case ethGetTransactionReceipt:
 			return map[string]any{
-				"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				"transactionIndex":  "0x0",
-				constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":       "0xccc0",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"cumulativeGasUsed": "0x5208",
-				"gasUsed":           "0x5208",
-				"contractAddress":   nil,
-				"logs":              []any{},
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"status":            "0x1",
-				"effectiveGasPrice": "0x4a817c800",
-				"type":              "0x0",
+				"transactionHash":           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"transactionIndex":          "0x0",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"blockNumber":               "0xccc0",
+				"from":                      "0x0000000000000000000000000000000000000001",
+				"to":                        "0x0000000000000000000000000000000000000002",
+				"cumulativeGasUsed":         "0x5208",
+				"gasUsed":                   "0x5208",
+				"contractAddress":           nil,
+				"logs":                      []any{},
+				"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+				"status":                    "0x1",
+				"effectiveGasPrice":         "0x4a817c800",
+				"type":                      "0x0",
 			}, nil
 		default:
 			return "0x1", nil
@@ -5023,21 +5023,21 @@ func fullBlockResponseWithMultipleTxs(number string, count int) map[string]any {
 	for i := range count {
 		txHash := fmt.Sprintf("0x%064x", i+1) // unique tx hashes
 		txs[i] = map[string]any{
-			"hash":             txHash,
-			"nonce":            fmt.Sprintf("0x%x", i),
-			constants.BlockHashKeyValue:        "0x0000000000000000000000000000000000000000000000000000000000000001",
-			"blockNumber":      number,
-			"transactionIndex": fmt.Sprintf("0x%x", i),
-			"from":             "0x0000000000000000000000000000000000000001",
-			"to":               "0x0000000000000000000000000000000000000002",
-			"value":            "0x3e8",
-			"gas":              "0x5208",
-			"gasPrice":         "0x3b9aca00",
-			"input":            "0x",
-			"v":                "0x1b",
-			"r":                "0x1111111111111111111111111111111111111111111111111111111111111111",
-			"s":                "0x2222222222222222222222222222222222222222222222222222222222222222",
-			"type":             "0x0",
+			"hash":                      txHash,
+			"nonce":                     fmt.Sprintf("0x%x", i),
+			constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+			"blockNumber":               number,
+			"transactionIndex":          fmt.Sprintf("0x%x", i),
+			"from":                      "0x0000000000000000000000000000000000000001",
+			"to":                        "0x0000000000000000000000000000000000000002",
+			"value":                     "0x3e8",
+			"gas":                       "0x5208",
+			"gasPrice":                  "0x3b9aca00",
+			"input":                     "0x",
+			"v":                         "0x1b",
+			"r":                         "0x1111111111111111111111111111111111111111111111111111111111111111",
+			"s":                         "0x2222222222222222222222222222222222222222222222222222222222222222",
+			"type":                      "0x0",
 		}
 	}
 

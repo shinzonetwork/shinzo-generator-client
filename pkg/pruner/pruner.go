@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -355,7 +356,7 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 
 	// Dependent collections first, block collection last
 	for _, colName := range p.collections.DependentCollections {
-		docIDs, err := p.queryOldestDocIDs(ctx, colName, "blockNumber", endBlock)
+		docIDs, err := p.queryOldestDocIDs(ctx, colName, constants.BlockNumberKeyValue, endBlock)
 		if err != nil {
 			logger.Sugar.Warnf("pruneBlockRange: query failed for %s (skipping): %v", colName, err)
 			continue

@@ -660,8 +660,8 @@ func TestExtractBlockSigMerkleRoots_PlainJSONL(t *testing.T) {
 	mr2 := hexRoot("root2_data_bytes")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr1, "blockNumber": 1000}}),
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr2, "blockNumber": 1001}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr1, constants.BlockNumberKeyValue: 1000}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr2, constants.BlockNumberKeyValue: 1001}}),
 	}
 
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
@@ -827,7 +827,7 @@ func TestExtractBlockSigMerkleRoots_MultipleValidRootsInOrder(t *testing.T) {
 	for i, mr := range mrs {
 		lines = append(lines, mustJSON(t, map[string]any{
 			"type": constants.BlockSignatureTypeValue,
-			"data": map[string]any{constants.MerkleRootKeyValue: mr, "blockNumber": 1000 + i},
+			"data": map[string]any{constants.MerkleRootKeyValue: mr, constants.BlockNumberKeyValue: 1000 + i},
 		}))
 	}
 
@@ -1657,7 +1657,7 @@ func TestQueryDocIDs_Transactions(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, "blockNumber", 200, 202)
+	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, constants.BlockNumberKeyValue, 200, 202)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 3, "should find 3 transaction doc IDs")
 }
@@ -1670,7 +1670,7 @@ func TestQueryDocIDs_Logs(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	logDocIDs, err := s.queryDocIDs(ctx, testLogCollection, "blockNumber", 300, 301)
+	logDocIDs, err := s.queryDocIDs(ctx, testLogCollection, constants.BlockNumberKeyValue, 300, 301)
 	require.NoError(t, err)
 	assert.Len(t, logDocIDs, 2, "should find 2 log doc IDs")
 }
@@ -2191,7 +2191,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 5, "should find 5 block doc IDs after import")
 
-	txDocIDs, err := s2.queryDocIDs(ctx, testTransactionCollection, "blockNumber", 100, 104)
+	txDocIDs, err := s2.queryDocIDs(ctx, testTransactionCollection, constants.BlockNumberKeyValue, 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 5, "should find 5 transaction doc IDs after import")
 }
@@ -3470,7 +3470,7 @@ func TestQueryDocIDs_AccessListEntry(t *testing.T) {
 	ctx := context.Background()
 
 	// AccessListEntry docs may or may not exist depending on test transaction data
-	docIDs, err := s.queryDocIDs(ctx, testAccessListCollection, "blockNumber", 600, 601)
+	docIDs, err := s.queryDocIDs(ctx, testAccessListCollection, constants.BlockNumberKeyValue, 600, 601)
 	require.NoError(t, err)
 	// Just verify no error; count depends on test data
 	_ = docIDs
@@ -3484,7 +3484,7 @@ func TestQueryDocIDs_BlockSignature(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	docIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, "blockNumber", 700, 701)
+	docIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, constants.BlockNumberKeyValue, 700, 701)
 	require.NoError(t, err)
 	_ = docIDs
 }
@@ -3827,11 +3827,11 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 	require.NoError(t, err)
 
 	data := map[string]any{
-		"blockNumber":                blockNumber,
-		constants.BlockHashKeyValue:                  deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
-		constants.MerkleRootKeyValue: merkleRoot,
-		"cidCount":                   5,
-		"cids":                       []string{"cidA", "cidB"},
+		constants.BlockNumberKeyValue: blockNumber,
+		constants.BlockHashKeyValue:   deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
+		constants.MerkleRootKeyValue:  merkleRoot,
+		"cidCount":                    5,
+		"cids":                        []string{"cidA", "cidB"},
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
@@ -4433,12 +4433,12 @@ func TestQueryDocIDs_WithIdentityBlocks(t *testing.T) {
 	assert.Len(t, blockDocIDs, 3)
 
 	// Query Transaction docs
-	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, "blockNumber", 400, 402)
+	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, constants.BlockNumberKeyValue, 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 3)
 
 	// Query BlockSignature docs (should exist with identity)
-	sigDocIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, "blockNumber", 400, 402)
+	sigDocIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, constants.BlockNumberKeyValue, 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, sigDocIDs, 3, "should have 3 block signature docs")
 }
