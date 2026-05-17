@@ -1021,7 +1021,7 @@ func fullBlockResponseWithTx(number string) map[string]any {
 	tx := map[string]any{
 		"hash":             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"nonce":            "0x0",
-		"blockHash":        "0x0000000000000000000000000000000000000000000000000000000000000001",
+		constants.BlockHashKeyValue:        "0x0000000000000000000000000000000000000000000000000000000000000001",
 		"blockNumber":      number,
 		"transactionIndex": "0x0",
 		"from":             "0x0000000000000000000000000000000000000001",
@@ -3241,7 +3241,7 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 			// Return a valid receipt with all required go-ethereum fields.
 			return map[string]any{
 				"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
+				constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 				"blockNumber":       "0x186a0",
 				"transactionIndex":  "0x0",
 				"from":              "0x0000000000000000000000000000000000000001",
@@ -4019,7 +4019,7 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 			return map[string]any{
 				"transactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				"blockNumber":     "0x3e8",
-				"blockHash":       "0x0000000000000000000000000000000000000000000000000000000000000001",
+				constants.BlockHashKeyValue:       "0x0000000000000000000000000000000000000000000000000000000000000001",
 				"gasUsed":         "0x5208",
 				"status":          "0x1",
 				"logs":            []any{},
@@ -4834,7 +4834,7 @@ func TestFetchAndProcessBlock_WithTxAndBatchReceipts(t *testing.T) {
 				map[string]any{
 					"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 					"transactionIndex":  "0x0",
-					"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
+					constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 					"blockNumber":       "0xbbb0",
 					"from":              "0x0000000000000000000000000000000000000001",
 					"to":                "0x0000000000000000000000000000000000000002",
@@ -4980,7 +4980,7 @@ func TestFetchAndProcessBlock_IndividualReceiptSuccess(t *testing.T) {
 			return map[string]any{
 				"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				"transactionIndex":  "0x0",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
+				constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 				"blockNumber":       "0xccc0",
 				"from":              "0x0000000000000000000000000000000000000001",
 				"to":                "0x0000000000000000000000000000000000000002",
@@ -5025,7 +5025,7 @@ func fullBlockResponseWithMultipleTxs(number string, count int) map[string]any {
 		txs[i] = map[string]any{
 			"hash":             txHash,
 			"nonce":            fmt.Sprintf("0x%x", i),
-			"blockHash":        "0x0000000000000000000000000000000000000000000000000000000000000001",
+			constants.BlockHashKeyValue:        "0x0000000000000000000000000000000000000000000000000000000000000001",
 			"blockNumber":      number,
 			"transactionIndex": fmt.Sprintf("0x%x", i),
 			"from":             "0x0000000000000000000000000000000000000001",

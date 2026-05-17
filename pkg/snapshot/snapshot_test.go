@@ -3828,7 +3828,7 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 
 	data := map[string]any{
 		"blockNumber":                blockNumber,
-		"blockHash":                  deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
+		constants.BlockHashKeyValue:                  deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
 		constants.MerkleRootKeyValue: merkleRoot,
 		"cidCount":                   5,
 		"cids":                       []string{"cidA", "cidB"},

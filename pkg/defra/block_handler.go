@@ -458,7 +458,7 @@ func (h *BlockHandler) buildTransactionDocument(ctx context.Context, tx *types.T
 	data := map[string]any{
 		"hash":                 tx.Hash,
 		"blockNumber":          txBlockNum,   //nolint:goconst
-		"blockHash":            tx.BlockHash, //nolint:goconst
+		constants.BlockHashKeyValue:            tx.BlockHash, 
 		"transactionIndex":     tx.TransactionIndex,
 		"from":                 tx.From,
 		"to":                   tx.To,
@@ -492,7 +492,7 @@ func (h *BlockHandler) buildLogDocument(ctx context.Context, log *types.Log, blo
 		"blockNumber":      logBlockNum,
 		"transactionHash":  log.TransactionHash,
 		"transactionIndex": log.TransactionIndex,
-		"blockHash":        log.BlockHash,
+		constants.BlockHashKeyValue:        log.BlockHash,
 		"logIndex":         log.LogIndex,
 		"removed":          fmt.Sprintf("%v", log.Removed),
 		"_transactionID":   txID,
@@ -516,7 +516,7 @@ func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessLi
 func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig *node.BlockSignature, blockHash string, blockNumber int64, col client.Collection, sortedCIDStrings []string) (*client.Document, error) {
 	data := map[string]any{
 		"blockNumber":       blockNumber,
-		"blockHash":         blockHash,
+		constants.BlockHashKeyValue:         blockHash,
 		"merkleRoot":        hex.EncodeToString(blockSig.MerkleRoot),
 		"cidCount":          blockSig.CIDCount,
 		"cids":              sortedCIDStrings,

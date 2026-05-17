@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -924,7 +925,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 			return map[string]any{
 				"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
 				"transactionIndex":  "0x0",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
+				constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 				"blockNumber":       "0x64",
 				"from":              "0x0000000000000000000000000000000000000001",
 				"to":                "0x0000000000000000000000000000000000000002",
@@ -984,7 +985,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 				map[string]any{
 					"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
 					"transactionIndex":  "0x0",
-					"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
+					constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 					"blockNumber":       "0x64",
 					"cumulativeGasUsed": "0x5208",
 					"gasUsed":           "0x5208",

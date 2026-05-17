@@ -80,7 +80,7 @@ func TestGetAllBlockLogs(t *testing.T) {
 	if !ok || len(blockHash) == 0 {
 		t.Fatalf("Block hash missing or empty in block: %v", block)
 	}
-	result := MakeQuery(t, logsQueryPath, "GetAllBlockLogs", map[string]any{"blockHash": blockHash})
+	result := MakeQuery(t, logsQueryPath, "GetAllBlockLogs", map[string]any{constants.BlockHashKeyValue: blockHash})
 	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
 	if !ok {
 		t.Errorf("No logs returned for blockHash %v: %v", blockHash, result)
@@ -92,8 +92,8 @@ func TestGetAllBlockLogs(t *testing.T) {
 			t.Errorf("Log is not a map: %v", l)
 			continue
 		}
-		if logMap["blockHash"] != nil && logMap["blockHash"] != blockHash {
-			t.Errorf("Log blockHash does not match: got %v, want %v", logMap["blockHash"], blockHash)
+		if logMap[constants.BlockHashKeyValue] != nil && logMap[constants.BlockHashKeyValue] != blockHash {
+			t.Errorf("Log blockHash does not match: got %v, want %v", logMap[constants.BlockHashKeyValue], blockHash)
 		}
 		assertLogHasTopics(t, logMap)
 	}
