@@ -167,7 +167,7 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 	data := map[string]any{
 		"startBlock":                 sig.StartBlock,
 		"endBlock":                   sig.EndBlock,
-		constants.MerkleRootKeyValue: sig.MerkleRoot, //nolint:goconst
+		constants.MerkleRootKeyValue: sig.MerkleRoot,
 		"blockCount":                 sig.BlockCount,
 		"signatureType":              sig.SignatureType,
 		"signatureIdentity":          sig.SignatureIdentity,
