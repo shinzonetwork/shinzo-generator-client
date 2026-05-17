@@ -40,7 +40,7 @@ const timeout = 10 * time.Second
 func testCollections() CollectionConfig {
 	return CollectionConfig{
 		BlockCollection:      "TestBlock",
-		BlockNumberField:     "number",
+		BlockNumberField:     constants.NumberFieldValue,
 		DependentCollections: []string{"TestTx"},
 	}
 }
@@ -261,7 +261,7 @@ func TestExtractBlockNumber(t *testing.T) {
 	t.Run("blocks with data ([]interface{})", func(t *testing.T) {
 		data := map[string]any{
 			constants.CollectionBlock: []any{
-				map[string]any{"number": float64(42)},
+				map[string]any{constants.NumberFieldValue: float64(42)},
 			},
 		}
 		result, err := p.extractBlockNumber(data)
@@ -272,7 +272,7 @@ func TestExtractBlockNumber(t *testing.T) {
 	t.Run("blocks with typed map array", func(t *testing.T) {
 		data := map[string]any{
 			constants.CollectionBlock: []map[string]any{
-				{"number": float64(99)},
+				{constants.NumberFieldValue: float64(99)},
 			},
 		}
 		result, err := p.extractBlockNumber(data)
@@ -554,17 +554,17 @@ func TestQueryOldestDocIDs(t *testing.T) {
 	insertTestBlock(t, n, 3, 0)
 
 	// Query for blocks with number <= 2
-	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", "number", 2)
+	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 2)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(docIDs))
 
 	// Query for blocks with number <= 0 (none)
-	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", "number", 0)
+	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(docIDs))
 
 	// Query for all blocks
-	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", "number", 100)
+	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 100)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(docIDs))
 }
@@ -583,7 +583,7 @@ func TestPurgeByDocIDs(t *testing.T) {
 	assert.Equal(t, 2, countDocs(t, n, "TestBlock"))
 
 	// Get docIDs via queryOldestDocIDs (same format PurgeByDocIDs expects)
-	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", "number", 1)
+	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 1)
 	require.NoError(t, err)
 	require.Len(t, docIDs, 1)
 
@@ -735,7 +735,7 @@ func TestPurgeFromDrainResult(t *testing.T) {
 	insertTestBlock(t, n, 2, 0)
 
 	// Get docIDs via queryOldestDocIDs (same format PurgeByDocIDs expects)
-	blockDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", "number", 1)
+	blockDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 1)
 	require.NoError(t, err)
 	require.Len(t, blockDocIDs, 1)
 

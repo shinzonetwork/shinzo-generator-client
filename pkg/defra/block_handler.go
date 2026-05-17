@@ -428,26 +428,26 @@ func (h *BlockHandler) trackSingleTxnDocIDs(ctx context.Context, blockInt int64,
 // buildBlockDocument creates a client.Document for a block.
 func (h *BlockHandler) buildBlockDocument(ctx context.Context, block *types.Block, blockInt int64, col client.Collection) (*client.Document, error) {
 	data := map[string]any{
-		"hash":             block.Hash,
-		"number":           blockInt, //nolint:goconst
-		"timestamp":        block.Timestamp,
-		"parentHash":       block.ParentHash,
-		"difficulty":       block.Difficulty,
-		"totalDifficulty":  block.TotalDifficulty,
-		"gasUsed":          block.GasUsed,
-		"gasLimit":         block.GasLimit,
-		"baseFeePerGas":    block.BaseFeePerGas,
-		"nonce":            block.Nonce,
-		"miner":            block.Miner,
-		"size":             block.Size,
-		"stateRoot":        block.StateRoot,
-		"sha3Uncles":       block.Sha3Uncles,
-		"transactionsRoot": block.TransactionsRoot,
-		"receiptsRoot":     block.ReceiptsRoot,
-		"logsBloom":        block.LogsBloom,
-		"extraData":        block.ExtraData,
-		"mixHash":          block.MixHash,
-		"uncles":           block.Uncles,
+		"hash":                     block.Hash,
+		constants.NumberFieldValue: blockInt,
+		"timestamp":                block.Timestamp,
+		"parentHash":               block.ParentHash,
+		"difficulty":               block.Difficulty,
+		"totalDifficulty":          block.TotalDifficulty,
+		"gasUsed":                  block.GasUsed,
+		"gasLimit":                 block.GasLimit,
+		"baseFeePerGas":            block.BaseFeePerGas,
+		"nonce":                    block.Nonce,
+		"miner":                    block.Miner,
+		"size":                     block.Size,
+		"stateRoot":                block.StateRoot,
+		"sha3Uncles":               block.Sha3Uncles,
+		"transactionsRoot":         block.TransactionsRoot,
+		"receiptsRoot":             block.ReceiptsRoot,
+		"logsBloom":                block.LogsBloom,
+		"extraData":                block.ExtraData,
+		"mixHash":                  block.MixHash,
+		"uncles":                   block.Uncles,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -1197,7 +1197,7 @@ func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error)
 		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", h.collections.Block, "no blocks")
 	}
 
-	switch v := block["number"].(type) {
+	switch v := block[constants.NumberFieldValue].(type) {
 	case float64:
 		return int64(v), nil
 	case int64:

@@ -719,7 +719,7 @@ func TestExtractBlockSigMerkleRoots_NonBlockSigEntriesSkipped(t *testing.T) {
 	mr := hexRoot("valid_root")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{"number": 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
 		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
 		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 		mustJSON(t, map[string]any{"type": "log", "data": map[string]any{"logIndex": 0}}),
@@ -852,7 +852,7 @@ func TestVerifySnapshotWithSig_NoBlockSigsInSnapshot(t *testing.T) {
 
 	// Create a snapshot with no block_signature entries
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{"number": 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
 		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
@@ -1083,7 +1083,7 @@ func TestVerifySnapshot_ValidSigFileButNoBlockSigs(t *testing.T) {
 
 	// Create a gzip'd JSONL file with no block_signature entries
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{"number": 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
 	}
 	snapshotPath := writeGzipJSONLFile(t, dir, "snapshot_1000_1999.jsonl.gz", lines)
 
@@ -1611,7 +1611,7 @@ func TestQueryDocIDs_EmptyDB(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 0, 1000)
+	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 0, 1000)
 	require.NoError(t, err)
 	assert.Empty(t, docIDs)
 }
@@ -1624,8 +1624,8 @@ func TestQueryDocIDs_WithBlocks(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	// Query Block collection (uses "number" field)
-	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 100, 102)
+	// Query Block collection (uses constants.NumberFieldValue field)
+	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 100, 102)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3, "should find 3 block doc IDs")
 
@@ -1644,7 +1644,7 @@ func TestQueryDocIDs_PartialRange(t *testing.T) {
 	ctx := context.Background()
 
 	// Query only blocks 101-103
-	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 101, 103)
+	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 101, 103)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3, "should find 3 block doc IDs for range 101-103")
 }
@@ -1684,7 +1684,7 @@ func TestQueryDocIDs_OutOfRange(t *testing.T) {
 	ctx := context.Background()
 
 	// Query a range that has no blocks
-	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 500, 600)
+	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 500, 600)
 	require.NoError(t, err)
 	assert.Empty(t, docIDs)
 }
@@ -2187,7 +2187,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	assert.Equal(t, int64(104), highest)
 
 	// Also verify we can query doc IDs in the imported node
-	blockDocIDs, err := s2.queryDocIDs(ctx, testBlockCollection, "number", 100, 104)
+	blockDocIDs, err := s2.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 5, "should find 5 block doc IDs after import")
 
@@ -2211,12 +2211,12 @@ func TestQueryDocIDs_ChunkedQuery(t *testing.T) {
 	ctx := context.Background()
 
 	// Query across a range that spans exactly one chunk
-	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 100, 104)
+	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, docIDs, 5)
 
 	// Query across a range that starts before and ends after our blocks
-	docIDs, err = s.queryDocIDs(ctx, testBlockCollection, "number", 0, 200)
+	docIDs, err = s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 0, 200)
 	require.NoError(t, err)
 	assert.Len(t, docIDs, 5, "should still find only our 5 blocks")
 }
@@ -2945,7 +2945,7 @@ func TestQueryDocIDs_GQLError(t *testing.T) {
 	ctx := context.Background()
 
 	// Use a non-existent collection name to trigger a GQL error
-	_, err := s.queryDocIDs(ctx, "NonExistent__Collection", "number", 0, 100)
+	_, err := s.queryDocIDs(ctx, "NonExistent__Collection", constants.NumberFieldValue, 0, 100)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "query NonExistent__Collection")
 }
@@ -3765,7 +3765,7 @@ func TestSignSnapshotWithRoots_ComputeRootFails(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // getBlockNumber with real data: cover int64 path
-// DefraDB returns int64 for "number" field, not float64.
+// DefraDB returns int64 for constants.NumberFieldValue field, not float64.
 // This should already be covered by TestGetBlockNumber_AfterInserts.
 // ---------------------------------------------------------------------------
 
@@ -4428,7 +4428,7 @@ func TestQueryDocIDs_WithIdentityBlocks(t *testing.T) {
 	ctx := context.Background()
 
 	// Query Block docs
-	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 400, 402)
+	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3)
 
@@ -4491,7 +4491,7 @@ func TestQueryDocIDs_InvalidCollection(t *testing.T) {
 	s := New(cfg, td.Node)
 
 	// Query a non-existent collection to trigger a GQL error
-	_, err := s.queryDocIDs(context.Background(), "NonExistent__Collection", "number", 100, 102)
+	_, err := s.queryDocIDs(context.Background(), "NonExistent__Collection", constants.NumberFieldValue, 100, 102)
 	assert.Error(t, err)
 }
 
