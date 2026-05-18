@@ -18,6 +18,8 @@ const (
 	uuidSize                    = 16
 	uuidHexWithoutHyphensLen    = 32 // hex-encoded uuidSize bytes
 	indexerQueueEntriesPrealloc = 128
+	//
+	docIDPrefix = "bae"
 )
 
 // BlockEntry holds all document IDs created for a single block.
@@ -40,11 +42,9 @@ type indexerQueueSnapshot struct {
 // IndexerQueue is an in-memory ordered queue of indexed blocks with compact UUID storage.
 // Used by indexers that know all docIDs at block creation time.
 type IndexerQueue struct {
-	mu              sync.Mutex
-	entries         []BlockEntry
-	filePath        string
-	docIDPrefix     string    // lazily-set prefix shared by all doc IDs in this queue
-	docIDPrefixOnce sync.Once // ensures docIDPrefix is initialized exactly once
+	mu       sync.Mutex
+	entries  []BlockEntry
+	filePath string
 }
 
 // NewIndexerQueue creates a new empty indexer queue.
@@ -83,12 +83,6 @@ func (q *IndexerQueue) LoadFromFile(path string) (int, error) {
 	count := len(q.entries)
 	q.mu.Unlock()
 
-	if snap.DocIDPrefix != "" {
-		q.docIDPrefixOnce.Do(func() {
-			q.docIDPrefix = snap.DocIDPrefix
-		})
-	}
-
 	return count, nil
 }
 
@@ -101,7 +95,7 @@ func (q *IndexerQueue) Save() error {
 
 	q.mu.Lock()
 	snap := indexerQueueSnapshot{
-		DocIDPrefix: q.docIDPrefix,
+		DocIDPrefix: docIDPrefix,
 		Entries:     make([]BlockEntry, len(q.entries)),
 	}
 	copy(snap.Entries, q.entries)
@@ -383,14 +377,11 @@ func (q *IndexerQueue) HighestBlockNumber() int64 {
 // extractUUID extracts the 16-byte UUID from a docID string and lazily
 // initialises the queue's docIDPrefix from the first prefix seen.
 func (q *IndexerQueue) extractUUID(docID string) ([uuidSize]byte, error) {
-	idx := strings.IndexByte(docID, '-')
-	if idx < 0 {
+	_, after, ok := strings.Cut(docID, "-")
+	if !ok {
 		return [uuidSize]byte{}, fmt.Errorf("invalid docID format: %s", docID)
 	}
-	q.docIDPrefixOnce.Do(func() {
-		q.docIDPrefix = docID[:idx]
-	})
-	return parseUUIDHex(docID[idx+1:])
+	return parseUUIDHex(after)
 }
 
 // parseUUIDHex parses a UUID string (with hyphens) into 16 raw bytes.
@@ -412,7 +403,7 @@ func formatUUID(b [uuidSize]byte) string {
 
 // RestoreDocID reconstructs a full docID string from packed UUID bytes.
 func (q *IndexerQueue) RestoreDocID(uuid [uuidSize]byte) string {
-	return q.docIDPrefix + "-" + formatUUID(uuid)
+	return docIDPrefix + "-" + formatUUID(uuid)
 }
 
 // packDocIDs converts docID strings to a single packed byte slice (16 bytes per UUID).

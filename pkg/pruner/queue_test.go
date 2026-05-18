@@ -43,10 +43,9 @@ func TestExtractUUID(t *testing.T) {
 	q := NewIndexerQueue()
 
 	t.Run("valid docID", func(t *testing.T) {
-		uuid, err := q.extractUUID("bae-550e8400-e29b-41d4-a716-446655440000")
+		uuid, err := q.extractUUID(docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000")
 		require.NoError(t, err)
 		require.Len(t, uuid, 16)
-		assert.Equal(t, "bae", q.docIDPrefix)
 	})
 
 	t.Run("invalid docID no dash", func(t *testing.T) {
@@ -57,24 +56,20 @@ func TestExtractUUID(t *testing.T) {
 
 func TestRestoreDocID(t *testing.T) {
 	q := NewIndexerQueue()
-	// Set a known prefix
-	q.docIDPrefixOnce.Do(func() {
-		q.docIDPrefix = "bae"
-	})
 
 	uuid, err := parseUUIDHex("550e8400-e29b-41d4-a716-446655440000")
 	require.NoError(t, err)
 
 	restored := q.RestoreDocID(uuid)
-	assert.Equal(t, "bae-550e8400-e29b-41d4-a716-446655440000", restored)
+	assert.Equal(t, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", restored)
 }
 
 func TestPackUnpackDocIDs(t *testing.T) {
 	q := NewIndexerQueue()
 
 	docIDs := []string{
-		"bae-550e8400-e29b-41d4-a716-446655440000",
-		"bae-660e8400-e29b-41d4-a716-446655440001",
+		docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000",
+		docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001",
 	}
 
 	packed, err := q.packDocIDs(docIDs)
@@ -125,9 +120,9 @@ func TestIndexerQueueTrackAndDrain(t *testing.T) {
 	// Track some blocks
 	for i := int64(1); i <= 5; i++ {
 		err := q.TrackBlockDocIDs(i,
-			"bae-550e8400-e29b-41d4-a716-446655440000",
+			docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
 			map[string][]string{
-				constants.CollectionTransaction: {"bae-660e8400-e29b-41d4-a716-446655440001"},
+				constants.CollectionTransaction: {docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001"},
 			},
 			"",
 		)
@@ -152,7 +147,7 @@ func TestIndexerQueueDrainNothingToDrain(t *testing.T) {
 	assert.Nil(t, q.Drain(10, cols))
 
 	// Queue smaller than keep
-	err := q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	err := q.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, "")
 	require.NoError(t, err)
 	assert.Nil(t, q.Drain(10, cols))
 }
@@ -163,17 +158,17 @@ func TestIndexerQueueDrainByDocCount(t *testing.T) {
 
 	// Track block with transactions
 	err := q.TrackBlockDocIDs(1,
-		"bae-550e8400-e29b-41d4-a716-446655440000",
+		docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{
 			constants.CollectionTransaction: {
-				"bae-660e8400-e29b-41d4-a716-446655440001",
-				"bae-770e8400-e29b-41d4-a716-446655440002",
+				docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001",
+				docIDPrefix + "-770e8400-e29b-41d4-a716-446655440002",
 			},
 			constants.CollectionLog: {
-				"bae-880e8400-e29b-41d4-a716-446655440003",
+				docIDPrefix + "-880e8400-e29b-41d4-a716-446655440003",
 			},
 		},
-		"bae-990e8400-e29b-41d4-a716-446655440004",
+		docIDPrefix+"-990e8400-e29b-41d4-a716-446655440004",
 	)
 	require.NoError(t, err)
 
@@ -201,22 +196,22 @@ func TestIndexerQueueTrackInvalidDocIDs(t *testing.T) {
 	assert.Error(t, err)
 
 	// Invalid transaction docID
-	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000",
+	err = q.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{constants.CollectionTransaction: {"invalid"}}, "")
 	assert.Error(t, err)
 
 	// Invalid log docID
-	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000",
+	err = q.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{constants.CollectionLog: {"invalid"}}, "")
 	assert.Error(t, err)
 
 	// Invalid ALE docID
-	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000",
+	err = q.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{constants.CollectionAccessListEntry: {"invalid"}}, "")
 	assert.Error(t, err)
 
 	// Invalid batch sig docID
-	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "invalid")
+	err = q.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, "invalid")
 	assert.Error(t, err)
 }
 
@@ -232,9 +227,9 @@ func TestIndexerQueueSaveLoad(t *testing.T) {
 	assert.Equal(t, 0, count)
 
 	// Track entries
-	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	err = q.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, "")
 	require.NoError(t, err)
-	err = q.TrackBlockDocIDs(2, "bae-660e8400-e29b-41d4-a716-446655440001", nil, "")
+	err = q.TrackBlockDocIDs(2, docIDPrefix+"-660e8400-e29b-41d4-a716-446655440001", nil, "")
 	require.NoError(t, err)
 
 	// Save
@@ -298,13 +293,13 @@ func TestIndexerQueueSave_WithEntries(t *testing.T) {
 
 	// Add entries with various doc types
 	err := q.TrackBlockDocIDs(1,
-		"bae-550e8400-e29b-41d4-a716-446655440000",
+		docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{
-			constants.CollectionTransaction:     {"bae-660e8400-e29b-41d4-a716-446655440001"},
-			constants.CollectionLog:             {"bae-770e8400-e29b-41d4-a716-446655440002"},
-			constants.CollectionAccessListEntry: {"bae-880e8400-e29b-41d4-a716-446655440003"},
+			constants.CollectionTransaction:     {docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001"},
+			constants.CollectionLog:             {docIDPrefix + "-770e8400-e29b-41d4-a716-446655440002"},
+			constants.CollectionAccessListEntry: {docIDPrefix + "-880e8400-e29b-41d4-a716-446655440003"},
 		},
-		"bae-990e8400-e29b-41d4-a716-446655440004",
+		docIDPrefix+"-990e8400-e29b-41d4-a716-446655440004",
 	)
 	require.NoError(t, err)
 
@@ -330,19 +325,19 @@ func TestIndexerQueueDrain_WithAllDocTypes(t *testing.T) {
 
 	// Track block with all doc types
 	err := q.TrackBlockDocIDs(1,
-		"bae-550e8400-e29b-41d4-a716-446655440000",
+		docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
 		map[string][]string{
-			constants.CollectionTransaction:     {"bae-110e8400-e29b-41d4-a716-446655440001"},
-			constants.CollectionLog:             {"bae-220e8400-e29b-41d4-a716-446655440002"},
-			constants.CollectionAccessListEntry: {"bae-330e8400-e29b-41d4-a716-446655440003"},
+			constants.CollectionTransaction:     {docIDPrefix + "-110e8400-e29b-41d4-a716-446655440001"},
+			constants.CollectionLog:             {docIDPrefix + "-220e8400-e29b-41d4-a716-446655440002"},
+			constants.CollectionAccessListEntry: {docIDPrefix + "-330e8400-e29b-41d4-a716-446655440003"},
 		},
-		"bae-440e8400-e29b-41d4-a716-446655440004",
+		docIDPrefix+"-440e8400-e29b-41d4-a716-446655440004",
 	)
 	require.NoError(t, err)
 
 	// Track a second block to keep
 	err = q.TrackBlockDocIDs(2,
-		"bae-aa0e8400-e29b-41d4-a716-446655440005",
+		docIDPrefix+"-aa0e8400-e29b-41d4-a716-446655440005",
 		nil, "",
 	)
 	require.NoError(t, err)
@@ -365,7 +360,7 @@ func TestIndexerQueueDrainByDocCount_NotEnoughDocs(t *testing.T) {
 	cols := DefaultCollectionConfig()
 
 	// Track a single block with 1 doc
-	err := q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	err := q.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, "")
 	require.NoError(t, err)
 
 	// Request excess of 100 but only 1 doc exists
@@ -396,7 +391,7 @@ func TestIndexerQueueLoadFromFile_WithPrefix(t *testing.T) {
 	require.Nil(t, err)
 
 	// Track so that docIDPrefix gets set
-	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	err = q.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, "")
 	require.NoError(t, err)
 
 	// Save
@@ -408,5 +403,4 @@ func TestIndexerQueueLoadFromFile_WithPrefix(t *testing.T) {
 	count, err := q2.LoadFromFile(filePath)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
-	assert.Equal(t, "bae", q2.docIDPrefix)
 }
