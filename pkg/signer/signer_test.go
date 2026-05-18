@@ -71,11 +71,19 @@ func cfgWithStorePath(path string) *config.Config {
 	}
 }
 
+func assertClose(t *testing.T, node *node.Node) {
+	t.Cleanup(func() {
+		if err := node.Close(context.Background()); err != nil {
+			t.Errorf("DefraDB node failed to close: %v", err)
+		}
+	})
+}
+
 // ─── Integration tests ───────────────────────────────────────────────────────
 
 func TestSignWithDefraKeys(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	signature, err := SignWithDefraKeys("Hello, World!", defraNode, cfg)
 	require.NoError(t, err)
@@ -84,7 +92,7 @@ func TestSignWithDefraKeys(t *testing.T) {
 
 func TestSignWithP2PKeys(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	signature, err := SignWithP2PKeys("Hello, World!", defraNode, cfg)
 	require.NoError(t, err)
@@ -93,7 +101,7 @@ func TestSignWithP2PKeys(t *testing.T) {
 
 func TestGetDefraPublicKey(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	publicKey, err := GetDefraPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -102,7 +110,7 @@ func TestGetDefraPublicKey(t *testing.T) {
 
 func TestGetP2PPublicKey(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	publicKey, err := GetP2PPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -111,7 +119,7 @@ func TestGetP2PPublicKey(t *testing.T) {
 
 func TestSignAndVerifyDefraSignature(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	message := "Test message for DefraDB signature"
 
@@ -136,7 +144,7 @@ func TestSignAndVerifyDefraSignature(t *testing.T) {
 
 func TestSignAndVerifyP2PSignature(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	message := "Test message for P2P signature"
 
@@ -161,7 +169,7 @@ func TestSignAndVerifyP2PSignature(t *testing.T) {
 
 func TestVerifyDefraSignature_InvalidInputs(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	publicKey, err := GetDefraPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -191,7 +199,7 @@ func TestVerifyDefraSignature_InvalidInputs(t *testing.T) {
 
 func TestVerifyP2PSignature_InvalidInputs(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	publicKey, err := GetP2PPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -221,7 +229,7 @@ func TestVerifyP2PSignature_InvalidInputs(t *testing.T) {
 
 func TestSignWithDefraKeys_Consistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	msg := "Consistent message"
 	sig1, err := SignWithDefraKeys(msg, defraNode, cfg)
@@ -233,7 +241,7 @@ func TestSignWithDefraKeys_Consistency(t *testing.T) {
 
 func TestSignWithP2PKeys_Consistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	msg := "Consistent message"
 	sig1, err := SignWithP2PKeys(msg, defraNode, cfg)
@@ -245,7 +253,7 @@ func TestSignWithP2PKeys_Consistency(t *testing.T) {
 
 func TestPublicKeyConsistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	pk1, _ := GetDefraPublicKey(defraNode, cfg)
 	pk2, _ := GetDefraPublicKey(defraNode, cfg)
@@ -258,7 +266,7 @@ func TestPublicKeyConsistency(t *testing.T) {
 
 func TestCrossKeyVerification(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	msg := "Test message"
 	defraSig, _ := SignWithDefraKeys(msg, defraNode, cfg)
@@ -276,7 +284,7 @@ func TestCrossKeyVerification(t *testing.T) {
 
 func TestSignWithDefraKeys_EmptyMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	sig, err := SignWithDefraKeys("", defraNode, cfg)
 	require.NoError(t, err)
@@ -286,7 +294,7 @@ func TestSignWithDefraKeys_EmptyMessage(t *testing.T) {
 
 func TestSignWithP2PKeys_EmptyMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	sig, err := SignWithP2PKeys("", defraNode, cfg)
 	require.NoError(t, err)
@@ -296,7 +304,7 @@ func TestSignWithP2PKeys_EmptyMessage(t *testing.T) {
 
 func TestSignWithDefraKeys_LongMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	longMsg := make([]byte, 10000)
 	for i := range longMsg {
@@ -310,7 +318,7 @@ func TestSignWithDefraKeys_LongMessage(t *testing.T) {
 
 func TestSignWithP2PKeys_LongMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer func() { _ = defraNode.Close(context.Background()) }()
+	assertClose(t, defraNode)
 
 	longMsg := make([]byte, 10000)
 	for i := range longMsg {
