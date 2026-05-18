@@ -146,9 +146,9 @@ func verifyCryptoSignature(sig *SnapshotSignatureData, result *VerifyResult) err
 // resolveKeyType maps a signature type string to a crypto.KeyType.
 func resolveKeyType(sigType string) (crypto.KeyType, error) {
 	switch sigType {
-	case "ES256K", "ecdsa-256k": //nolint:goconst
+	case constants.Secp256k1ValueString, "ecdsa-256k":
 		return crypto.KeyTypeSecp256k1, nil
-	case "Ed25519", "ed25519": //nolint:goconst
+	case constants.Ed25519ValueString, strings.ToLower(constants.Ed25519ValueString):
 		return crypto.KeyTypeEd25519, nil
 	default:
 		return crypto.KeyTypeSecp256k1, errors.New("unsupported signature type") //nolint: err113

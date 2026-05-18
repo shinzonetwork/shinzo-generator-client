@@ -30,10 +30,6 @@ import (
 )
 
 const (
-	// keyTypeEd25519 is the key type string for Ed25519 keys in DefraDB.
-	keyTypeEd25519 = "Ed25519"
-	// keyTypeES256K is the key type string for secp256k1 keys in DefraDB.
-	keyTypeES256K = "ES256K"
 	// Test collection names derived from the default prefix
 	// testBlockCollection is a constant for block collections.
 	testBlockCollection = constants.DefaultCollectionPrefix + "__Block"
@@ -949,7 +945,7 @@ func TestVerifySnapshotWithSig_MatchingMerkleRootButBadSignatureHex(t *testing.T
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: "signer123",
 		SignatureValue:    "not_valid_hex_zzz",
 	}
@@ -1015,7 +1011,7 @@ func TestVerifySnapshotWithSig_BadMerkleRootHex(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: "bad_key_string",
 		SignatureValue:    hex.EncodeToString([]byte("fake_sig")),
 	}
@@ -1207,7 +1203,7 @@ func TestSnapshotSignatureData_JSONRoundTrip(t *testing.T) {
 		EndBlock:            1999,
 		MerkleRoot:          "abcdef0123456789",
 		BlockCount:          1000,
-		SignatureType:       "ES256K",
+		SignatureType:       constants.Secp256k1ValueString,
 		SignatureIdentity:   "z6MkPublicKey...",
 		SignatureValue:      "deadbeef",
 		CreatedAt:           "2024-01-01T00:00:00Z",
@@ -1954,7 +1950,7 @@ func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		BlockCount:        1000,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: "z6MkTestPublicKey1234567890",
 		SignatureValue:    "deadbeefcafe0000000000000000000000000000000000000000000000000000",
 		CreatedAt:         "2024-01-15T12:00:00Z",
@@ -1979,7 +1975,7 @@ func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
 	assert.Equal(t, int64(1999), retrieved.EndBlock)
 	assert.Equal(t, "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", retrieved.MerkleRoot)
 	assert.Equal(t, 1000, retrieved.BlockCount)
-	assert.Equal(t, "ES256K", retrieved.SignatureType)
+	assert.Equal(t, constants.Secp256k1ValueString, retrieved.SignatureType)
 	assert.Equal(t, "z6MkTestPublicKey1234567890", retrieved.SignatureIdentity)
 	assert.Equal(t, "deadbeefcafe0000000000000000000000000000000000000000000000000000", retrieved.SignatureValue)
 	assert.Equal(t, "snapshot_1000_1999.kvsnap.gz", retrieved.SnapshotFile)
@@ -2002,7 +1998,7 @@ func TestCreateSnapshotSignatureDoc_MultipleDocs(t *testing.T) {
 			EndBlock:          int64((i+1)*1000 - 1),
 			MerkleRoot:        fmt.Sprintf("%064x", i+1),
 			BlockCount:        1000,
-			SignatureType:     "ES256K",
+			SignatureType:     constants.Secp256k1ValueString,
 			SignatureIdentity: "z6MkTestKey",
 			SignatureValue:    fmt.Sprintf("%064x", i+100),
 			CreatedAt:         "2024-01-15T12:00:00Z",
@@ -2460,7 +2456,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Secp256k1(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(sigValue),
 	}
@@ -2548,7 +2544,7 @@ func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString([]byte("not a valid DER signature")),
 	}
@@ -2619,7 +2615,7 @@ func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ed25519",
+		SignatureType:     strings.ToLower(constants.Ed25519ValueString),
 		SignatureIdentity: fullIdentEd.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(sigValueEd),
 	}
@@ -2695,7 +2691,7 @@ func TestSignMerkleRoot_Ed25519(t *testing.T) {
 	merkleRoot := bytes.Repeat([]byte{0xBB}, 32)
 	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
 	require.NoError(t, err)
-	assert.Equal(t, keyTypeEd25519, sigType)
+	assert.Equal(t, constants.Ed25519ValueString, sigType)
 	assert.NotEmpty(t, sigIdentity)
 	assert.NotEmpty(t, sigValue)
 
@@ -2716,7 +2712,7 @@ func TestSignMerkleRoot_Secp256k1(t *testing.T) {
 	merkleRoot := bytes.Repeat([]byte{0xCC}, 32)
 	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
 	require.NoError(t, err)
-	assert.Equal(t, keyTypeES256K, sigType)
+	assert.Equal(t, constants.Secp256k1ValueString, sigType)
 	assert.NotEmpty(t, sigIdentity)
 	assert.NotEmpty(t, sigValue)
 
@@ -2781,7 +2777,7 @@ func TestSignSnapshotWithRoots_WithIdentity(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, int64(1000), sig.StartBlock)
 	assert.Equal(t, int64(1999), sig.EndBlock)
-	assert.Equal(t, "Ed25519", sig.SignatureType)
+	assert.Equal(t, constants.Ed25519ValueString, sig.SignatureType)
 	assert.Equal(t, 2, sig.BlockCount)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
@@ -3012,7 +3008,7 @@ func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
 		EndBlock:          2999,
 		MerkleRoot:        "aabbccdd" + strings.Repeat("00", 28),
 		BlockCount:        1000,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: "z6MkTestKey2",
 		SignatureValue:    "deadbeef" + strings.Repeat("00", 28),
 		CreatedAt:         "2024-06-15T12:00:00Z",
@@ -3033,7 +3029,7 @@ func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
 
 	retrieved, ok := sigs["snapshot_2000_2999.kvsnap.gz"]
 	require.True(t, ok)
-	assert.Equal(t, "Ed25519", retrieved.SignatureType)
+	assert.Equal(t, constants.Ed25519ValueString, retrieved.SignatureType)
 	assert.Equal(t, "2024-06-15T12:00:00Z", retrieved.CreatedAt)
 }
 
@@ -3053,7 +3049,7 @@ func TestQuerySnapshotSignatures_EmptySnapshotFileSkipped(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        strings.Repeat("ab", 32),
 		BlockCount:        1000,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: "z6MkTestKey",
 		SignatureValue:    strings.Repeat("cd", 32),
 		CreatedAt:         "2024-01-01T00:00:00Z",
@@ -3450,7 +3446,7 @@ func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
 
 	sig := sigs["snapshot_5000_5999.kvsnap.gz"]
 	require.NotNil(t, sig)
-	assert.Equal(t, "ES256K", sig.SignatureType)
+	assert.Equal(t, constants.Secp256k1ValueString, sig.SignatureType)
 	assert.Equal(t, 5, sig.BlockCount)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
@@ -3999,7 +3995,7 @@ func TestSignSnapshotWithRoots_FullFlowWithBlockSigs(t *testing.T) {
 	assert.Equal(t, int64(600), sig.StartBlock)
 	assert.Equal(t, int64(602), sig.EndBlock)
 	assert.Equal(t, 3, sig.BlockCount)
-	assert.Equal(t, "Ed25519", sig.SignatureType)
+	assert.Equal(t, constants.Ed25519ValueString, sig.SignatureType)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
 
@@ -4057,7 +4053,7 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 	require.NotNil(t, sig)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
-	assert.Equal(t, "Ed25519", sig.SignatureType)
+	assert.Equal(t, constants.Ed25519ValueString, sig.SignatureType)
 }
 
 // ---------------------------------------------------------------------------
@@ -4126,9 +4122,9 @@ func TestSignMerkleRoot_ProducesVerifiableSignature(t *testing.T) {
 			// Verify the signature
 			var kt crypto.KeyType
 			switch sigType {
-			case keyTypeES256K:
+			case constants.Secp256k1ValueString:
 				kt = crypto.KeyTypeSecp256k1
-			case keyTypeEd25519:
+			case constants.Ed25519ValueString:
 				kt = crypto.KeyTypeEd25519
 			}
 
@@ -4244,7 +4240,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 			EndBlock:          int64((i+1)*1000 - 1),
 			MerkleRoot:        fmt.Sprintf("%064x", i+1),
 			BlockCount:        1000,
-			SignatureType:     "Ed25519",
+			SignatureType:     constants.Ed25519ValueString,
 			SignatureIdentity: "z6MkTestKey",
 			SignatureValue:    fmt.Sprintf("%064x", i+100),
 			CreatedAt:         "2024-06-15T12:00:00Z",
@@ -4267,7 +4263,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, int64(i*1000), sig.StartBlock)
 		assert.Equal(t, int64((i+1)*1000-1), sig.EndBlock)
-		assert.Equal(t, "Ed25519", sig.SignatureType)
+		assert.Equal(t, constants.Ed25519ValueString, sig.SignatureType)
 	}
 }
 
@@ -4365,7 +4361,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 
 	sig := sigs["snapshot_200_204.kvsnap.gz"]
 	require.NotNil(t, sig)
-	assert.Equal(t, "ES256K", sig.SignatureType)
+	assert.Equal(t, constants.Secp256k1ValueString, sig.SignatureType)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
 }
@@ -4545,7 +4541,7 @@ func TestVerifySnapshotWithSig_InvalidSignatureValueHex(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: "z6MkTestKey",
 		SignatureValue:    "not_valid_hex_zzz",
 		CreatedAt:         "2024-01-01T00:00:00Z",
@@ -4591,7 +4587,7 @@ func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(corruptSig),
 		CreatedAt:         "2024-01-01T00:00:00Z",
@@ -4633,7 +4629,7 @@ func TestVerifySnapshotWithSig_FullyValid(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		CreatedAt:         "2024-01-01T00:00:00Z",
@@ -4681,7 +4677,7 @@ func TestVerifySnapshotWithSig_SignatureInvalid_NoError(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		CreatedAt:         "2024-01-01T00:00:00Z",

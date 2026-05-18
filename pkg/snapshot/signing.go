@@ -135,9 +135,9 @@ func signMerkleRoot(ctx context.Context, merkleRoot []byte) (sigType, sigIdentit
 
 	switch fullIdent.PrivateKey().Type() { //nolint:exhaustive // unsupported key types handled by default case
 	case crypto.KeyTypeSecp256k1:
-		sigType = "ES256K" //nolint:goconst
+		sigType = constants.Secp256k1ValueString
 	case crypto.KeyTypeEd25519:
-		sigType = "Ed25519" //nolint:goconst
+		sigType = constants.Ed25519ValueString
 	default:
 		return "", "", nil, fmt.Errorf("unsupported key type: %v", fullIdent.PrivateKey().Type()) //nolint: err113
 	}

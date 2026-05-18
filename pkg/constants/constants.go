@@ -17,3 +17,9 @@ const BlockHashKeyValue = "blockHash"
 
 // BlockNumberKeyValue is the string value "blockNumber" assigned to a key field.
 const BlockNumberKeyValue = "blockNumber"
+
+// Ed25519ValueString is the string value "Ed25519" assigned to a key field.
+const Ed25519ValueString = "Ed25519"
+
+// Secp256k1ValueString is the string value "ES256K" assigned to a key field.
+const Secp256k1ValueString = "ES256K"
