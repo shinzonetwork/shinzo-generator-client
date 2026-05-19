@@ -127,28 +127,28 @@ func verifyCryptoSignature(sig *SnapshotSignatureData, result *VerifyResult) err
 	sigValueBytes, err := hex.DecodeString(sig.SignatureValue)
 	if err != nil {
 		result.Error = fmt.Sprintf("decode signature hex: %v", err)
-		return nil //nolint:nilerr
+		return nil
 	}
 
 	keyType, err := resolveKeyType(sig.SignatureType)
 	if err != nil {
 		result.Error = fmt.Sprintf("unsupported signature type: %s", sig.SignatureType)
 		result.SignatureValid = false
-		return nil //nolint:nilerr
+		return nil // nolint:nilerr 
 	}
 
 	pubKey, err := crypto.PublicKeyFromString(keyType, sig.SignatureIdentity)
 	if err != nil {
 		result.Error = fmt.Sprintf("parse public key: %v", err)
 		result.SignatureValid = false
-		return nil //nolint:nilerr
+		return nil
 	}
 
 	valid, err := pubKey.Verify(merkleRootBytes, sigValueBytes)
 	if err != nil {
 		result.Error = fmt.Sprintf("verify signature: %v", err)
 		result.SignatureValid = false
-		return nil //nolint:nilerr
+		return nil
 	}
 
 	result.SignatureValid = valid
