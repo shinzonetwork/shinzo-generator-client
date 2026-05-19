@@ -1939,7 +1939,7 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
 			n := callCount.Add(1)
