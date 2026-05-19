@@ -984,7 +984,7 @@ func TestVerifySnapshotWithSig_UnsupportedSignatureType(t *testing.T) {
 	}
 
 	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.NotNil(t, result)
 	assert.False(t, result.Valid)
 	assert.True(t, result.MerkleRootMatch)

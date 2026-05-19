@@ -134,7 +134,7 @@ func verifyCryptoSignature(sig *SnapshotSignatureData, result *VerifyResult) err
 	if err != nil {
 		result.Error = fmt.Sprintf("unsupported signature type: %s", sig.SignatureType)
 		result.SignatureValid = false
-		return nil // nolint:nilerr 
+		return err
 	}
 
 	pubKey, err := crypto.PublicKeyFromString(keyType, sig.SignatureIdentity)
