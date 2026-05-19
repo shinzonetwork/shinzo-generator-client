@@ -10,6 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testPeer1Addr = "127.0.0.1:4001"
+	testPeer1ID   = "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"
+	testPeer1Full = testPeer1Addr + "/p2p/" + testPeer1ID
+	testPeer2Addr = "192.168.1.100:4002"
+	testPeer2ID   = "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m"
+	testPeer2Full = testPeer2Addr + "/p2p/" + testPeer2ID
+)
+
 func TestBootstrapIntoPeers(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -19,26 +28,26 @@ func TestBootstrapIntoPeers(t *testing.T) {
 	}{
 		{
 			name:  "valid single peer",
-			input: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"},
+			input: []string{testPeer1Full},
 			expectedPeers: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 			},
 			expectedErrors: 0,
 		},
 		{
 			name:  "valid multiple peers",
-			input: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8", "192.168.1.100:4002/p2p/12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m"},
+			input: []string{testPeer1Full, testPeer2Full},
 			expectedPeers: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 				{
-					Addresses: []string{"192.168.1.100:4002"},
-					ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+					Addresses: []string{testPeer2Addr},
+					ID:        testPeer2ID,
 				},
 			},
 			expectedErrors: 0,
@@ -63,15 +72,15 @@ func TestBootstrapIntoPeers(t *testing.T) {
 		},
 		{
 			name:  "mixed valid and invalid peers",
-			input: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8", "invalid", "192.168.1.100:4002/p2p/12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m"},
+			input: []string{testPeer1Full, "invalid", testPeer2Full},
 			expectedPeers: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 				{
-					Addresses: []string{"192.168.1.100:4002"},
-					ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+					Addresses: []string{testPeer2Addr},
+					ID:        testPeer2ID,
 				},
 			},
 			expectedErrors: 1,
@@ -131,28 +140,28 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			name: "valid single peer",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 			},
-			expectedBootstrap: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"},
+			expectedBootstrap: []string{testPeer1Full},
 			expectedErrors:    0,
 		},
 		{
 			name: "valid multiple peers",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 				{
-					Addresses: []string{"192.168.1.100:4002"},
-					ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+					Addresses: []string{testPeer2Addr},
+					ID:        testPeer2ID,
 				},
 			},
 			expectedBootstrap: []string{
-				"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
-				"192.168.1.100:4002/p2p/12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+				testPeer1Full,
+				testPeer2Full,
 			},
 			expectedErrors: 0,
 		},
@@ -160,7 +169,7 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			name: "peer with empty ID",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
+					Addresses: []string{testPeer1Addr},
 					ID:        "",
 				},
 			},
@@ -173,7 +182,7 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			input: []client.PeerInfo{
 				{
 					Addresses: []string{},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					ID:        testPeer1ID,
 				},
 			},
 			expectedBootstrap:    []string{},
@@ -184,11 +193,11 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			name: "peer with multiple addresses - uses first",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001", "192.168.1.100:4002", "10.0.0.1:4003"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr, testPeer2Addr, "10.0.0.1:4003"},
+					ID:        testPeer1ID,
 				},
 			},
-			expectedBootstrap: []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"},
+			expectedBootstrap: []string{testPeer1Full},
 			expectedErrors:    0,
 		},
 		{
@@ -201,19 +210,19 @@ func TestPeersIntoBootstrap(t *testing.T) {
 			name: "mixed valid and invalid peers",
 			input: []client.PeerInfo{
 				{
-					Addresses: []string{"127.0.0.1:4001"},
-					ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+					Addresses: []string{testPeer1Addr},
+					ID:        testPeer1ID,
 				},
 				{
-					Addresses: []string{"192.168.1.100:4002"},
+					Addresses: []string{testPeer2Addr},
 					ID:        "",
 				},
 				{
 					Addresses: []string{},
-					ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+					ID:        testPeer2ID,
 				},
 			},
-			expectedBootstrap:    []string{"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8"},
+			expectedBootstrap:    []string{testPeer1Full},
 			expectedErrors:       2,
 			expectedErrorIndices: []int{1, 2},
 		},
@@ -263,8 +272,8 @@ func TestPeersIntoBootstrap(t *testing.T) {
 func TestBootstrapIntoPeersAndBack(t *testing.T) {
 	// Test round-trip conversion
 	originalBootstrap := []string{
-		"127.0.0.1:4001/p2p/12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
-		"192.168.1.100:4002/p2p/12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+		testPeer1Full,
+		testPeer2Full,
 	}
 
 	// Convert bootstrap strings to peers
@@ -300,8 +309,8 @@ func TestConnectToPeers(t *testing.T) {
 		ctx := context.Background()
 		peers := []client.PeerInfo{
 			{
-				Addresses: []string{"127.0.0.1:4001"},
-				ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+				Addresses: []string{testPeer1Addr},
+				ID:        testPeer1ID,
 			},
 		}
 
@@ -315,7 +324,7 @@ func TestConnectToPeers(t *testing.T) {
 		peerString, errors := PeersIntoBootstrap(peers)
 		require.Len(t, errors, 0)
 
-		connectToPeers(ctx, nil, peerString)
+		_ = connectToPeers(&ctx, nil, peerString)
 	})
 
 	t.Run("empty peers list", func(t *testing.T) {
@@ -323,7 +332,7 @@ func TestConnectToPeers(t *testing.T) {
 		peers := []string{}
 
 		// This should not panic even with nil node since there are no peers to connect to
-		err := connectToPeers(ctx, nil, peers)
+		err := connectToPeers(&ctx, nil, peers)
 
 		require.NoError(t, err)
 	})
@@ -332,22 +341,22 @@ func TestConnectToPeers(t *testing.T) {
 		ctx := context.Background()
 
 		// Start a test Defra node
-		testConfig := DefaultConfig
+		testConfig := NewDefaultConfig()
 		testNode, err := StartDefraInstanceWithTestConfig(t, testConfig, &MockSchemaApplierThatSucceeds{})
 		if err != nil {
 			t.Fatalf("Failed to start test Defra node: %v", err)
 		}
-		defer testNode.Close(ctx)
+		defer func() { _ = testNode.Close(ctx) }()
 
 		// Create some valid peer info (these will fail to connect since they're not real peers, but should not panic)
 		peers := []client.PeerInfo{
 			{
-				Addresses: []string{"127.0.0.1:4001"},
-				ID:        "12D3KooWBh1N2rLJc9Rj7Z3rX9Y8uMvN2pQ4sT7wX1yB6eF9hK3mP5sA8",
+				Addresses: []string{testPeer1Addr},
+				ID:        testPeer1ID,
 			},
 			{
-				Addresses: []string{"192.168.1.100:4002"},
-				ID:        "12D3KooWEj8q4q5r6s7t8u9v0w1x2y3z4a5b6c7d8e9f0g1h2i3j4k5l6m",
+				Addresses: []string{testPeer2Addr},
+				ID:        testPeer2ID,
 			},
 		}
 		peerStrings, errors := PeersIntoBootstrap(peers)
@@ -356,7 +365,7 @@ func TestConnectToPeers(t *testing.T) {
 		}
 
 		// This should not panic and should return connection errors (since these are fake peers)
-		err = connectToPeers(ctx, testNode, peerStrings)
+		err = connectToPeers(&ctx, testNode, peerStrings)
 		require.Error(t, err)
 	})
 
@@ -364,17 +373,17 @@ func TestConnectToPeers(t *testing.T) {
 		ctx := context.Background()
 
 		// Start a test Defra node
-		testConfig := DefaultConfig
+		testConfig := NewDefaultConfig()
 		testNode, err := StartDefraInstanceWithTestConfig(t, testConfig, &MockSchemaApplierThatSucceeds{})
 		if err != nil {
 			t.Fatalf("Failed to start test Defra node: %v", err)
 		}
-		defer testNode.Close(ctx)
+		defer func() { _ = testNode.Close(ctx) }()
 
 		peers := []string{}
 
 		// This should not panic and should return no errors
-		err = connectToPeers(ctx, testNode, peers)
+		err = connectToPeers(&ctx, testNode, peers)
 		require.NoError(t, err)
 	})
 
@@ -382,36 +391,36 @@ func TestConnectToPeers(t *testing.T) {
 		ctx := context.Background()
 
 		// Start first Defra node with a specific listen address
-		testConfig1 := DefaultConfig
+		testConfig1 := NewDefaultConfig()
 		testConfig1.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/9171"
 		node1, err := StartDefraInstanceWithTestConfig(t, testConfig1, &MockSchemaApplierThatSucceeds{})
 		if err != nil {
 			t.Fatalf("Failed to start first Defra node: %v", err)
 		}
-		defer node1.Close(ctx)
+		defer func() { _ = node1.Close(ctx) }()
 
 		// Start second Defra node with a different listen address
-		testConfig2 := DefaultConfig
+		testConfig2 := NewDefaultConfig()
 		testConfig2.DefraDB.P2P.ListenAddr = "/ip4/127.0.0.1/tcp/9172"
 		node2, err := StartDefraInstanceWithTestConfig(t, testConfig2, &MockSchemaApplierThatSucceeds{})
 		if err != nil {
 			t.Fatalf("Failed to start second Defra node: %v", err)
 		}
-		defer node2.Close(ctx)
+		defer func() { _ = node2.Close(ctx) }()
 
 		// Get the peer info from node1 to connect node2 to it
 		node1PeerInfo, err := node1.DB.PeerInfo(ctx)
 		require.NoError(t, err)
 
 		// Now connect node2 to node1 using our connectToPeers function
-		err = connectToPeers(ctx, node2, node1PeerInfo)
+		err = connectToPeers(&ctx, node2, node1PeerInfo)
 		require.NoError(t, err)
 
 		// Test connecting node1 to node2 as well (bidirectional connection)
 		node2PeerInfo, err := node2.DB.PeerInfo(ctx)
 		require.NoError(t, err)
 
-		err = connectToPeers(ctx, node1, node2PeerInfo)
+		err = connectToPeers(&ctx, node1, node2PeerInfo)
 		require.NoError(t, err)
 	})
 }

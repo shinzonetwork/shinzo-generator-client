@@ -3,8 +3,8 @@ package pruner
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDefaultCollectionConfig(t *testing.T) {

@@ -268,8 +268,8 @@ func applyChainEnvOverrides(cfg *Config) {
 	if gethAPIKey := os.Getenv("GETH_API_KEY"); gethAPIKey != "" {
 		cfg.Geth.APIKey = gethAPIKey
 	}
-	if gethApiKeyType := os.Getenv("GETH_API_KEY_TYPE"); gethApiKeyType != "" {
-		cfg.Geth.APIKeyType = gethApiKeyType
+	if gethAPIKeyType := os.Getenv("GETH_API_KEY_TYPE"); gethAPIKeyType != "" {
+		cfg.Geth.APIKeyType = gethAPIKeyType
 	}
 }
 

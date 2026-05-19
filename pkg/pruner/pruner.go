@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -20,7 +21,7 @@ type Pruner struct {
 	cfg         *Config
 	collections CollectionConfig
 	defraNode   *node.Node
-	queue       PrunerQueue // IndexerQueue or EventQueue
+	queue       Queue
 	stopChan    chan struct{}
 	wg          sync.WaitGroup
 	mu          sync.RWMutex
@@ -56,7 +57,7 @@ func NewPruner(cfg *Config, defraNode *node.Node, collections ...CollectionConfi
 }
 
 // SetQueue sets the queue implementation for queue-based pruning.
-func (p *Pruner) SetQueue(queue PrunerQueue) {
+func (p *Pruner) SetQueue(queue Queue) {
 	p.queue = queue
 }
 
@@ -271,7 +272,6 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 		lowest, cutoffBlock, toPrune, cutoffBlock+1, highest)
 
 	totalPurged, err := p.pruneBlockRange(ctx, lowest, cutoffBlock)
-
 	if err != nil {
 		logger.Sugar.Errorf("Startup: failed to prune blocks %d-%d: %v", lowest, cutoffBlock, err)
 		return err
@@ -307,12 +307,16 @@ func (p *Pruner) runStorageGC() {
 // Used by the indexer queue (no P2P) and as a fallback when the queue is underfilled.
 func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 	highest, err := p.getHighestBlockNumber(ctx)
-	if err != nil || highest == 0 {
-		return nil
+	if err != nil {
+		return err
 	}
 
 	lowest, err := p.getLowestBlockNumber(ctx)
-	if err != nil || lowest == 0 {
+	if err != nil {
+		return err
+	}
+
+	if highest == 0 && lowest == 0 {
 		return nil
 	}
 
@@ -352,7 +356,7 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 
 	// Dependent collections first, block collection last
 	for _, colName := range p.collections.DependentCollections {
-		docIDs, err := p.queryOldestDocIDs(ctx, colName, "blockNumber", endBlock)
+		docIDs, err := p.queryOldestDocIDs(ctx, colName, constants.BlockNumberKeyValue, endBlock)
 		if err != nil {
 			logger.Sugar.Warnf("pruneBlockRange: query failed for %s (skipping): %v", colName, err)
 			continue
@@ -398,7 +402,7 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 
 	result := p.defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return nil, fmt.Errorf("query failed for %s: %v", collectionName, result.GQL.Errors[0])
+		return nil, fmt.Errorf("query failed for %s: %w", collectionName, result.GQL.Errors[0])
 	}
 
 	data, ok := result.GQL.Data.(map[string]any)
@@ -413,7 +417,7 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 	var docIDs []string
 
 	switch docs := raw.(type) {
-	case []map[string]interface{}:
+	case []map[string]any:
 		for _, docMap := range docs {
 			bn, err := parseBlockNumber(docMap[fieldName])
 			if err != nil || bn > maxBlockNumber {
@@ -423,9 +427,9 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 				docIDs = append(docIDs, docID)
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, doc := range docs {
-			docMap, ok := doc.(map[string]interface{})
+			docMap, ok := doc.(map[string]any)
 			if !ok {
 				continue
 			}
@@ -438,10 +442,11 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 			}
 		}
 	default:
+		// Unknown format or nil data
 		return nil, nil
 	}
 
-	return docIDs, nil
+	return docIDs, nil //nolint:nilerr
 }
 
 // purgeByDocIDs deletes documents by their docIDs.
@@ -501,14 +506,14 @@ func (p *Pruner) getHighestBlockNumber(ctx context.Context) (int64, error) {
 }
 
 func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
-	data, ok := gqlData.(map[string]interface{})
+	data, ok := gqlData.(map[string]any)
 	if !ok {
 		return 0, nil
 	}
 
 	blocksRaw := data[p.collections.BlockCollection]
 
-	if blocksTyped, ok := blocksRaw.([]map[string]interface{}); ok {
+	if blocksTyped, ok := blocksRaw.([]map[string]any); ok {
 		if len(blocksTyped) == 0 {
 			return 0, nil
 		}
@@ -518,12 +523,12 @@ func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
 		return 0, nil
 	}
 
-	blocks, ok := blocksRaw.([]interface{})
+	blocks, ok := blocksRaw.([]any)
 	if !ok || len(blocks) == 0 {
 		return 0, nil
 	}
 
-	block, ok := blocks[0].(map[string]interface{})
+	block, ok := blocks[0].(map[string]any)
 	if !ok {
 		return 0, nil
 	}
@@ -534,7 +539,7 @@ func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
 	return 0, nil
 }
 
-func parseBlockNumber(number interface{}) (int64, error) {
+func parseBlockNumber(number any) (int64, error) {
 	switch v := number.(type) {
 	case float64:
 		return int64(v), nil

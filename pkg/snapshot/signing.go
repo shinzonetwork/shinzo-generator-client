@@ -105,7 +105,7 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 
 	roots = make([][]byte, 0, len(docs))
 	for _, doc := range docs {
-		mrStr, ok := doc["merkleRoot"].(string)
+		mrStr, ok := doc[constants.MerkleRootKeyValue].(string)
 		if !ok || mrStr == "" {
 			continue
 		}
@@ -135,9 +135,9 @@ func signMerkleRoot(ctx context.Context, merkleRoot []byte) (sigType, sigIdentit
 
 	switch fullIdent.PrivateKey().Type() { //nolint:exhaustive // unsupported key types handled by default case
 	case crypto.KeyTypeSecp256k1:
-		sigType = "ES256K"
+		sigType = constants.Secp256k1ValueString
 	case crypto.KeyTypeEd25519:
-		sigType = "Ed25519"
+		sigType = constants.Ed25519ValueString
 	default:
 		return "", "", nil, fmt.Errorf("unsupported key type: %v", fullIdent.PrivateKey().Type()) //nolint: err113
 	}
@@ -165,16 +165,16 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 	}
 
 	data := map[string]any{
-		"startBlock":          sig.StartBlock,
-		"endBlock":            sig.EndBlock,
-		"merkleRoot":          sig.MerkleRoot,
-		"blockCount":          sig.BlockCount,
-		"signatureType":       sig.SignatureType,
-		"signatureIdentity":   sig.SignatureIdentity,
-		"signatureValue":      sig.SignatureValue,
-		"snapshotFile":        sig.SnapshotFile,
-		"createdAt":           sig.CreatedAt,
-		"blockSigMerkleRoots": sig.BlockSigMerkleRoots,
+		"startBlock":                 sig.StartBlock,
+		"endBlock":                   sig.EndBlock,
+		constants.MerkleRootKeyValue: sig.MerkleRoot,
+		"blockCount":                 sig.BlockCount,
+		"signatureType":              sig.SignatureType,
+		"signatureIdentity":          sig.SignatureIdentity,
+		"signatureValue":             sig.SignatureValue,
+		"snapshotFile":               sig.SnapshotFile,
+		"createdAt":                  sig.CreatedAt,
+		"blockSigMerkleRoots":        sig.BlockSigMerkleRoots,
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
@@ -264,7 +264,7 @@ func parseSnapshotSignatureDoc(doc map[string]any) *SnapshotSignatureData {
 	if v, ok := doc["endBlock"].(int64); ok {
 		sig.EndBlock = v
 	}
-	if v, ok := doc["merkleRoot"].(string); ok {
+	if v, ok := doc[constants.MerkleRootKeyValue].(string); ok {
 		sig.MerkleRoot = v
 	}
 	if v, ok := doc["blockCount"].(int64); ok {

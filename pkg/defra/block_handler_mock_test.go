@@ -1861,7 +1861,7 @@ func TestGetHighestBlockNumber_MapSliceBranch(t *testing.T) {
 				GQL: client.GQLResult{
 					Data: map[string]any{
 						constants.CollectionBlock: []map[string]any{
-							{"number": float64(42)},
+							{constants.NumberFieldValue: float64(42)},
 						},
 					},
 				},
@@ -1921,7 +1921,7 @@ func TestGetHighestBlockNumber_Int64Branch(t *testing.T) {
 				GQL: client.GQLResult{
 					Data: map[string]any{
 						constants.CollectionBlock: []any{
-							map[string]any{"number": int64(99)},
+							map[string]any{constants.NumberFieldValue: int64(99)},
 						},
 					},
 				},
@@ -1943,7 +1943,7 @@ func TestGetHighestBlockNumber_IntBranch(t *testing.T) {
 				GQL: client.GQLResult{
 					Data: map[string]any{
 						constants.CollectionBlock: []any{
-							map[string]any{"number": int(77)},
+							map[string]any{constants.NumberFieldValue: int(77)},
 						},
 					},
 				},
@@ -1965,7 +1965,7 @@ func TestGetHighestBlockNumber_InvalidNumberType(t *testing.T) {
 				GQL: client.GQLResult{
 					Data: map[string]any{
 						constants.CollectionBlock: []any{
-							map[string]any{"number": "not a number"},
+							map[string]any{constants.NumberFieldValue: "not a number"},
 						},
 					},
 				},

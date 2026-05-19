@@ -597,13 +597,13 @@ func normalizeHeaderName(apiKeyType string) string {
 	return strings.ToLower(strings.TrimSpace(apiKeyType))
 }
 
-// isGCPProvider checks if the header indicates GCP (uses query param for WS)
+// isGCPProvider checks if the header indicates GCP (uses query param for WS).
 func isGCPProvider(headerName string) bool {
 	return strings.Contains(headerName, "goog")
 }
 
 // createWebSocketWithHeaders creates a WebSocket connection with API key header
-// For GCP, appends the API key as a query parameter instead of using headers
+// For GCP, appends the API key as a query parameter instead of using headers.
 func createWebSocketWithHeaders(wsURL, apiKey, apiKeyHeader string) (*ethclient.Client, error) {
 	ctx := context.Background()
 

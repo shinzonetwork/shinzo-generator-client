@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -404,7 +405,7 @@ func TestConvertTransaction_EIP1559(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(1000),
 		Data:      []byte("data"),
 	}
@@ -441,7 +442,7 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 		Nonce:      1,
 		GasPrice:   big.NewInt(20000000000),
 		Gas:        21000,
-		To:         toPtr(common.HexToAddress("0xto")),
+		To:         new(common.HexToAddress("0xto")),
 		Value:      big.NewInt(1000),
 		Data:       []byte("data"),
 		AccessList: accessList,
@@ -715,7 +716,7 @@ func TestGetFromAddress_SignedEIP155(t *testing.T) {
 		Nonce:    1,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -740,7 +741,7 @@ func TestGetFromAddress_SignedDynamicFee(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(1000),
 	}
 
@@ -784,22 +785,22 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 		case ethGetBlockByNumber:
 			// Return a full block header with all required fields
 			return map[string]any{
-				"number":           "0x64",
-				"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"nonce":            "0x0000000000000000",
-				"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
-				"transactionsRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"miner":            "0x0000000000000000000000000000000000000000",
-				"difficulty":       "0x0",
-				"extraData":        "0x",
-				"gasLimit":         "0x1000000",
-				"gasUsed":          "0x0",
-				"timestamp":        "0x0",
-				"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
+				constants.NumberFieldValue: "0x64",
+				"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"nonce":                    "0x0000000000000000",
+				"sha3Uncles":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
+				"transactionsRoot":         "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"miner":                    "0x0000000000000000000000000000000000000000",
+				"difficulty":               "0x0",
+				"extraData":                "0x",
+				"gasLimit":                 "0x1000000",
+				"gasUsed":                  "0x0",
+				"timestamp":                "0x0",
+				"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
 			}, nil
 		default:
 			return "0x1", nil
@@ -844,25 +845,25 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 	// Empty trie root hash — must match empty transaction list
 	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 	block := map[string]any{
-		"number":           number,
-		"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"nonce":            "0x0000000000000000",
-		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot": emptyTrieRoot,
-		"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"miner":            "0x0000000000000000000000000000000000000000",
-		"difficulty":       "0x0",
-		"totalDifficulty":  "0x0",
-		"extraData":        "0x",
-		"size":             "0x100",
-		"gasLimit":         "0x1000000",
-		"gasUsed":          "0x5208",
-		"timestamp":        "0x60000000",
-		"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":           []any{},
+		constants.NumberFieldValue: number,
+		"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"nonce":                    "0x0000000000000000",
+		"sha3Uncles":               "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
+		"transactionsRoot":         emptyTrieRoot,
+		"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"miner":                    "0x0000000000000000000000000000000000000000",
+		"difficulty":               "0x0",
+		"totalDifficulty":          "0x0",
+		"extraData":                "0x",
+		"size":                     "0x100",
+		"gasLimit":                 "0x1000000",
+		"gasUsed":                  "0x5208",
+		"timestamp":                "0x60000000",
+		"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":                   []any{},
 	}
 	if txs != nil {
 		block["transactions"] = txs
@@ -922,20 +923,20 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 		switch method {
 		case ethGetTransactionReceipt:
 			return map[string]any{
-				"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
-				"transactionIndex":  "0x0",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":       "0x64",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"cumulativeGasUsed": "0x5208",
-				"gasUsed":           "0x5208",
-				"contractAddress":   nil,
-				"logs":              []any{},
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"status":            "0x1",
-				"effectiveGasPrice": "0x4a817c800",
-				"type":              "0x0",
+				"transactionHash":           "0x0000000000000000000000000000000000000000000000000000000000000abc",
+				"transactionIndex":          "0x0",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"blockNumber":               "0x64",
+				"from":                      "0x0000000000000000000000000000000000000001",
+				"to":                        "0x0000000000000000000000000000000000000002",
+				"cumulativeGasUsed":         "0x5208",
+				"gasUsed":                   "0x5208",
+				"contractAddress":           nil,
+				"logs":                      []any{},
+				"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+				"status":                    "0x1",
+				"effectiveGasPrice":         "0x4a817c800",
+				"type":                      "0x0",
 			}, nil
 		default:
 			return "0x1", nil
@@ -982,17 +983,17 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
-					"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
-					"transactionIndex":  "0x0",
-					"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-					"blockNumber":       "0x64",
-					"cumulativeGasUsed": "0x5208",
-					"gasUsed":           "0x5208",
-					"logs":              []any{},
-					"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-					"status":            "0x1",
-					"effectiveGasPrice": "0x4a817c800",
-					"type":              "0x0",
+					"transactionHash":           "0x0000000000000000000000000000000000000000000000000000000000000abc",
+					"transactionIndex":          "0x0",
+					constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+					"blockNumber":               "0x64",
+					"cumulativeGasUsed":         "0x5208",
+					"gasUsed":                   "0x5208",
+					"logs":                      []any{},
+					"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+					"status":                    "0x1",
+					"effectiveGasPrice":         "0x4a817c800",
+					"type":                      "0x0",
 				},
 			}, nil
 		default:
@@ -1206,7 +1207,7 @@ func TestGetFromAddress_HomesteadSigner(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1229,7 +1230,7 @@ func TestGetFromAddress_FrontierSigner(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1255,7 +1256,7 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1351,7 +1352,7 @@ func TestConvertGethBlock_FailedTxConversion(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 	signer := ethtypes.NewEIP155Signer(big.NewInt(1))
@@ -1403,7 +1404,7 @@ func TestGetFromAddress_AllSignersFail(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(0),
 	}
 	// Create unsigned DynamicFeeTx — has non-zero ChainID but no valid signature
@@ -1753,7 +1754,7 @@ func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 		V:        big.NewInt(27),
 		R:        big.NewInt(0),
@@ -1776,7 +1777,7 @@ func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 	tx := ethtypes.NewTx(inner)
@@ -1803,7 +1804,7 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 		Nonce:    42,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1838,7 +1839,7 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 		Nonce:    42,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 		V:        newV,
 		R:        r,
@@ -1862,10 +1863,6 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 }
 
 // --- Test helpers ---
-
-func toPtr(addr common.Address) *common.Address {
-	return &addr
-}
 
 func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {
 	// Use a fixed test private key

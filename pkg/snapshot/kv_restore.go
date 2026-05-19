@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -51,8 +52,8 @@ func ImportKV(ctx context.Context, defraNode *node.Node, filePath string) (*Impo
 		return nil, fmt.Errorf("parse header: %w", unmarshalErr) //nolint: err113
 	}
 
-	if header.Magic != "DFKV" {
-		return nil, fmt.Errorf("invalid snapshot magic: %q (expected DFKV)", header.Magic) //nolint: err113
+	if header.Magic != constants.HeaderMagicValue {
+		return nil, fmt.Errorf("invalid snapshot magic: %q (expected %q)", header.Magic, constants.HeaderMagicValue) //nolint: err113
 	}
 
 	logger.Sugar.Infof("Importing KV snapshot: blocks %d-%d (version=%d, created=%s)",

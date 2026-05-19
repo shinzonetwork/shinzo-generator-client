@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
 )
@@ -37,7 +38,7 @@ func TestErrorLoggingPatterns(t *testing.T) {
 		testLogger.AssertLogLevel("ERROR")
 		testLogger.AssertLogContains("Failed to create block in DefraDB")
 		testLogger.AssertLogStructuredContext("defra", "CreateBlock")
-		testLogger.AssertLogField("blockNumber", "12345")
+		testLogger.AssertLogField(constants.BlockNumberKeyValue, "12345")
 		testLogger.AssertLogField("endpoint", "http://localhost:8545")
 		testLogger.AssertLogField("errorCode", "RPC_CONNECTION_FAILED")
 		testLogger.AssertLogField("severity", "ERROR")
@@ -93,7 +94,7 @@ func TestErrorLoggingPatterns(t *testing.T) {
 		testLogger.AssertLogLevel("ERROR")
 		testLogger.AssertLogContains("Database operation failed")
 		testLogger.AssertLogStructuredContext("defra", "UpdateTransactionRelationships")
-		testLogger.AssertLogField("blockNumber", "67890")
+		testLogger.AssertLogField(constants.BlockNumberKeyValue, "67890")
 		testLogger.AssertLogField("database", "defradb")
 		testLogger.AssertLogField("errorCode", "DB_CONNECTION_FAILED")
 		testLogger.AssertLogField("severity", "CRITICAL")

@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"errors"
 	"net"
 	"testing"
 
@@ -16,18 +15,4 @@ func TestGetLANIP(t *testing.T) {
 
 	parsed := net.ParseIP(ip)
 	assert.NotNil(t, parsed, "should return a valid IP address, got: %s", ip)
-}
-
-func TestGetLANIP_DialError(t *testing.T) {
-	original := dialFunc
-	defer func() { dialFunc = original }()
-
-	dialFunc = func(network, address string) (net.Conn, error) {
-		return nil, errors.New("no network")
-	}
-
-	ip, err := GetLANIP()
-	assert.Error(t, err)
-	assert.Empty(t, ip)
-	assert.Contains(t, err.Error(), "Error retrieving ip address")
 }

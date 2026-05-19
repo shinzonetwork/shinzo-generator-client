@@ -49,6 +49,11 @@ const (
 	ethChainID = "eth_chainId"
 	// ethGetTransactionReceipt is used in tests to identify the transaction receipt RPC call.
 	ethGetTransactionReceipt = "eth_getTransactionReceipt"
+
+	testDefraURL         = "http://localhost:9181"
+	testMinerAddr        = "0x1111111111111111111111111111111111111111"
+	testSha3Uncles       = "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+	testTransactionsRoot = "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 )
 
 // TestIndexing_StartDefraFirst is now replaced by mock-based integration tests.
@@ -101,7 +106,7 @@ func TestCreateIndexerWithNilConfig(t *testing.T) {
 func TestIndexerStateManagement(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: testDefraURL},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -123,7 +128,7 @@ func TestIndexerStateManagement(t *testing.T) {
 func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: testDefraURL},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -139,7 +144,7 @@ func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
 func TestStopIndexing(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: "http://localhost:9181"},
+		DefraDB: config.DefraDBConfig{URL: testDefraURL},
 	}
 	indexer, err := CreateIndexer(cfg)
 	assert.NoError(t, err)
@@ -191,19 +196,20 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 		Hash:             "0x1234567890abcdef",
 		ParentHash:       "0xabcdef1234567890",
 		Timestamp:        "1640995200",
-		Miner:            "0x1111111111111111111111111111111111111111",
+		Miner:            testMinerAddr,
 		GasLimit:         "8000000",
 		GasUsed:          "21000",
 		Difficulty:       "1000000",
 		TotalDifficulty:  "5000000",
 		Nonce:            "0x1234567890abcdef",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		Sha3Uncles:       testSha3Uncles,
 		LogsBloom:        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+		TransactionsRoot: testTransactionsRoot,
 		StateRoot:        "0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544",
-		ReceiptsRoot:     "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		Size:             "1000",
-		ExtraData:        "0x",
+		ReceiptsRoot:     testTransactionsRoot,
+
+		Size:      "1000",
+		ExtraData: "0x",
 		Transactions: []types.Transaction{
 			{
 				Hash:             "0xabc123",
@@ -226,7 +232,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL: "http://localhost:9181",
+			URL: testDefraURL,
 		},
 	}
 	indexer, err := CreateIndexer(cfg)
@@ -284,7 +290,7 @@ func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
 		Hash:         "0x1234567890abcdef",
 		ParentHash:   "0xabcdef1234567890",
 		Timestamp:    "1640995200",
-		Miner:        "0x1111111111111111111111111111111111111111",
+		Miner:        testMinerAddr,
 		GasLimit:     "8000000",
 		GasUsed:      "0",
 		Transactions: []types.Transaction{}, // Empty transactions.
@@ -396,7 +402,7 @@ func TestBlockProcessingLogic(t *testing.T) {
 		Hash:       "0xtest123",
 		ParentHash: "0xparent123",
 		Timestamp:  "1640995200",
-		Miner:      "0x1111111111111111111111111111111111111111",
+		Miner:      testMinerAddr,
 		GasLimit:   "8000000",
 		GasUsed:    "21000",
 		Transactions: []types.Transaction{
@@ -452,7 +458,7 @@ func TestIndexerLifecycle(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL: "http://localhost:9181",
+			URL: testDefraURL,
 			Store: config.DefraDBStoreConfig{
 				Path: "/tmp/test_indexer",
 			},
@@ -979,27 +985,27 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 }
 
 func fullBlockResponse(number string, txs []any) map[string]any {
-	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+	emptyTrieRoot := testTransactionsRoot
 	block := map[string]any{
-		"number":           number,
-		"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"nonce":            "0x0000000000000000",
-		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot": emptyTrieRoot,
-		"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"miner":            "0x0000000000000000000000000000000000000000",
-		"difficulty":       "0x0",
-		"totalDifficulty":  "0x0",
-		"extraData":        "0x",
-		"size":             "0x100",
-		"gasLimit":         "0x1000000",
-		"gasUsed":          "0x5208",
-		"timestamp":        "0x60000000",
-		"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":           []any{},
+		constants.NumberFieldValue: number,
+		"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"nonce":                    "0x0000000000000000",
+		"sha3Uncles":               testSha3Uncles,
+		"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
+		"transactionsRoot":         emptyTrieRoot,
+		"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"miner":                    "0x0000000000000000000000000000000000000000",
+		"difficulty":               "0x0",
+		"totalDifficulty":          "0x0",
+		"extraData":                "0x",
+		"size":                     "0x100",
+		"gasLimit":                 "0x1000000",
+		"gasUsed":                  "0x5208",
+		"timestamp":                "0x60000000",
+		"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":                   []any{},
 	}
 	if txs != nil {
 		block["transactions"] = txs
@@ -1013,44 +1019,44 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 // The transactionsRoot is set to a non-empty value so go-ethereum accepts it.
 func fullBlockResponseWithTx(number string) map[string]any {
 	tx := map[string]any{
-		"hash":             "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"nonce":            "0x0",
-		"blockHash":        "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"blockNumber":      number,
-		"transactionIndex": "0x0",
-		"from":             "0x0000000000000000000000000000000000000001",
-		"to":               "0x0000000000000000000000000000000000000002",
-		"value":            "0x3e8",
-		"gas":              "0x5208",
-		"gasPrice":         "0x3b9aca00",
-		"input":            "0x",
-		"v":                "0x1b",
-		"r":                "0x1111111111111111111111111111111111111111111111111111111111111111",
-		"s":                "0x2222222222222222222222222222222222222222222222222222222222222222",
-		"type":             "0x0",
+		"hash":                      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"nonce":                     "0x0",
+		constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"blockNumber":               number,
+		"transactionIndex":          "0x0",
+		"from":                      "0x0000000000000000000000000000000000000001",
+		"to":                        "0x0000000000000000000000000000000000000002",
+		"value":                     "0x3e8",
+		"gas":                       "0x5208",
+		"gasPrice":                  "0x3b9aca00",
+		"input":                     "0x",
+		"v":                         "0x1b",
+		"r":                         "0x1111111111111111111111111111111111111111111111111111111111111111",
+		"s":                         "0x2222222222222222222222222222222222222222222222222222222222222222",
+		"type":                      "0x0",
 	}
 
 	block := map[string]any{
-		"number":           number,
-		"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"nonce":            "0x0000000000000000",
-		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", // non-empty → indicates txns present.
-		"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"miner":            "0x0000000000000000000000000000000000000000",
-		"difficulty":       "0x0",
-		"totalDifficulty":  "0x0",
-		"extraData":        "0x",
-		"size":             "0x100",
-		"gasLimit":         "0x1000000",
-		"gasUsed":          "0x5208",
-		"timestamp":        "0x60000000",
-		"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":           []any{},
-		"transactions":     []any{tx},
+		constants.NumberFieldValue: number,
+		"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"nonce":                    "0x0000000000000000",
+		"sha3Uncles":               testSha3Uncles,
+		"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
+		"transactionsRoot":         "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", // non-empty → indicates txns present.
+		"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"miner":                    "0x0000000000000000000000000000000000000000",
+		"difficulty":               "0x0",
+		"totalDifficulty":          "0x0",
+		"extraData":                "0x",
+		"size":                     "0x100",
+		"gasLimit":                 "0x1000000",
+		"gasUsed":                  "0x5208",
+		"timestamp":                "0x60000000",
+		"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":                   []any{},
+		"transactions":             []any{tx},
 	}
 	return block
 }
@@ -1490,8 +1496,9 @@ func TestStartIndexing_ExternalDefraDB_WaitFails(t *testing.T) {
 	// Point to a non-listening address so WaitForDefraDB fails.
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL: "http://127.0.0.1:1",
+			URL: testDefraURL,
 		},
+
 		Logger: config.LoggerConfig{Development: true},
 	}
 
@@ -1932,13 +1939,13 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var callCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
 		case "eth_getBlockByNumber":
 			n := callCount.Add(1)
 			if n <= 1 {
 				// First call: return null (not found)
-				return nil, nil
+				return nil, errors.New("not found")
 			}
 			// Second call: return valid block
 			return fullBlockResponse("0x4e20", nil), nil // block 20000
@@ -2509,7 +2516,7 @@ func TestFullBlockResponse_WithTransactions(t *testing.T) {
 		},
 	}
 	block := fullBlockResponse("0x100", txs)
-	assert.Equal(t, "0x100", block["number"])
+	assert.Equal(t, "0x100", block[constants.NumberFieldValue])
 	assert.NotNil(t, block["transactions"])
 	txList := block["transactions"].([]any)
 	assert.Len(t, txList, 1)
@@ -2518,7 +2525,7 @@ func TestFullBlockResponse_WithTransactions(t *testing.T) {
 func TestFullBlockResponse_NilTransactions(t *testing.T) {
 	t.Parallel()
 	block := fullBlockResponse("0x200", nil)
-	assert.Equal(t, "0x200", block["number"])
+	assert.Equal(t, "0x200", block[constants.NumberFieldValue])
 	txList := block["transactions"].([]any)
 	assert.Len(t, txList, 0)
 }
@@ -2822,7 +2829,6 @@ func TestSignMessages_WithIdentity(t *testing.T) {
 
 	keyringSecret := "test-secret-for-sign-identity-123"
 
-
 	// Start DefraDB to create identity and keys
 	td := testutils.SetupTestDefraDB(t)
 
@@ -3125,7 +3131,7 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
 		Indexer: config.IndexerConfig{
 			StartHeight:      99980, // specific start height
-			ConcurrentBlocks: 1, // concurrent
+			ConcurrentBlocks: 1,     // concurrent
 			ReceiptWorkers:   2,
 			MaxDocsPerTxn:    100,
 			HealthServerPort: 0,
@@ -3158,7 +3164,6 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 	indexer.shouldIndex = false
 	indexer.StopIndexing()
 }
-
 
 // ---------------------------------------------------------------------------
 // fetchAndProcessBlock — receipt fallback to individual fetch
@@ -3235,19 +3240,19 @@ func TestFetchAndProcessBlock_ReceiptFallbackWithTxns(t *testing.T) {
 		case ethGetTransactionReceipt:
 			// Return a valid receipt with all required go-ethereum fields.
 			return map[string]any{
-				"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":       "0x186a0",
-				"transactionIndex":  "0x0",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"gasUsed":           "0x5208",
-				"cumulativeGasUsed": "0x5208",
-				"contractAddress":   nil,
-				"status":            "0x1",
-				"type":              "0x0",
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"logs":              []any{},
+				"transactionHash":           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"blockNumber":               "0x186a0",
+				"transactionIndex":          "0x0",
+				"from":                      "0x0000000000000000000000000000000000000001",
+				"to":                        "0x0000000000000000000000000000000000000002",
+				"gasUsed":                   "0x5208",
+				"cumulativeGasUsed":         "0x5208",
+				"contractAddress":           nil,
+				"status":                    "0x1",
+				"type":                      "0x0",
+				"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+				"logs":                      []any{},
 			}, nil
 		default:
 			return "0x1", nil
@@ -3733,7 +3738,7 @@ func TestPruneQueueFilePath(t *testing.T) {
 // StartIndexing — resume from pruner queue (covers lines 219-221, 243-252).
 // ---------------------------------------------------------------------------.
 
-func TestStartIndexing_ResumeFromPrunerQueue(t *testing.T) {
+func TestStartIndexing_ResumeFromQueue(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -4012,12 +4017,12 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 			// Slow response to give time for cancellation.
 			time.Sleep(500 * time.Millisecond)
 			return map[string]any{
-				"transactionHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				"blockNumber":     "0x3e8",
-				"blockHash":       "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"gasUsed":         "0x5208",
-				"status":          "0x1",
-				"logs":            []any{},
+				"transactionHash":           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"blockNumber":               "0x3e8",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"gasUsed":                   "0x5208",
+				"status":                    "0x1",
+				"logs":                      []any{},
 			}, nil
 		default:
 			return "0x1", nil
@@ -4827,20 +4832,20 @@ func TestFetchAndProcessBlock_WithTxAndBatchReceipts(t *testing.T) {
 		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
-					"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-					"transactionIndex":  "0x0",
-					"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-					"blockNumber":       "0xbbb0",
-					"from":              "0x0000000000000000000000000000000000000001",
-					"to":                "0x0000000000000000000000000000000000000002",
-					"cumulativeGasUsed": "0x5208",
-					"gasUsed":           "0x5208",
-					"contractAddress":   nil,
-					"logs":              []any{},
-					"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-					"status":            "0x1",
-					"effectiveGasPrice": "0x4a817c800",
-					"type":              "0x0",
+					"transactionHash":           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"transactionIndex":          "0x0",
+					constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+					"blockNumber":               "0xbbb0",
+					"from":                      "0x0000000000000000000000000000000000000001",
+					"to":                        "0x0000000000000000000000000000000000000002",
+					"cumulativeGasUsed":         "0x5208",
+					"gasUsed":                   "0x5208",
+					"contractAddress":           nil,
+					"logs":                      []any{},
+					"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+					"status":                    "0x1",
+					"effectiveGasPrice":         "0x4a817c800",
+					"type":                      "0x0",
 				},
 			}, nil
 		default:
@@ -4891,7 +4896,7 @@ func setupTestDefraDBWithP2P(t *testing.T) *node.Node {
 		t.Fatalf("Failed to create DefraDB node with P2P: %v", err)
 	}
 	if err := defraNode.Start(ctx); err != nil {
-		t.Fatalf("Failed to start DefraDB node with P2P: %v", err)
+		t.Fatalf("failed to start DefraDB node with P2P: %v", err)
 	}
 
 	t.Cleanup(func() {
@@ -4973,20 +4978,20 @@ func TestFetchAndProcessBlock_IndividualReceiptSuccess(t *testing.T) {
 			return nil, fmt.Errorf("not supported") // Force fallback.
 		case ethGetTransactionReceipt:
 			return map[string]any{
-				"transactionHash":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				"transactionIndex":  "0x0",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":       "0xccc0",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"cumulativeGasUsed": "0x5208",
-				"gasUsed":           "0x5208",
-				"contractAddress":   nil,
-				"logs":              []any{},
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"status":            "0x1",
-				"effectiveGasPrice": "0x4a817c800",
-				"type":              "0x0",
+				"transactionHash":           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"transactionIndex":          "0x0",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"blockNumber":               "0xccc0",
+				"from":                      "0x0000000000000000000000000000000000000001",
+				"to":                        "0x0000000000000000000000000000000000000002",
+				"cumulativeGasUsed":         "0x5208",
+				"gasUsed":                   "0x5208",
+				"contractAddress":           nil,
+				"logs":                      []any{},
+				"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+				"status":                    "0x1",
+				"effectiveGasPrice":         "0x4a817c800",
+				"type":                      "0x0",
 			}, nil
 		default:
 			return "0x1", nil
@@ -5018,45 +5023,45 @@ func fullBlockResponseWithMultipleTxs(number string, count int) map[string]any {
 	for i := range count {
 		txHash := fmt.Sprintf("0x%064x", i+1) // unique tx hashes
 		txs[i] = map[string]any{
-			"hash":             txHash,
-			"nonce":            fmt.Sprintf("0x%x", i),
-			"blockHash":        "0x0000000000000000000000000000000000000000000000000000000000000001",
-			"blockNumber":      number,
-			"transactionIndex": fmt.Sprintf("0x%x", i),
-			"from":             "0x0000000000000000000000000000000000000001",
-			"to":               "0x0000000000000000000000000000000000000002",
-			"value":            "0x3e8",
-			"gas":              "0x5208",
-			"gasPrice":         "0x3b9aca00",
-			"input":            "0x",
-			"v":                "0x1b",
-			"r":                "0x1111111111111111111111111111111111111111111111111111111111111111",
-			"s":                "0x2222222222222222222222222222222222222222222222222222222222222222",
-			"type":             "0x0",
+			"hash":                      txHash,
+			"nonce":                     fmt.Sprintf("0x%x", i),
+			constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+			"blockNumber":               number,
+			"transactionIndex":          fmt.Sprintf("0x%x", i),
+			"from":                      "0x0000000000000000000000000000000000000001",
+			"to":                        "0x0000000000000000000000000000000000000002",
+			"value":                     "0x3e8",
+			"gas":                       "0x5208",
+			"gasPrice":                  "0x3b9aca00",
+			"input":                     "0x",
+			"v":                         "0x1b",
+			"r":                         "0x1111111111111111111111111111111111111111111111111111111111111111",
+			"s":                         "0x2222222222222222222222222222222222222222222222222222222222222222",
+			"type":                      "0x0",
 		}
 	}
 
 	block := map[string]any{
-		"number":           number,
-		"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"nonce":            "0x0000000000000000",
-		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"miner":            "0x0000000000000000000000000000000000000000",
-		"difficulty":       "0x0",
-		"totalDifficulty":  "0x0",
-		"extraData":        "0x",
-		"size":             "0x100",
-		"gasLimit":         "0x1000000",
-		"gasUsed":          "0x5208",
-		"timestamp":        "0x60000000",
-		"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":           []any{},
-		"transactions":     txs,
+		constants.NumberFieldValue: number,
+		"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"nonce":                    "0x0000000000000000",
+		"sha3Uncles":               "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
+		"transactionsRoot":         "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"miner":                    "0x0000000000000000000000000000000000000000",
+		"difficulty":               "0x0",
+		"totalDifficulty":          "0x0",
+		"extraData":                "0x",
+		"size":                     "0x100",
+		"gasLimit":                 "0x1000000",
+		"gasUsed":                  "0x5208",
+		"timestamp":                "0x60000000",
+		"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":                   []any{},
+		"transactions":             txs,
 	}
 	return block
 }

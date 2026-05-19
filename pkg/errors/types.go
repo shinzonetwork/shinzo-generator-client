@@ -5,6 +5,20 @@ import (
 	"time"
 )
 
+const (
+	// Severity Error Strings.
+	severityInfoString     = "INFO"
+	severityWarningString  = "WARNING"
+	severityErrorString    = "ERROR"
+	severityCriticalString = "CRITICAL"
+	// Retryable Error Strings.
+	nonRetryableBehaviorString         = "NON_RETRYABLE"
+	retryableBehaviorString            = "RETRYABLE"
+	retryableWIthBackoffBehaviorString = "RETRYABLE_WITH_BACKOFF"
+	// Unknown Error Strings.
+	unknownErrorString = "UNKNOWN"
+)
+
 // Severity levels for error classification.
 type Severity int
 
@@ -17,23 +31,20 @@ const (
 	Error
 	// Critical - System cannot continue, requires immediate attention.
 	Critical
-
-	// Unknown severity level for undefined cases.
-	Unknown = "UNKNOWN"
 )
 
 func (s Severity) String() string {
 	switch s {
 	case Info:
-		return "INFO"
+		return severityInfoString
 	case Warning:
-		return "WARNING"
+		return severityWarningString
 	case Error:
-		return "ERROR"
+		return severityErrorString
 	case Critical:
-		return "CRITICAL"
+		return severityCriticalString
 	default:
-		return Unknown
+		return unknownErrorString
 	}
 }
 
@@ -52,13 +63,13 @@ const (
 func (r RetryBehavior) String() string {
 	switch r {
 	case NonRetryable:
-		return "NON_RETRYABLE"
+		return nonRetryableBehaviorString
 	case Retryable:
-		return "RETRYABLE"
+		return retryableBehaviorString
 	case RetryableWithBackoff:
-		return "RETRYABLE_WITH_BACKOFF"
+		return retryableWIthBackoffBehaviorString
 	default:
-		return Unknown
+		return unknownErrorString
 	}
 }
 

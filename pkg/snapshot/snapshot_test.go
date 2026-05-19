@@ -30,20 +30,16 @@ import (
 )
 
 const (
-	// keyTypeEd25519 is the key type string for Ed25519 keys in DefraDB.
-	keyTypeEd25519 = "Ed25519"
-	// keyTypeES256K is the key type string for secp256k1 keys in DefraDB.
-	keyTypeES256K = "ES256K"
 	// Test collection names derived from the default prefix
-	// testBlockCollection is a constant for block collections
+	// testBlockCollection is a constant for block collections.
 	testBlockCollection = constants.DefaultCollectionPrefix + "__Block"
-	// testTransactionCollection is a constant for transaction collections
+	// testTransactionCollection is a constant for transaction collections.
 	testTransactionCollection = constants.DefaultCollectionPrefix + "__Transaction"
-	// testLogCollection is a constant for log collections
+	// testLogCollection is a constant for log collections.
 	testLogCollection = constants.DefaultCollectionPrefix + "__Log"
-	// testAccessListCollection is a constant for ALE collections
+	// testAccessListCollection is a constant for ALE collections.
 	testAccessListCollection = constants.DefaultCollectionPrefix + "__AccessListEntry"
-	// testBlockSignatureCollection is a constant for blockSignature collections
+	// testBlockSignatureCollection is a constant for blockSignature collections.
 	testBlockSignatureCollection = constants.DefaultCollectionPrefix + "__BlockSignature"
 )
 
@@ -660,8 +656,8 @@ func TestExtractBlockSigMerkleRoots_PlainJSONL(t *testing.T) {
 	mr2 := hexRoot("root2_data_bytes")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr1, "blockNumber": 1000}}),
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr2, "blockNumber": 1001}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr1, constants.BlockNumberKeyValue: 1000}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr2, constants.BlockNumberKeyValue: 1001}}),
 	}
 
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
@@ -682,7 +678,7 @@ func TestExtractBlockSigMerkleRoots_GzipFile(t *testing.T) {
 	mr1 := hexRoot("gzip_root_data")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr1}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr1}}),
 	}
 
 	p := writeGzipJSONLFile(t, dir, "test.jsonl.gz", lines)
@@ -719,9 +715,9 @@ func TestExtractBlockSigMerkleRoots_NonBlockSigEntriesSkipped(t *testing.T) {
 	mr := hexRoot("valid_root")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{"number": 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
 		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 		mustJSON(t, map[string]any{"type": "log", "data": map[string]any{"logIndex": 0}}),
 	}
 
@@ -743,7 +739,7 @@ func TestExtractBlockSigMerkleRoots_InvalidJSONSkipped(t *testing.T) {
 	lines := []string{
 		"this is not json at all",
 		"{ broken json",
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 		"",
 	}
 
@@ -761,8 +757,8 @@ func TestExtractBlockSigMerkleRoots_EmptyMerkleRoot(t *testing.T) {
 	dir := t.TempDir()
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": ""}}),
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"other": "field"}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: ""}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"other": "field"}}),
 	}
 
 	p := writeJSONLFile(t, dir, "empty_roots.jsonl", lines)
@@ -778,8 +774,8 @@ func TestExtractBlockSigMerkleRoots_InvalidHexSkipped(t *testing.T) {
 	mr := hexRoot("valid_root")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": "not_valid_hex_zzz"}}),
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: "not_valid_hex_zzz"}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 
 	p := writeJSONLFile(t, dir, "bad_hex.jsonl", lines)
@@ -796,8 +792,8 @@ func TestExtractBlockSigMerkleRoots_NilData(t *testing.T) {
 	dir := t.TempDir()
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": nil}),
-		mustJSON(t, map[string]any{"type": "block_signature"}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": nil}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue}),
 	}
 
 	p := writeJSONLFile(t, dir, "nil_data.jsonl", lines)
@@ -826,8 +822,8 @@ func TestExtractBlockSigMerkleRoots_MultipleValidRootsInOrder(t *testing.T) {
 	var lines []string
 	for i, mr := range mrs {
 		lines = append(lines, mustJSON(t, map[string]any{
-			"type": "block_signature",
-			"data": map[string]any{"merkleRoot": mr, "blockNumber": 1000 + i},
+			"type": constants.BlockSignatureTypeValue,
+			"data": map[string]any{constants.MerkleRootKeyValue: mr, constants.BlockNumberKeyValue: 1000 + i},
 		}))
 	}
 
@@ -852,7 +848,7 @@ func TestVerifySnapshotWithSig_NoBlockSigsInSnapshot(t *testing.T) {
 
 	// Create a snapshot with no block_signature entries
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{"number": 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
 		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
@@ -880,7 +876,7 @@ func TestVerifySnapshotWithSig_MerkleRootMismatch(t *testing.T) {
 	mr := hexRoot("actual_root_data")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -935,7 +931,7 @@ func TestVerifySnapshotWithSig_MatchingMerkleRootButBadSignatureHex(t *testing.T
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -949,7 +945,7 @@ func TestVerifySnapshotWithSig_MatchingMerkleRootButBadSignatureHex(t *testing.T
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: "signer123",
 		SignatureValue:    "not_valid_hex_zzz",
 	}
@@ -969,7 +965,7 @@ func TestVerifySnapshotWithSig_UnsupportedSignatureType(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -988,7 +984,7 @@ func TestVerifySnapshotWithSig_UnsupportedSignatureType(t *testing.T) {
 	}
 
 	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.NotNil(t, result)
 	assert.False(t, result.Valid)
 	assert.True(t, result.MerkleRootMatch)
@@ -1002,7 +998,7 @@ func TestVerifySnapshotWithSig_BadMerkleRootHex(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -1015,7 +1011,7 @@ func TestVerifySnapshotWithSig_BadMerkleRootHex(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: "bad_key_string",
 		SignatureValue:    hex.EncodeToString([]byte("fake_sig")),
 	}
@@ -1083,7 +1079,7 @@ func TestVerifySnapshot_ValidSigFileButNoBlockSigs(t *testing.T) {
 
 	// Create a gzip'd JSONL file with no block_signature entries
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{"number": 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
 	}
 	snapshotPath := writeGzipJSONLFile(t, dir, "snapshot_1000_1999.jsonl.gz", lines)
 
@@ -1207,7 +1203,7 @@ func TestSnapshotSignatureData_JSONRoundTrip(t *testing.T) {
 		EndBlock:            1999,
 		MerkleRoot:          "abcdef0123456789",
 		BlockCount:          1000,
-		SignatureType:       "ES256K",
+		SignatureType:       constants.Secp256k1ValueString,
 		SignatureIdentity:   "z6MkPublicKey...",
 		SignatureValue:      "deadbeef",
 		CreatedAt:           "2024-01-01T00:00:00Z",
@@ -1611,7 +1607,7 @@ func TestQueryDocIDs_EmptyDB(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 0, 1000)
+	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 0, 1000)
 	require.NoError(t, err)
 	assert.Empty(t, docIDs)
 }
@@ -1624,8 +1620,8 @@ func TestQueryDocIDs_WithBlocks(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	// Query Block collection (uses "number" field)
-	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 100, 102)
+	// Query Block collection (uses constants.NumberFieldValue field)
+	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 100, 102)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3, "should find 3 block doc IDs")
 
@@ -1644,7 +1640,7 @@ func TestQueryDocIDs_PartialRange(t *testing.T) {
 	ctx := context.Background()
 
 	// Query only blocks 101-103
-	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 101, 103)
+	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 101, 103)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3, "should find 3 block doc IDs for range 101-103")
 }
@@ -1657,7 +1653,7 @@ func TestQueryDocIDs_Transactions(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, "blockNumber", 200, 202)
+	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, constants.BlockNumberKeyValue, 200, 202)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 3, "should find 3 transaction doc IDs")
 }
@@ -1670,7 +1666,7 @@ func TestQueryDocIDs_Logs(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	logDocIDs, err := s.queryDocIDs(ctx, testLogCollection, "blockNumber", 300, 301)
+	logDocIDs, err := s.queryDocIDs(ctx, testLogCollection, constants.BlockNumberKeyValue, 300, 301)
 	require.NoError(t, err)
 	assert.Len(t, logDocIDs, 2, "should find 2 log doc IDs")
 }
@@ -1684,7 +1680,7 @@ func TestQueryDocIDs_OutOfRange(t *testing.T) {
 	ctx := context.Background()
 
 	// Query a range that has no blocks
-	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 500, 600)
+	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 500, 600)
 	require.NoError(t, err)
 	assert.Empty(t, docIDs)
 }
@@ -1752,7 +1748,7 @@ func TestCreateKVSnapshot_HeaderValid(t *testing.T) {
 	err = json.Unmarshal(headerBytes, &header)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DFKV", header.Magic)
+	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, 1, header.Version)
 	assert.Equal(t, int64(2000), header.StartBlock)
 	assert.Equal(t, int64(2004), header.EndBlock)
@@ -1954,7 +1950,7 @@ func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		BlockCount:        1000,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: "z6MkTestPublicKey1234567890",
 		SignatureValue:    "deadbeefcafe0000000000000000000000000000000000000000000000000000",
 		CreatedAt:         "2024-01-15T12:00:00Z",
@@ -1979,7 +1975,7 @@ func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
 	assert.Equal(t, int64(1999), retrieved.EndBlock)
 	assert.Equal(t, "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", retrieved.MerkleRoot)
 	assert.Equal(t, 1000, retrieved.BlockCount)
-	assert.Equal(t, "ES256K", retrieved.SignatureType)
+	assert.Equal(t, constants.Secp256k1ValueString, retrieved.SignatureType)
 	assert.Equal(t, "z6MkTestPublicKey1234567890", retrieved.SignatureIdentity)
 	assert.Equal(t, "deadbeefcafe0000000000000000000000000000000000000000000000000000", retrieved.SignatureValue)
 	assert.Equal(t, "snapshot_1000_1999.kvsnap.gz", retrieved.SnapshotFile)
@@ -2002,7 +1998,7 @@ func TestCreateSnapshotSignatureDoc_MultipleDocs(t *testing.T) {
 			EndBlock:          int64((i+1)*1000 - 1),
 			MerkleRoot:        fmt.Sprintf("%064x", i+1),
 			BlockCount:        1000,
-			SignatureType:     "ES256K",
+			SignatureType:     constants.Secp256k1ValueString,
 			SignatureIdentity: "z6MkTestKey",
 			SignatureValue:    fmt.Sprintf("%064x", i+100),
 			CreatedAt:         "2024-01-15T12:00:00Z",
@@ -2187,11 +2183,11 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	assert.Equal(t, int64(104), highest)
 
 	// Also verify we can query doc IDs in the imported node
-	blockDocIDs, err := s2.queryDocIDs(ctx, testBlockCollection, "number", 100, 104)
+	blockDocIDs, err := s2.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 5, "should find 5 block doc IDs after import")
 
-	txDocIDs, err := s2.queryDocIDs(ctx, testTransactionCollection, "blockNumber", 100, 104)
+	txDocIDs, err := s2.queryDocIDs(ctx, testTransactionCollection, constants.BlockNumberKeyValue, 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 5, "should find 5 transaction doc IDs after import")
 }
@@ -2211,12 +2207,12 @@ func TestQueryDocIDs_ChunkedQuery(t *testing.T) {
 	ctx := context.Background()
 
 	// Query across a range that spans exactly one chunk
-	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 100, 104)
+	docIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, docIDs, 5)
 
 	// Query across a range that starts before and ends after our blocks
-	docIDs, err = s.queryDocIDs(ctx, testBlockCollection, "number", 0, 200)
+	docIDs, err = s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 0, 200)
 	require.NoError(t, err)
 	assert.Len(t, docIDs, 5, "should still find only our 5 blocks")
 }
@@ -2376,7 +2372,7 @@ func TestVerifySnapshotWithSig_InvalidMerkleRootHex(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 	sig := &SnapshotSignatureData{}
@@ -2401,7 +2397,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Ed25519(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2444,7 +2440,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Secp256k1(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2460,7 +2456,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Secp256k1(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(sigValue),
 	}
@@ -2488,7 +2484,7 @@ func TestVerifySnapshotWithSig_WrongSignature(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2534,7 +2530,7 @@ func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -2548,7 +2544,7 @@ func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString([]byte("not a valid DER signature")),
 	}
@@ -2573,7 +2569,7 @@ func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 
 	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
@@ -2619,7 +2615,7 @@ func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "ed25519",
+		SignatureType:     strings.ToLower(constants.Ed25519ValueString),
 		SignatureIdentity: fullIdentEd.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(sigValueEd),
 	}
@@ -2646,8 +2642,8 @@ func TestExtractBlockSigMerkleRoots_TruncatedGzipCausesReaderErr(t *testing.T) {
 	// Write a large amount of data so we have something to truncate
 	for i := range 100 {
 		line := mustJSON(t, map[string]any{
-			"type": "block_signature",
-			"data": map[string]any{"merkleRoot": hex.EncodeToString(bytes.Repeat([]byte{byte(i)}, 32))},
+			"type": constants.BlockSignatureTypeValue,
+			"data": map[string]any{constants.MerkleRootKeyValue: hex.EncodeToString(bytes.Repeat([]byte{byte(i)}, 32))},
 		})
 		_, err = gw.Write([]byte(line + "\n"))
 		require.NoError(t, err)
@@ -2695,7 +2691,7 @@ func TestSignMerkleRoot_Ed25519(t *testing.T) {
 	merkleRoot := bytes.Repeat([]byte{0xBB}, 32)
 	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
 	require.NoError(t, err)
-	assert.Equal(t, keyTypeEd25519, sigType)
+	assert.Equal(t, constants.Ed25519ValueString, sigType)
 	assert.NotEmpty(t, sigIdentity)
 	assert.NotEmpty(t, sigValue)
 
@@ -2716,7 +2712,7 @@ func TestSignMerkleRoot_Secp256k1(t *testing.T) {
 	merkleRoot := bytes.Repeat([]byte{0xCC}, 32)
 	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
 	require.NoError(t, err)
-	assert.Equal(t, keyTypeES256K, sigType)
+	assert.Equal(t, constants.Secp256k1ValueString, sigType)
 	assert.NotEmpty(t, sigIdentity)
 	assert.NotEmpty(t, sigValue)
 
@@ -2781,7 +2777,7 @@ func TestSignSnapshotWithRoots_WithIdentity(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, int64(1000), sig.StartBlock)
 	assert.Equal(t, int64(1999), sig.EndBlock)
-	assert.Equal(t, "Ed25519", sig.SignatureType)
+	assert.Equal(t, constants.Ed25519ValueString, sig.SignatureType)
 	assert.Equal(t, 2, sig.BlockCount)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
@@ -2945,7 +2941,7 @@ func TestQueryDocIDs_GQLError(t *testing.T) {
 	ctx := context.Background()
 
 	// Use a non-existent collection name to trigger a GQL error
-	_, err := s.queryDocIDs(ctx, "NonExistent__Collection", "number", 0, 100)
+	_, err := s.queryDocIDs(ctx, "NonExistent__Collection", constants.NumberFieldValue, 0, 100)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "query NonExistent__Collection")
 }
@@ -3012,7 +3008,7 @@ func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
 		EndBlock:          2999,
 		MerkleRoot:        "aabbccdd" + strings.Repeat("00", 28),
 		BlockCount:        1000,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: "z6MkTestKey2",
 		SignatureValue:    "deadbeef" + strings.Repeat("00", 28),
 		CreatedAt:         "2024-06-15T12:00:00Z",
@@ -3033,7 +3029,7 @@ func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
 
 	retrieved, ok := sigs["snapshot_2000_2999.kvsnap.gz"]
 	require.True(t, ok)
-	assert.Equal(t, "Ed25519", retrieved.SignatureType)
+	assert.Equal(t, constants.Ed25519ValueString, retrieved.SignatureType)
 	assert.Equal(t, "2024-06-15T12:00:00Z", retrieved.CreatedAt)
 }
 
@@ -3053,7 +3049,7 @@ func TestQuerySnapshotSignatures_EmptySnapshotFileSkipped(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        strings.Repeat("ab", 32),
 		BlockCount:        1000,
-		SignatureType:     "ES256K",
+		SignatureType:     constants.Secp256k1ValueString,
 		SignatureIdentity: "z6MkTestKey",
 		SignatureValue:    strings.Repeat("cd", 32),
 		CreatedAt:         "2024-01-01T00:00:00Z",
@@ -3080,7 +3076,7 @@ func TestImportKV_ValidHeaderEmptyKVs(t *testing.T) {
 	// Create a valid kvsnap file with proper header but just an EOF marker
 	p := writeKVSnapGz(t, dir, "empty_kvs.kvsnap.gz", func(gw *gzip.Writer) {
 		header := kvSnapshotHeader{
-			Magic:      "DFKV",
+			Magic:      constants.HeaderMagicValue,
 			Version:    1,
 			StartBlock: 0,
 			EndBlock:   0,
@@ -3302,7 +3298,7 @@ func TestListSnapshots_StatErrorSkipsFile(t *testing.T) {
 
 func TestKVSnapshotHeader_JSONRoundTrip(t *testing.T) {
 	header := kvSnapshotHeader{
-		Magic:               "DFKV",
+		Magic:               constants.HeaderMagicValue,
 		Version:             1,
 		StartBlock:          1000,
 		EndBlock:            1999,
@@ -3394,7 +3390,7 @@ func TestCreateKVSnapshot_AllCollections(t *testing.T) {
 	err = json.Unmarshal(headerBytes, &header)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DFKV", header.Magic)
+	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, int64(300), header.StartBlock)
 	assert.Equal(t, int64(302), header.EndBlock)
 }
@@ -3450,7 +3446,7 @@ func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
 
 	sig := sigs["snapshot_5000_5999.kvsnap.gz"]
 	require.NotNil(t, sig)
-	assert.Equal(t, "ES256K", sig.SignatureType)
+	assert.Equal(t, constants.Secp256k1ValueString, sig.SignatureType)
 	assert.Equal(t, 5, sig.BlockCount)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
@@ -3470,7 +3466,7 @@ func TestQueryDocIDs_AccessListEntry(t *testing.T) {
 	ctx := context.Background()
 
 	// AccessListEntry docs may or may not exist depending on test transaction data
-	docIDs, err := s.queryDocIDs(ctx, testAccessListCollection, "blockNumber", 600, 601)
+	docIDs, err := s.queryDocIDs(ctx, testAccessListCollection, constants.BlockNumberKeyValue, 600, 601)
 	require.NoError(t, err)
 	// Just verify no error; count depends on test data
 	_ = docIDs
@@ -3484,7 +3480,7 @@ func TestQueryDocIDs_BlockSignature(t *testing.T) {
 	s := New(cfg, td.Node)
 	ctx := context.Background()
 
-	docIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, "blockNumber", 700, 701)
+	docIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, constants.BlockNumberKeyValue, 700, 701)
 	require.NoError(t, err)
 	_ = docIDs
 }
@@ -3501,7 +3497,7 @@ func TestImportKV_HeaderWithBlockSigMerkleRoots(t *testing.T) {
 	// Create a kvsnap with roots in the header, then import
 	p := writeKVSnapGz(t, dir, "with_roots.kvsnap.gz", func(gw *gzip.Writer) {
 		header := kvSnapshotHeader{
-			Magic:               "DFKV",
+			Magic:               constants.HeaderMagicValue,
 			Version:             1,
 			StartBlock:          5000,
 			EndBlock:            5999,
@@ -3765,7 +3761,7 @@ func TestSignSnapshotWithRoots_ComputeRootFails(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // getBlockNumber with real data: cover int64 path
-// DefraDB returns int64 for "number" field, not float64.
+// DefraDB returns int64 for constants.NumberFieldValue field, not float64.
 // This should already be covered by TestGetBlockNumber_AfterInserts.
 // ---------------------------------------------------------------------------
 
@@ -3827,11 +3823,11 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 	require.NoError(t, err)
 
 	data := map[string]any{
-		"blockNumber": blockNumber,
-		"blockHash":   deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
-		"merkleRoot":  merkleRoot,
-		"cidCount":    5,
-		"cids":        []string{"cidA", "cidB"},
+		constants.BlockNumberKeyValue: blockNumber,
+		constants.BlockHashKeyValue:   deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
+		constants.MerkleRootKeyValue:  merkleRoot,
+		"cidCount":                    5,
+		"cids":                        []string{"cidA", "cidB"},
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
@@ -3953,7 +3949,7 @@ func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
 	err = json.Unmarshal(headerBytes, &header)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DFKV", header.Magic)
+	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, int64(500), header.StartBlock)
 	assert.Equal(t, int64(502), header.EndBlock)
 	// BlockSigMerkleRoots should be populated
@@ -3999,7 +3995,7 @@ func TestSignSnapshotWithRoots_FullFlowWithBlockSigs(t *testing.T) {
 	assert.Equal(t, int64(600), sig.StartBlock)
 	assert.Equal(t, int64(602), sig.EndBlock)
 	assert.Equal(t, 3, sig.BlockCount)
-	assert.Equal(t, "Ed25519", sig.SignatureType)
+	assert.Equal(t, constants.Ed25519ValueString, sig.SignatureType)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
 
@@ -4057,7 +4053,7 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 	require.NotNil(t, sig)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
-	assert.Equal(t, "Ed25519", sig.SignatureType)
+	assert.Equal(t, constants.Ed25519ValueString, sig.SignatureType)
 }
 
 // ---------------------------------------------------------------------------
@@ -4126,9 +4122,9 @@ func TestSignMerkleRoot_ProducesVerifiableSignature(t *testing.T) {
 			// Verify the signature
 			var kt crypto.KeyType
 			switch sigType {
-			case keyTypeES256K:
+			case constants.Secp256k1ValueString:
 				kt = crypto.KeyTypeSecp256k1
-			case keyTypeEd25519:
+			case constants.Ed25519ValueString:
 				kt = crypto.KeyTypeEd25519
 			}
 
@@ -4199,7 +4195,7 @@ func TestImportKV_CorruptKVData(t *testing.T) {
 	dir := t.TempDir()
 	p := writeKVSnapGz(t, dir, "corrupt_kv.kvsnap.gz", func(gw *gzip.Writer) {
 		header := kvSnapshotHeader{
-			Magic:      "DFKV",
+			Magic:      constants.HeaderMagicValue,
 			Version:    1,
 			StartBlock: 0,
 			EndBlock:   0,
@@ -4244,7 +4240,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 			EndBlock:          int64((i+1)*1000 - 1),
 			MerkleRoot:        fmt.Sprintf("%064x", i+1),
 			BlockCount:        1000,
-			SignatureType:     "Ed25519",
+			SignatureType:     constants.Ed25519ValueString,
 			SignatureIdentity: "z6MkTestKey",
 			SignatureValue:    fmt.Sprintf("%064x", i+100),
 			CreatedAt:         "2024-06-15T12:00:00Z",
@@ -4267,7 +4263,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, int64(i*1000), sig.StartBlock)
 		assert.Equal(t, int64((i+1)*1000-1), sig.EndBlock)
-		assert.Equal(t, "Ed25519", sig.SignatureType)
+		assert.Equal(t, constants.Ed25519ValueString, sig.SignatureType)
 	}
 }
 
@@ -4355,7 +4351,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 	err = json.Unmarshal(headerBytes, &header)
 	require.NoError(t, err)
 
-	assert.Equal(t, "DFKV", header.Magic)
+	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Len(t, header.BlockSigMerkleRoots, 5, "should have 5 block sig merkle roots from identity-signed blocks")
 
 	// Verify signature was created in DefraDB
@@ -4365,7 +4361,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 
 	sig := sigs["snapshot_200_204.kvsnap.gz"]
 	require.NotNil(t, sig)
-	assert.Equal(t, "ES256K", sig.SignatureType)
+	assert.Equal(t, constants.Secp256k1ValueString, sig.SignatureType)
 	assert.NotEmpty(t, sig.MerkleRoot)
 	assert.NotEmpty(t, sig.SignatureValue)
 }
@@ -4428,17 +4424,17 @@ func TestQueryDocIDs_WithIdentityBlocks(t *testing.T) {
 	ctx := context.Background()
 
 	// Query Block docs
-	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, "number", 400, 402)
+	blockDocIDs, err := s.queryDocIDs(ctx, testBlockCollection, constants.NumberFieldValue, 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, blockDocIDs, 3)
 
 	// Query Transaction docs
-	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, "blockNumber", 400, 402)
+	txDocIDs, err := s.queryDocIDs(ctx, testTransactionCollection, constants.BlockNumberKeyValue, 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, txDocIDs, 3)
 
 	// Query BlockSignature docs (should exist with identity)
-	sigDocIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, "blockNumber", 400, 402)
+	sigDocIDs, err := s.queryDocIDs(ctx, testBlockSignatureCollection, constants.BlockNumberKeyValue, 400, 402)
 	require.NoError(t, err)
 	assert.Len(t, sigDocIDs, 3, "should have 3 block signature docs")
 }
@@ -4491,7 +4487,7 @@ func TestQueryDocIDs_InvalidCollection(t *testing.T) {
 	s := New(cfg, td.Node)
 
 	// Query a non-existent collection to trigger a GQL error
-	_, err := s.queryDocIDs(context.Background(), "NonExistent__Collection", "number", 100, 102)
+	_, err := s.queryDocIDs(context.Background(), "NonExistent__Collection", constants.NumberFieldValue, 100, 102)
 	assert.Error(t, err)
 }
 
@@ -4531,7 +4527,7 @@ func TestVerifySnapshotWithSig_InvalidSignatureValueHex(t *testing.T) {
 	mr := hex.EncodeToString(root)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -4545,7 +4541,7 @@ func TestVerifySnapshotWithSig_InvalidSignatureValueHex(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: "z6MkTestKey",
 		SignatureValue:    "not_valid_hex_zzz",
 		CreatedAt:         "2024-01-01T00:00:00Z",
@@ -4568,7 +4564,7 @@ func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -4591,7 +4587,7 @@ func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(corruptSig),
 		CreatedAt:         "2024-01-01T00:00:00Z",
@@ -4613,7 +4609,7 @@ func TestVerifySnapshotWithSig_FullyValid(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -4633,7 +4629,7 @@ func TestVerifySnapshotWithSig_FullyValid(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		CreatedAt:         "2024-01-01T00:00:00Z",
@@ -4659,7 +4655,7 @@ func TestVerifySnapshotWithSig_SignatureInvalid_NoError(t *testing.T) {
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block_signature", "data": map[string]any{"merkleRoot": mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
 
@@ -4681,7 +4677,7 @@ func TestVerifySnapshotWithSig_SignatureInvalid_NoError(t *testing.T) {
 		EndBlock:          1999,
 		MerkleRoot:        computedRootHex,
 		BlockCount:        1,
-		SignatureType:     "Ed25519",
+		SignatureType:     constants.Ed25519ValueString,
 		SignatureIdentity: fullIdent.PublicKey().String(),
 		SignatureValue:    hex.EncodeToString(sigBytes),
 		CreatedAt:         "2024-01-01T00:00:00Z",

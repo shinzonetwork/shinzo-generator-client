@@ -1,6 +1,7 @@
 package defradb
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -23,7 +24,8 @@ func TestNetworkHandlerStateManagement(t *testing.T) {
 
 	// Test NewNetworkHandler initialization
 	t.Run("NewNetworkHandler initializes correctly", func(t *testing.T) {
-		nh := NewNetworkHandler(nil, cfg)
+		ctx := context.Background()
+		nh := NewNetworkHandler(&ctx, nil, cfg)
 
 		if nh.hostRunning != true {
 			t.Error("hostRunning should be true on init")
@@ -38,7 +40,8 @@ func TestNetworkHandlerStateManagement(t *testing.T) {
 
 	// Test IsHostRunning / IsNetworkActive decoupling
 	t.Run("Host and Network states are decoupled", func(t *testing.T) {
-		nh := NewNetworkHandler(nil, cfg)
+		ctx := context.Background()
+		nh := NewNetworkHandler(&ctx, nil, cfg)
 
 		if !nh.IsHostRunning() {
 			t.Error("host should be running")
@@ -55,11 +58,12 @@ func TestNetworkHandlerStateManagement(t *testing.T) {
 
 	// Test AddPeer / RemovePeer
 	t.Run("AddPeer and RemovePeer work correctly", func(t *testing.T) {
-		nh := NewNetworkHandler(nil, cfg)
+		ctx := context.Background()
+		nh := NewNetworkHandler(&ctx, nil, cfg)
 
 		newPeer := "/ip4/192.168.1.1/tcp/4001/p2p/12D3KooWTestPeer2"
 
-		err := nh.AddPeer(newPeer)
+		err := nh.AddPeer(&ctx, newPeer)
 		if err != nil {
 			t.Errorf("AddPeer failed: %v", err)
 		}
@@ -69,7 +73,7 @@ func TestNetworkHandlerStateManagement(t *testing.T) {
 			t.Errorf("expected 2 peers after add, got %d", len(peers))
 		}
 
-		err = nh.AddPeer(newPeer)
+		err = nh.AddPeer(&ctx, newPeer)
 		if err == nil {
 			t.Error("AddPeer should fail for duplicate peer")
 		}
@@ -92,7 +96,8 @@ func TestNetworkHandlerStateManagement(t *testing.T) {
 
 	// Test GetConnectionStats
 	t.Run("GetConnectionStats returns correct counts", func(t *testing.T) {
-		nh := NewNetworkHandler(nil, cfg)
+		ctx := context.Background()
+		nh := NewNetworkHandler(&ctx, nil, cfg)
 
 		stats := nh.GetConnectionStats()
 
@@ -112,7 +117,8 @@ func TestNetworkHandlerStateManagement(t *testing.T) {
 
 	// Test PeerState
 	t.Run("GetPeerState returns correct state", func(t *testing.T) {
-		nh := NewNetworkHandler(nil, cfg)
+		ctx := context.Background()
+		nh := NewNetworkHandler(&ctx, nil, cfg)
 
 		peerAddr := cfg.DefraDB.P2P.BootstrapPeers[0]
 		state, exists := nh.GetPeerState(peerAddr)

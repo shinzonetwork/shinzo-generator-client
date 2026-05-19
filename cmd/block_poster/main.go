@@ -24,7 +24,7 @@ func main() {
 func run(args []string) error {
 	// Check for subcommands before parsing flags
 	if len(args) > 0 {
-		if args[0] == "verify" {
+		if args[0] == "verify" { //nolint:goconst
 			return verifySnapshots(args[1:], os.Stdout, os.Stderr)
 		}
 	}

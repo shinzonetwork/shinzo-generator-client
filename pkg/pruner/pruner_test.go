@@ -34,11 +34,13 @@ type TestTx {
 }
 `
 
+const timeout = 10 * time.Second
+
 // testCollections returns a CollectionConfig matching the testSchema.
 func testCollections() CollectionConfig {
 	return CollectionConfig{
 		BlockCollection:      "TestBlock",
-		BlockNumberField:     "number",
+		BlockNumberField:     constants.NumberFieldValue,
 		DependentCollections: []string{"TestTx"},
 	}
 }
@@ -81,7 +83,7 @@ func insertTestBlock(t *testing.T, n *node.Node, blockNum int64, txCount int) st
 	}
 
 	// Insert transactions
-	for i := 0; i < txCount; i++ {
+	for i := range txCount {
 		txMutation := fmt.Sprintf(`mutation { create_TestTx(input: {blockNumber: %d, txHash: "tx%d_%d"}) { _docID } }`, blockNum, blockNum, i)
 		txResult := n.DB.ExecRequest(ctx, txMutation)
 		require.Empty(t, txResult.GQL.Errors, "insert tx %d_%d failed: %v", blockNum, i, txResult.GQL.Errors)
@@ -105,9 +107,9 @@ func countDocs(t *testing.T, n *node.Node, collectionName string) int {
 	}
 	raw := data[collectionName]
 	switch docs := raw.(type) {
-	case []interface{}:
+	case []any:
 		return len(docs)
-	case []map[string]interface{}:
+	case []map[string]any:
 		return len(docs)
 	}
 	return 0
@@ -146,19 +148,24 @@ func TestPrunerSetQueue(t *testing.T) {
 func TestPrunerStart_Disabled(t *testing.T) {
 	cfg := &Config{Enabled: false}
 	p := NewPruner(cfg, nil)
-
-	err := p.Start(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	err := p.Start(ctx)
 	assert.NoError(t, err)
 	assert.False(t, p.isRunning)
+	cancel()
+	p.Stop()
 }
 
 func TestPrunerStart_NilNode(t *testing.T) {
 	cfg := &Config{Enabled: true}
 	p := NewPruner(cfg, nil)
 
-	err := p.Start(nil)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	err := p.Start(ctx)
 	assert.NoError(t, err)
 	assert.False(t, p.isRunning)
+	cancel()
+	p.Stop()
 }
 
 func TestPrunerGetMetrics(t *testing.T) {
@@ -206,7 +213,7 @@ func TestRunStorageGC_NilNode(t *testing.T) {
 func TestParseBlockNumber(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected int64
 	}{
 		{"float64", float64(42), 42},
@@ -243,8 +250,8 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 
 	t.Run("empty blocks array ([]interface{})", func(t *testing.T) {
-		data := map[string]interface{}{
-			constants.CollectionBlock: []interface{}{},
+		data := map[string]any{
+			constants.CollectionBlock: []any{},
 		}
 		result, err := p.extractBlockNumber(data)
 		assert.NoError(t, err)
@@ -252,9 +259,9 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 
 	t.Run("blocks with data ([]interface{})", func(t *testing.T) {
-		data := map[string]interface{}{
-			constants.CollectionBlock: []interface{}{
-				map[string]interface{}{"number": float64(42)},
+		data := map[string]any{
+			constants.CollectionBlock: []any{
+				map[string]any{constants.NumberFieldValue: float64(42)},
 			},
 		}
 		result, err := p.extractBlockNumber(data)
@@ -263,9 +270,9 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 
 	t.Run("blocks with typed map array", func(t *testing.T) {
-		data := map[string]interface{}{
-			constants.CollectionBlock: []map[string]interface{}{
-				{"number": float64(99)},
+		data := map[string]any{
+			constants.CollectionBlock: []map[string]any{
+				{constants.NumberFieldValue: float64(99)},
 			},
 		}
 		result, err := p.extractBlockNumber(data)
@@ -274,8 +281,8 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 
 	t.Run("empty typed map array", func(t *testing.T) {
-		data := map[string]interface{}{
-			constants.CollectionBlock: []map[string]interface{}{},
+		data := map[string]any{
+			constants.CollectionBlock: []map[string]any{},
 		}
 		result, err := p.extractBlockNumber(data)
 		assert.NoError(t, err)
@@ -283,8 +290,8 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 
 	t.Run("typed map array missing number field", func(t *testing.T) {
-		data := map[string]interface{}{
-			constants.CollectionBlock: []map[string]interface{}{
+		data := map[string]any{
+			constants.CollectionBlock: []map[string]any{
 				{"other_field": "value"},
 			},
 		}
@@ -294,8 +301,8 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 
 	t.Run("interface array with non-map element", func(t *testing.T) {
-		data := map[string]interface{}{
-			constants.CollectionBlock: []interface{}{
+		data := map[string]any{
+			constants.CollectionBlock: []any{
 				"not a map",
 			},
 		}
@@ -305,9 +312,9 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 
 	t.Run("interface array missing number field", func(t *testing.T) {
-		data := map[string]interface{}{
-			constants.CollectionBlock: []interface{}{
-				map[string]interface{}{"other": "value"},
+		data := map[string]any{
+			constants.CollectionBlock: []any{
+				map[string]any{"other": "value"},
 			},
 		}
 		result, err := p.extractBlockNumber(data)
@@ -316,8 +323,8 @@ func TestExtractBlockNumber(t *testing.T) {
 	})
 
 	t.Run("missing block collection key", func(t *testing.T) {
-		data := map[string]interface{}{
-			"Other_Collection": []interface{}{},
+		data := map[string]any{
+			"Other_Collection": []any{},
 		}
 		result, err := p.extractBlockNumber(data)
 		assert.NoError(t, err)
@@ -326,24 +333,44 @@ func TestExtractBlockNumber(t *testing.T) {
 }
 
 func TestRunPrune_NilQueue(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	_ = NewPruner(cfg, nil)
+	p := NewPruner(cfg, n, cols)
+	assert.Nil(t, p.queue)
 	// runPrune with nil queue calls filterBasedPrune which needs a node
+	ctx := t.Context()
+	err := p.runPrune(ctx)
+	assert.NoError(t, err)
 }
 
 func TestRunPrune_WithIndexerQueue(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, nil)
+	p := NewPruner(cfg, n, cols)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
-	_ = p // dispatch tested via runPrune type switch
+	assert.NotNil(t, p.queue)
+	// dispatch tested via runPrune type switch
+	ctx := t.Context()
+	err := p.runPrune(ctx)
+	assert.NoError(t, err)
 }
 
 func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
 	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	_ = NewPruner(cfg, nil)
+	p := NewPruner(cfg, n, cols)
+	q := NewIndexerQueue()
+	p.SetQueue(q)
 	// Queue has 0 entries, below maxBlocks=100
+	assert.Zero(t, len(q.entries))
 	// This calls filterBasedPrune which needs node
+	ctx := t.Context()
+	err := p.runPrune(ctx)
+	assert.NoError(t, err)
 }
 
 // ─── Integration tests with real DefraDB node ───────────────────────────────
@@ -358,8 +385,7 @@ func TestStartAndStop_WithRealNode(t *testing.T) {
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := p.Start(ctx)
 	require.NoError(t, err)
@@ -372,7 +398,6 @@ func TestStartAndStop_WithRealNode(t *testing.T) {
 	p.Stop()
 	assert.False(t, p.isRunning)
 }
-
 
 func TestPruneLoop_TickerFires(t *testing.T) {
 	n := startTestNode(t)
@@ -442,16 +467,16 @@ func TestStop_WithQueueSave(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	q := NewIndexerQueue()
-	q.LoadFromFile(tmpDir + "/queue.gob")
+	_, err := q.LoadFromFile(tmpDir + "/queue.gob")
+	require.NoError(t, err)
 
-	initDocIDPrefix()
-	q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	err = q.TrackBlockDocIDs(1, "bae-550e8400-e29b-41d4-a716-446655440000", nil, "")
+	require.NoError(t, err)
 	p.SetQueue(q)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
-	err := p.Start(ctx)
+	err = p.Start(ctx)
 	require.NoError(t, err)
 
 	// Stop should save the queue
@@ -529,17 +554,17 @@ func TestQueryOldestDocIDs(t *testing.T) {
 	insertTestBlock(t, n, 3, 0)
 
 	// Query for blocks with number <= 2
-	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", "number", 2)
+	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 2)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(docIDs))
 
 	// Query for blocks with number <= 0 (none)
-	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", "number", 0)
+	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(docIDs))
 
 	// Query for all blocks
-	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", "number", 100)
+	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 100)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(docIDs))
 }
@@ -558,7 +583,7 @@ func TestPurgeByDocIDs(t *testing.T) {
 	assert.Equal(t, 2, countDocs(t, n, "TestBlock"))
 
 	// Get docIDs via queryOldestDocIDs (same format PurgeByDocIDs expects)
-	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", "number", 1)
+	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 1)
 	require.NoError(t, err)
 	require.Len(t, docIDs, 1)
 
@@ -710,7 +735,7 @@ func TestPurgeFromDrainResult(t *testing.T) {
 	insertTestBlock(t, n, 2, 0)
 
 	// Get docIDs via queryOldestDocIDs (same format PurgeByDocIDs expects)
-	blockDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", "number", 1)
+	blockDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 1)
 	require.NoError(t, err)
 	require.Len(t, blockDocIDs, 1)
 
@@ -757,7 +782,6 @@ func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {
 	p := NewPruner(cfg, n, cols)
 	ctx := context.Background()
 
-	initDocIDPrefix()
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 
@@ -790,7 +814,7 @@ func TestRunIndexerQueuePrune_BelowThreshold_WithNode(t *testing.T) {
 }
 
 func TestRunPrune_DefaultQueueType(t *testing.T) {
-	// Test the default case in runPrune switch by using a custom PrunerQueue implementation
+	// Test the default case in runPrune switch by using a custom Queue implementation
 	n := startTestNode(t)
 	cols := testCollections()
 	cfg := &Config{Enabled: true, MaxBlocks: 1000}
@@ -804,11 +828,11 @@ func TestRunPrune_DefaultQueueType(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// mockQueue implements PrunerQueue but is neither IndexerQueue nor EventQueue.
+// mockQueue implements Queue but is neither IndexerQueue nor EventQueue.
 type mockQueue struct{}
 
-func (m *mockQueue) Len() int     { return 0 }
-func (m *mockQueue) Save() error  { return nil }
+func (m *mockQueue) Len() int    { return 0 }
+func (m *mockQueue) Save() error { return nil }
 
 func TestStop_WithQueueSaveError(t *testing.T) {
 	n := startTestNode(t)
@@ -823,8 +847,7 @@ func TestStop_WithQueueSaveError(t *testing.T) {
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := p.Start(ctx)
 	require.NoError(t, err)
@@ -846,10 +869,8 @@ func TestStartStop_Concurrent(t *testing.T) {
 	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 5 {
+		wg.Go(func() {
 			p := NewPruner(cfg, n, cols)
 			q := NewIndexerQueue()
 			p.SetQueue(q)
@@ -859,7 +880,7 @@ func TestStartStop_Concurrent(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 			cancel()
 			p.Stop()
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -869,13 +890,11 @@ func TestGetMetrics_Concurrent(t *testing.T) {
 	p := NewPruner(cfg, nil)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			m := p.GetMetrics()
-			_ = m.IsRunning
-		}()
+			assert.False(t, m.IsRunning)
+		})
 	}
 	wg.Wait()
 }

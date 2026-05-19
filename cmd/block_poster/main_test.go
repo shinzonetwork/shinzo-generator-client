@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -263,7 +264,7 @@ logger:
 		// the SIGTERM time to win the select race in run().
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
-		defer ln.Close()
+		defer func() { _ = ln.Close() }()
 		go func() {
 			for {
 				conn, err := ln.Accept()
@@ -348,10 +349,10 @@ func createTestSnapshot(t *testing.T, dir, filename string, merkleRootHexes []st
 	gw := gzip.NewWriter(f)
 	for i, mrHex := range merkleRootHexes {
 		entry := map[string]any{
-			"type": "block_signature",
+			"type": constants.BlockSignatureTypeValue,
 			"data": map[string]any{
-				"blockNumber": i + 1,
-				"merkleRoot":  mrHex,
+				constants.BlockNumberKeyValue: i + 1,
+				constants.MerkleRootKeyValue:  mrHex,
 			},
 		}
 		line, err := json.Marshal(entry)

@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
-	pb "github.com/libp2p/go-libp2p/core/crypto/pb"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
@@ -33,41 +31,7 @@ func (m *mockPublicKey) Underlying() any                     { return nil }
 func (m *mockPublicKey) Verify([]byte, []byte) (bool, error) { return false, nil }
 func (m *mockPublicKey) DID() (string, error)                { return "", nil }
 
-
-// mockLibP2PPrivKey implements libp2pcrypto.PrivKey for testing.
-type mockLibP2PPrivKey struct {
-	rawBytes []byte
-	rawErr   error
-	pubKey   libp2pcrypto.PubKey
-}
-
-func (m *mockLibP2PPrivKey) Type() pb.KeyType                 { return pb.KeyType_Ed25519 }
-func (m *mockLibP2PPrivKey) Raw() ([]byte, error)             { return m.rawBytes, m.rawErr }
-func (m *mockLibP2PPrivKey) Equals(libp2pcrypto.Key) bool     { return false }
-func (m *mockLibP2PPrivKey) Sign(data []byte) ([]byte, error) { return nil, nil }
-func (m *mockLibP2PPrivKey) GetPublic() libp2pcrypto.PubKey   { return m.pubKey }
-
-// mockLibP2PPubKey implements libp2pcrypto.PubKey for testing.
-type mockLibP2PPubKey struct {
-	rawBytes []byte
-	rawErr   error
-}
-
-func (m *mockLibP2PPubKey) Type() pb.KeyType                             { return pb.KeyType_Ed25519 }
-func (m *mockLibP2PPubKey) Raw() ([]byte, error)                         { return m.rawBytes, m.rawErr }
-func (m *mockLibP2PPubKey) Equals(libp2pcrypto.Key) bool                 { return false }
-func (m *mockLibP2PPubKey) Verify(data []byte, sig []byte) (bool, error) { return false, nil }
-
-// swapLoadIdentity replaces the identity loader and restores it on cleanup.
-func swapLoadIdentity(t *testing.T, fn func(*config.Config, string) (identity.FullIdentity, error)) {
-	t.Helper()
-	orig := loadIdentityFromStoreFn
-	loadIdentityFromStoreFn = fn
-	t.Cleanup(func() { loadIdentityFromStoreFn = orig })
-}
-
-
-// setupTestNode creates a DefraDB node with keyring for testing
+// setupTestNode creates a DefraDB node with keyring for testing.
 func setupTestNode(t *testing.T) (*node.Node, *config.Config) {
 	testConfig := &config.Config{
 		DefraDB: config.DefraDBConfig{
@@ -107,11 +71,19 @@ func cfgWithStorePath(path string) *config.Config {
 	}
 }
 
+func assertClose(t *testing.T, node *node.Node) {
+	t.Cleanup(func() {
+		if err := node.Close(context.Background()); err != nil {
+			t.Errorf("DefraDB node failed to close: %v", err)
+		}
+	})
+}
+
 // ─── Integration tests ───────────────────────────────────────────────────────
 
 func TestSignWithDefraKeys(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	signature, err := SignWithDefraKeys("Hello, World!", defraNode, cfg)
 	require.NoError(t, err)
@@ -120,7 +92,7 @@ func TestSignWithDefraKeys(t *testing.T) {
 
 func TestSignWithP2PKeys(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	signature, err := SignWithP2PKeys("Hello, World!", defraNode, cfg)
 	require.NoError(t, err)
@@ -129,7 +101,7 @@ func TestSignWithP2PKeys(t *testing.T) {
 
 func TestGetDefraPublicKey(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	publicKey, err := GetDefraPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -138,7 +110,7 @@ func TestGetDefraPublicKey(t *testing.T) {
 
 func TestGetP2PPublicKey(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	publicKey, err := GetP2PPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -147,7 +119,7 @@ func TestGetP2PPublicKey(t *testing.T) {
 
 func TestSignAndVerifyDefraSignature(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	message := "Test message for DefraDB signature"
 
@@ -172,7 +144,7 @@ func TestSignAndVerifyDefraSignature(t *testing.T) {
 
 func TestSignAndVerifyP2PSignature(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	message := "Test message for P2P signature"
 
@@ -197,7 +169,7 @@ func TestSignAndVerifyP2PSignature(t *testing.T) {
 
 func TestVerifyDefraSignature_InvalidInputs(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	publicKey, err := GetDefraPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -227,7 +199,7 @@ func TestVerifyDefraSignature_InvalidInputs(t *testing.T) {
 
 func TestVerifyP2PSignature_InvalidInputs(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	publicKey, err := GetP2PPublicKey(defraNode, cfg)
 	require.NoError(t, err)
@@ -257,7 +229,7 @@ func TestVerifyP2PSignature_InvalidInputs(t *testing.T) {
 
 func TestSignWithDefraKeys_Consistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	msg := "Consistent message"
 	sig1, err := SignWithDefraKeys(msg, defraNode, cfg)
@@ -269,7 +241,7 @@ func TestSignWithDefraKeys_Consistency(t *testing.T) {
 
 func TestSignWithP2PKeys_Consistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	msg := "Consistent message"
 	sig1, err := SignWithP2PKeys(msg, defraNode, cfg)
@@ -281,7 +253,7 @@ func TestSignWithP2PKeys_Consistency(t *testing.T) {
 
 func TestPublicKeyConsistency(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	pk1, _ := GetDefraPublicKey(defraNode, cfg)
 	pk2, _ := GetDefraPublicKey(defraNode, cfg)
@@ -294,7 +266,7 @@ func TestPublicKeyConsistency(t *testing.T) {
 
 func TestCrossKeyVerification(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	msg := "Test message"
 	defraSig, _ := SignWithDefraKeys(msg, defraNode, cfg)
@@ -312,7 +284,7 @@ func TestCrossKeyVerification(t *testing.T) {
 
 func TestSignWithDefraKeys_EmptyMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	sig, err := SignWithDefraKeys("", defraNode, cfg)
 	require.NoError(t, err)
@@ -322,7 +294,7 @@ func TestSignWithDefraKeys_EmptyMessage(t *testing.T) {
 
 func TestSignWithP2PKeys_EmptyMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	sig, err := SignWithP2PKeys("", defraNode, cfg)
 	require.NoError(t, err)
@@ -332,7 +304,7 @@ func TestSignWithP2PKeys_EmptyMessage(t *testing.T) {
 
 func TestSignWithDefraKeys_LongMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	longMsg := make([]byte, 10000)
 	for i := range longMsg {
@@ -346,7 +318,7 @@ func TestSignWithDefraKeys_LongMessage(t *testing.T) {
 
 func TestSignWithP2PKeys_LongMessage(t *testing.T) {
 	defraNode, cfg := setupTestNode(t)
-	defer defraNode.Close(context.Background())
+	assertClose(t, defraNode)
 
 	longMsg := make([]byte, 10000)
 	for i := range longMsg {
@@ -358,7 +330,6 @@ func TestSignWithP2PKeys_LongMessage(t *testing.T) {
 	assert.NoError(t, VerifyP2PSignature(pub, string(longMsg), sig))
 }
 
-
 // ─── loadIdentityFromFile tests ─────────────────────────────────────────────
 
 func TestLoadIdentityFromFile_NotFound(t *testing.T) {
@@ -369,16 +340,18 @@ func TestLoadIdentityFromFile_NotFound(t *testing.T) {
 
 func TestLoadIdentityFromFile_InvalidHex(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0644)
-	_, err := loadIdentityFromFile(tmpDir)
+	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0o600)
+	require.NoError(t, err)
+	_, err = loadIdentityFromFile(tmpDir)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to decode key hex")
 }
 
 func TestLoadIdentityFromFile_InvalidKeyData(t *testing.T) {
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0644)
-	_, err := loadIdentityFromFile(tmpDir)
+	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0o600)
+	require.NoError(t, err)
+	_, err = loadIdentityFromFile(tmpDir)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to reconstruct private key")
 }
@@ -389,7 +362,8 @@ func TestLoadIdentityFromFile_ValidKeyFile(t *testing.T) {
 	keyBytes := ident.PrivateKey().Raw()
 
 	tmpDir := t.TempDir()
-	os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0644)
+	err = os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0o600)
+	require.NoError(t, err)
 
 	loaded, err := loadIdentityFromFile(tmpDir)
 	assert.NoError(t, err)
@@ -417,9 +391,11 @@ func TestGetStorePath_EmptyConfigPath(t *testing.T) {
 }
 
 func TestGetStorePath_FindsKeyInCommonLocation(t *testing.T) {
-	os.MkdirAll(".defra", 0755)
-	os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0644)
-	defer os.RemoveAll(".defra")
+	err := os.MkdirAll(".defra", 0o750)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0o600)
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(".defra") }()
 
 	path, err := getStorePath(nil, nil)
 	assert.NoError(t, err)
@@ -459,37 +435,39 @@ func TestGetP2PPublicKey_NoStorePath(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to get store path")
 }
 
-
 // ─── SignWithDefraKeys error paths via mocked loader ────────────────────────
 
 func TestSignWithDefraKeys_LoadIdentityFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected load error")
-	})
-	_, err := SignWithDefraKeys("msg", nil, cfgWithStorePath(t.TempDir()))
+	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return nil, fmt.Errorf("injected load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
 
 func TestSignWithDefraKeys_NilPrivateKey(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &testutils.MockFullIdentity{PrivKey: nil}, nil
-	})
-	_, err := SignWithDefraKeys("msg", nil, cfgWithStorePath(t.TempDir()))
+	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return &testutils.MockFullIdentity{PrivKey: nil}, nil
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "identity does not have a private key")
 }
 
 func TestSignWithDefraKeys_SignError(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &testutils.MockFullIdentity{
-			PrivKey: &testutils.MockPrivateKey{
-				RawBytes: make([]byte, 32),
-				SignErr:  fmt.Errorf("signing hardware failure"),
-			},
-		}, nil
-	})
-	_, err := SignWithDefraKeys("msg", nil, cfgWithStorePath(t.TempDir()))
+	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return &testutils.MockFullIdentity{
+				PrivKey: &testutils.MockPrivateKey{
+					RawBytes: make([]byte, 32),
+					SignErr:  fmt.Errorf("signing hardware failure"),
+				},
+			}, nil
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to sign message")
 }
@@ -497,10 +475,11 @@ func TestSignWithDefraKeys_SignError(t *testing.T) {
 // ─── SignWithP2PKeys error paths via mocked loader/creator ──────────────────
 
 func TestSignWithP2PKeys_LoadIdentityFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected load error")
-	})
-	_, err := SignWithP2PKeys("msg", nil, cfgWithStorePath(t.TempDir()))
+	_, err := signWithP2PKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return nil, fmt.Errorf("injected load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
@@ -508,19 +487,21 @@ func TestSignWithP2PKeys_LoadIdentityFails(t *testing.T) {
 // ─── GetDefraPublicKey error paths ──────────────────────────────────────────
 
 func TestGetDefraPublicKey_LoadIdentityFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected load error")
-	})
-	_, err := GetDefraPublicKey(nil, cfgWithStorePath(t.TempDir()))
+	_, err := getDefraPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return nil, fmt.Errorf("injected load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
 
 func TestGetDefraPublicKey_NilPublicKey(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return &testutils.MockFullIdentity{PubKey: nil}, nil
-	})
-	_, err := GetDefraPublicKey(nil, cfgWithStorePath(t.TempDir()))
+	_, err := getDefraPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return &testutils.MockFullIdentity{PubKey: nil}, nil
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "identity does not have a public key")
 }
@@ -528,10 +509,11 @@ func TestGetDefraPublicKey_NilPublicKey(t *testing.T) {
 // ─── GetP2PPublicKey error paths ────────────────────────────────────────────
 
 func TestGetP2PPublicKey_LoadIdentityFails(t *testing.T) {
-	swapLoadIdentity(t, func(_ *config.Config, _ string) (identity.FullIdentity, error) {
-		return nil, fmt.Errorf("injected load error")
-	})
-	_, err := GetP2PPublicKey(nil, cfgWithStorePath(t.TempDir()))
+	_, err := getP2PPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
+		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+			return nil, fmt.Errorf("injected load error")
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load identity")
 }
@@ -539,14 +521,12 @@ func TestGetP2PPublicKey_LoadIdentityFails(t *testing.T) {
 // ─── VerifyP2PSignature: non-Ed25519 underlying key ────────────────────────
 
 func TestVerifyP2PSignature_NotEd25519Underlying(t *testing.T) {
-	orig := ed25519PubKeyFromStringFn
-	ed25519PubKeyFromStringFn = func(_ string) (crypto.PublicKey, error) {
-		// Return a mock whose Underlying() is not ed25519.PublicKey
-		return &mockPublicKey{rawBytes: make([]byte, 32)}, nil
-	}
-	t.Cleanup(func() { ed25519PubKeyFromStringFn = orig })
-
-	err := VerifyP2PSignature("aabb", "msg", "aabb")
+	err := verifyP2PSignatureInternal("aabb", "msg", "aabb",
+		func(_ string) (crypto.PublicKey, error) {
+			// Return a mock whose Underlying() is not ed25519.PublicKey
+			return &mockPublicKey{rawBytes: make([]byte, 32)}, nil
+		},
+	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "public key is not Ed25519")
 }

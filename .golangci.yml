@@ -59,9 +59,10 @@ linters:
           - containedctx
           - dupl
           - gochecknoglobals
+          - gosec
+          - goconst
           - mnd
           - funlen
-
 formatters:
   enable:
     - gofumpt

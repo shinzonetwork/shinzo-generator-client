@@ -428,26 +428,26 @@ func (h *BlockHandler) trackSingleTxnDocIDs(ctx context.Context, blockInt int64,
 // buildBlockDocument creates a client.Document for a block.
 func (h *BlockHandler) buildBlockDocument(ctx context.Context, block *types.Block, blockInt int64, col client.Collection) (*client.Document, error) {
 	data := map[string]any{
-		"hash":             block.Hash,
-		"number":           blockInt,
-		"timestamp":        block.Timestamp,
-		"parentHash":       block.ParentHash,
-		"difficulty":       block.Difficulty,
-		"totalDifficulty":  block.TotalDifficulty,
-		"gasUsed":          block.GasUsed,
-		"gasLimit":         block.GasLimit,
-		"baseFeePerGas":    block.BaseFeePerGas,
-		"nonce":            block.Nonce,
-		"miner":            block.Miner,
-		"size":             block.Size,
-		"stateRoot":        block.StateRoot,
-		"sha3Uncles":       block.Sha3Uncles,
-		"transactionsRoot": block.TransactionsRoot,
-		"receiptsRoot":     block.ReceiptsRoot,
-		"logsBloom":        block.LogsBloom,
-		"extraData":        block.ExtraData,
-		"mixHash":          block.MixHash,
-		"uncles":           block.Uncles,
+		"hash":                     block.Hash,
+		constants.NumberFieldValue: blockInt,
+		"timestamp":                block.Timestamp,
+		"parentHash":               block.ParentHash,
+		"difficulty":               block.Difficulty,
+		"totalDifficulty":          block.TotalDifficulty,
+		"gasUsed":                  block.GasUsed,
+		"gasLimit":                 block.GasLimit,
+		"baseFeePerGas":            block.BaseFeePerGas,
+		"nonce":                    block.Nonce,
+		"miner":                    block.Miner,
+		"size":                     block.Size,
+		"stateRoot":                block.StateRoot,
+		"sha3Uncles":               block.Sha3Uncles,
+		"transactionsRoot":         block.TransactionsRoot,
+		"receiptsRoot":             block.ReceiptsRoot,
+		"logsBloom":                block.LogsBloom,
+		"extraData":                block.ExtraData,
+		"mixHash":                  block.MixHash,
+		"uncles":                   block.Uncles,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -456,28 +456,28 @@ func (h *BlockHandler) buildBlockDocument(ctx context.Context, block *types.Bloc
 func (h *BlockHandler) buildTransactionDocument(ctx context.Context, tx *types.Transaction, blockID string, col client.Collection) (*client.Document, error) {
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	data := map[string]any{
-		"hash":                 tx.Hash,
-		"blockNumber":          txBlockNum,
-		"blockHash":            tx.BlockHash,
-		"transactionIndex":     tx.TransactionIndex,
-		"from":                 tx.From,
-		"to":                   tx.To,
-		"value":                tx.Value,
-		"gas":                  tx.Gas,
-		"gasPrice":             tx.GasPrice,
-		"maxFeePerGas":         tx.MaxFeePerGas,
-		"maxPriorityFeePerGas": tx.MaxPriorityFeePerGas,
-		"input":                tx.Input,
-		"nonce":                tx.Nonce,
-		"type":                 tx.Type,
-		"chainId":              tx.ChainID,
-		"v":                    tx.V,
-		"r":                    tx.R,
-		"s":                    tx.S,
-		"cumulativeGasUsed":    tx.CumulativeGasUsed,
-		"effectiveGasPrice":    tx.EffectiveGasPrice,
-		"status":               tx.Status,
-		"_blockID":             blockID,
+		"hash":                        tx.Hash,
+		constants.BlockNumberKeyValue: txBlockNum,
+		constants.BlockHashKeyValue:   tx.BlockHash,
+		"transactionIndex":            tx.TransactionIndex,
+		"from":                        tx.From,
+		"to":                          tx.To,
+		"value":                       tx.Value,
+		"gas":                         tx.Gas,
+		"gasPrice":                    tx.GasPrice,
+		"maxFeePerGas":                tx.MaxFeePerGas,
+		"maxPriorityFeePerGas":        tx.MaxPriorityFeePerGas,
+		"input":                       tx.Input,
+		"nonce":                       tx.Nonce,
+		"type":                        tx.Type,
+		"chainId":                     tx.ChainID,
+		"v":                           tx.V,
+		"r":                           tx.R,
+		"s":                           tx.S,
+		"cumulativeGasUsed":           tx.CumulativeGasUsed,
+		"effectiveGasPrice":           tx.EffectiveGasPrice,
+		"status":                      tx.Status,
+		"_blockID":                    blockID,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -486,17 +486,17 @@ func (h *BlockHandler) buildTransactionDocument(ctx context.Context, tx *types.T
 func (h *BlockHandler) buildLogDocument(ctx context.Context, log *types.Log, blockID, txID string, col client.Collection) (*client.Document, error) {
 	logBlockNum, _ := utils.HexToInt(log.BlockNumber)
 	data := map[string]any{
-		"address":          log.Address,
-		"topics":           log.Topics,
-		"data":             log.Data,
-		"blockNumber":      logBlockNum,
-		"transactionHash":  log.TransactionHash,
-		"transactionIndex": log.TransactionIndex,
-		"blockHash":        log.BlockHash,
-		"logIndex":         log.LogIndex,
-		"removed":          fmt.Sprintf("%v", log.Removed),
-		"_transactionID":   txID,
-		"_blockID":         blockID,
+		"address":                     log.Address,
+		"topics":                      log.Topics,
+		"data":                        log.Data,
+		constants.BlockNumberKeyValue: logBlockNum,
+		"transactionHash":             log.TransactionHash,
+		"transactionIndex":            log.TransactionIndex,
+		constants.BlockHashKeyValue:   log.BlockHash,
+		"logIndex":                    log.LogIndex,
+		"removed":                     fmt.Sprintf("%v", log.Removed),
+		"_transactionID":              txID,
+		"_blockID":                    blockID,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -504,10 +504,10 @@ func (h *BlockHandler) buildLogDocument(ctx context.Context, log *types.Log, blo
 // buildALEDocument creates a client.Document for an access list entry.
 func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessListEntry, txID string, blockNumber int64, col client.Collection) (*client.Document, error) {
 	data := map[string]any{
-		"address":        ale.Address,
-		"blockNumber":    blockNumber,
-		"storageKeys":    ale.StorageKeys,
-		"_transactionID": txID,
+		"address":                     ale.Address,
+		constants.BlockNumberKeyValue: blockNumber,
+		"storageKeys":                 ale.StorageKeys,
+		"_transactionID":              txID,
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -515,15 +515,15 @@ func (h *BlockHandler) buildALEDocument(ctx context.Context, ale *types.AccessLi
 // buildBlockSignatureDocument creates a client.Document for a block signature.
 func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig *node.BlockSignature, blockHash string, blockNumber int64, col client.Collection, sortedCIDStrings []string) (*client.Document, error) {
 	data := map[string]any{
-		"blockNumber":       blockNumber,
-		"blockHash":         blockHash,
-		"merkleRoot":        hex.EncodeToString(blockSig.MerkleRoot),
-		"cidCount":          blockSig.CIDCount,
-		"cids":              sortedCIDStrings,
-		"signatureType":     blockSig.Header.Type,
-		"signatureIdentity": string(blockSig.Header.Identity),
-		"signatureValue":    hex.EncodeToString(blockSig.Value),
-		"createdAt":         time.Now().UTC().Format(time.RFC3339),
+		constants.BlockNumberKeyValue: blockNumber,
+		constants.BlockHashKeyValue:   blockHash,
+		"merkleRoot":                  hex.EncodeToString(blockSig.MerkleRoot),
+		"cidCount":                    blockSig.CIDCount,
+		"cids":                        sortedCIDStrings,
+		"signatureType":               blockSig.Header.Type,
+		"signatureIdentity":           string(blockSig.Header.Identity),
+		"signatureValue":              hex.EncodeToString(blockSig.Value),
+		"createdAt":                   time.Now().UTC().Format(time.RFC3339),
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -1197,7 +1197,7 @@ func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error)
 		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", h.collections.Block, "no blocks")
 	}
 
-	switch v := block["number"].(type) {
+	switch v := block[constants.NumberFieldValue].(type) {
 	case float64:
 		return int64(v), nil
 	case int64:
