@@ -103,6 +103,19 @@ func verifyMerkleRoot(snapshotPath string, sig *SnapshotSignatureData, result *V
 	return nil
 }
 
+// TODO(refactor): VerifyResult is a leaky, non-idiomatic "Rust-style Result" implementation.
+// Instead of mutating an embedded result.Error string field alongside a standard Go error, 
+// we should introduce a dedicated, type-safe generic container.
+//
+// Expected future state:
+// type Result[T any] struct { value *T; err error }
+//
+// Change verifyCryptoSignature to return a single result.Result[Data] container.
+// This forces callers to use explicit variants (.IsErr(), .Unwrap()) rather than
+// checking dual sources of truth or masking linter warnings.
+// 
+// If successful, this generic Result pattern should be promoted to a shared internal 
+// package to standardize error-handling across all cryptographic operations in the repository.
 // verifyCryptoSignature verifies the cryptographic signature against the Merkle root.
 func verifyCryptoSignature(sig *SnapshotSignatureData, result *VerifyResult) error {
 	merkleRootBytes, err := hex.DecodeString(sig.MerkleRoot)
