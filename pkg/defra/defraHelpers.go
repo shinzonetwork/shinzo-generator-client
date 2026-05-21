@@ -7,12 +7,14 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// GetPort returns the port number from a DefraDB node's API URL.
 func GetPort(targetNode *node.Node) int {
 	url := targetNode.APIURL
-	return GetPortFromUrl(url)
+	return GetPortFromURL(url)
 }
 
-func GetPortFromUrl(url string) int {
+// GetPortFromURL extracts the port number from a URL string.
+func GetPortFromURL(url string) int {
 	// Check if it's localhost format (http://127.0.0.1:port, http://localhost:port, or http://[::]:port)
 	if !strings.Contains(url, "127.0.0.1:") && !strings.Contains(url, "localhost:") && !strings.Contains(url, "[::]:") {
 		return -1

@@ -2,8 +2,18 @@ package constants
 
 import "fmt"
 
-// Default collection prefix for backward compatibility
+// DefaultCollectionPrefix is the default collection prefix for backward compatibility.
 const DefaultCollectionPrefix = "Ethereum__Mainnet"
+
+// Collection name constants for the default Ethereum Mainnet chain.
+const (
+	CollectionBlock             = DefaultCollectionPrefix + "__Block"
+	CollectionTransaction       = DefaultCollectionPrefix + "__Transaction"
+	CollectionLog               = DefaultCollectionPrefix + "__Log"
+	CollectionAccessListEntry   = DefaultCollectionPrefix + "__AccessListEntry"
+	CollectionBlockSignature    = DefaultCollectionPrefix + "__BlockSignature"
+	CollectionSnapshotSignature = DefaultCollectionPrefix + "__SnapshotSignature"
+)
 
 // CollectionNames holds the dynamically generated collection names for a chain.
 type CollectionNames struct {
@@ -39,17 +49,9 @@ func (c *CollectionNames) AllCollections() []string {
 	}
 }
 
-// Default collection names for backward compatibility.
-// These are used when no chain config is specified.
-var (
-	CollectionBlock             = fmt.Sprintf("%s__Block", DefaultCollectionPrefix)
-	CollectionTransaction       = fmt.Sprintf("%s__Transaction", DefaultCollectionPrefix)
-	CollectionLog               = fmt.Sprintf("%s__Log", DefaultCollectionPrefix)
-	CollectionAccessListEntry   = fmt.Sprintf("%s__AccessListEntry", DefaultCollectionPrefix)
-	CollectionBlockSignature    = fmt.Sprintf("%s__BlockSignature", DefaultCollectionPrefix)
-	CollectionSnapshotSignature = fmt.Sprintf("%s__SnapshotSignature", DefaultCollectionPrefix)
-
-	AllCollections = []string{
+// DefaultCollections returns all default collection names as a slice.
+func DefaultCollections() []string {
+	return []string{
 		CollectionBlock,
 		CollectionTransaction,
 		CollectionAccessListEntry,
@@ -57,4 +59,4 @@ var (
 		CollectionBlockSignature,
 		CollectionSnapshotSignature,
 	}
-)
+}

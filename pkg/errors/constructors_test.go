@@ -2,20 +2,19 @@ package errors
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 )
 
 func TestNetworkErrorConstructors(t *testing.T) {
-t.Parallel()
-	underlying := fmt.Errorf("dial tcp: connection refused")
+	t.Parallel()
+	underlying := errors.New("dial tcp: connection refused") //nolint: err113
 
 	tests := []struct {
-		name       string
-		err        IndexerError
-		code       string
-		severity   Severity
-		retryable  RetryBehavior
+		name      string
+		err       IndexerError
+		code      string
+		severity  Severity
+		retryable RetryBehavior
 	}{
 		{
 			"HTTPConnectionFailed",
@@ -68,8 +67,8 @@ t.Parallel()
 }
 
 func TestDataErrorConstructors(t *testing.T) {
-t.Parallel()
-	underlying := fmt.Errorf("parse error")
+	t.Parallel()
+	underlying := errors.New("parse error") //nolint: err113
 
 	tests := []struct {
 		name      string
@@ -121,8 +120,8 @@ t.Parallel()
 }
 
 func TestStorageErrorConstructors(t *testing.T) {
-t.Parallel()
-	underlying := fmt.Errorf("db error")
+	t.Parallel()
+	underlying := errors.New("db error") //nolint: err113
 
 	tests := []struct {
 		name      string
@@ -169,8 +168,8 @@ t.Parallel()
 }
 
 func TestSystemErrorConstructors(t *testing.T) {
-t.Parallel()
-	underlying := fmt.Errorf("system error")
+	t.Parallel()
+	underlying := errors.New("system error") //nolint: err113
 
 	tests := []struct {
 		name      string
@@ -212,7 +211,7 @@ t.Parallel()
 }
 
 func TestWithBlockNumber(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	err := NewRPCTimeout("rpc", "GetBlock", "", nil, WithBlockNumber(42))
 	ctx := err.Context()
 	if ctx.BlockNumber == nil {
@@ -224,7 +223,7 @@ t.Parallel()
 }
 
 func TestWithTxHash(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	hash := "0xabc123"
 	err := NewRPCTimeout("rpc", "GetTx", "", nil, WithTxHash(hash))
 	ctx := err.Context()
@@ -237,7 +236,7 @@ t.Parallel()
 }
 
 func TestWithMetadata(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	err := NewRPCTimeout("rpc", "GetBlock", "", nil, WithMetadata("retry_count", 3))
 	ctx := err.Context()
 	if ctx.Metadata == nil {
@@ -249,7 +248,7 @@ t.Parallel()
 }
 
 func TestWithMetadata_NilMapInitialization(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// The WithMetadata function has a nil check on ctx.Metadata
 	// Since newBaseError always initializes Metadata, we test the nil branch
 	// by calling WithMetadata directly on a context with nil Metadata
@@ -265,7 +264,7 @@ t.Parallel()
 }
 
 func TestNewBaseError_TimestampAndMetadata(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	err := NewRPCTimeout("comp", "op", "data", nil)
 	ctx := err.Context()
 	if ctx.Timestamp.IsZero() {
@@ -277,7 +276,7 @@ t.Parallel()
 }
 
 func TestConstructor_ErrorMessage_IncludesInputData(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	err := NewInvalidHex("converter", "ParseHex", "0xZZZ", nil)
 	msg := err.Error()
 	if msg == "" {
@@ -290,7 +289,7 @@ t.Parallel()
 }
 
 func TestConstructor_ParsingFailed_IncludesInputData(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	err := NewParsingFailed("converter", "ParseJSON", "json_data", nil)
 	msg := err.Error()
 	if !contains(msg, "json_data") {
@@ -299,7 +298,7 @@ t.Parallel()
 }
 
 func TestDocumentNotFound_NilUnderlying(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	err := NewDocumentNotFound("defra", "GetBlock", "Block", "block_123")
 	if err.Unwrap() != nil {
 		t.Error("DocumentNotFound should have nil underlying error")

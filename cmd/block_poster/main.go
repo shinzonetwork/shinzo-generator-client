@@ -16,7 +16,7 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
@@ -24,8 +24,7 @@ func main() {
 func run(args []string) error {
 	// Check for subcommands before parsing flags
 	if len(args) > 0 {
-		switch args[0] {
-		case "verify":
+		if args[0] == "verify" { //nolint:goconst
 			return verifySnapshots(args[1:], os.Stdout, os.Stderr)
 		}
 	}
@@ -93,16 +92,16 @@ func verifySnapshots(args []string, stdout, stderr io.Writer) error {
 	for _, file := range args {
 		result, err := snapshot.VerifySnapshot(file)
 		if err != nil {
-			fmt.Fprintf(stderr, "FAIL: %s — %v\n", file, err)
+			_, _ = fmt.Fprintf(stderr, "FAIL: %s — %v\n", file, err)
 			allValid = false
 			continue
 		}
 
 		if result.Valid {
-			fmt.Fprintf(stdout, "PASS: %s (blocks %d-%d, %d block sigs, signed by %s)\n",
+			_, _ = fmt.Fprintf(stdout, "PASS: %s (blocks %d-%d, %d block sigs, signed by %s)\n",
 				file, result.StartBlock, result.EndBlock, result.BlockSigsFound, truncateID(result.SignerIdentity))
 		} else {
-			fmt.Fprintf(stderr, "FAIL: %s — %s\n", file, result.Error)
+			_, _ = fmt.Fprintf(stderr, "FAIL: %s — %s\n", file, result.Error)
 			allValid = false
 		}
 	}
@@ -115,7 +114,7 @@ func verifySnapshots(args []string, stdout, stderr io.Writer) error {
 }
 
 func truncateID(id string) string {
-	if len(id) <= 20 {
+	if len(id) <= 20 { //nolint:mnd
 		return id
 	}
 	return id[:20] + "..."

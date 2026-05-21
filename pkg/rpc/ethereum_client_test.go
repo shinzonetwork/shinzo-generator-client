@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -23,6 +24,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// ethGetBlockByNumber is used in multiple tests, so define it as a constant for easy updates if needed.
+const ethGetBlockByNumber = "eth_getBlockByNumber"
+
+// ethGetTransactionReceipt is used in multiple tests, so define it as a constant for easy updates if needed.
+const ethGetTransactionReceipt = "eth_getTransactionReceipt"
+
+// ethGetBlockReceipts is used in multiple tests, so define it as a constant for easy updates if needed.
+const ethGetBlockReceipts = "eth_getBlockReceipts"
 
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
@@ -54,7 +64,7 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 				"id":      req.ID,
 				"error":   map[string]any{"code": -32000, "message": err.Error()},
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 
@@ -63,12 +73,12 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 			"id":      req.ID,
 			"result":  result,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 }
 
 func simpleRPCServer() *httptest.Server {
-	return newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	return newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
 		case "eth_chainId", "net_version":
 			return "0x1", nil
@@ -87,7 +97,7 @@ func TestNewEthereumClient_HTTPOnly(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	assert.NotNil(t, client.httpClient)
 	assert.Nil(t, client.wsClient)
@@ -101,7 +111,7 @@ func TestNewEthereumClient_WithAPIKey(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	assert.NotNil(t, client.httpClient)
 	assert.Equal(t, "test-api-key-12345", client.apiKey)
@@ -168,11 +178,11 @@ func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAPIKey = r.Header.Get(headerName)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":"0x1"}`))
 	}))
 	defer server.Close()
 
-	transport := &apiKeyTransport{
+	transport := &apiKeyTransport{ //nolint:gosec
 		apiKey:       "my-api-key-1234567890",
 		apiKeyHeader: "X-Api-Key",
 		base:         http.DefaultTransport,
@@ -180,7 +190,7 @@ func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 	client := &http.Client{Transport: transport}
 	resp, err := client.Get(server.URL)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, "my-api-key-1234567890", receivedAPIKey)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -188,13 +198,16 @@ func TestApiKeyTransport_RoundTrip_Success(t *testing.T) {
 
 func TestApiKeyTransport_RoundTrip_Failure(t *testing.T) {
 	t.Parallel()
-	transport := &apiKeyTransport{
+	transport := &apiKeyTransport{ //nolint:gosec
 		apiKey:       "my-api-key-1234567890",
 		apiKeyHeader: "X-Api-Key",
 		base:         http.DefaultTransport,
 	}
 	client := &http.Client{Transport: transport}
-	_, err := client.Get("http://192.0.2.1:9999") // non-routable
+	resp, err := client.Get("http://192.0.2.1:9999") // non-routable
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	assert.Error(t, err)
 }
 
@@ -361,9 +374,8 @@ func TestConvertTransaction(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	assert.Equal(t, tx.Hash().Hex(), localTx.Hash)
 	assert.Equal(t, gethBlock.Number().String(), localTx.BlockNumber)
 	assert.Equal(t, tx.To().Hex(), localTx.To)
@@ -377,9 +389,8 @@ func TestConvertTransaction_ContractCreation(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	assert.Equal(t, "", localTx.To)
 }
 
@@ -394,7 +405,7 @@ func TestConvertTransaction_EIP1559(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(1000),
 		Data:      []byte("data"),
 	}
@@ -407,12 +418,11 @@ func TestConvertTransaction_EIP1559(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	assert.Equal(t, "2000000000", localTx.MaxFeePerGas)
 	assert.Equal(t, "1000000000", localTx.MaxPriorityFeePerGas)
-	assert.Equal(t, "1", localTx.ChainId)
+	assert.Equal(t, "1", localTx.ChainID)
 }
 
 func TestConvertTransaction_AccessList(t *testing.T) {
@@ -432,7 +442,7 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 		Nonce:      1,
 		GasPrice:   big.NewInt(20000000000),
 		Gas:        21000,
-		To:         toPtr(common.HexToAddress("0xto")),
+		To:         new(common.HexToAddress("0xto")),
 		Value:      big.NewInt(1000),
 		Data:       []byte("data"),
 		AccessList: accessList,
@@ -446,9 +456,8 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	assert.Len(t, localTx.AccessList, 1)
 	assert.Len(t, localTx.AccessList[0].StorageKeys, 2)
 }
@@ -642,7 +651,7 @@ func TestGetChainId_LegacyTx(t *testing.T) {
 	// Legacy transactions derive chain ID from signature; for unsigned legacy txs
 	// ChainId() returns a derived value, not nil
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
-	result := getChainId(tx)
+	result := getChainID(tx)
 	// Just verify it returns a non-empty string (the exact value depends on go-ethereum internals)
 	assert.NotEmpty(t, result)
 }
@@ -656,7 +665,7 @@ func TestGetChainId_Set(t *testing.T) {
 		Gas:       21000,
 	}
 	tx := ethtypes.NewTx(inner)
-	assert.Equal(t, "137", getChainId(tx))
+	assert.Equal(t, "137", getChainID(tx))
 }
 
 func TestGetContractAddress_Empty(t *testing.T) {
@@ -707,7 +716,7 @@ func TestGetFromAddress_SignedEIP155(t *testing.T) {
 		Nonce:    1,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -732,7 +741,7 @@ func TestGetFromAddress_SignedDynamicFee(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(1000),
 	}
 
@@ -771,27 +780,27 @@ func TestClose_WithHTTPClient(t *testing.T) {
 
 func TestGetLatestBlockNumber_Success(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			// Return a full block header with all required fields
 			return map[string]any{
-				"number":           "0x64",
-				"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"nonce":            "0x0000000000000000",
-				"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
-				"transactionsRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"miner":            "0x0000000000000000000000000000000000000000",
-				"difficulty":       "0x0",
-				"extraData":        "0x",
-				"gasLimit":         "0x1000000",
-				"gasUsed":          "0x0",
-				"timestamp":        "0x0",
-				"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
+				constants.NumberFieldValue: "0x64",
+				"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"nonce":                    "0x0000000000000000",
+				"sha3Uncles":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
+				"transactionsRoot":         "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"miner":                    "0x0000000000000000000000000000000000000000",
+				"difficulty":               "0x0",
+				"extraData":                "0x",
+				"gasLimit":                 "0x1000000",
+				"gasUsed":                  "0x0",
+				"timestamp":                "0x0",
+				"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
 			}, nil
 		default:
 			return "0x1", nil
@@ -801,7 +810,7 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	blockNum, err := client.GetLatestBlockNumber(context.Background())
 	require.NoError(t, err)
@@ -811,7 +820,7 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 
 func TestGetNetworkID_Success(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
 		case "net_version":
 			return "1", nil
@@ -823,7 +832,7 @@ func TestGetNetworkID_Success(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	networkID, err := client.GetNetworkID(context.Background())
 	require.NoError(t, err)
@@ -836,25 +845,25 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 	// Empty trie root hash — must match empty transaction list
 	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 	block := map[string]any{
-		"number":           number,
-		"hash":             "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"nonce":            "0x0000000000000000",
-		"sha3Uncles":       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		"logsBloom":        "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot": emptyTrieRoot,
-		"stateRoot":        "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"miner":            "0x0000000000000000000000000000000000000000",
-		"difficulty":       "0x0",
-		"totalDifficulty":  "0x0",
-		"extraData":        "0x",
-		"size":             "0x100",
-		"gasLimit":         "0x1000000",
-		"gasUsed":          "0x5208",
-		"timestamp":        "0x60000000",
-		"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":           []any{},
+		constants.NumberFieldValue: number,
+		"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"nonce":                    "0x0000000000000000",
+		"sha3Uncles":               "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
+		"transactionsRoot":         emptyTrieRoot,
+		"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"miner":                    "0x0000000000000000000000000000000000000000",
+		"difficulty":               "0x0",
+		"totalDifficulty":          "0x0",
+		"extraData":                "0x",
+		"size":                     "0x100",
+		"gasLimit":                 "0x1000000",
+		"gasUsed":                  "0x5208",
+		"timestamp":                "0x60000000",
+		"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":                   []any{},
 	}
 	if txs != nil {
 		block["transactions"] = txs
@@ -866,9 +875,9 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 
 func TestGetBlockByNumber_Success(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return fullBlockResponse("0x64", nil), nil
 		default:
 			return "0x1", nil
@@ -878,7 +887,7 @@ func TestGetBlockByNumber_Success(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	block, err := client.GetBlockByNumber(context.Background(), big.NewInt(100))
 	require.NoError(t, err)
@@ -888,9 +897,9 @@ func TestGetBlockByNumber_Success(t *testing.T) {
 
 func TestGetBlockByNumber_Error(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return nil, fmt.Errorf("block not found")
 		default:
 			return "0x1", nil
@@ -900,7 +909,7 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err = client.GetBlockByNumber(context.Background(), big.NewInt(999999))
 	assert.Error(t, err)
@@ -910,24 +919,24 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 
 func TestGetTransactionReceipt_Success(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return map[string]any{
-				"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
-				"transactionIndex":  "0x0",
-				"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":       "0x64",
-				"from":              "0x0000000000000000000000000000000000000001",
-				"to":                "0x0000000000000000000000000000000000000002",
-				"cumulativeGasUsed": "0x5208",
-				"gasUsed":           "0x5208",
-				"contractAddress":   nil,
-				"logs":              []any{},
-				"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-				"status":            "0x1",
-				"effectiveGasPrice": "0x4a817c800",
-				"type":              "0x0",
+				"transactionHash":           "0x0000000000000000000000000000000000000000000000000000000000000abc",
+				"transactionIndex":          "0x0",
+				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"blockNumber":               "0x64",
+				"from":                      "0x0000000000000000000000000000000000000001",
+				"to":                        "0x0000000000000000000000000000000000000002",
+				"cumulativeGasUsed":         "0x5208",
+				"gasUsed":                   "0x5208",
+				"contractAddress":           nil,
+				"logs":                      []any{},
+				"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+				"status":                    "0x1",
+				"effectiveGasPrice":         "0x4a817c800",
+				"type":                      "0x0",
 			}, nil
 		default:
 			return "0x1", nil
@@ -937,7 +946,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	receipt, err := client.GetTransactionReceipt(context.Background(), "0x0000000000000000000000000000000000000000000000000000000000000abc")
 	require.NoError(t, err)
@@ -947,9 +956,9 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 
 func TestGetTransactionReceipt_Error(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getTransactionReceipt":
+		case ethGetTransactionReceipt:
 			return nil, fmt.Errorf("not found")
 		default:
 			return "0x1", nil
@@ -959,7 +968,7 @@ func TestGetTransactionReceipt_Error(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err = client.GetTransactionReceipt(context.Background(), "0xdeadbeef")
 	assert.Error(t, err)
@@ -969,22 +978,22 @@ func TestGetTransactionReceipt_Error(t *testing.T) {
 
 func TestGetBlockReceipts_Success(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
-					"transactionHash":   "0x0000000000000000000000000000000000000000000000000000000000000abc",
-					"transactionIndex":  "0x0",
-					"blockHash":         "0x0000000000000000000000000000000000000000000000000000000000000001",
-					"blockNumber":       "0x64",
-					"cumulativeGasUsed": "0x5208",
-					"gasUsed":           "0x5208",
-					"logs":              []any{},
-					"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
-					"status":            "0x1",
-					"effectiveGasPrice": "0x4a817c800",
-					"type":              "0x0",
+					"transactionHash":           "0x0000000000000000000000000000000000000000000000000000000000000abc",
+					"transactionIndex":          "0x0",
+					constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
+					"blockNumber":               "0x64",
+					"cumulativeGasUsed":         "0x5208",
+					"gasUsed":                   "0x5208",
+					"logs":                      []any{},
+					"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
+					"status":                    "0x1",
+					"effectiveGasPrice":         "0x4a817c800",
+					"type":                      "0x0",
 				},
 			}, nil
 		default:
@@ -995,7 +1004,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	receipts, err := client.GetBlockReceipts(context.Background(), big.NewInt(100))
 	require.NoError(t, err)
@@ -1005,9 +1014,9 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 
 func TestGetBlockReceipts_Error(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockReceipts":
+		case ethGetBlockReceipts:
 			return nil, fmt.Errorf("block receipts not found")
 		default:
 			return "0x1", nil
@@ -1017,7 +1026,7 @@ func TestGetBlockReceipts_Error(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err = client.GetBlockReceipts(context.Background(), big.NewInt(999999))
 	assert.Error(t, err)
@@ -1027,9 +1036,9 @@ func TestGetBlockReceipts_Error(t *testing.T) {
 
 func TestGetLatestBlock_Success(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			// Both HeaderByNumber and BlockByNumber use this method.
 			// The mock returns the same block for all requests — that's fine.
 			return fullBlockResponse("0xc8", nil), nil // 200
@@ -1041,7 +1050,7 @@ func TestGetLatestBlock_Success(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	block, err := client.GetLatestBlock(context.Background())
 	require.NoError(t, err)
@@ -1051,14 +1060,14 @@ func TestGetLatestBlock_Success(t *testing.T) {
 
 func TestGetLatestBlock_HeaderError(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("connection refused")
 	})
 	defer server.Close()
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err = client.GetLatestBlock(context.Background())
 	assert.Error(t, err)
@@ -1068,9 +1077,9 @@ func TestGetLatestBlock_HeaderError(t *testing.T) {
 func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
 	t.Parallel()
 	callCount := 0
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			callCount++
 			if callCount == 1 {
 				// First call is HeaderByNumber (params: [nil, false])
@@ -1086,7 +1095,7 @@ func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err = client.GetLatestBlock(context.Background())
 	assert.Error(t, err)
@@ -1096,9 +1105,9 @@ func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
 func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
 	t.Parallel()
 	callCount := 0
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			callCount++
 			if callCount == 1 {
 				// HeaderByNumber call
@@ -1114,7 +1123,9 @@ func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	block, err := client.GetLatestBlock(context.Background())
 	require.NoError(t, err)
@@ -1125,9 +1136,9 @@ func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
 
 func TestGetLatestBlockNumber_Error(t *testing.T) {
 	t.Parallel()
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			return nil, fmt.Errorf("header error")
 		default:
 			return "0x1", nil
@@ -1137,7 +1148,9 @@ func TestGetLatestBlockNumber_Error(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	_, err = client.GetLatestBlockNumber(context.Background())
 	assert.Error(t, err)
@@ -1194,7 +1207,7 @@ func TestGetFromAddress_HomesteadSigner(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1217,7 +1230,7 @@ func TestGetFromAddress_FrontierSigner(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1243,7 +1256,7 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1255,8 +1268,7 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
-	require.NoError(t, err)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 	assert.Equal(t, expectedAddr.Hex(), localTx.From)
 	assert.Equal(t, "0", localTx.Type)
 }
@@ -1270,8 +1282,8 @@ func TestGetLatestBlock_UnsupportedTxType_Exhausted(t *testing.T) {
 	}
 	// Test that all 8 retries are exhausted for unsupported tx type errors
 	callCount := 0
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		if method == "eth_getBlockByNumber" {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+		if method == ethGetBlockByNumber {
 			callCount++
 			if callCount == 1 {
 				return fullBlockResponse("0xc8", nil), nil
@@ -1284,7 +1296,9 @@ func TestGetLatestBlock_UnsupportedTxType_Exhausted(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	_, err = client.GetLatestBlock(context.Background())
 	assert.Error(t, err)
@@ -1298,8 +1312,8 @@ func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
 	}
 	// Test success on the second attempt after one unsupported tx type error
 	callCount := 0
-	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		if method == "eth_getBlockByNumber" {
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+		if method == ethGetBlockByNumber {
 			callCount++
 			if callCount == 1 {
 				return fullBlockResponse("0xc8", nil), nil // HeaderByNumber
@@ -1315,7 +1329,7 @@ func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
 
 	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	block, err := client.GetLatestBlock(context.Background())
 	require.NoError(t, err)
@@ -1338,7 +1352,7 @@ func TestConvertGethBlock_FailedTxConversion(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 	signer := ethtypes.NewEIP155Signer(big.NewInt(1))
@@ -1372,9 +1386,8 @@ func TestConvertTransaction_NilFromAddr(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 
-	require.NoError(t, err)
 	// Unsigned tx falls through to either zero address from error path or homestead recovery
 	assert.NotEmpty(t, localTx.From)
 }
@@ -1391,7 +1404,7 @@ func TestGetFromAddress_AllSignersFail(t *testing.T) {
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        toPtr(common.HexToAddress("0xto")),
+		To:        new(common.HexToAddress("0xto")),
 		Value:     big.NewInt(0),
 	}
 	// Create unsigned DynamicFeeTx — has non-zero ChainID but no valid signature
@@ -1428,7 +1441,7 @@ func TestConvertTransaction_BlobTx(t *testing.T) {
 
 	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	inner := &ethtypes.BlobTx{
-		ChainID:    uint256.NewInt(uint64(chainID.Int64())),
+		ChainID:    uint256.NewInt(uint64(chainID.Int64())), //nolint:gosec
 		Nonce:      1,
 		GasTipCap:  uint256.NewInt(1000000000),
 		GasFeeCap:  uint256.NewInt(2000000000),
@@ -1448,18 +1461,17 @@ func TestConvertTransaction_BlobTx(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
-	require.NoError(t, err)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 	assert.Equal(t, fmt.Sprintf("%d", ethtypes.BlobTxType), localTx.Type)
 	// BlobTx.GasPrice() returns GasFeeCap, same as default case
 	assert.NotEmpty(t, localTx.GasPrice)
 }
 
-// --- getChainId nil check ---
+// --- getChainID nil check ---
 
 func TestGetChainId_NilChainID(t *testing.T) {
 	t.Parallel()
-	// BlobTx with a nil ChainID field to test the nil check in getChainId.
+	// BlobTx with a nil ChainID field to test the nil check in getChainID.
 	// This is an edge case that shouldn't happen in practice, but the code guards against it.
 	// An unsigned BlobTx with ChainID left nil will still return non-nil from tx.ChainId()
 	// because go-ethereum returns new(big.Int) for nil. We test the normal path here
@@ -1476,7 +1488,7 @@ func TestGetChainId_NilChainID(t *testing.T) {
 		BlobHashes: []common.Hash{common.HexToHash("0x01")},
 	}
 	tx := ethtypes.NewTx(inner)
-	result := getChainId(tx)
+	result := getChainID(tx)
 	// ChainId() returns big.Int(0) which is "0"
 	assert.Equal(t, "0", result)
 }
@@ -1503,7 +1515,7 @@ func TestCreateWebSocketWithHeaders_URLWithoutQueryParam(t *testing.T) {
 // --- WebSocket mock server for success paths ---
 
 var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(_ *http.Request) bool { return true },
 }
 
 // newWSMockServer creates an httptest.Server that upgrades to WebSocket and
@@ -1514,7 +1526,7 @@ func newWSMockServer() *httptest.Server {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		for {
 			_, msg, err := conn.ReadMessage()
@@ -1583,7 +1595,7 @@ func TestNewEthereumClient_WSSuccess_WithAPIKey(t *testing.T) {
 
 	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	assert.NotNil(t, client.httpClient)
 	assert.NotNil(t, client.wsClient)
@@ -1603,7 +1615,7 @@ func TestNewEthereumClient_WSSuccess_NoAPIKey(t *testing.T) {
 
 	client, err := NewEthereumClient(httpServer.URL, wsURL, "", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	assert.NotNil(t, client.httpClient)
 	assert.NotNil(t, client.wsClient)
@@ -1627,7 +1639,7 @@ func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		for {
 			_, msg, err := conn.ReadMessage()
@@ -1658,7 +1670,7 @@ func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
 
 	client, err := NewEthereumClient(httpServer.URL, wsURL, "test-api-key-12345", "X-Api-Key")
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	assert.NotNil(t, client.httpClient)
 	// The WS client should be set via the fallback path
@@ -1697,7 +1709,7 @@ func TestConvertGethBlock_WithBlobTx(t *testing.T) {
 
 	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
 	inner := &ethtypes.BlobTx{
-		ChainID:    uint256.NewInt(uint64(chainID.Int64())),
+		ChainID:    uint256.NewInt(uint64(chainID.Int64())), //nolint:gosec
 		Nonce:      0,
 		GasTipCap:  uint256.NewInt(1000000000),
 		GasFeeCap:  uint256.NewInt(2000000000),
@@ -1742,7 +1754,7 @@ func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 		V:        big.NewInt(27),
 		R:        big.NewInt(0),
@@ -1765,7 +1777,7 @@ func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 	tx := ethtypes.NewTx(inner)
@@ -1774,8 +1786,7 @@ func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
-	localTx, err := client.convertTransaction(tx, gethBlock, 0)
-	require.NoError(t, err)
+	localTx := client.convertTransaction(tx, gethBlock, 0)
 	// The error path sets fromAddr to zero address
 	assert.Equal(t, "0x0000000000000000000000000000000000000000", localTx.From)
 }
@@ -1793,7 +1804,7 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 		Nonce:    42,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 	}
 
@@ -1828,7 +1839,7 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 		Nonce:    42,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       toPtr(common.HexToAddress("0xto")),
+		To:       new(common.HexToAddress("0xto")),
 		Value:    big.NewInt(1000),
 		V:        newV,
 		R:        r,
@@ -1853,10 +1864,6 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 
 // --- Test helpers ---
 
-func toPtr(addr common.Address) *common.Address {
-	return &addr
-}
-
 func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {
 	// Use a fixed test private key
 	key, err := crypto.HexToECDSA("fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19")
@@ -1865,4 +1872,52 @@ func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {
 	}
 	addr := crypto.PubkeyToAddress(key.PublicKey)
 	return key, addr
+}
+
+// --- normalizeHeaderName Tests ---
+
+func TestNormalizeHeaderName(t *testing.T) {
+	tests := []struct {
+		name           string
+		apiKeyType     string
+		expectedHeader string
+	}{
+		{"x-goog-api-key lowercase", "x-goog-api-key", "x-goog-api-key"},
+		{"X-Goog-Api-Key mixed case", "X-Goog-Api-Key", "x-goog-api-key"},
+		{"x-api-key lowercase", "x-api-key", "x-api-key"},
+		{"X-Api-Key mixed case", "X-Api-Key", "x-api-key"},
+		{"custom header", "X-Custom-Header", "x-custom-header"},
+		{"trims whitespace", "  X-Api-Key  ", "x-api-key"},
+		{"empty string stays empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeHeaderName(tt.apiKeyType)
+			assert.Equal(t, tt.expectedHeader, result)
+		})
+	}
+}
+
+// --- isGCPProvider Tests ---
+
+func TestIsGCPProvider(t *testing.T) {
+	tests := []struct {
+		name       string
+		headerName string
+		expected   bool
+	}{
+		{"x-goog-api-key is GCP", "x-goog-api-key", true},
+		{"contains goog anywhere", "my-goog-header", true},
+		{"x-api-key is not GCP", "x-api-key", false},
+		{"empty is not GCP", "", false},
+		{"unknown is not GCP", "unknown", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isGCPProvider(tt.headerName)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

@@ -24,7 +24,7 @@ func assertLogHasTopics(t *testing.T, logMap map[string]any) {
 }
 
 func TestGetAllTransactionLogs(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	txHash := getArbitraryTransactionHash(t)
 	result := MakeQuery(t, logsQueryPath, "GetAllTransactionLogs", map[string]any{"txHash": txHash})
 	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
@@ -74,13 +74,13 @@ func getArbitraryBlock(t *testing.T) map[string]any {
 }
 
 func TestGetAllBlockLogs(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	block := getArbitraryBlock(t)
 	blockHash, ok := block["hash"].(string)
 	if !ok || len(blockHash) == 0 {
 		t.Fatalf("Block hash missing or empty in block: %v", block)
 	}
-	result := MakeQuery(t, logsQueryPath, "GetAllBlockLogs", map[string]any{"blockHash": blockHash})
+	result := MakeQuery(t, logsQueryPath, "GetAllBlockLogs", map[string]any{constants.BlockHashKeyValue: blockHash})
 	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
 	if !ok {
 		t.Errorf("No logs returned for blockHash %v: %v", blockHash, result)
@@ -92,15 +92,15 @@ t.Parallel()
 			t.Errorf("Log is not a map: %v", l)
 			continue
 		}
-		if logMap["blockHash"] != nil && logMap["blockHash"] != blockHash {
-			t.Errorf("Log blockHash does not match: got %v, want %v", logMap["blockHash"], blockHash)
+		if logMap[constants.BlockHashKeyValue] != nil && logMap[constants.BlockHashKeyValue] != blockHash {
+			t.Errorf("Log blockHash does not match: got %v, want %v", logMap[constants.BlockHashKeyValue], blockHash)
 		}
 		assertLogHasTopics(t, logMap)
 	}
 }
 
 func TestGetAllLogsByTopic(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	topic := getArbitraryTopic(t)
 	result := MakeQuery(t, logsQueryPath, "GetAllLogsByTopic", map[string]any{"topic": topic})
 	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)

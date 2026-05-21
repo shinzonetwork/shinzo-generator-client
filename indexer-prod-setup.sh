@@ -6,22 +6,23 @@ networks:
 services:
   shinzo-indexer:
     image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+    user: "0:0"
     container_name: shinzo-indexer
     restart: unless-stopped
     networks:
       - shinzo-net
     mem_limit: 16g
     mem_reservation: 13g
-    user: "1003:1006"
     ports:
       - "9171:9171"
     volumes:
-      - ~/data/defradb:/app/.defra
-      - ~/data/lens:/app/.defra/lens
+      - ~/shinzo-data/defradb:/app/.defra
+      - ~/shinzo-data/lens:/app/.defra/lens
     environment:
       - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
       - GETH_WS_URL=ws://ws.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
       - GETH_API_KEY=YOUR_API_KEY
+      - GETH_API_KEY_TYPE=x-goog-api-key      
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
       - GOMEMLIMIT=14GiB
@@ -68,21 +69,24 @@ http {
     add_header 'Access-Control-Max-Age' 3600 always;
     add_header 'Vary' 'Origin' always;
 
+    # Health endpoint
     location = /health {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/health;
     }
-
+    # Optional - registration endpoint
     location = /registration {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/registration;
     }
 
+    # Metrics endpoint
     location = /metrics {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/metrics;
     }
 
+    # Snapshots endpoint
     location = /snapshots {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/snapshots;
@@ -97,6 +101,7 @@ http {
       client_max_body_size 0;
     }
 
+    # Default 404 for unmatched routes
     location / {
       return 404;
     }

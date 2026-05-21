@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test test-branchable testrpc coverage bootstrap playground stop integration-test docker-build docker-up docker-down deploy
+.PHONY: deps env build start clean defradb gitpush test test-branchable testrpc coverage bootstrap playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -98,6 +98,19 @@ coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 
+lint:
+	@echo "🔍 Running golangci-lint..."
+	@golangci-lint run ./...
+
+lint-fix:
+	@echo "🔧 Running golangci-lint with auto-fix..."
+	@golangci-lint run --fix ./...
+
+fmt:
+	@echo "📝 Formatting code..."
+	@gofmt -s -w .
+	@goimports -w -local github.com/shinzonetwork/shinzo-indexer-client .
+
 bootstrap:
 	@if [ -z "$(DEFRA_PATH)" ]; then \
 		echo "ERROR: You must pass DEFRA_PATH. Usage:"; \
@@ -144,7 +157,13 @@ help:
 	@echo "📦 Build & Test:"
 	@echo "  build              - Build the indexer binary"
 	@echo "  test               - Run all tests with summary"
+	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
+	@echo ""
+	@echo "🔍 Code Quality:"
+	@echo "  lint               - Run golangci-lint"
+	@echo "  lint-fix           - Run golangci-lint with auto-fix"
+	@echo "  fmt                - Format code with gofmt and goimports"
 	@echo ""
 	@echo "🔗 Connectivity Testing:"
 	@echo "  geth-status        - Comprehensive Geth node diagnostics"

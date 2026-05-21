@@ -8,7 +8,7 @@ import (
 )
 
 func TestTransactionReceiptJSONMarshaling(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	receipt := TransactionReceipt{
 		TransactionHash:   "0x1234567890abcdef",
 		TransactionIndex:  "0",
@@ -46,7 +46,7 @@ t.Parallel()
 }
 
 func TestBlockJSONMarshaling(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	block := Block{
 		Hash:             "0x1234567890abcdef",
 		Number:           "12345",
@@ -89,7 +89,7 @@ t.Parallel()
 }
 
 func TestTransactionJSONMarshaling(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tx := Transaction{
 		Hash:             "0xtxhash",
 		BlockHash:        "0xblockhash",
@@ -129,7 +129,7 @@ t.Parallel()
 }
 
 func TestLogJSONMarshaling(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	log := Log{
 		Address:          "0xcontract",
 		Topics:           []string{"0xtopic1", "0xtopic2"},
@@ -168,7 +168,7 @@ t.Parallel()
 }
 
 func TestRequestJSONMarshaling(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	request := Request{
 		Type:  "query",
 		Query: "{ Block { number } }",
@@ -197,7 +197,7 @@ t.Parallel()
 }
 
 func TestResponseJSONMarshaling(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	response := Response{
 		Data: map[string][]struct {
 			DocID string `json:"_docID"`
@@ -232,7 +232,7 @@ t.Parallel()
 }
 
 func TestUpdateStructsJSONMarshaling(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	// Test UpdateTransactionStruct
 	updateTx := UpdateTransactionStruct{
 		BlockId: "block-id-123",
@@ -276,5 +276,4 @@ t.Parallel()
 	if unmarshaledLog.TxId != updateLog.TxId {
 		t.Errorf("TxId mismatch: got %s, want %s", unmarshaledLog.TxId, updateLog.TxId)
 	}
-
 }

@@ -11,6 +11,6 @@ type indexerReplicationFilter struct{}
 
 // AllowReplication implements client.ReplicationFilter.
 // Always returns false — the indexer does not accept incoming P2P documents.
-func (f *indexerReplicationFilter) AllowReplication(_ context.Context, _ string, _ string, _ map[string]any) bool {
+func (f *indexerReplicationFilter) AllowReplication(_ context.Context, _, _ string, _ map[string]any) bool {
 	return false
 }

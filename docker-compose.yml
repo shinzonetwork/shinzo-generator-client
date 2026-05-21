@@ -1,30 +1,43 @@
+networks:
+  shinzo-net:
+    driver: bridge
+
 services:
   indexer:
-    image: shinzo-indexer:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     container_name: shinzo-indexer
+    platform: linux/amd64
+    image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+    user: "1001:1001" # shinzo-indexer identity
     restart: unless-stopped
-    network_mode: host
+    networks:
+      - shinzo-net
+    mem_limit: 16g
+    mem_reservation: 13g
+    ports:
+      - "9171:9171"
     environment:
       # Ethereum Node Configuration
       - GETH_RPC_URL=${GETH_RPC_URL}
       - GETH_WS_URL=${GETH_WS_URL}
       - GETH_API_KEY=${GETH_API_KEY}
-      
+      - GETH_API_KEY_TYPE=${GETH_API_KEY_TYPE}
+
       # DefraDB Configuration (embedded)
       - DEFRADB_KEYRING_SECRET=${DEFRADB_KEYRING_SECRET:-}
       
       # Indexer Configuration
-      - INDEXER_START_HEIGHT=${INDEXER_START_HEIGHT:-23900000}
-    
+      - INDEXER_START_HEIGHT=${INDEXER_START_HEIGHT:-0}
+      - GOMEMLIMIT=14GiB
+      - SNAPSHOT_ENABLED=false
+      - LOG_LEVEL=error
+      - LOG_SOURCE=false
+      - LOG_STACKTRACE=false
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "3"
     volumes:
-      # DefraDB data
-      - /mnt/defradb-data:/app/.defra 
-      # Logs
-      - /mnt/defradb-data/logs:/app/logs 
-
+      - ~/shinzo-data/defradb:/app/.defra
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s

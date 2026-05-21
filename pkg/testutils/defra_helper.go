@@ -24,6 +24,13 @@ type TestDefraDB struct {
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDB(t *testing.T) *TestDefraDB {
+	return SetupTestDefraDBWithSchema(t, schema.GetSchema())
+}
+
+// SetupTestDefraDBWithSchema creates and starts an in-memory DefraDB node with a provided schema.
+// It uses a temporary directory and a random free port to avoid conflicts.
+// Call the returned cleanup function (or use t.Cleanup) when done.
+func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 	t.Helper()
 
 	// Initialize logger if not already done
@@ -46,14 +53,15 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 		t.Fatalf("Failed to create DefraDB node: %v", err)
 	}
 
-	if err := defraNode.Start(ctx); err != nil {
+	err = defraNode.Start(ctx)
+	if err != nil {
 		t.Fatalf("Failed to start DefraDB node: %v", err)
 	}
 
 	// Apply schema
-	_, err = defraNode.DB.AddSchema(ctx, schema.GetSchema())
+	_, err = defraNode.DB.AddSchema(ctx, schemaSDL)
 	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
-		defraNode.Close(ctx)
+		_ = defraNode.Close(ctx)
 		t.Fatalf("Failed to apply schema: %v", err)
 	}
 
@@ -64,7 +72,7 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 	}
 
 	t.Cleanup(func() {
-		defraNode.Close(context.Background())
+		_ = defraNode.Close(context.Background())
 	})
 
 	return td
@@ -78,6 +86,6 @@ func getFreePort(t *testing.T) int {
 		t.Fatalf("Failed to get free port: %v", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
+	_ = listener.Close()
 	return port
 }

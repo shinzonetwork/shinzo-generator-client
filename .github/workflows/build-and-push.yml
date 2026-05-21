@@ -1,10 +1,10 @@
 name: Build and Push
 
 on:
-  workflow_run:
-    workflows: ["Go Test CI"]
-    types: [completed]
-    branches: [develop]
+  pull_request:
+    types: [closed]
+    branches:
+      - develop
   workflow_dispatch:
 
 concurrency:

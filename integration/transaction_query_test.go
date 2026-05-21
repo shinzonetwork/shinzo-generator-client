@@ -105,7 +105,7 @@ func getArbitraryTopic(t *testing.T) string {
 }
 
 func TestGetTransactionByHash(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	transactionHash := getArbitraryTransactionHash(t)
 	result := MakeQuery(t, transactionQueryPath, "GetTransactionByHash", map[string]any{"txHash": transactionHash})
 	transactionList, ok := result["data"].(map[string]any)[constants.CollectionTransaction].([]any)
@@ -131,7 +131,7 @@ t.Parallel()
 }
 
 func TestGetTransactionsInvolvingAddress(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	address := getArbitraryAddress(t)
 	result := MakeQuery(t, transactionQueryPath, "GetTransactionsInvolvingAddress", map[string]any{"address": address})
 	transactionList, ok := result["data"].(map[string]any)[constants.CollectionTransaction].([]any)
@@ -158,7 +158,7 @@ t.Parallel()
 }
 
 func TestGetAllTransactionWithTopic(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	topic := getArbitraryTopic(t)
 	result := MakeQuery(t, transactionQueryPath, "GetAllTransactionWithTopic", map[string]any{"topic": topic})
 	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)

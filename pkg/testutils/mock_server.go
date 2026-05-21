@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 )
 
-// MockServerConfig holds configuration for creating mock servers
+// MockServerConfig holds configuration for creating mock servers.
 type MockServerConfig struct {
 	ResponseBody    string
 	StatusCode      int
@@ -14,7 +14,7 @@ type MockServerConfig struct {
 	ValidateRequest func(r *http.Request) error
 }
 
-// DefaultMockServerConfig returns a default configuration
+// DefaultMockServerConfig returns a default configuration.
 func DefaultMockServerConfig(responseBody string) MockServerConfig {
 	return MockServerConfig{
 		ResponseBody: responseBody,
@@ -25,7 +25,7 @@ func DefaultMockServerConfig(responseBody string) MockServerConfig {
 	}
 }
 
-// CreateMockServer creates a mock HTTP server with the given configuration
+// CreateMockServer creates a mock HTTP server with the given configuration.
 func CreateMockServer(config MockServerConfig) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if config.ValidateRequest != nil {
@@ -41,11 +41,11 @@ func CreateMockServer(config MockServerConfig) *httptest.Server {
 
 		w.WriteHeader(config.StatusCode)
 
-		w.Write([]byte(config.ResponseBody))
+		_, _ = w.Write([]byte(config.ResponseBody))
 	}))
 }
 
-// CreateGraphQLCreateResponse creates a standard GraphQL create response
+// CreateGraphQLCreateResponse creates a standard GraphQL create response.
 func CreateGraphQLCreateResponse(collectionName, docID string) string {
 	return `{
 		"data": {
@@ -58,7 +58,7 @@ func CreateGraphQLCreateResponse(collectionName, docID string) string {
 	}`
 }
 
-// CreateGraphQLUpdateResponse creates a standard GraphQL update response
+// CreateGraphQLUpdateResponse creates a standard GraphQL update response.
 func CreateGraphQLUpdateResponse(collectionName, docID string) string {
 	return `{
 		"data": {
@@ -71,7 +71,7 @@ func CreateGraphQLUpdateResponse(collectionName, docID string) string {
 	}`
 }
 
-// CreateGraphQLQueryResponse creates a standard GraphQL query response
+// CreateGraphQLQueryResponse creates a standard GraphQL query response.
 func CreateGraphQLQueryResponse(collectionName, responseData string) string {
 	return `{
 		"data": {
@@ -80,7 +80,7 @@ func CreateGraphQLQueryResponse(collectionName, responseData string) string {
 	}`
 }
 
-// CreateErrorServer creates a mock server that returns an error
+// CreateErrorServer creates a mock server that returns an error.
 func CreateErrorServer(statusCode int, errorMessage string) *httptest.Server {
 	return CreateMockServer(MockServerConfig{
 		ResponseBody: errorMessage,
@@ -89,12 +89,12 @@ func CreateErrorServer(statusCode int, errorMessage string) *httptest.Server {
 	})
 }
 
-// CreateRPCNodeResponse creates a standard JSON-RPC response
+// CreateRPCNodeResponse creates a standard JSON-RPC response.
 // result: the result data (can be nil for null responses)
 func CreateRPCNodeResponse(result any) string {
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		// Fallback to "null" if marshaling fails
+		// Fallback to "null" if marshaling fails.
 		resultJSON = []byte("null")
 	}
 

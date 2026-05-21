@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,13 +17,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTruncateID(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Run("empty string returns empty", func(t *testing.T) {
 		result := truncateID("")
 		assert.Equal(t, "", result)
@@ -48,7 +51,7 @@ t.Parallel()
 }
 
 func TestVerifySnapshots(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Run("no args returns usage error", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		err := verifySnapshots(nil, &stdout, &stderr)
@@ -78,15 +81,15 @@ t.Parallel()
 		sigPath := filepath.Join(tmpDir, "test.sig.json")
 
 		// Write a non-gzip file as the snapshot
-		err := os.WriteFile(snapshotPath, []byte("not a gzip file"), 0644)
+		err := os.WriteFile(snapshotPath, []byte("not a gzip file"), 0o600)
 		require.NoError(t, err)
 
 		// Write an invalid sig file
-		err = os.WriteFile(sigPath, []byte("not json"), 0644)
+		err = os.WriteFile(filepath.Clean(sigPath), []byte("not json"), 0o600)
 		require.NoError(t, err)
 
 		var stdout, stderr bytes.Buffer
-		err = verifySnapshots([]string{snapshotPath}, &stdout, &stderr)
+		err = verifySnapshots([]string{filepath.Clean(snapshotPath)}, &stdout, &stderr)
 		require.Error(t, err)
 		assert.Contains(t, stderr.String(), "FAIL:")
 	})
@@ -97,7 +100,7 @@ t.Parallel()
 		sigPath := filepath.Join(tmpDir, "test.sig.json")
 
 		// Write a non-gzip file as the snapshot
-		err := os.WriteFile(snapshotPath, []byte("not a gzip file"), 0644)
+		err := os.WriteFile(filepath.Clean(snapshotPath), []byte("not a gzip file"), 0o600)
 		require.NoError(t, err)
 
 		// Write a valid JSON sig file (VerifySnapshot will parse it, then fail on snapshot read)
@@ -111,11 +114,11 @@ t.Parallel()
 			"signature_type": "Ed25519",
 			"signature_identity": "someid"
 		}`
-		err = os.WriteFile(sigPath, []byte(sigJSON), 0644)
+		err = os.WriteFile(filepath.Clean(sigPath), []byte(sigJSON), 0o600)
 		require.NoError(t, err)
 
 		var stdout, stderr bytes.Buffer
-		err = verifySnapshots([]string{snapshotPath}, &stdout, &stderr)
+		err = verifySnapshots([]string{filepath.Clean(snapshotPath)}, &stdout, &stderr)
 		require.Error(t, err)
 		// Should get a FAIL in stderr for the bad snapshot
 		assert.Contains(t, stderr.String(), "FAIL:")
@@ -124,7 +127,7 @@ t.Parallel()
 	t.Run("multiple files with first failing", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		err := verifySnapshots(
-			[]string{"/nonexistent/file1.jsonl.gz", "/nonexistent/file2.jsonl.gz"},
+			[]string{filepath.Clean("/nonexistent/file1.jsonl.gz"), filepath.Clean("/nonexistent/file2.jsonl.gz")},
 			&stdout, &stderr,
 		)
 		require.Error(t, err)
@@ -135,7 +138,7 @@ t.Parallel()
 }
 
 func TestRun(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
 		err := run([]string{"verify"})
 		require.Error(t, err)
@@ -205,7 +208,7 @@ logger:
   development: true
 `, tmpDir)
 
-		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
 		err = run([]string{"-config", configPath})
@@ -245,27 +248,36 @@ logger:
   development: true
 `, tmpDir)
 
-		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
 		err = run([]string{"-config", configPath})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
 	})
-
 	t.Run("signal handling shuts down gracefully", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
-		// Use external DefraDB with a non-routable TEST-NET-2 (RFC 5737) address.
-		// TCP SYN to this IP gets no response, so WaitForDefraDB's HTTP client
-		// hangs for its 5s timeout on the first attempt. The SIGTERM at 500ms
-		// wins the select race before errChan receives anything.
-		// Note: 127.0.0.1:1 can't be used because some CI runners have port 1
-		// accessible, causing WaitForDefraDB to return immediately.
+		// Start a TCP listener that accepts connections but never responds.
+		// This makes WaitForDefraDB's HTTP client hang indefinitely, giving
+		// the SIGTERM time to win the select race in run().
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer func() { _ = ln.Close() }()
+		go func() {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				_ = conn // accept but never respond — HTTP client hangs
+			}
+		}()
+
 		configContent := fmt.Sprintf(`
 defradb:
-  url: "http://198.51.100.1:1"
+  url: "http://%s"
   embedded: false
   p2p:
     enabled: false
@@ -287,14 +299,11 @@ snapshot:
   enabled: false
 logger:
   development: true
-`, tmpDir)
+`, ln.Addr().String(), tmpDir)
 
-		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		err = os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		// Send SIGTERM after a short delay to trigger graceful shutdown path.
-		// The goroutine will be blocked in WaitForDefraDB retries, so the
-		// select in run() will pick up our signal.
 		go func() {
 			time.Sleep(500 * time.Millisecond)
 			p, _ := os.FindProcess(os.Getpid())
@@ -302,7 +311,6 @@ logger:
 		}()
 
 		err = run([]string{"-config", configPath})
-		// Signal handling path returns nil
 		assert.NoError(t, err)
 	})
 
@@ -321,7 +329,7 @@ geth:
 indexer:
   start_height: -1
 `
-		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
 		err = run([]string{"-config", configPath})
@@ -335,16 +343,16 @@ indexer:
 func createTestSnapshot(t *testing.T, dir, filename string, merkleRootHexes []string) string {
 	t.Helper()
 	snapshotPath := filepath.Join(dir, filename)
-	f, err := os.Create(snapshotPath)
+	f, err := os.Create(filepath.Clean(snapshotPath))
 	require.NoError(t, err)
 
 	gw := gzip.NewWriter(f)
 	for i, mrHex := range merkleRootHexes {
 		entry := map[string]any{
-			"type": "block_signature",
+			"type": constants.BlockSignatureTypeValue,
 			"data": map[string]any{
-				"blockNumber": i + 1,
-				"merkleRoot":  mrHex,
+				constants.BlockNumberKeyValue: i + 1,
+				constants.MerkleRootKeyValue:  mrHex,
 			},
 		}
 		line, err := json.Marshal(entry)
@@ -387,7 +395,7 @@ func computeMerkleRoot(roots [][]byte) []byte {
 }
 
 func TestVerifySnapshots_ValidSnapshot(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate an Ed25519 key pair for signing
@@ -430,7 +438,7 @@ t.Parallel()
 	sigJSON, err := json.Marshal(sigData)
 	require.NoError(t, err)
 	sigPath := filepath.Join(tmpDir, "valid.sig.json")
-	err = os.WriteFile(sigPath, sigJSON, 0644)
+	err = os.WriteFile(filepath.Clean(sigPath), sigJSON, 0o600)
 	require.NoError(t, err)
 
 	var stdout, stderr bytes.Buffer
@@ -443,7 +451,7 @@ t.Parallel()
 }
 
 func TestVerifySnapshots_MerkleRootMismatch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a snapshot with known block sig merkle roots
@@ -468,7 +476,7 @@ t.Parallel()
 	sigJSON, err := json.Marshal(sigData)
 	require.NoError(t, err)
 	sigPath := filepath.Join(tmpDir, "mismatch.sig.json")
-	err = os.WriteFile(sigPath, sigJSON, 0644)
+	err = os.WriteFile(sigPath, sigJSON, 0o600)
 	require.NoError(t, err)
 
 	var stdout, stderr bytes.Buffer
@@ -480,7 +488,7 @@ t.Parallel()
 }
 
 func TestVerifySnapshots_AllValid_ReturnsNil(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Generate an Ed25519 key pair
@@ -511,7 +519,7 @@ t.Parallel()
 	}
 	sigJSON, err := json.Marshal(sigData)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(tmpDir, "single.sig.json"), sigJSON, 0644)
+	err = os.WriteFile(filepath.Clean(filepath.Join(tmpDir, "single.sig.json")), sigJSON, 0o600)
 	require.NoError(t, err)
 
 	var stdout, stderr bytes.Buffer
@@ -533,7 +541,7 @@ func TestMain_ErrorExitsNonZero(t *testing.T) {
 	}
 
 	// Parent process: run ourselves as a subprocess
-	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_ErrorExitsNonZero$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_ErrorExitsNonZero$") //nolint:gosec
 	cmd.Env = append(os.Environ(), "TEST_MAIN_EXIT=1")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -541,8 +549,8 @@ func TestMain_ErrorExitsNonZero(t *testing.T) {
 
 	// Expect a non-zero exit code
 	require.Error(t, err, "expected non-zero exit code from main() on error")
-	exitErr, ok := err.(*exec.ExitError)
-	require.True(t, ok, "expected *exec.ExitError, got %T", err)
+	var exitErr *exec.ExitError
+	require.True(t, stderrors.As(err, &exitErr), "expected *exec.ExitError, got %T", err)
 	assert.NotEqual(t, 0, exitErr.ExitCode())
 	// The error message should be written to stderr
 	assert.Contains(t, stderr.String(), "failed to load config")
@@ -577,7 +585,7 @@ func TestMain_VerifyValidSnapshot(t *testing.T) {
 	}
 	sigJSON, err := json.Marshal(sigData)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(tmpDir, "main_test.sig.json"), sigJSON, 0644)
+	err = os.WriteFile(filepath.Clean(filepath.Join(tmpDir, "main_test.sig.json")), sigJSON, 0o600)
 	require.NoError(t, err)
 
 	// Save and restore os.Args
