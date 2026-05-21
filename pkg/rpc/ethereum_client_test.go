@@ -399,13 +399,14 @@ func TestConvertTransaction_EIP1559(t *testing.T) {
 	chainID := big.NewInt(1)
 	key, _ := defaultTestKey()
 
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     1,
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        new(common.HexToAddress("0xto")),
+		To:        &to,
 		Value:     big.NewInt(1000),
 		Data:      []byte("data"),
 	}
@@ -436,13 +437,13 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 			StorageKeys: []common.Hash{common.HexToHash("0xkey1"), common.HexToHash("0xkey2")},
 		},
 	}
-
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.AccessListTx{
 		ChainID:    chainID,
 		Nonce:      1,
 		GasPrice:   big.NewInt(20000000000),
 		Gas:        21000,
-		To:         new(common.HexToAddress("0xto")),
+		To:         &to,
 		Value:      big.NewInt(1000),
 		Data:       []byte("data"),
 		AccessList: accessList,
@@ -712,11 +713,12 @@ func TestGetFromAddress_SignedEIP155(t *testing.T) {
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.LegacyTx{
 		Nonce:    1,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 	}
 
@@ -735,13 +737,14 @@ func TestGetFromAddress_SignedDynamicFee(t *testing.T) {
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   chainID,
 		Nonce:     1,
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        new(common.HexToAddress("0xto")),
+		To:        &to,
 		Value:     big.NewInt(1000),
 	}
 
@@ -1203,11 +1206,12 @@ func TestGetFromAddress_HomesteadSigner(t *testing.T) {
 	t.Parallel()
 	key, expectedAddr := defaultTestKey()
 
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 	}
 
@@ -1226,11 +1230,12 @@ func TestGetFromAddress_FrontierSigner(t *testing.T) {
 	t.Parallel()
 	key, expectedAddr := defaultTestKey()
 
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 	}
 
@@ -1252,11 +1257,12 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 	chainID := big.NewInt(1)
 	key, expectedAddr := defaultTestKey()
 
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 	}
 
@@ -1348,11 +1354,12 @@ func TestConvertGethBlock_FailedTxConversion(t *testing.T) {
 	// Create a block with an unsigned legacy tx (GetFromAddress will fail)
 	// and a signed tx (GetFromAddress will succeed)
 	key, _ := defaultTestKey()
+	to := common.HexToAddress("0xto")
 	signedInner := &ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 	}
 	signer := ethtypes.NewEIP155Signer(big.NewInt(1))
@@ -1398,13 +1405,14 @@ func TestGetFromAddress_AllSignersFail(t *testing.T) {
 	t.Parallel()
 	// Create a DynamicFeeTx with a non-zero chain ID but completely invalid signature
 	// so that all post-EIP-155 signers fail
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.DynamicFeeTx{
 		ChainID:   big.NewInt(1),
 		Nonce:     0,
 		GasTipCap: big.NewInt(1000000000),
 		GasFeeCap: big.NewInt(2000000000),
 		Gas:       21000,
-		To:        new(common.HexToAddress("0xto")),
+		To:        &to,
 		Value:     big.NewInt(0),
 	}
 	// Create unsigned DynamicFeeTx — has non-zero ChainID but no valid signature
@@ -1750,11 +1758,12 @@ func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
 	// deriveChainId(27) returns 0, so ChainId().Sign() == 0, entering the pre-EIP-155 path.
 	// Both HomesteadSigner and FrontierSigner will fail to recover a sender
 	// because ecrecover cannot work with zero R,S values.
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 		V:        big.NewInt(27),
 		R:        big.NewInt(0),
@@ -1773,11 +1782,12 @@ func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
 func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 	t.Parallel()
 	// Unsigned legacy tx triggers GetFromAddress error, which falls back to zero address
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 	}
 	tx := ethtypes.NewTx(inner)
@@ -1800,11 +1810,12 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 	// and adjust v, producing a valid but "non-canonical" signature.
 	key, expectedAddr := defaultTestKey()
 
+	to := common.HexToAddress("0xto")
 	inner := &ethtypes.LegacyTx{
 		Nonce:    42,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 	}
 
@@ -1835,11 +1846,12 @@ func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
 	}
 
 	// Create a new tx with the high-s signature
+	to = common.HexToAddress("0xto")
 	highSTx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    42,
 		GasPrice: big.NewInt(20000000000),
 		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
+		To:       &to,
 		Value:    big.NewInt(1000),
 		V:        newV,
 		R:        r,
