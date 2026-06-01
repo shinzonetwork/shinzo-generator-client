@@ -33,4 +33,5 @@ queries/             Sample GraphQL queries
 - Describe what you changed and why in the PR description.
 - Use the structured error system in `pkg/errors` for all new error handling.
 - Make sure `make test` passes before requesting review.
+- Include additional tests to cover any new functionality that your PR adds.
 - Comment your code generously. Don't assume reviewers have the same context you do.
