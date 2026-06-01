@@ -23,7 +23,6 @@ The compiled binary goes into `./bin`.
 | Command | What it does |
 | --- | --- |
 | `make build` | Build the indexer binary (standard mode). |
-| `make build-branchable` | Build with branchable schema for sequential processing. |
 | `make start` | Run the compiled binary. |
 | `make test` | Run all tests with a summary. |
 | `make integration-test` | Run mock and live integration tests. |
