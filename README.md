@@ -15,7 +15,7 @@ Blockchain indexing client that connects to EVM nodes and stores block, transact
 
 ## Getting started
 
-Copy the sample env file and fill in your Ethereum node credentials:
+Copy the sample env file and fill in your node credentials:
 
 ```shell
 cp .env.sample .env
@@ -27,12 +27,14 @@ Then start the indexer with Docker Compose:
 docker compose up
 ```
 
+Further instructions, as well as hardware recommendations, can be found at [docs.shinzo.network](https://docs.shinzo.network/indexer/install).
+
 > [!TIP]
 > See [BUILD.md](./BUILD.md) for build-from-source instructions.
 
 ## Deployment
 
-See the [Shinzo documentation site](https://docs.shinzo.network) for production deployment instructions.
+See the [Shinzo documentation site](https://docs.shinzo.network/indexer/overview) for production deployment instructions.
 
 ## Contributing
 
