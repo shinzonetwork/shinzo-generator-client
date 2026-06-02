@@ -4,7 +4,7 @@
 
 - Go 1.26+
 - Make
-- An Ethereum node with JSON-RPC and WebSocket access
+- A blockchain node with JSON-RPC and WebSocket access.
 
 ## Steps
 
@@ -27,7 +27,7 @@ The compiled binary goes into `./bin`.
 | `make test` | Run all tests with a summary. |
 | `make integration-test` | Run mock and live integration tests. |
 | `make coverage` | Generate an HTML coverage report. |
-| `make geth-status` | Check Geth node connectivity and current block number. |
+| `make geth-status` | Only applies to Ethereum Geth nodes. Check Geth node connectivity and current block number. |
 | `make clean` | Remove build artifacts. |
 | `make stop` | Stop running indexer and DefraDB processes. |
 | `make help` | Show all available targets. |
