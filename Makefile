@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test test-branchable testrpc coverage bootstrap playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt
+.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
