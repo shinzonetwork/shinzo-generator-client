@@ -64,7 +64,7 @@ func LoadSchemaSDL() (string, error) {
 	return concatenated, nil
 }
 
-// TODO: Refactor. This is likely 1) Not necessary 2) Could re-written in a more simple way
+// TODO: Refactor. This is likely 1) Not necessary 2). Could be re-written in a more simple way.
 func filterDuplicateTypes(content string, seenTypes map[string]bool) string {
 	matches := typeRegex.FindAllStringSubmatchIndex(content, -1)
 	if len(matches) == 0 {
@@ -130,7 +130,8 @@ func filterDuplicateTypes(content string, seenTypes map[string]bool) string {
 
 	return strings.Join(result, "\n\n")
 }
-// TODO: Refactor. This is likely not necessary 
+
+// TODO: Refactor. This is likely not necessary.
 func findClosingBrace(content string, openPos int) int {
 	depth := 0
 	for i := openPos; i < len(content); i++ {
