@@ -26,25 +26,3 @@ type Ethereum__Mainnet__Transaction {
     logs: [Ethereum__Mainnet__Log] @relation(name: "transaction_logs")
     accessList: [Ethereum__Mainnet__AccessListEntry] @relation(name: "transaction_accessList")
 }
-
-type Ethereum__Mainnet__AccessListEntry {
-    address: String
-    blockNumber: Int
-    storageKeys: [String]
-    transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_accessList")
-}
-
-type Ethereum__Mainnet__Log {
-    address: String
-    topics: [String]
-    data: String
-    transactionHash: String
-    blockHash: String
-    blockNumber: Int
-    transactionIndex: Int
-    logIndex: Int
-    removed: String
-    # Relationships
-    block: Ethereum__Mainnet__Block @relation(name: "block_logs")
-    transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_logs")
-}
