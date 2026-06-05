@@ -96,6 +96,38 @@ func TestLoadSchemaMatchesLegacyCollections(t *testing.T) {
 	}
 }
 
+func TestAllGraphQLFilesListedInConstants(t *testing.T) {
+	t.Parallel()
+	entries, err := collectionFS.ReadDir("collections")
+	if err != nil {
+		t.Fatalf("failed to read collections directory: %v", err)
+	}
+
+	manifestSet := make(map[string]bool)
+	for _, f := range collectionFilenames() {
+		manifestSet[f] = true
+	}
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".graphql") {
+			continue
+		}
+		if !manifestSet[e.Name()] {
+			t.Errorf("collections/%s exists on disk but is not listed in collectionFilenames() — add it to constants.DefaultCollections()", e.Name())
+		}
+	}
+
+	for _, f := range collectionFilenames() {
+		data, err := collectionFS.ReadFile("collections/" + f)
+		if err != nil {
+			t.Errorf("collectionFilenames() lists %s but no such file exists in collections/", f)
+		}
+		if len(data) > 0 && strings.TrimSpace(string(data)) == "" {
+			t.Errorf("collections/%s is empty", f)
+		}
+	}
+}
+
 func normalizeWhitespace(s string) string {
 	fields := strings.Fields(s)
 	return strings.Join(fields, " ")

@@ -14,20 +14,26 @@ var collectionFS embed.FS
 
 var typeRegex = regexp.MustCompile(`(?m)^type\s+(\w+)\s*\{`)
 
-// LoadSchemaSDL reads all collections/*.graphql files in the defined order,
-// trims whitespace, deduplicates type definitions, and concatenates into a single SDL document.
-func LoadSchemaSDL() (string, error) {
-	// Defined collection loading order to verify that schema
-	// produces identical schema to the legacy format
-	// TODO: Remove this before merging
-	collectionOrder := []string{
-		"block.graphql",
-		"blockSignature.graphql",
-		"snapshotSignature.graphql",
-		"transaction.graphql",
-		"accessListEntry.graphql",
-		"log.graphql",
+// collectionFilenames derives the ordered list of .graphql filenames from
+// constants.DefaultCollections(). The order from DefaultCollections preserves
+// deduplication correctness (multi-type files like transaction.graphql appear
+// before single-type files that contain overlapping types).
+func collectionFilenames() []string {
+	names := constants.DefaultCollections()
+	prefix := constants.DefaultCollectionPrefix + "__"
+	filenames := make([]string, len(names))
+	for i, name := range names {
+		suffix := strings.TrimPrefix(name, prefix)
+		filenames[i] = strings.ToLower(suffix[:1]) + suffix[1:] + ".graphql"
 	}
+	return filenames
+}
+
+// LoadSchemaSDL reads all collections/*.graphql files in the order defined by
+// collectionFilenames(), deduplicates overlapping type definitions, and
+// concatenates them into a single SDL document.
+func LoadSchemaSDL() (string, error) {
+	collectionOrder := collectionFilenames()
 
 	seenTypes := make(map[string]bool)
 	var parts []string

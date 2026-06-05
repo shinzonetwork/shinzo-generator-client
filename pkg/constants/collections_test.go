@@ -44,11 +44,11 @@ func TestAllCollections(t *testing.T) {
 
 	expected := []string{
 		CollectionBlock,
+		CollectionBlockSignature,
+		CollectionSnapshotSignature,
 		CollectionTransaction,
 		CollectionAccessListEntry,
 		CollectionLog,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
 	}
 
 	for i, exp := range expected {

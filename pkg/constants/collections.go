@@ -18,22 +18,22 @@ const (
 // CollectionNames holds the dynamically generated collection names for a chain.
 type CollectionNames struct {
 	Block             string
-	Transaction       string
-	Log               string
-	AccessListEntry   string
 	BlockSignature    string
 	SnapshotSignature string
+	Transaction       string
+	AccessListEntry   string
+	Log               string
 }
 
 // NewCollectionNames creates collection names using the given prefix (e.g. "Arbitrum__Mainnet").
 func NewCollectionNames(prefix string) *CollectionNames {
 	return &CollectionNames{
 		Block:             fmt.Sprintf("%s__Block", prefix),
-		Transaction:       fmt.Sprintf("%s__Transaction", prefix),
-		Log:               fmt.Sprintf("%s__Log", prefix),
-		AccessListEntry:   fmt.Sprintf("%s__AccessListEntry", prefix),
 		BlockSignature:    fmt.Sprintf("%s__BlockSignature", prefix),
 		SnapshotSignature: fmt.Sprintf("%s__SnapshotSignature", prefix),
+		Transaction:       fmt.Sprintf("%s__Transaction", prefix),
+		AccessListEntry:   fmt.Sprintf("%s__AccessListEntry", prefix),
+		Log:               fmt.Sprintf("%s__Log", prefix),
 	}
 }
 
@@ -41,11 +41,11 @@ func NewCollectionNames(prefix string) *CollectionNames {
 func (c *CollectionNames) AllCollections() []string {
 	return []string{
 		c.Block,
+		c.BlockSignature,
+		c.SnapshotSignature,
 		c.Transaction,
 		c.AccessListEntry,
 		c.Log,
-		c.BlockSignature,
-		c.SnapshotSignature,
 	}
 }
 
@@ -53,10 +53,10 @@ func (c *CollectionNames) AllCollections() []string {
 func DefaultCollections() []string {
 	return []string{
 		CollectionBlock,
+		CollectionBlockSignature,
+		CollectionSnapshotSignature,
 		CollectionTransaction,
 		CollectionAccessListEntry,
 		CollectionLog,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
 	}
 }
