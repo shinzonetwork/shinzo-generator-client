@@ -103,8 +103,12 @@ func TestAllGraphQLFilesListedInConstants(t *testing.T) {
 		t.Fatalf("failed to read collections directory: %v", err)
 	}
 
+	files, err := ListCollectionFiles()
+	if err != nil {
+		t.Fatalf("ListCollectionFiles() failed: %v", err)
+	}
 	manifestSet := make(map[string]bool)
-	for _, f := range collectionFilenames() {
+	for _, f := range files {
 		manifestSet[f] = true
 	}
 
@@ -113,14 +117,14 @@ func TestAllGraphQLFilesListedInConstants(t *testing.T) {
 			continue
 		}
 		if !manifestSet[e.Name()] {
-			t.Errorf("collections/%s exists on disk but is not listed in collectionFilenames() — add it to constants.DefaultCollections()", e.Name())
+			t.Errorf("collections/%s exists on disk but is not listed in ListCollectionFiles() — add it to constants.SchemaApplyOrder()", e.Name())
 		}
 	}
 
-	for _, f := range collectionFilenames() {
+	for _, f := range files {
 		data, err := collectionFS.ReadFile("collections/" + f)
 		if err != nil {
-			t.Errorf("collectionFilenames() lists %s but no such file exists in collections/", f)
+			t.Errorf("ListCollectionFiles() lists %s but no such file exists in collections/", f)
 		}
 		if len(data) > 0 && strings.TrimSpace(string(data)) == "" {
 			t.Errorf("collections/%s is empty", f)

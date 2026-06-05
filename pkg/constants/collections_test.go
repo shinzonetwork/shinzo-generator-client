@@ -57,3 +57,56 @@ func TestAllCollections(t *testing.T) {
 		}
 	}
 }
+
+func TestSchemaApplyOrder(t *testing.T) {
+	t.Parallel()
+
+	order := SchemaApplyOrder()
+	if len(order) != 6 {
+		t.Fatalf("expected 6 entries, got %d", len(order))
+	}
+
+	expected := []string{
+		CollectionBlock,
+		CollectionBlockSignature,
+		CollectionSnapshotSignature,
+		CollectionTransaction,
+		CollectionAccessListEntry,
+		CollectionLog,
+	}
+
+	for i, exp := range expected {
+		if order[i] != exp {
+			t.Errorf("SchemaApplyOrder()[%d]: expected %q, got %q", i, exp, order[i])
+		}
+	}
+}
+
+func TestCollectionFileForType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		typeName string
+		expected string
+	}{
+		{"Block", CollectionBlock, "block.graphql"},
+		{"Transaction", CollectionTransaction, "transaction.graphql"},
+		{"Log", CollectionLog, "log.graphql"},
+		{"AccessListEntry", CollectionAccessListEntry, "accessListEntry.graphql"},
+		{"BlockSignature", CollectionBlockSignature, "blockSignature.graphql"},
+		{"SnapshotSignature", CollectionSnapshotSignature, "snapshotSignature.graphql"},
+		{"UnknownPrefix", "UnknownPrefix__Block", ""},
+		{"NoPrefix", "Block", ""},
+		{"Empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CollectionFileForType(tt.typeName)
+			if got != tt.expected {
+				t.Errorf("CollectionFileForType(%q) = %q, want %q", tt.typeName, got, tt.expected)
+			}
+		})
+	}
+}

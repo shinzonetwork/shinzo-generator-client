@@ -1,6 +1,9 @@
 package constants
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // DefaultCollectionPrefix is the default collection prefix for backward compatibility.
 const DefaultCollectionPrefix = "Ethereum__Mainnet"
@@ -59,4 +62,37 @@ func DefaultCollections() []string {
 		CollectionAccessListEntry,
 		CollectionLog,
 	}
+}
+
+// SchemaApplyOrder returns collection type names in dependency-safe order
+// for per-file AddSchema calls. Each name maps to a corresponding file in
+// pkg/schema/collections/ via the naming convention:
+//
+//	Ethereum__Mainnet__Block → block.graphql
+//
+// NOTE: This is distinct from AllCollections() which is used for P2P
+// collection filtering and may have a different order.
+// Changing fields on already-existing collections is NOT supported by
+// AddSchema — use purge_and_apply.sh or future schema patch/Lens migrations.
+func SchemaApplyOrder() []string {
+	return []string{
+		CollectionBlock,
+		CollectionBlockSignature,
+		CollectionSnapshotSignature,
+		CollectionTransaction,
+		CollectionAccessListEntry,
+		CollectionLog,
+	}
+}
+
+// CollectionFileForType maps a collection type name to its .graphql filename.
+// e.g. "Ethereum__Mainnet__Block" → "block.graphql"
+// Returns empty string if the type name does not match the default prefix.
+func CollectionFileForType(typeName string) string {
+	prefix := DefaultCollectionPrefix + "__"
+	suffix := strings.TrimPrefix(typeName, prefix)
+	if suffix == typeName {
+		return ""
+	}
+	return strings.ToLower(suffix[:1]) + suffix[1:] + ".graphql"
 }
