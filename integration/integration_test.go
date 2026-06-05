@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/client/options"
@@ -65,7 +66,7 @@ func TestMain(m *testing.M) {
 
 	// Apply schema synchronously — no race with mock data insertion.
 	err = applySchema(ctx, defraNode)
-	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+	if err != nil && !strings.Contains(err.Error(), errors.ErrStrCollectionAlreadyExists) {
 		logger.Sugar.Fatalf("Failed to apply schema: %v", err)
 	}
 

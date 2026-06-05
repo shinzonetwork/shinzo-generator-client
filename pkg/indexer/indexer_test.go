@@ -21,6 +21,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
+	indexerErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
@@ -1556,7 +1557,7 @@ func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
 		}
 		if r.URL.Path == "/api/v0/schema" && r.Method == "POST" {
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte("collection already exists"))
+			_, _ = w.Write([]byte(indexerErrors.ErrStrCollectionAlreadyExists))
 			return
 		}
 		w.WriteHeader(http.StatusOK)

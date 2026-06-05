@@ -13,6 +13,7 @@ import (
 
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
+	indexerErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/acp/identity"
@@ -432,7 +433,7 @@ func applySchemaWithCollectionExistsTolerance(ctx context.Context, defraNode *no
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "collection already exists") {
+	if strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
 		logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
 		return nil
 	}
@@ -657,7 +658,7 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 
 	_, err := c.node.DB.AddSchema(ctx, schema)
 	if err != nil {
-		if strings.Contains(err.Error(), "collection already exists") {
+		if strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
 			logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
 			return nil
 		}
