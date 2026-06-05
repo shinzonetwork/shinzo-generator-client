@@ -12,12 +12,23 @@ import (
 func run(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("build_schema", flag.ContinueOnError)
 	prefix := fs.String("prefix", "", "Chain prefix for collection names (e.g. Arbitrum__Mainnet). Defaults to Ethereum__Mainnet if empty.")
+	file := fs.String("file", "", "Single collection file to output (e.g. block.graphql). Default: full merged SDL.")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
 
 	var sdl string
-	if *prefix != "" {
+	if *file != "" {
+		var err error
+		if *prefix != "" {
+			sdl, err = schema.LoadCollectionSDLForChain(*file, *prefix)
+		} else {
+			sdl, err = schema.LoadCollectionSDL(*file)
+		}
+		if err != nil {
+			return err
+		}
+	} else if *prefix != "" {
 		sdl = schema.GetSchemaForChain(*prefix)
 	} else {
 		sdl = schema.GetSchema()
