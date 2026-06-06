@@ -18,7 +18,8 @@ func run(args []string, stdout io.Writer) error {
 	}
 
 	var sdl string
-	if *file != "" {
+	switch {
+	case *file != "":
 		var err error
 		if *prefix != "" {
 			sdl, err = schema.LoadCollectionSDLForChain(*file, *prefix)
@@ -28,9 +29,9 @@ func run(args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-	} else if *prefix != "" {
+	case *prefix != "":
 		sdl = schema.GetSchemaForChain(*prefix)
-	} else {
+	default:
 		sdl = schema.GetSchema()
 	}
 
