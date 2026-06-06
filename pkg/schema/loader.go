@@ -70,3 +70,14 @@ func LoadSchemaSDL() (string, error) {
 	}
 	return strings.Join(parts, "\n\n"), nil
 }
+
+// LoadSchemaSDLForChain reads all collection files in dependency order and
+// concatenates them into a single SDL document with the default collection
+// prefix replaced by the provided one.
+func LoadSchemaSDLForChain(prefix string) (string, error) {
+	sdl, err := LoadSchemaSDL()
+	if err != nil {
+		return "", err
+	}
+	return strings.ReplaceAll(sdl, constants.DefaultCollectionPrefix, prefix), nil
+}

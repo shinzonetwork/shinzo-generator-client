@@ -3,7 +3,6 @@ package defradb
 import (
 	"context"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -21,8 +20,10 @@ func (schema *MockSchemaApplierThatSucceeds) ApplySchema(_ context.Context, _ *n
 }
 
 // SchemaApplierFromDir applies the embedded modular schema to a DefraDB node.
-// It delegates to schema.GetSchema() or schema.GetSchemaForChain() for the
-// concatenated SDL, retaining all ordering, deduplication, and validation.
+// It delegates to ApplyCollectionSchemas, which tolerates
+// "collection already exists" errors for idempotent restarts.
+// Note: only additive schema changes are supported. See ApplyCollectionSchemas
+// for details.
 type SchemaApplierFromDir struct {
 	ChainPrefix string
 }
@@ -35,14 +36,7 @@ func NewSchemaApplierFromDir(chainPrefix string) *SchemaApplierFromDir {
 
 // ApplySchema applies the embedded schema to the given DefraDB node.
 func (s *SchemaApplierFromDir) ApplySchema(ctx context.Context, defraNode *node.Node) error {
-	var sdl string
-	if s.ChainPrefix != "" {
-		sdl = schema.GetSchemaForChain(s.ChainPrefix)
-	} else {
-		sdl = schema.GetSchema()
-	}
-	_, err := defraNode.DB.AddSchema(ctx, sdl)
-	return err
+	return ApplyCollectionSchemas(ctx, defraNode, s.ChainPrefix)
 }
 
 // SchemaApplierFromProvidedSchema applies schema text provided directly in memory.

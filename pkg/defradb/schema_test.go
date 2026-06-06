@@ -6,6 +6,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewSchemaApplierFromDir_Default(t *testing.T) {
@@ -27,28 +28,36 @@ func TestNewSchemaApplierFromDir_WithPrefix(t *testing.T) {
 func TestSchemaApplierFromDir_ProvidesDefaultSchema(t *testing.T) {
 	t.Parallel()
 	applier := NewSchemaApplierFromDir("")
-	var sdl string
-	if applier.ChainPrefix != "" {
-		sdl = schema.GetSchemaForChain(applier.ChainPrefix)
-	} else {
-		sdl = schema.GetSchema()
+	prefix := applier.ChainPrefix
+	if prefix == "" {
+		prefix = constants.DefaultCollectionPrefix
 	}
-	if sdl == "" {
-		t.Fatal("schema should not be empty")
+	files, err := schema.ListCollectionFiles()
+	require.NoError(t, err)
+	found := false
+	for _, file := range files {
+		sdl, err := schema.LoadCollectionSDLForChain(file, prefix)
+		require.NoError(t, err)
+		if strings.Contains(sdl, constants.DefaultCollectionPrefix+"__Block") {
+			found = true
+			break
+		}
 	}
-	if !strings.Contains(sdl, constants.DefaultCollectionPrefix+"__Block") {
-		t.Error("schema should contain default Block type")
+	if !found {
+		t.Error("at least one collection file should contain default Block type")
 	}
 }
 
 func TestSchemaApplierFromDir_ChainPrefixReplaces(t *testing.T) {
 	t.Parallel()
 	applier := NewSchemaApplierFromDir("Arbitrum__Mainnet")
-	sdl := schema.GetSchemaForChain(applier.ChainPrefix)
-	if strings.Contains(sdl, constants.DefaultCollectionPrefix) {
-		t.Error("schema with custom prefix should not contain default prefix")
-	}
-	if !strings.Contains(sdl, "Arbitrum__Mainnet__Block") {
-		t.Error("schema should contain prefixed Block type")
+	files, err := schema.ListCollectionFiles()
+	require.NoError(t, err)
+	for _, file := range files {
+		sdl, err := schema.LoadCollectionSDLForChain(file, applier.ChainPrefix)
+		require.NoError(t, err)
+		if strings.Contains(sdl, constants.DefaultCollectionPrefix) {
+			t.Errorf("collection file %s should not contain default prefix", file)
+		}
 	}
 }

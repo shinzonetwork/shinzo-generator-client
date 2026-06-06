@@ -132,6 +132,34 @@ func TestAllGraphQLFilesListedInConstants(t *testing.T) {
 	}
 }
 
+func TestLoadSchemaSDLForChain_DefaultPrefix(t *testing.T) {
+	t.Parallel()
+	sdl, err := LoadSchemaSDLForChain(constants.DefaultCollectionPrefix)
+	if err != nil {
+		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
+	}
+	if sdl == "" {
+		t.Fatal("LoadSchemaSDLForChain() returned empty string")
+	}
+	if !strings.Contains(sdl, constants.DefaultCollectionPrefix+"__Block") {
+		t.Error("schema should contain default Block type")
+	}
+}
+
+func TestLoadSchemaSDLForChain_CustomPrefix(t *testing.T) {
+	t.Parallel()
+	sdl, err := LoadSchemaSDLForChain("Arbitrum__Mainnet")
+	if err != nil {
+		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
+	}
+	if strings.Contains(sdl, constants.DefaultCollectionPrefix) {
+		t.Error("schema with custom prefix should not contain default prefix")
+	}
+	if !strings.Contains(sdl, "Arbitrum__Mainnet__Block") {
+		t.Error("schema should contain Arbitrum__Mainnet__Block")
+	}
+}
+
 func normalizeWhitespace(s string) string {
 	fields := strings.Fields(s)
 	return strings.Join(fields, " ")
