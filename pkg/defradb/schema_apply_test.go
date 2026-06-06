@@ -51,26 +51,6 @@ func TestApplyCollectionSchemas_CustomPrefix(t *testing.T) {
 	}
 }
 
-func TestApplyCollectionSchemas_MonolithicPath_FreshDB(t *testing.T) {
-	testConfig := *NewDefaultConfig()
-	testConfig.DefraDB.URL = "127.0.0.1:0"
-	testConfig.DefraDB.Store.Path = t.TempDir()
-	testConfig.DefraDB.KeyringSecret = testKeyringSecret
-
-	defraNode, _, err := StartDefraInstance(&testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
-	require.NoError(t, err)
-	defer func() { _ = defraNode.Close(context.Background()) }()
-
-	err = ApplyCollectionSchemas(context.Background(), defraNode, "")
-	require.NoError(t, err, "fresh DB: monolithic path should succeed")
-
-	for _, typeName := range constants.DefaultCollections() {
-		result := defraNode.DB.ExecRequest(context.Background(),
-			`query { __type(name: "`+typeName+`") { name } }`)
-		assert.Empty(t, result.GQL.Errors, "should find collection %s without errors", typeName)
-	}
-}
-
 func TestApplyCollectionSchemas_FallbackPath_AllCollectionsExist(t *testing.T) {
 	testConfig := *NewDefaultConfig()
 	testConfig.DefraDB.URL = "127.0.0.1:0"

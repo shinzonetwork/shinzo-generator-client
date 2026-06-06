@@ -20,8 +20,8 @@ func (schema *MockSchemaApplierThatSucceeds) ApplySchema(_ context.Context, _ *n
 }
 
 // SchemaApplierFromDir applies the embedded modular schema to a DefraDB node.
-// It delegates to ApplyCollectionSchemas, which tolerates
-// "collection already exists" errors for idempotent restarts.
+// It delegates to ApplyCollectionSchemas, which first attempts a monolithic
+// AddSchema call and falls back to per-file application on restart.
 // Note: only additive schema changes are supported. See ApplyCollectionSchemas
 // for details.
 type SchemaApplierFromDir struct {
