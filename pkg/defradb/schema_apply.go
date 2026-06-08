@@ -126,7 +126,7 @@ func applyWithBackend(ctx context.Context, backend SchemaApplyBackend, chainPref
 	if err == nil {
 		return nil
 	}
-	if !isCollectionAlreadyExists(err) {
+	if !strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
 		return fmt.Errorf("failed to apply schema: %w", err)
 	}
 
@@ -159,7 +159,7 @@ func applyPerFileWithBackend(ctx context.Context, backend SchemaApplyBackend, pr
 
 		err = backend.ApplySchema(ctx, sdl)
 		if err != nil {
-			if isCollectionAlreadyExists(err) {
+			if strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
 				logger.Sugar.Infof("Collection from %s already exists, skipping", file)
 				continue
 			}
@@ -168,10 +168,4 @@ func applyPerFileWithBackend(ctx context.Context, backend SchemaApplyBackend, pr
 	}
 
 	return nil
-}
-
-// isCollectionAlreadyExists checks whether an error indicates that a
-// collection already exists, matching across both DB errors and HTTP errors.
-func isCollectionAlreadyExists(err error) bool {
-	return strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists)
 }
