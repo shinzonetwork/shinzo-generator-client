@@ -37,10 +37,14 @@ jobs:
         DEFRADB_URL: http://localhost:9181
         LOG_LEVEL: error
       run: |
-        go test -parallel=${{ steps.cpu.outputs.count  }} ./...
+        go test -parallel=${{ steps.cpu.outputs.count  }} \
+        -covermode=atomic \
+        -coverprofile=coverage.out \
+        ./...
     
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: shinzonetwork/shinzo-indexer-client
+        files: coverage.out
