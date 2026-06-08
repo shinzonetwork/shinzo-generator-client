@@ -208,7 +208,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		if err := defra.WaitForDefraDB(cfg.DefraDB.URL); err != nil {
 			return ctx, err
 		}
-		if err := defradb.ApplyCollectionSchemasViaHTTP(cfg.DefraDB.URL, chainPrefixFromConfig(cfg)); err != nil && !errors.IsErrAlreadyExists(err) {
+		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, chainPrefixFromConfig(cfg)); err != nil && !errors.IsErrAlreadyExists(err) {
 			return ctx, fmt.Errorf("failed to apply schema to external DefraDB: %w", err)
 		}
 	}

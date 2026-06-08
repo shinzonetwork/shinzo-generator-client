@@ -8,13 +8,71 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	indexerErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/node"
-
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
+
+// SchemaApplyBackend abstracts the transport for applying a schema SDL.
+// Implementations wrap either direct DB calls or HTTP requests.
+type SchemaApplyBackend interface {
+	// ApplySchema submits one SDL document and returns any error.
+	// For "collection already exists" conditions, implementations must
+	// return an error whose message contains ErrStrCollectionAlreadyExists.
+	ApplySchema(ctx context.Context, sdl string) error
+}
+
+// DBBackend applies schema via direct DefraDB API calls.
+type DBBackend struct {
+	DB node.DB
+}
+
+// ApplySchema submits a schema SDL document via the DefraDB client API.
+func (b *DBBackend) ApplySchema(ctx context.Context, sdl string) error {
+	_, err := b.DB.AddSchema(ctx, sdl)
+	return err
+}
+
+// HTTPBackend applies schema via HTTP POST to a DefraDB instance.
+type HTTPBackend struct {
+	URL string
+}
+
+// httpError wraps a non-200 HTTP response for downstream substring matching.
+type httpError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *httpError) Error() string {
+	return fmt.Sprintf("schema application failed with status %d: %s", e.StatusCode, e.Body)
+}
+
+// ApplySchema submits a schema SDL document via HTTP POST to the DefraDB schema API.
+func (b *HTTPBackend) ApplySchema(ctx context.Context, sdl string) error {
+	schemaURL := b.URL + "/api/v0/schema"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, schemaURL, bytes.NewBufferString(sdl))
+	if err != nil {
+		return fmt.Errorf("failed to create schema request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/schema")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send schema: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusOK {
+		_, _ = io.ReadAll(resp.Body)
+		return nil
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	return &httpError{StatusCode: resp.StatusCode, Body: string(body)}
+}
 
 // ApplyCollectionSchemas applies the embedded collection schemas to the
 // DefraDB node. If chainPrefix is empty, constants.DefaultCollectionPrefix
@@ -38,6 +96,22 @@ import (
 // Migrating or modifying already-existing collections requires a separate
 // mechanism such as DefraDB Lens migrations or purge-and-reapply.
 func ApplyCollectionSchemas(ctx context.Context, defraNode *node.Node, chainPrefix string) error {
+	return applyWithBackend(ctx, &DBBackend{DB: defraNode.DB}, chainPrefix)
+}
+
+// ApplyCollectionSchemasViaHTTP applies the embedded collection schemas to an
+// external DefraDB instance via its HTTP API. If chainPrefix is empty,
+// constants.DefaultCollectionPrefix is used.
+//
+// See ApplyCollectionSchemas for the additive-only guarantee.
+func ApplyCollectionSchemasViaHTTP(ctx context.Context, defraURL, chainPrefix string) error {
+	return applyWithBackend(ctx, &HTTPBackend{URL: defraURL}, chainPrefix)
+}
+
+// applyWithBackend applies schemas using the given backend. It first attempts
+// a monolithic apply (all collections in one SDL) and falls back to per-file
+// application on "collection already exists".
+func applyWithBackend(ctx context.Context, backend SchemaApplyBackend, chainPrefix string) error {
 	prefix := chainPrefix
 	if prefix == "" {
 		prefix = constants.DefaultCollectionPrefix
@@ -48,21 +122,21 @@ func ApplyCollectionSchemas(ctx context.Context, defraNode *node.Node, chainPref
 		return fmt.Errorf("failed to load schema: %w", err)
 	}
 
-	_, err = defraNode.DB.AddSchema(ctx, sdl)
+	err = backend.ApplySchema(ctx, sdl)
 	if err == nil {
 		return nil
 	}
-	if !strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
+	if !isCollectionAlreadyExists(err) {
 		return fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	logger.Sugar.Info("Some collections already exist, applying per file")
-	return applyCollectionSchemasPerFile(ctx, defraNode, prefix)
+	return applyPerFileWithBackend(ctx, backend, prefix)
 }
 
-// applyCollectionSchemasPerFile applies each collection schema file individually.
-// A "collection already exists" error for any single file is logged at Info
-// level and skipped so that re-starts are idempotent.
+// applyPerFileWithBackend applies each collection schema file individually
+// via the given backend. A "collection already exists" error for any single
+// file is logged at Info level and skipped so that re-starts are idempotent.
 //
 // NOTE: This fallback path assumes all dependent types (Block, Transaction,
 // Log, AccessListEntry) already exist from a prior monolithic application. If
@@ -71,7 +145,7 @@ func ApplyCollectionSchemas(ctx context.Context, defraNode *node.Node, chainPref
 // cross-references cannot be resolved individually. This scenario only arises
 // from manual partial pre-seeding; normal operation always hits the monolithic
 // path first or the full-restart fallback where all types already exist.
-func applyCollectionSchemasPerFile(ctx context.Context, defraNode *node.Node, prefix string) error {
+func applyPerFileWithBackend(ctx context.Context, backend SchemaApplyBackend, prefix string) error {
 	files, err := schema.ListCollectionFiles()
 	if err != nil {
 		return fmt.Errorf("failed to list collection files: %w", err)
@@ -83,9 +157,9 @@ func applyCollectionSchemasPerFile(ctx context.Context, defraNode *node.Node, pr
 			return fmt.Errorf("failed to load collection file %s: %w", file, err)
 		}
 
-		_, err = defraNode.DB.AddSchema(ctx, sdl)
+		err = backend.ApplySchema(ctx, sdl)
 		if err != nil {
-			if strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
+			if isCollectionAlreadyExists(err) {
 				logger.Sugar.Infof("Collection from %s already exists, skipping", file)
 				continue
 			}
@@ -96,91 +170,8 @@ func applyCollectionSchemasPerFile(ctx context.Context, defraNode *node.Node, pr
 	return nil
 }
 
-// ApplyCollectionSchemasViaHTTP applies the embedded collection schemas to an
-// external DefraDB instance via its HTTP API. If chainPrefix is empty,
-// constants.DefaultCollectionPrefix is used.
-//
-// It first attempts a monolithic POST (all collections in one SDL) to
-// {defraURL}/api/v0/schema. If that fails with "collection already exists",
-// it falls back to per-file POSTs so that already-existing collections are
-// skipped while missing ones are created.
-//
-// See ApplyCollectionSchemas for the additive-only guarantee.
-func ApplyCollectionSchemasViaHTTP(defraURL, chainPrefix string) error {
-	prefix := chainPrefix
-	if prefix == "" {
-		prefix = constants.DefaultCollectionPrefix
-	}
-
-	sdl, err := schema.LoadSchemaSDLForChain(prefix)
-	if err != nil {
-		return fmt.Errorf("failed to load schema: %w", err)
-	}
-
-	schemaURL := defraURL + "/api/v0/schema"
-	resp, err := http.Post(schemaURL, "application/schema", bytes.NewBufferString(sdl)) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("failed to send schema: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode == http.StatusOK {
-		return nil
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-
-	if strings.Contains(string(body), indexerErrors.ErrStrCollectionAlreadyExists) {
-		logger.Sugar.Info("Some collections already exist, applying per file via HTTP")
-		return applyCollectionSchemasPerFileHTTP(defraURL, prefix)
-	}
-
-	return fmt.Errorf("schema application failed with status %d: %s", resp.StatusCode, string(body))
-}
-
-// applyCollectionSchemasPerFileHTTP applies each collection schema file
-// individually via HTTP POST. A response containing "collection already exists"
-// is logged and skipped so that re-starts are idempotent.
-func applyCollectionSchemasPerFileHTTP(defraURL, prefix string) error {
-	files, err := schema.ListCollectionFiles()
-	if err != nil {
-		return fmt.Errorf("failed to list collection files: %w", err)
-	}
-
-	schemaURL := defraURL + "/api/v0/schema"
-
-	for _, file := range files {
-		sdl, err := schema.LoadCollectionSDLForChain(file, prefix)
-		if err != nil {
-			return fmt.Errorf("failed to load collection file %s: %w", file, err)
-		}
-
-		resp, err := http.Post(schemaURL, "application/schema", bytes.NewBufferString(sdl)) //nolint:gosec
-		if err != nil {
-			return fmt.Errorf("failed to POST collection %s: %w", file, err)
-		}
-
-		if resp.StatusCode == http.StatusOK {
-			_, _ = io.ReadAll(resp.Body)
-			err = resp.Body.Close()
-			if err != nil {
-				return fmt.Errorf("failed to close response body: %w", err)
-			}
-			continue
-		}
-
-		body, _ := io.ReadAll(resp.Body)
-		err = resp.Body.Close()
-		if err != nil {
-			return fmt.Errorf("failed to close response body: %w", err)
-		}
-		if strings.Contains(string(body), indexerErrors.ErrStrCollectionAlreadyExists) {
-			logger.Sugar.Infof("Collection from %s already exists, skipping", file)
-			continue
-		}
-
-		return fmt.Errorf("failed to apply collection %s via HTTP: status %d: %s", file, resp.StatusCode, string(body))
-	}
-
-	return nil
+// isCollectionAlreadyExists checks whether an error indicates that a
+// collection already exists, matching across both DB errors and HTTP errors.
+func isCollectionAlreadyExists(err error) bool {
+	return strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists)
 }

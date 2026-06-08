@@ -808,7 +808,7 @@ func TestApplySchemaViaHTTP_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, callCount, "monolithic path should make exactly 1 POST")
 }
@@ -821,14 +821,14 @@ func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
 
 func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
 	t.Parallel()
-	err := defradb.ApplyCollectionSchemasViaHTTP("http://127.0.0.1:1", constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), "http://127.0.0.1:1", constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
 }
 
@@ -852,7 +852,7 @@ func TestApplySchemaViaHTTP_AlreadyExistsFallsBackToPerFile(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
 	assert.NoError(t, err)
 	assert.Greater(t, callCount, 1, "should fall back to per-file after monolithic already-exists")
 }
