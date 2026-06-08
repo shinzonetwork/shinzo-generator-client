@@ -2,6 +2,7 @@ package defradb
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
@@ -293,4 +294,53 @@ func TestLoadSchemaSDLForChain_CustomPrefix(t *testing.T) {
 	assert.NotEmpty(t, sdl)
 	assert.NotContains(t, sdl, constants.DefaultCollectionPrefix)
 	assert.Contains(t, sdl, "Arbitrum__Mainnet__Block")
+}
+
+
+
+func TestApplyCollectionSchemas_PartialPreSeedAddsRemaining(t *testing.T) {
+	testConfig := *NewDefaultConfig()
+	testConfig.DefraDB.URL = "127.0.0.1:0"
+	testConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+
+	defraNode, _, err := StartDefraInstance(&testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
+	require.NoError(t, err)
+	defer func() { _ = defraNode.Close(context.Background()) }()
+
+	ctx := context.Background()
+
+	allFiles, err := schema.ListCollectionFiles()
+	require.NoError(t, err)
+
+	var parts []string
+	for _, f := range allFiles {
+		if f == "snapshotSignature.graphql" {
+			continue
+		}
+		sdl, err := schema.LoadCollectionSDL(f)
+		require.NoError(t, err, "failed to load %s", f)
+		parts = append(parts, sdl)
+	}
+
+	combinedSDL := strings.Join(parts, "\n\n")
+	_, err = defraNode.DB.AddSchema(ctx, combinedSDL)
+	require.NoError(t, err, "pre-seeding N-1 collections should succeed")
+
+	for _, typeName := range constants.DefaultCollections() {
+		if typeName == constants.DefaultCollectionPrefix+"__SnapshotSignature" {
+			continue
+		}
+		result := defraNode.DB.ExecRequest(ctx,
+			`query { __type(name: "`+typeName+`") { name } }`)
+		assert.Empty(t, result.GQL.Errors, "pre-seeded collection %s should exist", typeName)
+	}
+
+	err = ApplyCollectionSchemas(ctx, defraNode, "")
+	require.NoError(t, err, "should add missing SnapshotSignature via per-file fallback")
+
+	snapshotTypeName := constants.DefaultCollectionPrefix + "__SnapshotSignature"
+	result := defraNode.DB.ExecRequest(ctx,
+		`query { __type(name: "`+snapshotTypeName+`") { name } }`)
+	assert.Empty(t, result.GQL.Errors, "SnapshotSignature should exist after ApplyCollectionSchemas")
 }
