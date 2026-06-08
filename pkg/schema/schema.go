@@ -1,17 +1,10 @@
 package schema
 
 import (
-	_ "embed"
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
-
-// SchemaGraphQL contains the legacy embedded GraphQL schema definition from schema.graphql.
-// Used only for parity validation during migration; will be removed after verification.
-//
-//go:embed schema.graphql
-var SchemaGraphQL string
 
 // GetSchema returns the full concatenated GraphQL schema from all collection files.
 func GetSchema() string {

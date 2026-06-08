@@ -77,25 +77,6 @@ func TestLoadSchemaSDL_NotEmpty(t *testing.T) {
 	}
 }
 
-func TestLoadSchemaMatchesLegacyCollections(t *testing.T) {
-	t.Parallel()
-	loaded, err := LoadSchemaSDL()
-	if err != nil {
-		t.Fatalf("LoadSchemaSDL() failed: %v", err)
-	}
-
-	legacy := SchemaGraphQL
-
-	loadedNorm := normalizeWhitespace(loaded)
-	legacyNorm := normalizeWhitespace(legacy)
-
-	if loadedNorm != legacyNorm {
-		t.Errorf("loaded schema does not match legacy schema.graphql\n--- loaded (%d chars) ---\n%s\n--- legacy (%d chars) ---\n%s",
-			len(loadedNorm), loadedNorm[:min(200, len(loadedNorm))],
-			len(legacyNorm), legacyNorm[:min(200, len(legacyNorm))])
-	}
-}
-
 func TestAllGraphQLFilesListedInConstants(t *testing.T) {
 	t.Parallel()
 	entries, err := collectionFS.ReadDir("collections")
@@ -158,9 +139,4 @@ func TestLoadSchemaSDLForChain_CustomPrefix(t *testing.T) {
 	if !strings.Contains(sdl, "Arbitrum__Mainnet__Block") {
 		t.Error("schema should contain Arbitrum__Mainnet__Block")
 	}
-}
-
-func normalizeWhitespace(s string) string {
-	fields := strings.Fields(s)
-	return strings.Join(fields, " ")
 }
