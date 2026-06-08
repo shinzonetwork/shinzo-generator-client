@@ -428,18 +428,6 @@ func createAndStartNode(
 	return defraNode, nil
 }
 
-func applySchemaWithCollectionExistsTolerance(ctx context.Context, defraNode *node.Node, schemaApplier SchemaApplier) error {
-	err := schemaApplier.ApplySchema(ctx, defraNode)
-	if err == nil {
-		return nil
-	}
-	if strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
-		logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
-		return nil
-	}
-	return fmt.Errorf("failed to apply schema: %w", err)
-}
-
 func initializeNetworkHandler(ctx *context.Context, defraNode *node.Node, cfg *config.Config) *NetworkHandler {
 	networkHandler := NewNetworkHandler(ctx, defraNode, cfg)
 	if cfg.DefraDB.P2P.Enabled {
@@ -483,9 +471,9 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 		return nil, nil, err
 	}
 
-	if err := applySchemaWithCollectionExistsTolerance(ctx, defraNode, schemaApplier); err != nil {
+	if err := schemaApplier.ApplySchema(ctx, defraNode); err != nil {
 		_ = defraNode.Close(ctx)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
 	err = defraNode.DB.CreateP2PCollections(ctx, collectionsOfInterest)
@@ -666,6 +654,18 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 	}
 
 	return nil
+}
+
+// ApplyCollectionSchemas applies the embedded collection schemas to the
+// started node using the provided chain prefix. If chainPrefix is empty,
+// the default prefix is used. See ApplyCollectionSchemas for details on
+// the monolithic-first strategy and additive-only guarantee.
+func (c *Client) ApplyCollectionSchemas(ctx context.Context, chainPrefix string) error {
+	if c.node == nil {
+		return fmt.Errorf("client must be started before applying schema")
+	}
+
+	return ApplyCollectionSchemas(ctx, c.node, chainPrefix)
 }
 
 // GetNode returns the underlying DefraDB node.
