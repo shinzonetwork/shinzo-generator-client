@@ -296,8 +296,6 @@ func TestLoadSchemaSDLForChain_CustomPrefix(t *testing.T) {
 	assert.Contains(t, sdl, "Arbitrum__Mainnet__Block")
 }
 
-
-
 func TestApplyCollectionSchemas_PartialPreSeedAddsRemaining(t *testing.T) {
 	testConfig := *NewDefaultConfig()
 	testConfig.DefraDB.URL = "127.0.0.1:0"
