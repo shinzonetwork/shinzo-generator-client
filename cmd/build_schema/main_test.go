@@ -135,3 +135,42 @@ func TestRun_SingleFileNotFound(t *testing.T) {
 		t.Fatal("expected error for nonexistent file")
 	}
 }
+
+func TestRun_ListFiles(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	if err := run([]string{"build_schema", "--list-files"}, &buf); err != nil {
+		t.Fatalf("run() error: %v", err)
+	}
+	output := strings.TrimSpace(buf.String())
+	if output == "" {
+		t.Fatal("expected non-empty file list output")
+	}
+	lines := strings.Split(output, "\n")
+	expected, err := schema.ListCollectionFiles()
+	if err != nil {
+		t.Fatalf("ListCollectionFiles() error: %v", err)
+	}
+	if len(lines) != len(expected) {
+		t.Fatalf("expected %d files, got %d", len(expected), len(lines))
+	}
+	for i, line := range lines {
+		if line != expected[i] {
+			t.Errorf("line %d: expected %q, got %q", i, expected[i], line)
+		}
+	}
+}
+
+func TestRun_ListFilesIgnoresPrefix(t *testing.T) {
+	t.Parallel()
+	var bufNoPrefix, bufWithPrefix bytes.Buffer
+	if err := run([]string{"build_schema", "--list-files"}, &bufNoPrefix); err != nil {
+		t.Fatalf("run() without prefix error: %v", err)
+	}
+	if err := run([]string{"build_schema", "--list-files", "--prefix", "Arbitrum__Mainnet"}, &bufWithPrefix); err != nil {
+		t.Fatalf("run() with prefix error: %v", err)
+	}
+	if bufNoPrefix.String() != bufWithPrefix.String() {
+		t.Error("--list-files output should be identical regardless of --prefix")
+	}
+}
