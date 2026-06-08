@@ -38,11 +38,9 @@ jobs:
         LOG_LEVEL: error
       run: |
         go test -parallel=${{ steps.cpu.outputs.count  }} ./...
-
-    - name: Upload coverage
-      uses: codecov/codecov-action@v6
+    
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.out
-        flags: unittests
-        name: codecov-umbrella
-      continue-on-error: true
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: shinzonetwork/shinzo-indexer-client
