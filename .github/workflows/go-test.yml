@@ -48,3 +48,4 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: shinzonetwork/shinzo-indexer-client
         files: coverage.out
+        fail_ci_if_error: true
