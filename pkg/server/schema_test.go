@@ -13,10 +13,11 @@ import (
 )
 
 const testSDL = "type Query { hello: String }"
+const testNetwork = "Ethereum__Mainnet"
 
 func TestSchemaHandler_PlainTextResponse(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler(testSDL)
+	handler := SchemaHandler(testSDL, testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	handler(rec, req)
@@ -27,7 +28,7 @@ func TestSchemaHandler_PlainTextResponse(t *testing.T) {
 
 func TestSchemaHandler_PlainTextResponse_ExplicitAcceptHeader(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler(testSDL)
+	handler := SchemaHandler(testSDL, testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "text/plain")
@@ -39,7 +40,7 @@ func TestSchemaHandler_PlainTextResponse_ExplicitAcceptHeader(t *testing.T) {
 
 func TestSchemaHandler_JSONResponse(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler(testSDL)
+	handler := SchemaHandler(testSDL, testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "application/json")
@@ -49,12 +50,13 @@ func TestSchemaHandler_JSONResponse(t *testing.T) {
 
 	var resp schemaResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, testSDL, resp.Schema)
+	assert.Equal(t, testNetwork, resp.Network)
+	assert.Equal(t, testSDL, resp.SDL)
 }
 
 func TestSchemaHandler_DefaultAcceptHeader(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler(testSDL)
+	handler := SchemaHandler(testSDL, testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "*/*")
@@ -65,7 +67,7 @@ func TestSchemaHandler_DefaultAcceptHeader(t *testing.T) {
 
 func TestSchemaHandler_BothAcceptTypesPrefersText(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler(testSDL)
+	handler := SchemaHandler(testSDL, testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "text/plain, application/json")
@@ -76,7 +78,7 @@ func TestSchemaHandler_BothAcceptTypesPrefersText(t *testing.T) {
 
 func TestSchemaHandler_EmptySDL(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler("")
+	handler := SchemaHandler("", testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	handler(rec, req)
@@ -86,7 +88,7 @@ func TestSchemaHandler_EmptySDL(t *testing.T) {
 
 func TestSchemaHandler_EmptySDL_JSON(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler("")
+	handler := SchemaHandler("", testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "application/json")
@@ -95,12 +97,13 @@ func TestSchemaHandler_EmptySDL_JSON(t *testing.T) {
 
 	var resp schemaResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "", resp.Schema)
+	assert.Equal(t, "", resp.SDL)
+	assert.Equal(t, testNetwork, resp.Network)
 }
 
 func TestSchemaHandler_MethodNotAllowed_Post(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler(testSDL)
+	handler := SchemaHandler(testSDL, testNetwork)
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
@@ -119,7 +122,7 @@ func TestSchemaHandler_MethodNotAllowed_Post(t *testing.T) {
 
 func TestSchemaHandler_JSONContentTypeCharset(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler(testSDL)
+	handler := SchemaHandler(testSDL, testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "application/json")
@@ -129,7 +132,7 @@ func TestSchemaHandler_JSONContentTypeCharset(t *testing.T) {
 
 func TestSchemaHandler_PlainTextContentTypeCharset(t *testing.T) {
 	t.Parallel()
-	handler := SchemaHandler(testSDL)
+	handler := SchemaHandler(testSDL, testNetwork)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	handler(rec, req)
@@ -142,7 +145,7 @@ func TestSetSchemaHandler_RegistersRoute(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	logger, _ := newCaptureLogger()
-	hs.SetSchemaHandler(NoOpAuthenticator{}, testSDL, logger)
+	hs.SetSchemaHandler(NoOpAuthenticator{}, testSDL, testNetwork, logger)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
@@ -154,7 +157,7 @@ func TestSetSchemaHandler_WithNoOpAuth_AllowsThrough(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	logger, _ := newCaptureLogger()
-	hs.SetSchemaHandler(NoOpAuthenticator{}, testSDL, logger)
+	hs.SetSchemaHandler(NoOpAuthenticator{}, testSDL, testNetwork, logger)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
@@ -167,7 +170,7 @@ func TestSetSchemaHandler_WithBearerAuth_MissingCreds_401(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	logger, _ := newCaptureLogger()
-	hs.SetSchemaHandler(NewBearerAuthenticator([]string{"secret"}), testSDL, logger)
+	hs.SetSchemaHandler(NewBearerAuthenticator([]string{"secret"}), testSDL, testNetwork, logger)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
@@ -180,7 +183,7 @@ func TestSetSchemaHandler_WithBearerAuth_ValidCreds_200(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
 	logger, _ := newCaptureLogger()
-	hs.SetSchemaHandler(NewBearerAuthenticator([]string{"secret"}), testSDL, logger)
+	hs.SetSchemaHandler(NewBearerAuthenticator([]string{"secret"}), testSDL, testNetwork, logger)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
