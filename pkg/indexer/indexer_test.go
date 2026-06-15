@@ -5806,7 +5806,7 @@ func TestNewAuthenticator_EmptyMode(t *testing.T) {
 	t.Parallel()
 	auth, err := newAuthenticator("", nil)
 	require.NoError(t, err)
-	assert.IsType(t, server.NoOpAuthenticator{}, auth)
+	assert.IsType(t, &server.BearerAuthenticator{}, auth)
 }
 
 func TestNewAuthenticator_TokenMode(t *testing.T) {

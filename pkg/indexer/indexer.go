@@ -660,9 +660,9 @@ func (i *ChainIndexer) GetPrunerMetrics() *pruner.Metrics {
 // newAuthenticator constructs an Authenticator based on the configured auth mode.
 func newAuthenticator(mode string, keys []string) (server.Authenticator, error) {
 	switch mode {
-	case constants.SchemaAuthModeNone, "":
+	case constants.SchemaAuthModeNone:
 		return server.NoOpAuthenticator{}, nil
-	case constants.SchemaAuthModeToken:
+	case constants.SchemaAuthModeToken, "":
 		return server.NewBearerAuthenticator(keys), nil
 	case constants.SchemaAuthModeMTLS:
 		return nil, fmt.Errorf("mTLS auth mode is not yet implemented")
