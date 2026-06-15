@@ -60,8 +60,8 @@ func TestAuthError_ReasonStrings(t *testing.T) {
 func TestAuthError_ErrorsIs(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
-		err   error
+		name     string
+		err      error
 		sentinel error
 	}{
 		{"MissingCredentials", ErrMissingCredentials, ErrMissingCredentials},

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
 func TestLoadConfig_ValidYAML(t *testing.T) {
@@ -558,5 +560,111 @@ indexer:
 
 	if cfg.Indexer.StartHeight != 1000 {
 		t.Errorf("Expected start_height 1000 (original), got %d", cfg.Indexer.StartHeight)
+	}
+}
+
+func TestSchemaAuthModeDefault(t *testing.T) {
+	cfg := &Config{}
+	applyDefaults(cfg)
+	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeNone {
+		t.Errorf("SchemaAuthMode default = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeNone)
+	}
+}
+
+func TestSchemaAuthModeEnvOverride_None(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("SCHEMA_AUTH_MODE", "none")
+	applySchemaEnvOverrides(cfg)
+	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeNone {
+		t.Errorf("SchemaAuthMode = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeNone)
+	}
+}
+
+func TestSchemaAuthModeEnvOverride_Token(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("SCHEMA_AUTH_MODE", "token")
+	applySchemaEnvOverrides(cfg)
+	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeToken {
+		t.Errorf("SchemaAuthMode = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeToken)
+	}
+}
+
+func TestSchemaAuthModeEnvOverride_MTLS(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("SCHEMA_AUTH_MODE", "mtls")
+	applySchemaEnvOverrides(cfg)
+	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeMTLS {
+		t.Errorf("SchemaAuthMode = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeMTLS)
+	}
+}
+
+func TestSchemaAPIKeysEnvOverride_Multiple(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("SCHEMA_API_KEYS", "key1,key2,key3")
+	applySchemaEnvOverrides(cfg)
+	if len(cfg.Indexer.SchemaAPIKeys) != 3 {
+		t.Fatalf("SchemaAPIKeys length = %d, want 3", len(cfg.Indexer.SchemaAPIKeys))
+	}
+	if cfg.Indexer.SchemaAPIKeys[0] != "key1" || cfg.Indexer.SchemaAPIKeys[1] != "key2" || cfg.Indexer.SchemaAPIKeys[2] != "key3" {
+		t.Errorf("SchemaAPIKeys = %v, want [key1 key2 key3]", cfg.Indexer.SchemaAPIKeys)
+	}
+}
+
+func TestSchemaAPIKeysEnvOverride_SingleKey(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("SCHEMA_API_KEYS", "onlykey")
+	applySchemaEnvOverrides(cfg)
+	if len(cfg.Indexer.SchemaAPIKeys) != 1 || cfg.Indexer.SchemaAPIKeys[0] != "onlykey" {
+		t.Errorf("SchemaAPIKeys = %v, want [onlykey]", cfg.Indexer.SchemaAPIKeys)
+	}
+}
+
+func TestSchemaAPIKeysEnvOverride_EmptyString(t *testing.T) {
+	cfg := &Config{}
+	cfg.Indexer.SchemaAPIKeys = nil
+	t.Setenv("SCHEMA_API_KEYS", "")
+	applySchemaEnvOverrides(cfg)
+	if cfg.Indexer.SchemaAPIKeys != nil {
+		t.Errorf("SchemaAPIKeys should remain nil for empty env var, got %v", cfg.Indexer.SchemaAPIKeys)
+	}
+}
+
+func TestValidateConfig_InvalidAuthMode(t *testing.T) {
+	cfg := &Config{}
+	cfg.DefraDB.Embedded = true
+	cfg.Indexer.SchemaAuthMode = "invalid"
+	err := validateConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid SCHEMA_AUTH_MODE")
+	}
+	if !strings.Contains(err.Error(), "invalid SCHEMA_AUTH_MODE") {
+		t.Errorf("error should mention invalid SCHEMA_AUTH_MODE, got: %v", err)
+	}
+}
+
+func TestValidateConfig_ValidAuthModes_None(t *testing.T) {
+	cfg := &Config{}
+	cfg.DefraDB.Embedded = true
+	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeNone
+	if err := validateConfig(cfg); err != nil {
+		t.Errorf("unexpected error for mode 'none': %v", err)
+	}
+}
+
+func TestValidateConfig_ValidAuthModes_Token(t *testing.T) {
+	cfg := &Config{}
+	cfg.DefraDB.Embedded = true
+	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+	if err := validateConfig(cfg); err != nil {
+		t.Errorf("unexpected error for mode 'token': %v", err)
+	}
+}
+
+func TestValidateConfig_ValidAuthModes_MTLS(t *testing.T) {
+	cfg := &Config{}
+	cfg.DefraDB.Embedded = true
+	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeMTLS
+	if err := validateConfig(cfg); err != nil {
+		t.Errorf("unexpected error for mode 'mtls': %v", err)
 	}
 }

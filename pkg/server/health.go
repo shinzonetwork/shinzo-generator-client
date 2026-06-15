@@ -363,6 +363,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 			"/metrics 	    - Basic metrics",
 			"/snapshots     - List available snapshots",
 			"/snapshots/:id - Download a snapshot file",
+			"/api/v1/schema - GraphQL schema SDL",
 		},
 	}
 
