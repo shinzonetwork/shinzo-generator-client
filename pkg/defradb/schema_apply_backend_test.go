@@ -3,6 +3,7 @@ package defradb
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -308,9 +309,8 @@ func TestApplyWithBackend_EmptyPrefixResolvesToDefault(t *testing.T) {
 func TestHTTPBackend_RequestBodyContainsSDL(t *testing.T) {
 	var receivedBody string
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		buf := make([]byte, r.ContentLength)
-		_, _ = r.Body.Read(buf)
-		receivedBody = string(buf)
+		b, _ := io.ReadAll(r.Body)
+		receivedBody = string(b)
 	}))
 	defer server.Close()
 
