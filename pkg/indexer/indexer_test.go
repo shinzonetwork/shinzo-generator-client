@@ -5790,3 +5790,78 @@ func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
 	indexer.shouldIndex = false
 	indexer.StopIndexing()
 }
+
+// ---------------------------------------------------------------------------
+// newAuthenticator tests
+// ---------------------------------------------------------------------------
+
+func TestNewAuthenticator_NoneMode(t *testing.T) {
+	t.Parallel()
+	auth, err := newAuthenticator(constants.SchemaAuthModeNone, nil)
+	require.NoError(t, err)
+	assert.IsType(t, server.NoOpAuthenticator{}, auth)
+}
+
+func TestNewAuthenticator_EmptyMode(t *testing.T) {
+	t.Parallel()
+	auth, err := newAuthenticator("", nil)
+	require.NoError(t, err)
+	assert.IsType(t, server.NoOpAuthenticator{}, auth)
+}
+
+func TestNewAuthenticator_TokenMode(t *testing.T) {
+	t.Parallel()
+	auth, err := newAuthenticator(constants.SchemaAuthModeToken, []string{"key1", "key2"})
+	require.NoError(t, err)
+	assert.IsType(t, &server.BearerAuthenticator{}, auth)
+}
+
+func TestNewAuthenticator_MTLSMode_ReturnsError(t *testing.T) {
+	t.Parallel()
+	auth, err := newAuthenticator(constants.SchemaAuthModeMTLS, nil)
+	assert.Nil(t, auth)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mTLS auth mode is not yet implemented")
+}
+
+func TestNewAuthenticator_UnknownMode_ReturnsError(t *testing.T) {
+	t.Parallel()
+	auth, err := newAuthenticator("invalid", nil)
+	assert.Nil(t, auth)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown auth mode")
+}
+
+// ---------------------------------------------------------------------------
+// initServices mTLS error propagation
+// ---------------------------------------------------------------------------
+
+func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	td := testutils.SetupTestDefraDB(t)
+
+	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			URL: fmt.Sprintf("http://localhost:%d", td.Port),
+		},
+		Indexer: config.IndexerConfig{
+			SchemaAuthMode:   constants.SchemaAuthModeMTLS,
+			HealthServerPort: 1,
+		},
+	}
+
+	indexer := &ChainIndexer{
+		defraNode: td.Node,
+		cfg:       cfg,
+	}
+
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
+	require.NoError(t, err)
+
+	err = indexer.initServices(context.Background(), cfg, blockHandler)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema auth configuration")
+	assert.Contains(t, err.Error(), "mTLS auth mode is not yet implemented")
+}

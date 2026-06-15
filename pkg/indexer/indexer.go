@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -169,7 +170,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	i.shouldIndex = true
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
-	i.initServices(ctx, cfg, blockHandler)
+	if err := i.initServices(ctx, cfg, blockHandler); err != nil {
+		return err
+	}
 
 	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers", cfg.Indexer.ConcurrentBlocks)
@@ -298,7 +301,7 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 }
 
 // initServices starts the health server, pruner, and snapshotter if configured.
-func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blockHandler *defra.BlockHandler) {
+func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blockHandler *defra.BlockHandler) error {
 	if cfg.Indexer.HealthServerPort > 0 {
 		var healthDefraURL string
 		if cfg.DefraDB.URL != "" {
@@ -310,6 +313,14 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 		if i.defraNode != nil {
 			i.healthServer.SetDefraNode(i.defraNode)
 		}
+
+		auth, err := newAuthenticator(cfg.Indexer.SchemaAuthMode, cfg.Indexer.SchemaAPIKeys)
+		if err != nil {
+			return fmt.Errorf("schema auth configuration: %w", err)
+		}
+		prefix := chainPrefixFromConfig(cfg)
+		sdl := schema.GetSchemaForChain(prefix)
+		i.healthServer.SetSchemaHandler(auth, sdl, prefix, slog.Default())
 		go func() {
 			if err := i.healthServer.Start(); err != nil {
 				logger.Sugar.Errorf("Health server failed: %v", err)
@@ -347,6 +358,8 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 			i.healthServer.SetSnapshotter(i.snapshotter)
 		}
 	}
+
+	return nil
 }
 
 // runConcurrentIndexing runs the indexer with concurrent block processing.
@@ -642,6 +655,20 @@ func (i *ChainIndexer) GetPrunerMetrics() *pruner.Metrics {
 	}
 	metrics := i.pruner.GetMetrics()
 	return &metrics
+}
+
+// newAuthenticator constructs an Authenticator based on the configured auth mode.
+func newAuthenticator(mode string, keys []string) (server.Authenticator, error) {
+	switch mode {
+	case constants.SchemaAuthModeNone, "":
+		return server.NoOpAuthenticator{}, nil
+	case constants.SchemaAuthModeToken:
+		return server.NewBearerAuthenticator(keys), nil
+	case constants.SchemaAuthModeMTLS:
+		return nil, fmt.Errorf("mTLS auth mode is not yet implemented")
+	default:
+		return nil, fmt.Errorf("unknown auth mode %q", mode)
+	}
 }
 
 // indexerQueueTracker adapts pruner's IndexerQueue to the local DocIDTrackerInterface.
