@@ -12,8 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testSDL = "type Query { hello: String }"
-const testNetwork = "Ethereum__Mainnet"
+const (
+	testSDL     = "type Query { hello: String }"
+	testNetwork = "Ethereum__Mainnet"
+)
 
 func TestSchemaHandler_PlainTextResponse(t *testing.T) {
 	t.Parallel()

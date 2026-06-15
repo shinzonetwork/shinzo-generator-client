@@ -215,6 +215,7 @@ func TestValidateConfig_Valid(t *testing.T) {
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
 	cfg.Indexer.StartHeight = 0
+	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 
 	if err := validateConfig(cfg); err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -566,8 +567,8 @@ indexer:
 func TestSchemaAuthModeDefault(t *testing.T) {
 	cfg := &Config{}
 	applyDefaults(cfg)
-	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeNone {
-		t.Errorf("SchemaAuthMode default = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeNone)
+	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeToken {
+		t.Errorf("SchemaAuthMode default = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeToken)
 	}
 }
 
@@ -600,13 +601,25 @@ func TestSchemaAuthModeEnvOverride_MTLS(t *testing.T) {
 
 func TestSchemaAPIKeysEnvOverride_Multiple(t *testing.T) {
 	cfg := &Config{}
-	t.Setenv("SCHEMA_API_KEYS", "key1,key2,key3")
+	t.Setenv("SCHEMA_API_KEYS", "key1, key2 ,key3")
 	applySchemaEnvOverrides(cfg)
 	if len(cfg.Indexer.SchemaAPIKeys) != 3 {
 		t.Fatalf("SchemaAPIKeys length = %d, want 3", len(cfg.Indexer.SchemaAPIKeys))
 	}
 	if cfg.Indexer.SchemaAPIKeys[0] != "key1" || cfg.Indexer.SchemaAPIKeys[1] != "key2" || cfg.Indexer.SchemaAPIKeys[2] != "key3" {
 		t.Errorf("SchemaAPIKeys = %v, want [key1 key2 key3]", cfg.Indexer.SchemaAPIKeys)
+	}
+}
+
+func TestSchemaAPIKeysEnvOverride_TrimsAndDropsEmpty(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("SCHEMA_API_KEYS", "a, b ,, c")
+	applySchemaEnvOverrides(cfg)
+	if len(cfg.Indexer.SchemaAPIKeys) != 3 {
+		t.Fatalf("SchemaAPIKeys length = %d, want 3", len(cfg.Indexer.SchemaAPIKeys))
+	}
+	if cfg.Indexer.SchemaAPIKeys[0] != "a" || cfg.Indexer.SchemaAPIKeys[1] != "b" || cfg.Indexer.SchemaAPIKeys[2] != "c" {
+		t.Errorf("SchemaAPIKeys = %v, want [a b c]", cfg.Indexer.SchemaAPIKeys)
 	}
 }
 

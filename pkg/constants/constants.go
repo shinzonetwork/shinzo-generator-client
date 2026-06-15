@@ -23,3 +23,12 @@ const Ed25519ValueString = "Ed25519"
 
 // Secp256k1ValueString is the string value "ES256K" assigned to a key field.
 const Secp256k1ValueString = "ES256K"
+
+// SchemaAuthModeNone disables authentication on the schema endpoint.
+const SchemaAuthModeNone = "none"
+
+// SchemaAuthModeToken enables Bearer/API-key authentication on the schema endpoint.
+const SchemaAuthModeToken = "token"
+
+// SchemaAuthModeMTLS enables mTLS authentication on the schema endpoint (not yet implemented).
+const SchemaAuthModeMTLS = "mtls"
