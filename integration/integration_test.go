@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -65,7 +65,7 @@ func TestMain(m *testing.M) {
 
 	// Apply schema synchronously — no race with mock data insertion.
 	err = applySchema(ctx, defraNode)
-	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+	if err != nil {
 		logger.Sugar.Fatalf("Failed to apply schema: %v", err)
 	}
 
@@ -613,7 +613,5 @@ func insertMockData() error {
 // applySchema applies the GraphQL schema to DefraDB node.
 func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
-
-	_, err := defraNode.DB.AddSchema(ctx, schema.GetSchemaForChain(constants.DefaultCollectionPrefix))
-	return err
+	return defradb.ApplyCollectionSchemas(ctx, defraNode, "")
 }

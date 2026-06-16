@@ -1,12 +1,9 @@
 package indexer
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
-	"io"
-	"net/http"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -21,7 +18,6 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/signer"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
@@ -47,8 +43,6 @@ const (
 	// DefaultBlockOffset is the number of blocks behind the latest block to process.
 	// This prevents "transaction type not supported" errors from very recent blocks.
 	DefaultBlockOffset = 3
-	// DefaultStatusCode is the HTTP status code indicating acceptance of a block for processing.
-	DefaultStatusCode = 200
 	// DefaultWorkersAhead is the number of blocks ahead of the last committed block that the processor will allow itself to get before throttling dispatch.
 	DefaultWorkersAhead = 2
 )
@@ -191,7 +185,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		}
 
 		defraNode, networkHandler, err := defradb.StartDefraInstance(cfg,
-			defradb.NewSchemaApplierFromProvidedSchema(schema.GetSchemaForChain(chainPrefixFromConfig(cfg))), nil, replicationFilter, i.collections.AllCollections()...)
+			defradb.NewSchemaApplierFromDir(chainPrefixFromConfig(cfg)), nil, replicationFilter, i.collections.AllCollections()...)
 		if err != nil {
 			return ctx, fmt.Errorf("failed to start DefraDB instance: %w", err)
 		}
@@ -214,7 +208,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		if err := defra.WaitForDefraDB(cfg.DefraDB.URL); err != nil {
 			return ctx, err
 		}
-		if err := applySchemaViaHTTP(cfg.DefraDB.URL, chainPrefixFromConfig(cfg)); err != nil && !errors.IsErrAlreadyExists(err) {
+		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, chainPrefixFromConfig(cfg)); err != nil {
 			return ctx, fmt.Errorf("failed to apply schema to external DefraDB: %w", err)
 		}
 	}
@@ -570,26 +564,6 @@ func openBrowser(url string) {
 		return
 	}
 	logger.Sugar.Infof("Opened health page in browser: %s", url)
-}
-
-func applySchemaViaHTTP(defraURL, chainPrefix string) error {
-	fmt.Println("Applying schema via HTTP...")
-
-	schemaStr := schema.GetSchemaForChain(chainPrefix)
-	// Apply schema via REST API endpoint.
-	schemaURL := fmt.Sprintf("%s/api/v0/schema", defraURL)
-	resp, err := http.Post(schemaURL, "application/schema", bytes.NewBuffer([]byte(schemaStr))) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("failed to send schema: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != DefaultStatusCode { // Expecting 200 OK for successful schema application.
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("schema application failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	fmt.Println("Schema applied successfully!")
-	return nil
 }
 
 // SignMessages signs a registration message using both DefraDB and P2P keys.
