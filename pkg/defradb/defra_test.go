@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/crypto"
@@ -378,4 +379,69 @@ func TestLoadIdentityFromKeyring_InvalidKeyType(t *testing.T) {
 	_, err := LoadIdentityFromKeyring(kr)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to reconstruct private key")
+}
+
+func TestClientApplyCollectionSchemas(t *testing.T) {
+	testConfig := *NewDefaultConfig()
+	testConfig.DefraDB.URL = testURL
+	testConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+
+	client, err := NewClient(&testConfig)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	err = client.Start(ctx)
+	require.NoError(t, err)
+	defer func() { _ = client.Stop(ctx) }()
+
+	err = client.ApplyCollectionSchemas(ctx, "")
+	require.NoError(t, err)
+
+	for _, typeName := range constants.DefaultCollections() {
+		result := client.GetNode().DB.ExecRequest(ctx,
+			`query { __type(name: "`+typeName+`") { name } }`)
+		assert.Empty(t, result.GQL.Errors, "should find collection %s without errors", typeName)
+	}
+}
+
+func TestClientApplyCollectionSchemasWithCustomPrefix(t *testing.T) {
+	testConfig := *NewDefaultConfig()
+	testConfig.DefraDB.URL = testURL
+	testConfig.DefraDB.Store.Path = t.TempDir()
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+
+	client, err := NewClient(&testConfig)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	err = client.Start(ctx)
+	require.NoError(t, err)
+	defer func() { _ = client.Stop(ctx) }()
+
+	err = client.ApplyCollectionSchemas(ctx, "Arbitrum__Mainnet")
+	require.NoError(t, err)
+
+	collections := constants.NewCollectionNames("Arbitrum__Mainnet")
+	for _, typeName := range collections.AllCollections() {
+		result := client.GetNode().DB.ExecRequest(ctx,
+			`query { __type(name: "`+typeName+`") { name } }`)
+		assert.Empty(t, result.GQL.Errors, "should find collection %s without errors", typeName)
+	}
+}
+
+func TestClientApplyCollectionSchemasBeforeStartFails(t *testing.T) {
+	testConfig := *NewDefaultConfig()
+	testConfig.DefraDB.KeyringSecret = testKeyringSecret
+
+	client, err := NewClient(&testConfig)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	err = client.ApplyCollectionSchemas(ctx, "")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must be started")
 }
