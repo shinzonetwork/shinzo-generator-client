@@ -1,0 +1,24 @@
+type Ethereum__Mainnet__Block {
+    hash: String
+    number: Int
+    timestamp: String
+    parentHash: String
+    difficulty: String
+    totalDifficulty: String
+    gasUsed: String
+    gasLimit: String
+    baseFeePerGas: String
+    nonce: String
+    miner: String
+    size: String
+    stateRoot: String
+    sha3Uncles: String
+    transactionsRoot: String
+    receiptsRoot: String
+    logsBloom: String
+    extraData: String
+    mixHash: String
+    uncles: [String]
+    # Relationships
+    transactions: [Ethereum__Mainnet__Transaction] @relation(name: "block_transactions")
+}

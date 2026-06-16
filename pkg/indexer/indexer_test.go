@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,8 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/config"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
+	indexerErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
@@ -796,15 +799,18 @@ func TestNewConcurrentBlockProcessor_DefaultValues(t *testing.T) {
 
 func TestApplySchemaViaHTTP_Success(t *testing.T) {
 	t.Parallel()
+	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/v0/schema", r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
+		callCount++
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	err := applySchemaViaHTTP(server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
 	assert.NoError(t, err)
+	assert.Equal(t, 1, callCount, "monolithic path should make exactly 1 POST")
 }
 
 func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
@@ -815,15 +821,40 @@ func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := applySchemaViaHTTP(server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
 
 func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
 	t.Parallel()
-	err := applySchemaViaHTTP("http://127.0.0.1:1", constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), "http://127.0.0.1:1", constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
+}
+
+func TestApplySchemaViaHTTP_AlreadyExistsFallsBackToPerFile(t *testing.T) {
+	t.Parallel()
+	callCount := 0
+	files := make([]string, 0)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount == 1 {
+			// First call (monolithic): respond with "collection already exists"
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(indexerErrors.ErrStrCollectionAlreadyExists))
+			return
+		}
+		// Subsequent per-file calls: track filenames and succeed
+		body, _ := io.ReadAll(r.Body)
+		_ = body
+		files = append(files, r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
+	assert.NoError(t, err)
+	assert.Greater(t, callCount, 1, "should fall back to per-file after monolithic already-exists")
 }
 
 // ---------------------------------------------------------------------------.
@@ -1513,7 +1544,7 @@ func TestStartIndexing_ExternalDefraDB_SchemaApplyFails(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	// Mock DefraDB server: GraphQL introspection succeeds (for WaitForDefraDB).
-	// but schema application fails with a non-already-exists error.
+	// but every schema POST fails with a non-already-exists error.
 	defraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v0/graphql" {
 			w.WriteHeader(http.StatusOK)
@@ -1546,17 +1577,19 @@ func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	// Mock DefraDB server: GraphQL introspection succeeds, schema returns.
-	// "already exists" error → should be tolerated, but defraNode is nil → error.
+	// Mock DefraDB server: GraphQL introspection succeeds, schema POSTs
+	// return "collection already exists" → tolerated, but defraNode is nil → error.
+	callCount := 0
 	defraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v0/graphql" {
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("schema application failed"))
+			_, _ = w.Write([]byte(`{"data":{"__schema":{"types":[]}}}`))
 			return
 		}
 		if r.URL.Path == "/api/v0/schema" && r.Method == "POST" {
+			callCount++
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte("collection already exists"))
+			_, _ = w.Write([]byte(indexerErrors.ErrStrCollectionAlreadyExists))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -1575,6 +1608,7 @@ func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
 	require.Error(t, err)
 	// The "already exists" error is tolerated, but defraNode is nil.
 	assert.Contains(t, err.Error(), "defraNode is required")
+	assert.Greater(t, callCount, 0, "schema POST should have been attempted")
 }
 
 // ---------------------------------------------------------------------------.

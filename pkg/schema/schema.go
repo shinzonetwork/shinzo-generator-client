@@ -1,20 +1,18 @@
 package schema
 
 import (
-	_ "embed"
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
-// SchemaGraphQL contains the embedded GraphQL schema definition from schema.graphql.
-//
-//go:embed schema.graphql
-var SchemaGraphQL string
-
-// GetSchema returns the GraphQL schema found in `schema.graphql` as a string.
+// GetSchema returns the full concatenated GraphQL schema from all collection files.
 func GetSchema() string {
-	return SchemaGraphQL
+	s, err := LoadSchemaSDL()
+	if err != nil {
+		panic("schema loader failed: " + err.Error())
+	}
+	return s
 }
 
 // GetSchemaForChain returns the schema with collection names adapted for the given chain prefix.

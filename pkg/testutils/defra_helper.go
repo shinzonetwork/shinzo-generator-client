@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/client/options"
@@ -60,7 +61,7 @@ func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 
 	// Apply schema
 	_, err = defraNode.DB.AddSchema(ctx, schemaSDL)
-	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+	if err != nil && !strings.Contains(err.Error(), errors.ErrStrCollectionAlreadyExists) {
 		_ = defraNode.Close(ctx)
 		t.Fatalf("Failed to apply schema: %v", err)
 	}
