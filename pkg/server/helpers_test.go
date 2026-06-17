@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	authErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	authErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

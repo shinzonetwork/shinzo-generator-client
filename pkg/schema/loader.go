@@ -50,6 +50,42 @@ func LoadCollectionSDLForChain(filename, prefix string) (string, error) {
 	return strings.ReplaceAll(raw, constants.DefaultCollectionPrefix, prefix), nil
 }
 
+// CollectionEntry represents a named collection with its GraphQL type name.
+type CollectionEntry struct {
+	Name     string `json:"name"`
+	TypeName string `json:"type_name"`
+}
+
+// ListCollections returns all collections in schema dependency order,
+// using the provided prefix to build fully-qualified type names.
+func ListCollections(prefix string) []CollectionEntry {
+	order := constants.SchemaApplyOrder()
+	entries := make([]CollectionEntry, 0, len(order))
+	for _, typeName := range order {
+		filename := constants.CollectionFileForType(typeName)
+		stem := strings.TrimSuffix(filename, ".graphql")
+		suffix := strings.TrimPrefix(typeName, constants.DefaultCollectionPrefix+"__")
+		entries = append(entries, CollectionEntry{
+			Name:     stem,
+			TypeName: prefix + "__" + suffix,
+		})
+	}
+	return entries
+}
+
+// IsValidCollection reports whether the given stem name corresponds to a
+// known collection file (e.g. "block", "transaction").
+func IsValidCollection(name string) bool {
+	for _, typeName := range constants.SchemaApplyOrder() {
+		filename := constants.CollectionFileForType(typeName)
+		stem := strings.TrimSuffix(filename, ".graphql")
+		if stem == name {
+			return true
+		}
+	}
+	return false
+}
+
 // LoadSchemaSDL reads all collections/*.graphql files in dependency order
 // and concatenates them into a single SDL document.
 func LoadSchemaSDL() (string, error) {
