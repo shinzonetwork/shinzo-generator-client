@@ -103,18 +103,6 @@ func buildRegistrationAppURL(registration *DisplayRegistration) string {
 	return redirectURL.String()
 }
 
-// normalizeHex ensures a string is represented as a 0x-prefixed hex string.
-// If the string is empty, it is returned unchanged.
-func normalizeHex(s string) string {
-	if s == "" {
-		return s
-	}
-	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
-		return "0x" + s[2:]
-	}
-	return "0x" + s
-}
-
 func deriveDID(publicKeyHex string) (string, error) {
 	publicKeyBytes, err := hex.DecodeString(strings.TrimPrefix(normalizeHex(publicKeyHex), "0x"))
 	if err != nil {
