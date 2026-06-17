@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -315,7 +314,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 		}
 		prefix := chainPrefixFromConfig(cfg)
 		sdl := schema.GetSchemaForChain(prefix)
-		i.healthServer.SetSchemaHandler(auth, sdl, prefix, slog.Default())
+		i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth)
 		go func() {
 			if err := i.healthServer.Start(); err != nil {
 				logger.Sugar.Errorf("Health server failed: %v", err)
