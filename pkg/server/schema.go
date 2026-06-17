@@ -14,12 +14,12 @@ type schemaResponse struct {
 	Schema  string `json:"schema"`
 }
 
-// EnableSchemaEndpoint stores the schema configuration and registers the authenticated schema endpoint on the mux.
+// EnableSchemaEndpoint registers the authenticated schema endpoint on the mux.
+// The SDL and network values are captured by the handler closure at registration time,
+// making them immutable for the lifetime of the server.
 func (hs *HealthServer) EnableSchemaEndpoint(sdl string, network string, auth Authenticator) {
-	hs.schemaSDL = sdl
-	hs.schemaNetwork = network
-	hs.schemaAuth = auth
-	hs.mux.HandleFunc("/api/v1/schema", authMiddleware(auth, requireReadMethod(hs.schemaHandler), slog.Default()))
+	handler := newSchemaHandler(sdl, network)
+	hs.mux.HandleFunc("/api/v1/schema", authMiddleware(auth, requireReadMethod(handler), slog.Default()))
 }
 
 // negotiateContentType parses the Accept header and returns the matching content type.
@@ -64,31 +64,33 @@ func requireReadMethod(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// schemaHandler serves the GraphQL schema.
+// newSchemaHandler returns an http.HandlerFunc that serves the GraphQL schema.
 // It supports content negotiation: application/json → {"network": "...", "schema": "..."}, text/plain → raw SDL.
 // Any other Accept header value (including omitting it or using */*) results in 406 Not Acceptable.
 // HEAD requests receive headers (Content-Type, Cache-Control) but no body.
-func (hs *HealthServer) schemaHandler(w http.ResponseWriter, r *http.Request) {
-	contentType, ok := negotiateContentType(r.Header.Get("Accept"))
-	if !ok {
-		writeJSONError(w, http.StatusNotAcceptable, "not_acceptable", "supported content types: application/json, text/plain")
-		return
-	}
-
-	w.Header().Set("Cache-Control", constants.CacheControlSchema)
-
-	switch contentType {
-	case constants.ContentTypeJSON:
-		w.Header().Set("Content-Type", constants.ContentTypeJSONCharset)
-		if r.Method == http.MethodHead {
+func newSchemaHandler(sdl string, network string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		contentType, ok := negotiateContentType(r.Header.Get("Accept"))
+		if !ok {
+			writeJSONError(w, http.StatusNotAcceptable, "not_acceptable", "supported content types: application/json, text/plain")
 			return
 		}
-		_ = json.NewEncoder(w).Encode(schemaResponse{Network: hs.schemaNetwork, Schema: hs.schemaSDL})
-	case constants.ContentTypePlain:
-		w.Header().Set("Content-Type", constants.ContentTypePlainCharset)
-		if r.Method == http.MethodHead {
-			return
+
+		w.Header().Set("Cache-Control", constants.CacheControlSchema)
+
+		switch contentType {
+		case constants.ContentTypeJSON:
+			w.Header().Set("Content-Type", constants.ContentTypeJSONCharset)
+			if r.Method == http.MethodHead {
+				return
+			}
+			_ = json.NewEncoder(w).Encode(schemaResponse{Network: network, Schema: sdl})
+		case constants.ContentTypePlain:
+			w.Header().Set("Content-Type", constants.ContentTypePlainCharset)
+			if r.Method == http.MethodHead {
+				return
+			}
+			_, _ = w.Write([]byte(sdl))
 		}
-		_, _ = w.Write([]byte(hs.schemaSDL))
 	}
 }

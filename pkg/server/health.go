@@ -51,9 +51,6 @@ type HealthServer struct {
 	startTime            time.Time
 	healthStatusPagePath string
 	querySnapshotSigsFn  func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error)
-	schemaSDL            string
-	schemaNetwork        string
-	schemaAuth           Authenticator
 }
 
 // HealthChecker interface for checking indexer health.
