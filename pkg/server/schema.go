@@ -19,7 +19,7 @@ func (hs *HealthServer) EnableSchemaEndpoint(sdl string, network string, auth Au
 	hs.schemaSDL = sdl
 	hs.schemaNetwork = network
 	hs.schemaAuth = auth
-	hs.mux.HandleFunc("/api/v1/schema", authMiddleware(auth, requireGetMethod(hs.schemaHandler), slog.Default()))
+	hs.mux.HandleFunc("/api/v1/schema", authMiddleware(auth, requireReadMethod(hs.schemaHandler), slog.Default()))
 }
 
 // negotiateContentType parses the Accept header and returns the matching content type.
@@ -51,13 +51,13 @@ func negotiateContentType(accept string) (contentType string, ok bool) {
 	}
 }
 
-// requireGetMethod wraps an http.HandlerFunc and rejects any request that is not GET.
+// requireReadMethod wraps an http.HandlerFunc and rejects any request that is not GET or HEAD.
 // On rejection it returns 405 with a JSON error body and sets the Allow header per RFC 7231 §6.5.5.
-func requireGetMethod(next http.HandlerFunc) http.HandlerFunc {
+func requireReadMethod(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
-			writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is supported")
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET and HEAD are supported")
 			return
 		}
 		next(w, r)
@@ -67,6 +67,7 @@ func requireGetMethod(next http.HandlerFunc) http.HandlerFunc {
 // schemaHandler serves the GraphQL schema.
 // It supports content negotiation: application/json → {"network": "...", "schema": "..."}, text/plain → raw SDL.
 // Any other Accept header value (including omitting it or using */*) results in 406 Not Acceptable.
+// HEAD requests receive headers (Content-Type, Cache-Control) but no body.
 func (hs *HealthServer) schemaHandler(w http.ResponseWriter, r *http.Request) {
 	contentType, ok := negotiateContentType(r.Header.Get("Accept"))
 	if !ok {
@@ -74,12 +75,20 @@ func (hs *HealthServer) schemaHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cache-Control", constants.CacheControlSchema)
+
 	switch contentType {
 	case constants.ContentTypeJSON:
 		w.Header().Set("Content-Type", constants.ContentTypeJSONCharset)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_ = json.NewEncoder(w).Encode(schemaResponse{Network: hs.schemaNetwork, Schema: hs.schemaSDL})
 	case constants.ContentTypePlain:
 		w.Header().Set("Content-Type", constants.ContentTypePlainCharset)
+		if r.Method == http.MethodHead {
+			return
+		}
 		_, _ = w.Write([]byte(hs.schemaSDL))
 	}
 }

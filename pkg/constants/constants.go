@@ -47,3 +47,6 @@ const ContentTypePlainCharset = "text/plain; charset=utf-8"
 
 // AcceptHeaderMaxParts is the maximum number of parts when splitting an Accept header on semicolons.
 const AcceptHeaderMaxParts = 2
+
+// CacheControlSchema is the Cache-Control directive for schema responses.
+const CacheControlSchema = "no-cache"

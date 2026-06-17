@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	authErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,28 +30,28 @@ func TestNegotiateContentType_JSON(t *testing.T) {
 	t.Parallel()
 	ct, ok := negotiateContentType("application/json")
 	assert.True(t, ok)
-	assert.Equal(t, "application/json", ct)
+	assert.Equal(t, constants.ContentTypeJSON, ct)
 }
 
 func TestNegotiateContentType_JSONWithCharset(t *testing.T) {
 	t.Parallel()
 	ct, ok := negotiateContentType("application/json; charset=utf-8")
 	assert.True(t, ok)
-	assert.Equal(t, "application/json", ct)
+	assert.Equal(t, constants.ContentTypeJSON, ct)
 }
 
 func TestNegotiateContentType_PlainText(t *testing.T) {
 	t.Parallel()
 	ct, ok := negotiateContentType("text/plain")
 	assert.True(t, ok)
-	assert.Equal(t, "text/plain", ct)
+	assert.Equal(t, constants.ContentTypePlain, ct)
 }
 
 func TestNegotiateContentType_PlainTextWithCharset(t *testing.T) {
 	t.Parallel()
 	ct, ok := negotiateContentType("text/plain; charset=utf-8")
 	assert.True(t, ok)
-	assert.Equal(t, "text/plain", ct)
+	assert.Equal(t, constants.ContentTypePlain, ct)
 }
 
 func TestNegotiateContentType_Empty_406(t *testing.T) {
@@ -87,15 +88,15 @@ func TestNegotiateContentType_UpperCase(t *testing.T) {
 	t.Parallel()
 	ct, ok := negotiateContentType("Application/JSON")
 	assert.True(t, ok)
-	assert.Equal(t, "application/json", ct)
+	assert.Equal(t, constants.ContentTypeJSON, ct)
 }
 
-// --- requireGetMethod unit tests ---
+// --- requireReadMethod unit tests ---
 
-func TestRequireGetMethod_AllowsGet(t *testing.T) {
+func TestRequireReadMethod_AllowsGet(t *testing.T) {
 	t.Parallel()
 	called := false
-	handler := requireGetMethod(func(w http.ResponseWriter, _ *http.Request) {
+	handler := requireReadMethod(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	})
@@ -106,31 +107,45 @@ func TestRequireGetMethod_AllowsGet(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestRequireGetMethod_RejectsPost(t *testing.T) {
+func TestRequireReadMethod_AllowsHead(t *testing.T) {
 	t.Parallel()
-	handler := requireGetMethod(func(http.ResponseWriter, *http.Request) {})
+	called := false
+	handler := requireReadMethod(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodHead, "/test", nil)
+	handler(rec, req)
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestRequireReadMethod_RejectsPost(t *testing.T) {
+	t.Parallel()
+	handler := requireReadMethod(func(http.ResponseWriter, *http.Request) {})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/test", nil)
 	handler(rec, req)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-	assert.Equal(t, "GET", rec.Header().Get("Allow"))
+	assert.Equal(t, "GET, HEAD", rec.Header().Get("Allow"))
 
 	var errResp authErrors.ErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "method_not_allowed", errResp.Code)
-	assert.Equal(t, "only GET is supported", errResp.Message)
+	assert.Equal(t, "only GET and HEAD are supported", errResp.Message)
 }
 
-func TestRequireGetMethod_AllowHeader(t *testing.T) {
+func TestRequireReadMethod_AllowHeader(t *testing.T) {
 	t.Parallel()
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
-			handler := requireGetMethod(func(http.ResponseWriter, *http.Request) {})
+			handler := requireReadMethod(func(http.ResponseWriter, *http.Request) {})
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(method, "/test", nil)
 			handler(rec, req)
-			assert.Equal(t, "GET", rec.Header().Get("Allow"))
+			assert.Equal(t, "GET, HEAD", rec.Header().Get("Allow"))
 		})
 	}
 }
@@ -271,7 +286,7 @@ func TestSchemaHandler_EmptySDL_PlainText(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestSchemaHandler_MethodNotAllowed_Post(t *testing.T) {
+func TestSchemaHandler_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 	hs := newHealthServerWithSchema()
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
@@ -285,7 +300,7 @@ func TestSchemaHandler_MethodNotAllowed_Post(t *testing.T) {
 			var errResp authErrors.ErrorResponse
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 			assert.Equal(t, "method_not_allowed", errResp.Code)
-			assert.Equal(t, "only GET is supported", errResp.Message)
+			assert.Equal(t, "only GET and HEAD are supported", errResp.Message)
 		})
 	}
 }
@@ -299,7 +314,7 @@ func TestSchemaHandler_MethodNotAllowed_AllowHeader(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(method, "/api/v1/schema", nil)
 			hs.mux.ServeHTTP(rec, req)
-			assert.Equal(t, "GET", rec.Header().Get("Allow"))
+			assert.Equal(t, "GET, HEAD", rec.Header().Get("Allow"))
 		})
 	}
 }
@@ -340,6 +355,91 @@ func TestSchemaHandler_405ResponseCharset(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+}
+
+// --- Cache-Control tests ---
+
+func TestSchemaHandler_CacheControl_JSON(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "application/json")
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, constants.CacheControlSchema, rec.Header().Get("Cache-Control"))
+}
+
+func TestSchemaHandler_CacheControl_PlainText(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "text/plain")
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, constants.CacheControlSchema, rec.Header().Get("Cache-Control"))
+}
+
+func TestSchemaHandler_CacheControl_NotSetOn406(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
+	assert.Empty(t, rec.Header().Get("Cache-Control"))
+}
+
+func TestSchemaHandler_CacheControl_NotSetOn405(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/schema", nil)
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	assert.Empty(t, rec.Header().Get("Cache-Control"))
+}
+
+// --- HEAD tests ---
+
+func TestSchemaHandler_HEAD_JSON(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodHead, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "application/json")
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, constants.CacheControlSchema, rec.Header().Get("Cache-Control"))
+	assert.Empty(t, rec.Body.String(), "HEAD response should have no body")
+}
+
+func TestSchemaHandler_HEAD_PlainText(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodHead, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "text/plain")
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, constants.CacheControlSchema, rec.Header().Get("Cache-Control"))
+	assert.Empty(t, rec.Body.String(), "HEAD response should have no body")
+}
+
+func TestSchemaHandler_HEAD_406(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodHead, "/api/v1/schema", nil)
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
+
+	var errResp authErrors.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "not_acceptable", errResp.Code)
 }
 
 // --- EnableSchemaEndpoint integration tests ---
