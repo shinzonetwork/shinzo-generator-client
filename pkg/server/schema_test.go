@@ -48,7 +48,7 @@ func TestSchemaHandler_JSONResponse(t *testing.T) {
 	var resp schemaResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, testNetwork, resp.Network)
-	assert.Equal(t, testSDL, resp.SDL)
+	assert.Equal(t, testSDL, resp.Schema)
 }
 
 func TestSchemaHandler_MissingAcceptHeader_406(t *testing.T) {
@@ -126,7 +126,7 @@ func TestSchemaHandler_EmptySDL_JSON(t *testing.T) {
 
 	var resp schemaResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "", resp.SDL)
+	assert.Equal(t, "", resp.Schema)
 	assert.Equal(t, testNetwork, resp.Network)
 }
 

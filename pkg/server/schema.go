@@ -9,7 +9,7 @@ import (
 
 type schemaResponse struct {
 	Network string `json:"network"`
-	SDL     string `json:"sdl"`
+	Schema  string `json:"schema"`
 }
 
 // EnableSchemaEndpoint stores the schema configuration and registers the authenticated schema endpoint on the mux.
@@ -20,8 +20,8 @@ func (hs *HealthServer) EnableSchemaEndpoint(sdl string, network string, auth Au
 	hs.mux.HandleFunc("/api/v1/schema", authMiddleware(auth, hs.schemaHandler, slog.Default()))
 }
 
-// schemaHandler serves the GraphQL schema SDL.
-// It supports content negotiation: application/json → {"network": "...", "sdl": "..."}, text/plain → raw SDL.
+// schemaHandler serves the GraphQL schema.
+// It supports content negotiation: application/json → {"network": "...", "schema": "..."}, text/plain → raw SDL.
 // Any other Accept header value (including omitting it or using */*) results in 406 Not Acceptable.
 func (hs *HealthServer) schemaHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -34,7 +34,7 @@ func (hs *HealthServer) schemaHandler(w http.ResponseWriter, r *http.Request) {
 	switch accept {
 	case "application/json":
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(schemaResponse{Network: hs.schemaNetwork, SDL: hs.schemaSDL})
+		_ = json.NewEncoder(w).Encode(schemaResponse{Network: hs.schemaNetwork, Schema: hs.schemaSDL})
 	case "text/plain":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(hs.schemaSDL))
