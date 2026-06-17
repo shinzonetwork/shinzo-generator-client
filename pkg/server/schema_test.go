@@ -28,17 +28,6 @@ func TestSchemaHandler_PlainTextResponse(t *testing.T) {
 	hs := newHealthServerWithSchema()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
-	hs.mux.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
-	assert.Equal(t, testSDL, rec.Body.String())
-}
-
-func TestSchemaHandler_PlainTextResponse_ExplicitAcceptHeader(t *testing.T) {
-	t.Parallel()
-	hs := newHealthServerWithSchema()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -62,37 +51,67 @@ func TestSchemaHandler_JSONResponse(t *testing.T) {
 	assert.Equal(t, testSDL, resp.SDL)
 }
 
-func TestSchemaHandler_DefaultAcceptHeader(t *testing.T) {
+func TestSchemaHandler_MissingAcceptHeader_406(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
+
+	var errResp authErrors.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "not_acceptable", errResp.Code)
+	assert.Equal(t, "supported content types: application/json, text/plain", errResp.Message)
+}
+
+func TestSchemaHandler_WildcardAcceptHeader_406(t *testing.T) {
 	t.Parallel()
 	hs := newHealthServerWithSchema()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "*/*")
 	hs.mux.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
+
+	var errResp authErrors.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "not_acceptable", errResp.Code)
+	assert.Equal(t, "supported content types: application/json, text/plain", errResp.Message)
 }
 
-func TestSchemaHandler_BothAcceptTypesPrefersText(t *testing.T) {
+func TestSchemaHandler_UnsupportedAcceptHeader_406(t *testing.T) {
+	t.Parallel()
+	hs := newHealthServerWithSchema()
+	for _, accept := range []string{"text/html", "application/xml", "image/png"} {
+		t.Run(accept, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+			req.Header.Set("Accept", accept)
+			hs.mux.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusNotAcceptable, rec.Code)
+
+			var errResp authErrors.ErrorResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, "not_acceptable", errResp.Code)
+		})
+	}
+}
+
+func TestSchemaHandler_BothAcceptTypes_406(t *testing.T) {
 	t.Parallel()
 	hs := newHealthServerWithSchema()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "text/plain, application/json")
 	hs.mux.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
-}
+	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 
-func TestSchemaHandler_EmptySDL(t *testing.T) {
-	t.Parallel()
-	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint("", testNetwork, NoOpAuthenticator{})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
-	hs.mux.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "", rec.Body.String())
+	var errResp authErrors.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "not_acceptable", errResp.Code)
+	assert.Equal(t, "supported content types: application/json, text/plain", errResp.Message)
 }
 
 func TestSchemaHandler_EmptySDL_JSON(t *testing.T) {
@@ -109,6 +128,18 @@ func TestSchemaHandler_EmptySDL_JSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "", resp.SDL)
 	assert.Equal(t, testNetwork, resp.Network)
+}
+
+func TestSchemaHandler_EmptySDL_PlainText(t *testing.T) {
+	t.Parallel()
+	hs := NewHealthServer(0, nil, "")
+	hs.EnableSchemaEndpoint("", testNetwork, NoOpAuthenticator{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "text/plain")
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "", rec.Body.String())
 }
 
 func TestSchemaHandler_MethodNotAllowed_Post(t *testing.T) {
@@ -145,6 +176,7 @@ func TestSchemaHandler_PlainTextContentTypeCharset(t *testing.T) {
 	hs := newHealthServerWithSchema()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
 }
@@ -158,6 +190,7 @@ func TestEnableSchemaEndpoint_RegistersRoute(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -169,6 +202,7 @@ func TestEnableSchemaEndpoint_WithNoOpAuth_AllowsThrough(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, testSDL, rec.Body.String())
@@ -181,6 +215,7 @@ func TestEnableSchemaEndpoint_WithBearerAuth_MissingCreds_401(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	assert.False(t, strings.Contains(rec.Body.String(), testSDL))
@@ -194,7 +229,20 @@ func TestEnableSchemaEndpoint_WithBearerAuth_ValidCreds_200(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Authorization", "Bearer secret")
+	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, testSDL, rec.Body.String())
+}
+
+func TestEnableSchemaEndpoint_WithBearerAuth_ValidCreds_406(t *testing.T) {
+	t.Parallel()
+	hs := NewHealthServer(0, nil, "")
+	hs.EnableSchemaEndpoint(testSDL, testNetwork, NewBearerAuthenticator([]string{"secret"}))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	hs.mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 }

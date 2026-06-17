@@ -22,20 +22,23 @@ func (hs *HealthServer) EnableSchemaEndpoint(sdl string, network string, auth Au
 
 // schemaHandler serves the GraphQL schema SDL.
 // It supports content negotiation: application/json → {"network": "...", "sdl": "..."}, text/plain → raw SDL.
+// Any other Accept header value (including omitting it or using */*) results in 406 Not Acceptable.
 func (hs *HealthServer) schemaHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET is supported")
 		return
 	}
 
-	accept := r.Header.Get("Accept")
-	acceptLower := strings.ToLower(accept)
+	accept := strings.ToLower(strings.TrimSpace(r.Header.Get("Accept")))
 
-	if strings.Contains(acceptLower, "application/json") && !strings.Contains(acceptLower, "text/plain") {
+	switch accept {
+	case "application/json":
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(schemaResponse{Network: hs.schemaNetwork, SDL: hs.schemaSDL})
-	} else {
+	case "text/plain":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(hs.schemaSDL))
+	default:
+		writeJSONError(w, http.StatusNotAcceptable, "not_acceptable", "supported content types: application/json, text/plain")
 	}
 }
