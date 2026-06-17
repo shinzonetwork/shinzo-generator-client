@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	authErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 )
 
@@ -61,7 +62,7 @@ func (b *BearerAuthenticator) Authenticate(r *http.Request) error {
 }
 
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", constants.ContentTypeJSONCharset)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(authErrors.ErrorResponse{Code: code, Message: message})
 }

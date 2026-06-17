@@ -181,7 +181,7 @@ func TestWriteJSONError_SetsContentType(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()
 	writeJSONError(rec, http.StatusUnauthorized, "unauthorized", "test")
-	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
 }
 
 func TestWriteJSONError_SetsStatusCode(t *testing.T) {
@@ -447,7 +447,7 @@ func TestAuthMiddleware_AllErrorsHaveJSONContentType(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			tc.setup(req)
 			handler(rec, req)
-			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
 
 			var resp authErrors.ErrorResponse
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))

@@ -32,3 +32,18 @@ const SchemaAuthModeToken = "token"
 
 // SchemaAuthModeMTLS enables mTLS authentication on the schema endpoint (not yet implemented).
 const SchemaAuthModeMTLS = "mtls"
+
+// ContentTypeJSON is the MIME type for JSON responses.
+const ContentTypeJSON = "application/json"
+
+// ContentTypePlain is the MIME type for plain text responses.
+const ContentTypePlain = "text/plain"
+
+// ContentTypeJSONCharset is the MIME type for JSON responses with charset.
+const ContentTypeJSONCharset = "application/json; charset=utf-8"
+
+// ContentTypePlainCharset is the MIME type for plain text responses with charset.
+const ContentTypePlainCharset = "text/plain; charset=utf-8"
+
+// AcceptHeaderMaxParts is the maximum number of parts when splitting an Accept header on semicolons.
+const AcceptHeaderMaxParts = 2
