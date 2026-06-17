@@ -312,6 +312,9 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 		if err != nil {
 			return fmt.Errorf("schema auth configuration: %w", err)
 		}
+		if (cfg.Indexer.SchemaAuthMode == constants.SchemaAuthModeToken || cfg.Indexer.SchemaAuthMode == "") && len(cfg.Indexer.SchemaAPIKeys) == 0 {
+			logger.Sugar.Warn("Schema auth mode is 'token' but no API keys are configured — endpoint is fail-closed")
+		}
 		prefix := chainPrefixFromConfig(cfg)
 		sdl := schema.GetSchemaForChain(prefix)
 		i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth)

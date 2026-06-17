@@ -22,7 +22,7 @@ type NoOpAuthenticator struct{}
 // Authenticate always returns nil.
 func (NoOpAuthenticator) Authenticate(_ *http.Request) error { return nil }
 
-// BearerAuthenticator validates requests using Bearer tokens or X-API-Key headers.
+// BearerAuthenticator validates requests using Bearer tokens or X-Api-Key headers.
 type BearerAuthenticator struct {
 	keys map[string]struct{}
 }
