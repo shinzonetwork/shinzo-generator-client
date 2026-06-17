@@ -54,13 +54,6 @@ func okHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
-func decodeErrorResponse(t *testing.T, body string) authErrors.ErrorResponse {
-	t.Helper()
-	var resp authErrors.ErrorResponse
-	require.NoError(t, json.Unmarshal([]byte(body), &resp))
-	return resp
-}
-
 // --- NoOpAuthenticator ---
 
 func TestNoOpAuthenticator_ReturnsNilOnAnyRequest(t *testing.T) {
@@ -175,31 +168,6 @@ func TestBearerAuthenticator_IgnoresEmptyKeys_EmptyTokenFails(t *testing.T) {
 	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrMissingCredentials)
 }
 
-// --- writeJSONError ---
-
-func TestWriteJSONError_SetsContentType(t *testing.T) {
-	t.Parallel()
-	rec := httptest.NewRecorder()
-	writeJSONError(rec, http.StatusUnauthorized, "unauthorized", "test")
-	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
-}
-
-func TestWriteJSONError_SetsStatusCode(t *testing.T) {
-	t.Parallel()
-	rec := httptest.NewRecorder()
-	writeJSONError(rec, http.StatusForbidden, "forbidden", "test")
-	assert.Equal(t, http.StatusForbidden, rec.Code)
-}
-
-func TestWriteJSONError_ResponseBody(t *testing.T) {
-	t.Parallel()
-	rec := httptest.NewRecorder()
-	writeJSONError(rec, http.StatusUnauthorized, "unauthorized", "missing or empty credentials")
-	resp := decodeErrorResponse(t, rec.Body.String())
-	assert.Equal(t, "unauthorized", resp.Code)
-	assert.Equal(t, "missing or empty credentials", resp.Message)
-}
-
 // --- authMiddleware integration tests ---
 
 func TestAuthMiddleware_NoOp_AllowsThrough(t *testing.T) {
@@ -222,7 +190,8 @@ func TestAuthMiddleware_Bearer_MissingCredentials_401(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	handler(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	resp := decodeErrorResponse(t, rec.Body.String())
+	var resp authErrors.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "unauthorized", resp.Code)
 	assert.Equal(t, "missing or empty credentials", resp.Message)
 }
@@ -237,7 +206,8 @@ func TestAuthMiddleware_Bearer_InvalidCredentials_403(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer wrong")
 	handler(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
-	resp := decodeErrorResponse(t, rec.Body.String())
+	var resp authErrors.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "forbidden", resp.Code)
 	assert.Equal(t, "invalid credentials", resp.Message)
 }
@@ -251,7 +221,8 @@ func TestAuthMiddleware_Bearer_NoKeys_503(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	handler(rec, req)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	resp := decodeErrorResponse(t, rec.Body.String())
+	var resp authErrors.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "service_unavailable", resp.Code)
 	assert.Equal(t, "no API keys configured on server", resp.Message)
 }
@@ -289,7 +260,8 @@ func TestAuthMiddleware_UnknownError_500(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	handler(rec, req)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	resp := decodeErrorResponse(t, rec.Body.String())
+	var resp authErrors.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "internal_error", resp.Code)
 	assert.Equal(t, "unexpected authentication failure", resp.Message)
 }
@@ -447,7 +419,7 @@ func TestAuthMiddleware_AllErrorsHaveJSONContentType(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			tc.setup(req)
 			handler(rec, req)
-			assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 			var resp authErrors.ErrorResponse
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))

@@ -2,13 +2,11 @@ package server
 
 import (
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	authErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 )
 
@@ -59,12 +57,6 @@ func (b *BearerAuthenticator) Authenticate(r *http.Request) error {
 	}
 
 	return authErrors.ErrInvalidCredentials
-}
-
-func writeJSONError(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", constants.ContentTypeJSONCharset)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(authErrors.ErrorResponse{Code: code, Message: message})
 }
 
 func authMiddleware(auth Authenticator, next http.HandlerFunc, logger *slog.Logger) http.HandlerFunc {

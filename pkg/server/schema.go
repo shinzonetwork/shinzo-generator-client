@@ -80,13 +80,13 @@ func newSchemaHandler(sdl string, network string) http.HandlerFunc {
 
 		switch contentType {
 		case constants.ContentTypeJSON:
-			w.Header().Set("Content-Type", constants.ContentTypeJSONCharset)
+			w.Header().Set("Content-Type", constants.ContentTypeJSON)
 			if r.Method == http.MethodHead {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(schemaResponse{Network: network, Schema: sdl})
 		case constants.ContentTypePlain:
-			w.Header().Set("Content-Type", constants.ContentTypePlainCharset)
+			w.Header().Set("Content-Type", constants.ContentTypePlain)
 			if r.Method == http.MethodHead {
 				return
 			}

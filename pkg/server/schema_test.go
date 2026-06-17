@@ -160,7 +160,7 @@ func TestSchemaHandler_PlainTextResponse(t *testing.T) {
 	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
 	assert.Equal(t, testSDL, rec.Body.String())
 }
 
@@ -172,7 +172,7 @@ func TestSchemaHandler_JSONResponse(t *testing.T) {
 	req.Header.Set("Accept", "application/json")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 	var resp schemaResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -188,7 +188,7 @@ func TestSchemaHandler_JSONWithCharsetAcceptHeader(t *testing.T) {
 	req.Header.Set("Accept", "application/json; charset=utf-8")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 	var resp schemaResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -319,42 +319,42 @@ func TestSchemaHandler_MethodNotAllowed_AllowHeader(t *testing.T) {
 	}
 }
 
-func TestSchemaHandler_JSONContentTypeCharset(t *testing.T) {
+func TestSchemaHandler_JSONContentType(t *testing.T) {
 	t.Parallel()
 	hs := newHealthServerWithSchema()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "application/json")
 	hs.mux.ServeHTTP(rec, req)
-	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 }
 
-func TestSchemaHandler_PlainTextContentTypeCharset(t *testing.T) {
+func TestSchemaHandler_PlainTextContentType(t *testing.T) {
 	t.Parallel()
 	hs := newHealthServerWithSchema()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
-	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
 }
 
-func TestSchemaHandler_406ResponseCharset(t *testing.T) {
+func TestSchemaHandler_406ResponseContentType(t *testing.T) {
 	t.Parallel()
 	hs := newHealthServerWithSchema()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
-	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 }
 
-func TestSchemaHandler_405ResponseCharset(t *testing.T) {
+func TestSchemaHandler_405ResponseContentType(t *testing.T) {
 	t.Parallel()
 	hs := newHealthServerWithSchema()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
-	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 }
 
 // --- Cache-Control tests ---
@@ -411,7 +411,7 @@ func TestSchemaHandler_HEAD_JSON(t *testing.T) {
 	req.Header.Set("Accept", "application/json")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 	assert.Equal(t, constants.CacheControlSchema, rec.Header().Get("Cache-Control"))
 	assert.Empty(t, rec.Body.String(), "HEAD response should have no body")
 }
@@ -424,7 +424,7 @@ func TestSchemaHandler_HEAD_PlainText(t *testing.T) {
 	req.Header.Set("Accept", "text/plain")
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
 	assert.Equal(t, constants.CacheControlSchema, rec.Header().Get("Cache-Control"))
 	assert.Empty(t, rec.Body.String(), "HEAD response should have no body")
 }
