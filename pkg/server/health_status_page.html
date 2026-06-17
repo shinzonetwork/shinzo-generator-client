@@ -106,13 +106,17 @@
 
         .info-row {
             display: flex;
+            align-items: center;
+            gap: 16px;
             justify-content: space-between;
             padding: 12px 0;
             border-bottom: 1px solid #f5f5f5;
             font-size: 14px;
+            min-width: 0;
         }
 
         .info-label {
+            flex-shrink: 0;
             font-weight: 500;
             color: #666;
         }
@@ -121,6 +125,16 @@
             font-family: 'Courier New', monospace;
             color: #000;
             text-align: right;
+            min-width: 0;
+        }
+
+        .truncated-value {
+            display: inline-block;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: bottom;
+            white-space: nowrap;
         }
 
         .copyable {
@@ -307,6 +321,24 @@
                     </div>
                 </div>
             </div>
+
+            <div class="col-4">
+                <div class="info-group">
+                    <h2>Registration</h2>
+                    <div class="info-row">
+                        <span class="info-label">Status</span>
+                        <span class="info-value" id="registrationStatusValue">Checking...</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Address</span>
+                        <span class="info-value" id="registrationAddressValue">-</span>
+                    </div>
+                    <div class="info-row" id="registrationActionRow" style="display: none;">
+                        <span class="info-label">Action</span>
+                        <span class="info-value"><a id="registrationActionLink" href="/registration-app">Register indexer</a></span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="section-label">P2P Network</div>
@@ -334,6 +366,7 @@
     </div>
 
     <script>
+        const SHINZOHUB_REST_BASE = 'http://rpc.develop.devnet.shinzo.network:1317';
         let refreshInterval;
 
         function formatNumber(num) {
@@ -442,6 +475,101 @@
             }).join('');
         }
 
+        function renderRegistrationStatus(status, address, errorMessage) {
+            const statusValue = document.getElementById('registrationStatusValue');
+            const addressValue = document.getElementById('registrationAddressValue');
+            const actionRow = document.getElementById('registrationActionRow');
+            const actionLink = document.getElementById('registrationActionLink');
+
+            if (status === 'registered') {
+                statusValue.textContent = 'Registered';
+                statusValue.className = 'info-value status-indicator-inline status-healthy';
+                addressValue.textContent = address || '-';
+                addressValue.title = address || '';
+                addressValue.className = address ? 'info-value copyable truncated-value' : 'info-value';
+                addressValue.onclick = address ? () => copyToClipboard(address, addressValue) : null;
+                actionRow.style.display = 'none';
+                return;
+            }
+
+            if (status === 'not-registered') {
+                statusValue.textContent = 'Not registered';
+                statusValue.className = 'info-value status-indicator-inline status-disconnected';
+                addressValue.textContent = '-';
+                addressValue.title = '';
+                addressValue.className = 'info-value';
+                addressValue.onclick = null;
+                actionLink.href = '/registration-app';
+                actionRow.style.display = '';
+                return;
+            }
+
+            statusValue.textContent = errorMessage || 'Unable to check';
+            statusValue.className = 'info-value status-indicator-inline status-disconnected';
+            addressValue.textContent = '-';
+            addressValue.title = '';
+            addressValue.className = 'info-value';
+            addressValue.onclick = null;
+            actionLink.href = '/registration-app';
+            actionRow.style.display = '';
+        }
+
+        async function findRegisteredIndexerByDid(did) {
+            let nextKey = '';
+            const limit = 200;
+
+            do {
+                const params = new URLSearchParams({ 'pagination.limit': String(limit) });
+                if (nextKey) {
+                    params.set('pagination.key', nextKey);
+                }
+
+                const response = await fetch(`${SHINZOHUB_REST_BASE}/shinzonetwork/indexer/v1/indexers?${params.toString()}`);
+                if (!response.ok) {
+                    throw new Error(`ShinzoHub returned HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                const match = (data.indexers || []).find(indexer => indexer.did === did);
+                if (match) {
+                    return match;
+                }
+                nextKey = data.pagination && data.pagination.next_key ? data.pagination.next_key : '';
+            } while (nextKey);
+
+            return null;
+        }
+
+        async function loadRegistrationData() {
+            try {
+                const response = await fetch('/registration', {
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                if (!response.ok) {
+                    renderRegistrationStatus('unknown', '', `Local registration unavailable (${response.status})`);
+                    return;
+                }
+
+                const data = await response.json();
+                const did = data.registration && data.registration.did;
+                if (!did) {
+                    renderRegistrationStatus('unknown', '', 'Missing indexer DID');
+                    return;
+                }
+
+                const indexer = await findRegisteredIndexerByDid(did);
+                if (indexer) {
+                    renderRegistrationStatus('registered', indexer.address || '');
+                } else {
+                    renderRegistrationStatus('not-registered');
+                }
+            } catch (error) {
+                renderRegistrationStatus('unknown', '', `Error checking registration: ${error.message}`);
+            }
+        }
+
         async function loadHealthData() {
             try {
                 document.getElementById('loading').style.display = 'block';
@@ -499,6 +627,7 @@
                     document.getElementById('peerList').innerHTML = '<div class="peer-card"><div class="peer-id">No P2P data available</div></div>';
                 }
 
+                loadRegistrationData();
                 document.getElementById('loading').style.display = 'none';
             } catch (error) {
                 document.getElementById('loading').style.display = 'none';
