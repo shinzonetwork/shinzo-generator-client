@@ -2,16 +2,23 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 )
 
 type schemaResponse struct {
 	Network string `json:"network"`
 	Schema  string `json:"schema"`
+}
+
+type collectionsResponse struct {
+	Network     string                   `json:"network"`
+	Collections []schema.CollectionEntry `json:"collections"`
 }
 
 // EnableSchemaEndpoint registers the authenticated schema endpoint on the mux.
@@ -20,6 +27,8 @@ type schemaResponse struct {
 func (hs *HealthServer) EnableSchemaEndpoint(sdl string, network string, auth Authenticator) {
 	handler := newSchemaHandler(sdl, network)
 	hs.mux.HandleFunc("/api/v1/schema", authMiddleware(auth, requireReadMethod(handler), slog.Default()))
+	hs.mux.HandleFunc("/api/v1/schema/{collection}", authMiddleware(auth, requireReadMethod(collectionHandler(network)), slog.Default()))
+	hs.mux.HandleFunc("/api/v1/schema/collections", authMiddleware(auth, requireReadMethod(collectionsListHandler(network)), slog.Default()))
 }
 
 // negotiateContentType parses the Accept header and returns the matching content type.
@@ -85,6 +94,73 @@ func newSchemaHandler(sdl string, network string) http.HandlerFunc {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(schemaResponse{Network: network, Schema: sdl})
+		case constants.ContentTypePlain:
+			w.Header().Set("Content-Type", constants.ContentTypePlain)
+			if r.Method == http.MethodHead {
+				return
+			}
+			_, _ = w.Write([]byte(sdl))
+		}
+	}
+}
+
+// collectionsListHandler returns an http.HandlerFunc that serves the list of collections
+// as JSON. Only application/json is accepted; any other Accept header results in 406.
+func collectionsListHandler(prefix string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		contentType, ok := negotiateContentType(r.Header.Get("Accept"))
+		if !ok || contentType != constants.ContentTypeJSON {
+			writeJSONError(w, http.StatusNotAcceptable, "not_acceptable", "supported content types: application/json")
+			return
+		}
+
+		w.Header().Set("Content-Type", constants.ContentTypeJSON)
+		w.Header().Set("Cache-Control", constants.CacheControlSchema)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(collectionsResponse{
+			Network:     prefix,
+			Collections: schema.ListCollections(prefix),
+		})
+	}
+}
+
+// collectionHandler returns an http.HandlerFunc that serves a single collection's SDL.
+// It supports content negotiation: application/json → {network, schema}, text/plain → raw SDL.
+// Returns 404 if the collection name does not match a known collection.
+func collectionHandler(prefix string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("collection")
+		if !schema.IsValidCollection(name) {
+			writeJSONError(w, http.StatusNotFound, "not_found",
+				fmt.Sprintf("collection '%s' not found", name))
+			return
+		}
+
+		contentType, ok := negotiateContentType(r.Header.Get("Accept"))
+		if !ok {
+			writeJSONError(w, http.StatusNotAcceptable, "not_acceptable",
+				"supported content types: application/json, text/plain")
+			return
+		}
+
+		filename := name + ".graphql"
+		sdl, err := schema.LoadCollectionSDLForChain(filename, prefix)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "failed to load collection")
+			return
+		}
+
+		w.Header().Set("Cache-Control", constants.CacheControlSchema)
+
+		switch contentType {
+		case constants.ContentTypeJSON:
+			w.Header().Set("Content-Type", constants.ContentTypeJSON)
+			if r.Method == http.MethodHead {
+				return
+			}
+			_ = json.NewEncoder(w).Encode(schemaResponse{Network: prefix, Schema: sdl})
 		case constants.ContentTypePlain:
 			w.Header().Set("Content-Type", constants.ContentTypePlain)
 			if r.Method == http.MethodHead {

@@ -11,6 +11,12 @@ import (
 //go:embed collections/*.graphql
 var collectionFS embed.FS
 
+// CollectionEntry represents a named collection with its GraphQL type name.
+type CollectionEntry struct {
+	Name     string `json:"name"`
+	TypeName string `json:"type_name"`
+}
+
 // ListCollectionFiles returns ordered .graphql filenames from
 // constants.SchemaApplyOrder, suitable for per-file AddSchema calls.
 func ListCollectionFiles() ([]string, error) {
@@ -48,12 +54,6 @@ func LoadCollectionSDLForChain(filename, prefix string) (string, error) {
 		return "", err
 	}
 	return strings.ReplaceAll(raw, constants.DefaultCollectionPrefix, prefix), nil
-}
-
-// CollectionEntry represents a named collection with its GraphQL type name.
-type CollectionEntry struct {
-	Name     string `json:"name"`
-	TypeName string `json:"type_name"`
 }
 
 // ListCollections returns all collections in schema dependency order,
