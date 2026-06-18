@@ -316,7 +316,10 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 			logger.Sugar.Warn("Schema auth mode is 'token' but no API keys are configured — endpoint is fail-closed")
 		}
 		prefix := chainPrefixFromConfig(cfg)
-		sdl := schema.GetSchemaForChain(prefix)
+		sdl, err := schema.GetSchemaForChain(prefix)
+		if err != nil {
+			return fmt.Errorf("load schema for chain %s: %w", prefix, err)
+		}
 		i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth)
 		go func() {
 			if err := i.healthServer.Start(); err != nil {

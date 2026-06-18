@@ -25,7 +25,11 @@ type TestDefraDB struct {
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDB(t *testing.T) *TestDefraDB {
-	return SetupTestDefraDBWithSchema(t, schema.GetSchema())
+	sdl, err := schema.GetSchema()
+	if err != nil {
+		t.Fatalf("GetSchema: %v", err)
+	}
+	return SetupTestDefraDBWithSchema(t, sdl)
 }
 
 // SetupTestDefraDBWithSchema creates and starts an in-memory DefraDB node with a provided schema.

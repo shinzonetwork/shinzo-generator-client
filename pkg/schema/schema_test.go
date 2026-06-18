@@ -11,7 +11,10 @@ import (
 
 func TestGetSchema(t *testing.T) {
 	t.Parallel()
-	s := GetSchema()
+	s, err := GetSchema()
+	if err != nil {
+		t.Fatalf("GetSchema() error: %v", err)
+	}
 	if s == "" {
 		t.Fatal("GetSchema() returned empty string")
 	}
@@ -23,7 +26,10 @@ func TestGetSchema(t *testing.T) {
 
 func TestLoadSchemaContainsAllCollectionTypes(t *testing.T) {
 	t.Parallel()
-	s := GetSchema()
+	s, err := GetSchema()
+	if err != nil {
+		t.Fatalf("GetSchema() error: %v", err)
+	}
 
 	expectedTypes := constants.DefaultCollections()
 	for _, typeName := range expectedTypes {
@@ -35,8 +41,14 @@ func TestLoadSchemaContainsAllCollectionTypes(t *testing.T) {
 
 func TestGetSchemaForChain_ReplacesPrefix(t *testing.T) {
 	t.Parallel()
-	defaultSchema := GetSchema()
-	arbSchema := GetSchemaForChain("Arbitrum__Mainnet")
+	defaultSchema, err := GetSchema()
+	if err != nil {
+		t.Fatalf("GetSchema() error: %v", err)
+	}
+	arbSchema, err := GetSchemaForChain("Arbitrum__Mainnet")
+	if err != nil {
+		t.Fatalf("GetSchemaForChain() error: %v", err)
+	}
 
 	if arbSchema == defaultSchema {
 		t.Fatal("GetSchemaForChain should produce different output for different prefix")

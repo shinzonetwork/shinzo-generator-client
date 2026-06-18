@@ -75,7 +75,10 @@ func TestRun_OutputMatchesGetSchema(t *testing.T) {
 	if err := run([]string{"build_schema"}, &buf); err != nil {
 		t.Fatalf("run() error: %v", err)
 	}
-	expected := schema.GetSchema()
+	expected, err := schema.GetSchema()
+	if err != nil {
+		t.Fatalf("GetSchema() error: %v", err)
+	}
 	if buf.String() != expected {
 		t.Error("output should match schema.GetSchema()")
 	}
@@ -88,7 +91,10 @@ func TestRun_OutputWithPrefixMatchesGetSchemaForChain(t *testing.T) {
 	if err := run([]string{"build_schema", "--prefix", prefix}, &buf); err != nil {
 		t.Fatalf("run() error: %v", err)
 	}
-	expected := schema.GetSchemaForChain(prefix)
+	expected, err := schema.GetSchemaForChain(prefix)
+	if err != nil {
+		t.Fatalf("GetSchemaForChain() error: %v", err)
+	}
 	if buf.String() != expected {
 		t.Error("output should match schema.GetSchemaForChain()")
 	}

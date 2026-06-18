@@ -19,6 +19,7 @@ func run(args []string, stdout io.Writer) error {
 	}
 
 	var sdl string
+	var err error
 	switch {
 	case *listFiles:
 		files, err := schema.ListCollectionFiles()
@@ -32,7 +33,6 @@ func run(args []string, stdout io.Writer) error {
 		}
 		return nil
 	case *file != "":
-		var err error
 		if *prefix != "" {
 			sdl, err = schema.LoadCollectionSDLForChain(*file, *prefix)
 		} else {
@@ -42,12 +42,18 @@ func run(args []string, stdout io.Writer) error {
 			return err
 		}
 	case *prefix != "":
-		sdl = schema.GetSchemaForChain(*prefix)
+		sdl, err = schema.GetSchemaForChain(*prefix)
+		if err != nil {
+			return err
+		}
 	default:
-		sdl = schema.GetSchema()
+		sdl, err = schema.GetSchema()
+		if err != nil {
+			return err
+		}
 	}
 
-	_, err := fmt.Fprint(stdout, sdl)
+	_, err = fmt.Fprint(stdout, sdl)
 	return err
 }
 
