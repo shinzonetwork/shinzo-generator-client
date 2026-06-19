@@ -1,7 +1,6 @@
 package errors
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -123,26 +122,5 @@ func TestAuthError_ErrorsAs_NonAuthError(t *testing.T) {
 	var authErr AuthError
 	if errors.As(plainErr, &authErr) {
 		t.Error("plain error should not match AuthError interface")
-	}
-}
-
-func TestErrorResponse_JSONSerialization(t *testing.T) {
-	t.Parallel()
-	resp := ErrorResponse{Code: "unauthorized", Message: "missing or empty credentials"}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		t.Fatalf("json.Marshal() error: %v", err)
-	}
-
-	var decoded map[string]string
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("json.Unmarshal() error: %v", err)
-	}
-
-	if decoded["error"] != "unauthorized" {
-		t.Errorf("json[error] = %q, want %q", decoded["error"], "unauthorized")
-	}
-	if decoded["message"] != "missing or empty credentials" {
-		t.Errorf("json[message] = %q, want %q", decoded["message"], "missing or empty credentials")
 	}
 }

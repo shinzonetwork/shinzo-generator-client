@@ -190,7 +190,7 @@ func TestAuthMiddleware_Bearer_MissingCredentials_401(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	handler(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	var resp authErrors.ErrorResponse
+	var resp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "unauthorized", resp.Code)
 	assert.Equal(t, "missing or empty credentials", resp.Message)
@@ -206,7 +206,7 @@ func TestAuthMiddleware_Bearer_InvalidCredentials_403(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer wrong")
 	handler(rec, req)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
-	var resp authErrors.ErrorResponse
+	var resp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "forbidden", resp.Code)
 	assert.Equal(t, "invalid credentials", resp.Message)
@@ -221,7 +221,7 @@ func TestAuthMiddleware_Bearer_NoKeys_503(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	handler(rec, req)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	var resp authErrors.ErrorResponse
+	var resp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "service_unavailable", resp.Code)
 	assert.Equal(t, "no API keys configured on server", resp.Message)
@@ -260,7 +260,7 @@ func TestAuthMiddleware_UnknownError_500(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	handler(rec, req)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	var resp authErrors.ErrorResponse
+	var resp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "internal_error", resp.Code)
 	assert.Equal(t, "unexpected authentication failure", resp.Message)
@@ -421,7 +421,7 @@ func TestAuthMiddleware_AllErrorsHaveJSONContentType(t *testing.T) {
 			handler(rec, req)
 			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
-			var resp authErrors.ErrorResponse
+			var resp errorResponse
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.Equal(t, tc.wantErr, resp.Code)
 			assert.NotEmpty(t, resp.Message)

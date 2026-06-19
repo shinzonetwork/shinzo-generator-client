@@ -3,7 +3,7 @@
 //
 // Error response formats differ by audience:
 //   - Host-client endpoints (/api/v1/*) return structured JSON errors via writeJSONError,
-//     using the ErrorResponse envelope {error, message}. These are consumed programmatically
+//     using the errorResponse envelope {error, message}. These are consumed programmatically
 //     by other indexer clients that need machine-parseable error details.
 //   - User-facing endpoints (/, /health, /registration, /metrics, /snapshots) use plain text
 //     errors via http.Error. These serve browsers and operational dashboards where plain text

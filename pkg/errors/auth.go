@@ -29,9 +29,3 @@ func (*noKeysConfiguredError) Reason() string { return "no_keys_configured" }
 
 // ErrNoKeysConfigured is returned when no API keys are configured on the server.
 var ErrNoKeysConfigured = &noKeysConfiguredError{}
-
-// ErrorResponse is the JSON body returned on authentication failure.
-type ErrorResponse struct {
-	Code    string `json:"error"`
-	Message string `json:"message"`
-}

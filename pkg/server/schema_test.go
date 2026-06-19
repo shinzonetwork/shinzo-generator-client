@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	authErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -131,7 +130,7 @@ func TestRequireReadMethod_RejectsPost(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 	assert.Equal(t, "GET, HEAD", rec.Header().Get("Allow"))
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "method_not_allowed", errResp.Code)
 	assert.Equal(t, "only GET and HEAD are supported", errResp.Message)
@@ -204,7 +203,7 @@ func TestSchemaHandler_MissingAcceptHeader_406(t *testing.T) {
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "not_acceptable", errResp.Code)
 	assert.Equal(t, "supported content types: application/json, text/plain", errResp.Message)
@@ -219,7 +218,7 @@ func TestSchemaHandler_WildcardAcceptHeader_406(t *testing.T) {
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "not_acceptable", errResp.Code)
 	assert.Equal(t, "supported content types: application/json, text/plain", errResp.Message)
@@ -237,7 +236,7 @@ func TestSchemaHandler_UnsupportedAcceptHeader_406(t *testing.T) {
 			hs.mux.ServeHTTP(rec, req)
 			assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 
-			var errResp authErrors.ErrorResponse
+			var errResp errorResponse
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 			assert.Equal(t, "not_acceptable", errResp.Code)
 		})
@@ -253,7 +252,7 @@ func TestSchemaHandler_BothAcceptTypes_406(t *testing.T) {
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "not_acceptable", errResp.Code)
 	assert.Equal(t, "supported content types: application/json, text/plain", errResp.Message)
@@ -298,7 +297,7 @@ func TestSchemaHandler_MethodNotAllowed(t *testing.T) {
 			hs.mux.ServeHTTP(rec, req)
 			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 
-			var errResp authErrors.ErrorResponse
+			var errResp errorResponse
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 			assert.Equal(t, "method_not_allowed", errResp.Code)
 			assert.Equal(t, "only GET and HEAD are supported", errResp.Message)
@@ -438,7 +437,7 @@ func TestSchemaHandler_HEAD_406(t *testing.T) {
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "not_acceptable", errResp.Code)
 }
@@ -561,7 +560,7 @@ func TestCollectionHandler_UnknownCollection_404(t *testing.T) {
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "not_found", errResp.Code)
 	assert.Contains(t, errResp.Message, "unknown")
@@ -576,7 +575,7 @@ func TestCollectionHandler_NotAcceptable_406(t *testing.T) {
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "not_acceptable", errResp.Code)
 }
@@ -590,7 +589,7 @@ func TestCollectionHandler_MethodNotAllowed_405(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 	assert.Equal(t, "GET, HEAD", rec.Header().Get("Allow"))
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "method_not_allowed", errResp.Code)
 }
@@ -629,7 +628,7 @@ func TestCollectionsListHandler_NotAcceptable_406(t *testing.T) {
 	hs.mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotAcceptable, rec.Code)
 
-	var errResp authErrors.ErrorResponse
+	var errResp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "not_acceptable", errResp.Code)
 	assert.Contains(t, errResp.Message, "application/json")
