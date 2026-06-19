@@ -67,32 +67,52 @@ func TestLoadSchemaSDLForChain_EmptyPrefix(t *testing.T) {
 	assert.EqualError(t, err, "prefix must not be empty")
 }
 
-func TestIsValidCollection(t *testing.T) {
+func TestPrecomputeCollectionSDLs_DefaultPrefix(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name   string
-		input  string
-		expect bool
-	}{
-		{"block", "block", true},
-		{"blockSignature", "blockSignature", true},
-		{"snapshotSignature", "snapshotSignature", true},
-		{"transaction", "transaction", true},
-		{"accessListEntry", "accessListEntry", true},
-		{"log", "log", true},
-		{"unknown", "unknown", false},
-		{"empty", "", false},
-		{"uppercase", "Block", false},
-		{"with_extension", "block.graphql", false},
+	cache := PrecomputeCollectionSDLs(constants.DefaultCollectionPrefix)
+
+	if len(cache) == 0 {
+		t.Fatal("expected non-empty cache for default prefix")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := IsValidCollection(tt.input)
-			if got != tt.expect {
-				t.Errorf("IsValidCollection(%q) = %v, want %v", tt.input, got, tt.expect)
-			}
-		})
+	knownCollections := []string{"block", "transaction", "log", "blockSignature", "snapshotSignature", "accessListEntry"}
+	for _, name := range knownCollections {
+		sdl, ok := cache[name]
+		if !ok {
+			t.Errorf("expected cache entry for %q, not found", name)
+			continue
+		}
+		if sdl == "" {
+			t.Errorf("expected non-empty SDL for %q", name)
+		}
+	}
+}
+
+func TestPrecomputeCollectionSDLs_KeysMatchValidCollections(t *testing.T) {
+	t.Parallel()
+
+	cache := PrecomputeCollectionSDLs("Ethereum__Mainnet")
+
+	for _, name := range []string{"block", "transaction", "log"} {
+		if _, ok := cache[name]; !ok {
+			t.Errorf("expected cache key %q", name)
+		}
+	}
+
+	if _, ok := cache["nonexistent"]; ok {
+		t.Error("did not expect cache key for nonexistent collection")
+	}
+}
+
+func TestPrecomputeCollectionSDLs_PrefixReplacement(t *testing.T) {
+	t.Parallel()
+
+	prefix := "Arbitrum__Sepolia"
+	cache := PrecomputeCollectionSDLs(prefix)
+
+	if sdl, ok := cache["block"]; ok {
+		assert.Contains(t, sdl, prefix, "SDL should contain the chain prefix")
+		assert.NotContains(t, sdl, constants.DefaultCollectionPrefix, "SDL should not contain default prefix")
 	}
 }

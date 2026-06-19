@@ -129,10 +129,13 @@ func collectionsListHandler(prefix string) http.HandlerFunc {
 // collectionHandler returns an http.HandlerFunc that serves a single collection's SDL.
 // It supports content negotiation: application/json → {network, schema}, text/plain → raw SDL.
 // Returns 404 if the collection name does not match a known collection.
+// Collection SDLs are precomputed at registration time — zero per-request allocation.
 func collectionHandler(prefix string) http.HandlerFunc {
+	sdlCache := schema.PrecomputeCollectionSDLs(prefix)
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("collection")
-		if !schema.IsValidCollection(name) {
+		sdl, ok := sdlCache[name]
+		if !ok {
 			writeJSONError(w, http.StatusNotFound, "not_found",
 				fmt.Sprintf("collection '%s' not found", name))
 			return
@@ -142,13 +145,6 @@ func collectionHandler(prefix string) http.HandlerFunc {
 		if !ok {
 			writeJSONError(w, http.StatusNotAcceptable, "not_acceptable",
 				"supported content types: application/json, text/plain")
-			return
-		}
-
-		filename := name + ".graphql"
-		sdl, err := schema.LoadCollectionSDLForChain(filename, prefix)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "internal_error", "failed to load collection")
 			return
 		}
 

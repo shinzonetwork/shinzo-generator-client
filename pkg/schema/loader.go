@@ -76,17 +76,23 @@ func ListCollections(prefix string) []CollectionEntry {
 	return entries
 }
 
-// IsValidCollection reports whether the given stem name corresponds to a
-// known collection file (e.g. "block", "transaction").
-func IsValidCollection(name string) bool {
+// PrecomputeCollectionSDLs builds a map of collection stem names to their
+// chain-specific SDLs. The map is computed once at registration time, so
+// per-request handlers never read from the embedded FS or run strings.ReplaceAll.
+func PrecomputeCollectionSDLs(prefix string) map[string]string {
+	cache := make(map[string]string)
 	for _, typeName := range constants.SchemaApplyOrder() {
 		filename := constants.CollectionFileForType(typeName)
+		if filename == "" {
+			continue
+		}
 		stem := strings.TrimSuffix(filename, ".graphql")
-		if stem == name {
-			return true
+		sdl, err := LoadCollectionSDLForChain(filename, prefix)
+		if err == nil {
+			cache[stem] = sdl
 		}
 	}
-	return false
+	return cache
 }
 
 // LoadSchemaSDL reads all collections/*.graphql files in dependency order
