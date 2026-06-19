@@ -313,7 +313,9 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 			return fmt.Errorf("schema auth configuration: %w", err)
 		}
 		if (cfg.Indexer.SchemaAuthMode == constants.SchemaAuthModeToken || cfg.Indexer.SchemaAuthMode == "") && len(cfg.Indexer.SchemaAPIKeys) == 0 {
-			logger.Sugar.Warn("Schema auth mode is 'token' but no API keys are configured — endpoint is fail-closed")
+			logger.Sugar.Warn("schema auth is fail-closed with zero API keys configured — " +
+				"all schema requests will return 503. Set SCHEMA_API_KEYS env var (comma-separated) " +
+				"or set SCHEMA_AUTH_MODE=none to disable token auth")
 		}
 		prefix := chainPrefixFromConfig(cfg)
 		sdl, err := schema.GetSchemaForChain(prefix)

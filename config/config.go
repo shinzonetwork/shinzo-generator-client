@@ -74,16 +74,22 @@ type GethConfig struct {
 
 // IndexerConfig represents indexer configuration.
 type IndexerConfig struct {
-	StartHeight        int      `yaml:"start_height"`
-	ConcurrentBlocks   int      `yaml:"concurrent_blocks"`
-	ReceiptWorkers     int      `yaml:"receipt_workers"`
-	MaxDocsPerTxn      int      `yaml:"max_docs_per_txn"`
-	BlocksPerMinute    int      `yaml:"blocks_per_minute"`
-	HealthServerPort   int      `yaml:"health_server_port"`
-	OpenBrowserOnStart bool     `yaml:"open_browser_on_start"`
-	StartBuffer        int      `yaml:"start_buffer"`
-	SchemaAuthMode     string   `yaml:"schema_auth_mode"`
-	SchemaAPIKeys      []string `yaml:"-"`
+	StartHeight        int    `yaml:"start_height"`
+	ConcurrentBlocks   int    `yaml:"concurrent_blocks"`
+	ReceiptWorkers     int    `yaml:"receipt_workers"`
+	MaxDocsPerTxn      int    `yaml:"max_docs_per_txn"`
+	BlocksPerMinute    int    `yaml:"blocks_per_minute"`
+	HealthServerPort   int    `yaml:"health_server_port"`
+	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"`
+	StartBuffer        int    `yaml:"start_buffer"`
+	SchemaAuthMode     string `yaml:"schema_auth_mode"`
+	// SchemaAPIKeys are the accepted bearer tokens for the /api/v1/schema/* endpoints.
+	//
+	// ⚠ IMPORTANT: This field uses yaml:"-", which means YAML configuration is SILENTLY IGNORED.
+	// Keys MUST be provided via the SCHEMA_API_KEYS environment variable as a comma-separated list.
+	// Setting this field in config.yaml will NOT work — the server will start with zero keys,
+	// causing ALL schema requests to return 503 Service Unavailable (fail-closed auth).
+	SchemaAPIKeys []string `yaml:"-"`
 }
 
 // LoggerConfig represents logger configuration.
