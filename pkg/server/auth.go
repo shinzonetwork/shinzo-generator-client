@@ -100,6 +100,7 @@ func extractToken(r *http.Request) string {
 				return token
 			}
 		}
+		return ""
 	}
 
 	key := strings.TrimSpace(r.Header.Get("X-Api-Key"))

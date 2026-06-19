@@ -357,6 +357,37 @@ func TestExtractToken_NoHeaders(t *testing.T) {
 	assert.Equal(t, "", extractToken(req))
 }
 
+func TestExtractToken_NonBearerAuth_BlocksFallback(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+	req.Header.Set("X-Api-Key", "api-key-123")
+	assert.Equal(t, "", extractToken(req))
+}
+
+func TestExtractToken_BearerEmptyToken_BlocksFallback(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer ")
+	req.Header.Set("X-Api-Key", "api-key-123")
+	assert.Equal(t, "", extractToken(req))
+}
+
+func TestExtractToken_NonBearerAuth_NoApiKey(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Digest username=test")
+	assert.Equal(t, "", extractToken(req))
+}
+
+func TestExtractToken_NonBearerAuth_DisregardsValidApiKey(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Negotiate token")
+	req.Header.Set("X-Api-Key", "valid-key")
+	assert.Equal(t, "", extractToken(req))
+}
+
 // --- reasonFor ---
 
 func TestReasonFor_MissingCredentials(t *testing.T) {
