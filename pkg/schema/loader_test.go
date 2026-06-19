@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestListCollections(t *testing.T) {
@@ -50,6 +51,20 @@ func TestListCollections_DefaultPrefix(t *testing.T) {
 			t.Errorf("entries[%d].TypeName = %q, want %q (SchemaApplyOrder()[%d])", i, e.TypeName, order[i], i)
 		}
 	}
+}
+
+func TestLoadCollectionSDLForChain_EmptyPrefix(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadCollectionSDLForChain("block.graphql", "")
+	assert.EqualError(t, err, "prefix must not be empty")
+}
+
+func TestLoadSchemaSDLForChain_EmptyPrefix(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadSchemaSDLForChain("")
+	assert.EqualError(t, err, "prefix must not be empty")
 }
 
 func TestIsValidCollection(t *testing.T) {

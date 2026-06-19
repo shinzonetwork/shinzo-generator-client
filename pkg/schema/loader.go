@@ -49,6 +49,9 @@ func LoadCollectionSDL(filename string) (string, error) {
 // LoadCollectionSDLForChain reads a single collection .graphql file and
 // replaces the default prefix with the provided one.
 func LoadCollectionSDLForChain(filename, prefix string) (string, error) {
+	if prefix == "" {
+		return "", fmt.Errorf("prefix must not be empty")
+	}
 	raw, err := LoadCollectionSDL(filename)
 	if err != nil {
 		return "", err
@@ -111,6 +114,9 @@ func LoadSchemaSDL() (string, error) {
 // concatenates them into a single SDL document with the default collection
 // prefix replaced by the provided one.
 func LoadSchemaSDLForChain(prefix string) (string, error) {
+	if prefix == "" {
+		return "", fmt.Errorf("prefix must not be empty")
+	}
 	sdl, err := LoadSchemaSDL()
 	if err != nil {
 		return "", err
