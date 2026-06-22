@@ -4102,6 +4102,7 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 		require.NotNil(t, info)
 		assert.False(t, info.Enabled)
 	}
+}
 
 // ===========================================================================
 // NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%.
