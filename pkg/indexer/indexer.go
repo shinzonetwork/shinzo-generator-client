@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
+	indexerErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
@@ -26,6 +27,13 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
+)
+
+var (
+	// ErrMTLSNotImplemented is returned when the mTLS authentication mode is configured but not yet supported.
+	ErrMTLSNotImplemented = errors.New("mTLS auth mode is not yet implemented")
+	// ErrUnknownAuthMode is returned when an unrecognized schema authentication mode is provided.
+	ErrUnknownAuthMode = errors.New("unknown auth mode")
 )
 
 const (
@@ -91,14 +99,14 @@ func (i *ChainIndexer) GetDefraDBPort() int {
 // CreateIndexer creates a new ChainIndexer with the provided configuration.
 func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	if cfg == nil {
-		return nil, errors.NewConfigurationError(
+		return nil, indexerErrors.NewConfigurationError(
 			"indexer",
 			"CreateIndexer",
 			"config is nil",
 			"host=nil, port=nil",
 			nil,
-			errors.WithMetadata("host", "nil"),
-			errors.WithMetadata("port", "nil"))
+			indexerErrors.WithMetadata("host", "nil"),
+			indexerErrors.WithMetadata("port", "nil"))
 	}
 	return &ChainIndexer{
 		cfg:                       cfg,
@@ -233,7 +241,7 @@ func (i *ChainIndexer) initClients(cfg *config.Config) (*defra.BlockHandler, *rp
 
 	ethClient, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey, cfg.Geth.APIKeyType)
 	if err != nil {
-		logCtx := errors.LogContext(err)
+		logCtx := indexerErrors.LogContext(err)
 		logger.Sugar.With("context", logCtx).Fatalf("Failed to connect to Ethereum client: %v", err)
 	}
 
@@ -310,7 +318,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 
 		auth, err := newAuthenticator(cfg.Indexer.SchemaAuthMode, cfg.Indexer.SchemaAPIKeys)
 		if err != nil {
-			return fmt.Errorf("schema auth configuration: %w", err)
+			return fmt.Errorf("schema auth configuration error: %w", err)
 		}
 		if (cfg.Indexer.SchemaAuthMode == constants.SchemaAuthModeToken || cfg.Indexer.SchemaAuthMode == "") && len(cfg.Indexer.SchemaAPIKeys) == 0 {
 			logger.Sugar.Warn("schema auth is fail-closed with zero API keys configured — " +
@@ -647,9 +655,9 @@ func newAuthenticator(mode string, keys []string) (server.Authenticator, error) 
 	case constants.SchemaAuthModeToken, "":
 		return server.NewBearerAuthenticator(keys), nil
 	case constants.SchemaAuthModeMTLS:
-		return nil, fmt.Errorf("mTLS auth mode is not yet implemented")
+		return nil, ErrMTLSNotImplemented
 	default:
-		return nil, fmt.Errorf("unknown auth mode %q", mode)
+		return nil, fmt.Errorf("%w: %q", ErrUnknownAuthMode, mode)
 	}
 }
 

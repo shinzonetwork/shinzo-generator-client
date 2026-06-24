@@ -5855,7 +5855,7 @@ func TestNewAuthenticator_MTLSMode_ReturnsError(t *testing.T) {
 	auth, err := newAuthenticator(constants.SchemaAuthModeMTLS, nil)
 	assert.Nil(t, auth)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "mTLS auth mode is not yet implemented")
+	assert.ErrorIs(t, err, ErrMTLSNotImplemented)
 }
 
 func TestNewAuthenticator_UnknownMode_ReturnsError(t *testing.T) {
@@ -5863,7 +5863,7 @@ func TestNewAuthenticator_UnknownMode_ReturnsError(t *testing.T) {
 	auth, err := newAuthenticator("invalid", nil)
 	assert.Nil(t, auth)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown auth mode")
+	assert.ErrorIs(t, err, ErrUnknownAuthMode)
 }
 
 // ---------------------------------------------------------------------------
@@ -5897,5 +5897,5 @@ func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
 	err = indexer.initServices(context.Background(), cfg, blockHandler)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "schema auth configuration")
-	assert.Contains(t, err.Error(), "mTLS auth mode is not yet implemented")
+	assert.ErrorIs(t, err, ErrMTLSNotImplemented)
 }
