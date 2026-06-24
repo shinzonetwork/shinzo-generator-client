@@ -22,18 +22,16 @@ func TestListCollections(t *testing.T) {
 		"Arbitrum__Sepolia__Log",
 	}
 
-	if len(entries) != len(expectedNames) {
-		t.Fatalf("expected %d entries, got %d", len(expectedNames), len(entries))
+	assert.Len(t, entries, len(expectedNames))
+
+	var names, typeNames []string
+	for _, e := range entries {
+		names = append(names, e.Name)
+		typeNames = append(typeNames, e.TypeName)
 	}
 
-	for i, e := range entries {
-		if e.Name != expectedNames[i] {
-			t.Errorf("entries[%d].Name = %q, want %q", i, e.Name, expectedNames[i])
-		}
-		if e.TypeName != expectedTypeNames[i] {
-			t.Errorf("entries[%d].TypeName = %q, want %q", i, e.TypeName, expectedTypeNames[i])
-		}
-	}
+	assert.Equal(t, expectedNames, names)
+	assert.Equal(t, expectedTypeNames, typeNames)
 }
 
 func TestListCollections_DefaultPrefix(t *testing.T) {
@@ -42,15 +40,14 @@ func TestListCollections_DefaultPrefix(t *testing.T) {
 	entries := ListCollections(constants.DefaultCollectionPrefix)
 
 	order := constants.SchemaApplyOrder()
-	if len(entries) != len(order) {
-		t.Fatalf("expected %d entries, got %d", len(order), len(entries))
+	assert.Len(t, entries, len(order))
+
+	var typeNames []string
+	for _, e := range entries {
+		typeNames = append(typeNames, e.TypeName)
 	}
 
-	for i, e := range entries {
-		if e.TypeName != order[i] {
-			t.Errorf("entries[%d].TypeName = %q, want %q (SchemaApplyOrder()[%d])", i, e.TypeName, order[i], i)
-		}
-	}
+	assert.Equal(t, order, typeNames)
 }
 
 func TestLoadCollectionSDLForChain_EmptyPrefix(t *testing.T) {
@@ -72,20 +69,12 @@ func TestPrecomputeCollectionSDLs_DefaultPrefix(t *testing.T) {
 
 	cache := PrecomputeCollectionSDLs(constants.DefaultCollectionPrefix)
 
-	if len(cache) == 0 {
-		t.Fatal("expected non-empty cache for default prefix")
-	}
+	assert.NotEmpty(t, cache)
 
 	knownCollections := []string{"block", "transaction", "log", "blockSignature", "snapshotSignature", "accessListEntry"}
 	for _, name := range knownCollections {
-		sdl, ok := cache[name]
-		if !ok {
-			t.Errorf("expected cache entry for %q, not found", name)
-			continue
-		}
-		if sdl == "" {
-			t.Errorf("expected non-empty SDL for %q", name)
-		}
+		assert.Contains(t, cache, name)
+		assert.NotEmpty(t, cache[name])
 	}
 }
 
@@ -95,14 +84,10 @@ func TestPrecomputeCollectionSDLs_KeysMatchValidCollections(t *testing.T) {
 	cache := PrecomputeCollectionSDLs("Ethereum__Mainnet")
 
 	for _, name := range []string{"block", "transaction", "log"} {
-		if _, ok := cache[name]; !ok {
-			t.Errorf("expected cache key %q", name)
-		}
+		assert.Contains(t, cache, name)
 	}
 
-	if _, ok := cache["nonexistent"]; ok {
-		t.Error("did not expect cache key for nonexistent collection")
-	}
+	assert.NotContains(t, cache, "nonexistent")
 }
 
 func TestPrecomputeCollectionSDLs_PrefixReplacement(t *testing.T) {
@@ -111,8 +96,8 @@ func TestPrecomputeCollectionSDLs_PrefixReplacement(t *testing.T) {
 	prefix := "Arbitrum__Sepolia"
 	cache := PrecomputeCollectionSDLs(prefix)
 
-	if sdl, ok := cache["block"]; ok {
-		assert.Contains(t, sdl, prefix, "SDL should contain the chain prefix")
-		assert.NotContains(t, sdl, constants.DefaultCollectionPrefix, "SDL should not contain default prefix")
-	}
+	sdl, ok := cache["block"]
+	assert.True(t, ok, "expected block entry in cache")
+	assert.Contains(t, sdl, prefix, "SDL should contain the chain prefix")
+	assert.NotContains(t, sdl, constants.DefaultCollectionPrefix, "SDL should not contain default prefix")
 }
