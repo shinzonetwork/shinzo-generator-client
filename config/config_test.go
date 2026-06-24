@@ -4,10 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadConfig_ValidYAML(t *testing.T) {
@@ -36,38 +37,22 @@ logger:
   development: true
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
 	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if cfg.DefraDB.URL != "http://localhost:9181" {
-		t.Errorf("Expected url 'http://localhost:9181', got '%s'", cfg.DefraDB.URL)
-	}
-	if cfg.DefraDB.KeyringSecret != "test_secret" {
-		t.Errorf("Expected keyring_secret 'test_secret', got '%s'", cfg.DefraDB.KeyringSecret)
-	}
-	if len(cfg.DefraDB.P2P.BootstrapPeers) != 2 {
-		t.Errorf("Expected 2 bootstrap peers, got %d", len(cfg.DefraDB.P2P.BootstrapPeers))
-	}
-	if cfg.Geth.NodeURL == "" {
-		t.Error("Expected non-empty node_url")
-	}
-	if cfg.Indexer.StartHeight != 1000 {
-		t.Errorf("Expected start_height 1000, got %d", cfg.Indexer.StartHeight)
-	}
+	assert.Equal(t, "http://localhost:9181", cfg.DefraDB.URL, "DefraDB.URL")
+	assert.Equal(t, "test_secret", cfg.DefraDB.KeyringSecret, "DefraDB.KeyringSecret")
+	assert.Len(t, cfg.DefraDB.P2P.BootstrapPeers, 2, "P2P.BootstrapPeers")
+	assert.NotEmpty(t, cfg.Geth.NodeURL, "Geth.NodeURL")
+	assert.Equal(t, 1000, cfg.Indexer.StartHeight, "Indexer.StartHeight")
 }
 
 func TestLoadConfig_InvalidPath(t *testing.T) {
 	t.Parallel()
 	_, err := LoadConfig("/nonexistent/path/config.yaml")
-	if err == nil {
-		t.Error("Expected error for nonexistent config file")
-	}
+	require.Error(t, err)
 }
 
 func TestLoadConfig_InvalidYAML(t *testing.T) {
@@ -75,14 +60,10 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "invalid_config.yaml")
 
-	if err := os.WriteFile(configPath, []byte("defradb:\n  url: \"invalid yaml\n"), 0o600); err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte("defradb:\n  url: \"invalid yaml\n"), 0o600))
 
 	_, err := LoadConfig(configPath)
-	if err == nil {
-		t.Error("Expected error for invalid YAML")
-	}
+	require.Error(t, err)
 }
 
 func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
@@ -110,16 +91,13 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 			configPath := filepath.Join(tempDir, "config.yaml")
 			configContent := "defradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
 
-			if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-				t.Fatalf("Failed to write test config file: %v", err)
-			}
+			require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
 			_, err := LoadConfig(configPath)
-			if tt.shouldError && err == nil {
-				t.Fatalf("expected error for embedded=%v url='%s'", tt.embedded, tt.url)
-			}
-			if !tt.shouldError && err != nil {
-				t.Fatalf("unexpected error for embedded=%v url='%s': %v", tt.embedded, tt.url, err)
+			if tt.shouldError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -128,9 +106,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 func TestDefraDBConfig_Host(t *testing.T) {
 	t.Parallel()
 	cfg := &DefraDBConfig{URL: "http://localhost:9181"}
-	if cfg.Host() != "http://localhost:9181" {
-		t.Errorf("Host() = %q, want %q", cfg.Host(), "http://localhost:9181")
-	}
+	assert.Equal(t, "http://localhost:9181", cfg.Host())
 }
 
 func TestApplyDefaults_AllZeroValues(t *testing.T) {
@@ -138,21 +114,11 @@ func TestApplyDefaults_AllZeroValues(t *testing.T) {
 	cfg := &Config{}
 	applyDefaults(cfg)
 
-	if cfg.Indexer.ConcurrentBlocks != 8 {
-		t.Errorf("ConcurrentBlocks = %d, want 8", cfg.Indexer.ConcurrentBlocks)
-	}
-	if cfg.Indexer.ReceiptWorkers != 16 {
-		t.Errorf("ReceiptWorkers = %d, want 16", cfg.Indexer.ReceiptWorkers)
-	}
-	if cfg.Indexer.MaxDocsPerTxn != 1000 {
-		t.Errorf("MaxDocsPerTxn = %d, want 1000", cfg.Indexer.MaxDocsPerTxn)
-	}
-	if cfg.Indexer.HealthServerPort != 8080 {
-		t.Errorf("HealthServerPort = %d, want 8080", cfg.Indexer.HealthServerPort)
-	}
-	if cfg.Indexer.StartBuffer != 100 {
-		t.Errorf("StartBuffer = %d, want 100", cfg.Indexer.StartBuffer)
-	}
+	assert.Equal(t, 8, cfg.Indexer.ConcurrentBlocks, "ConcurrentBlocks")
+	assert.Equal(t, 16, cfg.Indexer.ReceiptWorkers, "ReceiptWorkers")
+	assert.Equal(t, 1000, cfg.Indexer.MaxDocsPerTxn, "MaxDocsPerTxn")
+	assert.Equal(t, 8080, cfg.Indexer.HealthServerPort, "HealthServerPort")
+	assert.Equal(t, 100, cfg.Indexer.StartBuffer, "StartBuffer")
 }
 
 func TestApplyDefaults_PresetValuesPreserved(t *testing.T) {
@@ -166,21 +132,11 @@ func TestApplyDefaults_PresetValuesPreserved(t *testing.T) {
 
 	applyDefaults(cfg)
 
-	if cfg.Indexer.ConcurrentBlocks != 4 {
-		t.Errorf("ConcurrentBlocks should be preserved as 4, got %d", cfg.Indexer.ConcurrentBlocks)
-	}
-	if cfg.Indexer.ReceiptWorkers != 8 {
-		t.Errorf("ReceiptWorkers should be preserved as 8, got %d", cfg.Indexer.ReceiptWorkers)
-	}
-	if cfg.Indexer.MaxDocsPerTxn != 500 {
-		t.Errorf("MaxDocsPerTxn should be preserved as 500, got %d", cfg.Indexer.MaxDocsPerTxn)
-	}
-	if cfg.Indexer.HealthServerPort != 9090 {
-		t.Errorf("HealthServerPort should be preserved as 9090, got %d", cfg.Indexer.HealthServerPort)
-	}
-	if cfg.Indexer.StartBuffer != 50 {
-		t.Errorf("StartBuffer should be preserved as 50, got %d", cfg.Indexer.StartBuffer)
-	}
+	assert.Equal(t, 4, cfg.Indexer.ConcurrentBlocks, "ConcurrentBlocks")
+	assert.Equal(t, 8, cfg.Indexer.ReceiptWorkers, "ReceiptWorkers")
+	assert.Equal(t, 500, cfg.Indexer.MaxDocsPerTxn, "MaxDocsPerTxn")
+	assert.Equal(t, 9090, cfg.Indexer.HealthServerPort, "HealthServerPort")
+	assert.Equal(t, 50, cfg.Indexer.StartBuffer, "StartBuffer")
 }
 
 func TestValidateConfig_NegativeStartHeight(t *testing.T) {
@@ -190,12 +146,8 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 	cfg.Indexer.StartHeight = -1
 
 	err := validateConfig(cfg)
-	if err == nil {
-		t.Error("expected error for negative start_height")
-	}
-	if !strings.Contains(err.Error(), "start_height") {
-		t.Errorf("error should mention start_height, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "start_height")
 }
 
 func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
@@ -205,9 +157,7 @@ func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
 	cfg.DefraDB.URL = ""
 
 	err := validateConfig(cfg)
-	if err == nil {
-		t.Error("expected error for external DefraDB with empty url")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateConfig_Valid(t *testing.T) {
@@ -217,40 +167,35 @@ func TestValidateConfig_Valid(t *testing.T) {
 	cfg.Indexer.StartHeight = 0
 	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 
-	if err := validateConfig(cfg); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	require.NoError(t, validateConfig(cfg))
 }
 
 func TestApplyEnvOverrides_DefraDBUrl(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_URL", "http://custom:9181")
 	applyEnvOverrides(cfg)
-	if cfg.DefraDB.URL != "http://custom:9181" {
-		t.Errorf("DEFRADB_URL override failed: got %q", cfg.DefraDB.URL)
-	}
+	assert.Equal(t, "http://custom:9181", cfg.DefraDB.URL)
 }
 
-func TestApplyEnvOverrides_DefraDBHost_WithPort(t *testing.T) {
-	cfg := &Config{}
-	// DEFRADB_URL must be unset for HOST to take effect
-	t.Setenv("DEFRADB_URL", "")
-	t.Setenv("DEFRADB_HOST", "myhost")
-	t.Setenv("DEFRADB_PORT", "1234")
-	applyEnvOverrides(cfg)
-	if cfg.DefraDB.URL != "http://myhost:1234" {
-		t.Errorf("DEFRADB_HOST+PORT override failed: got %q", cfg.DefraDB.URL)
+func TestApplyEnvOverrides_DefraDBHost(t *testing.T) {
+	tests := []struct {
+		name    string
+		port    string
+		wantURL string
+	}{
+		{"with port", "1234", "http://myhost:1234"},
+		{"without port defaults to 9181", "", "http://myhost:9181"},
 	}
-}
-
-func TestApplyEnvOverrides_DefraDBHost_WithoutPort(t *testing.T) {
-	cfg := &Config{}
-	t.Setenv("DEFRADB_URL", "")
-	t.Setenv("DEFRADB_HOST", "myhost")
-	t.Setenv("DEFRADB_PORT", "")
-	applyEnvOverrides(cfg)
-	if cfg.DefraDB.URL != "http://myhost:9181" {
-		t.Errorf("DEFRADB_HOST without PORT should default to 9181, got %q", cfg.DefraDB.URL)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			// DEFRADB_URL must be unset for HOST to take effect
+			t.Setenv("DEFRADB_URL", "")
+			t.Setenv("DEFRADB_HOST", "myhost")
+			t.Setenv("DEFRADB_PORT", tt.port)
+			applyEnvOverrides(cfg)
+			assert.Equal(t, tt.wantURL, cfg.DefraDB.URL)
+		})
 	}
 }
 
@@ -258,9 +203,7 @@ func TestApplyEnvOverrides_DefraDBKeyringSecret(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_KEYRING_SECRET", "mysecret")
 	applyEnvOverrides(cfg)
-	if cfg.DefraDB.KeyringSecret != "mysecret" {
-		t.Errorf("DEFRADB_KEYRING_SECRET override failed: got %q", cfg.DefraDB.KeyringSecret)
-	}
+	assert.Equal(t, "mysecret", cfg.DefraDB.KeyringSecret)
 }
 
 func TestApplyEnvOverrides_P2PConfig(t *testing.T) {
@@ -270,15 +213,9 @@ func TestApplyEnvOverrides_P2PConfig(t *testing.T) {
 	t.Setenv("DEFRADB_P2P_ACCEPT_INCOMING", "true")
 	applyEnvOverrides(cfg)
 
-	if !cfg.DefraDB.P2P.Enabled {
-		t.Error("P2P.Enabled should be true")
-	}
-	if cfg.DefraDB.P2P.ListenAddr != "/ip4/0.0.0.0/tcp/9999" {
-		t.Errorf("P2P.ListenAddr = %q", cfg.DefraDB.P2P.ListenAddr)
-	}
-	if !cfg.DefraDB.P2P.AcceptIncoming {
-		t.Error("P2P.AcceptIncoming should be true")
-	}
+	assert.True(t, cfg.DefraDB.P2P.Enabled, "P2P.Enabled")
+	assert.Equal(t, "/ip4/0.0.0.0/tcp/9999", cfg.DefraDB.P2P.ListenAddr, "P2P.ListenAddr")
+	assert.True(t, cfg.DefraDB.P2P.AcceptIncoming, "P2P.AcceptIncoming")
 }
 
 func TestApplyEnvOverrides_P2P_InvalidBool(t *testing.T) {
@@ -288,12 +225,8 @@ func TestApplyEnvOverrides_P2P_InvalidBool(t *testing.T) {
 	applyEnvOverrides(cfg)
 
 	// Should be silently ignored
-	if cfg.DefraDB.P2P.Enabled {
-		t.Error("P2P.Enabled should remain false for invalid bool")
-	}
-	if cfg.DefraDB.P2P.AcceptIncoming {
-		t.Error("P2P.AcceptIncoming should remain false for invalid bool")
-	}
+	assert.False(t, cfg.DefraDB.P2P.Enabled, "P2P.Enabled should remain false for invalid bool")
+	assert.False(t, cfg.DefraDB.P2P.AcceptIncoming, "P2P.AcceptIncoming should remain false for invalid bool")
 }
 
 func TestApplyEnvOverrides_StoreConfig(t *testing.T) {
@@ -307,27 +240,13 @@ func TestApplyEnvOverrides_StoreConfig(t *testing.T) {
 	t.Setenv("DEFRADB_NUM_LEVEL_ZERO_TABLES_STALL", "20")
 	applyEnvOverrides(cfg)
 
-	if cfg.DefraDB.Store.Path != "/custom/path" {
-		t.Errorf("Store.Path = %q", cfg.DefraDB.Store.Path)
-	}
-	if cfg.DefraDB.Store.BlockCacheMB != 256 {
-		t.Errorf("Store.BlockCacheMB = %d", cfg.DefraDB.Store.BlockCacheMB)
-	}
-	if cfg.DefraDB.Store.MemTableMB != 128 {
-		t.Errorf("Store.MemTableMB = %d", cfg.DefraDB.Store.MemTableMB)
-	}
-	if cfg.DefraDB.Store.IndexCacheMB != 64 {
-		t.Errorf("Store.IndexCacheMB = %d", cfg.DefraDB.Store.IndexCacheMB)
-	}
-	if cfg.DefraDB.Store.NumCompactors != 4 {
-		t.Errorf("Store.NumCompactors = %d", cfg.DefraDB.Store.NumCompactors)
-	}
-	if cfg.DefraDB.Store.NumLevelZeroTables != 10 {
-		t.Errorf("Store.NumLevelZeroTables = %d", cfg.DefraDB.Store.NumLevelZeroTables)
-	}
-	if cfg.DefraDB.Store.NumLevelZeroTablesStall != 20 {
-		t.Errorf("Store.NumLevelZeroTablesStall = %d", cfg.DefraDB.Store.NumLevelZeroTablesStall)
-	}
+	assert.Equal(t, "/custom/path", cfg.DefraDB.Store.Path, "Store.Path")
+	assert.Equal(t, int64(256), cfg.DefraDB.Store.BlockCacheMB, "Store.BlockCacheMB")
+	assert.Equal(t, int64(128), cfg.DefraDB.Store.MemTableMB, "Store.MemTableMB")
+	assert.Equal(t, int64(64), cfg.DefraDB.Store.IndexCacheMB, "Store.IndexCacheMB")
+	assert.Equal(t, 4, cfg.DefraDB.Store.NumCompactors, "Store.NumCompactors")
+	assert.Equal(t, 10, cfg.DefraDB.Store.NumLevelZeroTables, "Store.NumLevelZeroTables")
+	assert.Equal(t, 20, cfg.DefraDB.Store.NumLevelZeroTablesStall, "Store.NumLevelZeroTablesStall")
 }
 
 func TestApplyEnvOverrides_StoreConfig_InvalidValues(t *testing.T) {
@@ -341,15 +260,9 @@ func TestApplyEnvOverrides_StoreConfig_InvalidValues(t *testing.T) {
 	applyEnvOverrides(cfg)
 
 	// All should remain at zero values
-	if cfg.DefraDB.Store.BlockCacheMB != 0 {
-		t.Error("BlockCacheMB should remain 0 for invalid value")
-	}
-	if cfg.DefraDB.Store.MemTableMB != 0 {
-		t.Error("MemTableMB should remain 0 for invalid value")
-	}
-	if cfg.DefraDB.Store.IndexCacheMB != 0 {
-		t.Error("IndexCacheMB should remain 0 for invalid value")
-	}
+	assert.Zero(t, cfg.DefraDB.Store.BlockCacheMB, "BlockCacheMB should remain 0 for invalid value")
+	assert.Zero(t, cfg.DefraDB.Store.MemTableMB, "MemTableMB should remain 0 for invalid value")
+	assert.Zero(t, cfg.DefraDB.Store.IndexCacheMB, "IndexCacheMB should remain 0 for invalid value")
 }
 
 func TestApplyEnvOverrides_GethConfig(t *testing.T) {
@@ -360,15 +273,9 @@ func TestApplyEnvOverrides_GethConfig(t *testing.T) {
 	t.Setenv("GETH_API_KEY_TYPE", "X-Api-Key")
 	applyEnvOverrides(cfg)
 
-	if cfg.Geth.NodeURL != "http://geth:8545" {
-		t.Errorf("Geth.NodeURL = %q", cfg.Geth.NodeURL)
-	}
-	if cfg.Geth.WsURL != "ws://geth:8546" {
-		t.Errorf("Geth.WsURL = %q", cfg.Geth.WsURL)
-	}
-	if cfg.Geth.APIKey != "myapikey" {
-		t.Errorf("Geth.APIKey = %q", cfg.Geth.APIKey)
-	}
+	assert.Equal(t, "http://geth:8545", cfg.Geth.NodeURL, "Geth.NodeURL")
+	assert.Equal(t, "ws://geth:8546", cfg.Geth.WsURL, "Geth.WsURL")
+	assert.Equal(t, "myapikey", cfg.Geth.APIKey, "Geth.APIKey")
 }
 
 func TestApplyEnvOverrides_IndexerConfig(t *testing.T) {
@@ -382,27 +289,13 @@ func TestApplyEnvOverrides_IndexerConfig(t *testing.T) {
 	t.Setenv("INDEXER_START_BUFFER", "200")
 	applyEnvOverrides(cfg)
 
-	if cfg.Indexer.StartHeight != 5000 {
-		t.Errorf("Indexer.StartHeight = %d", cfg.Indexer.StartHeight)
-	}
-	if cfg.Indexer.ConcurrentBlocks != 16 {
-		t.Errorf("Indexer.ConcurrentBlocks = %d", cfg.Indexer.ConcurrentBlocks)
-	}
-	if cfg.Indexer.ReceiptWorkers != 32 {
-		t.Errorf("Indexer.ReceiptWorkers = %d", cfg.Indexer.ReceiptWorkers)
-	}
-	if cfg.Indexer.MaxDocsPerTxn != 2000 {
-		t.Errorf("Indexer.MaxDocsPerTxn = %d", cfg.Indexer.MaxDocsPerTxn)
-	}
-	if cfg.Indexer.BlocksPerMinute != 60 {
-		t.Errorf("Indexer.BlocksPerMinute = %d", cfg.Indexer.BlocksPerMinute)
-	}
-	if cfg.Indexer.HealthServerPort != 9090 {
-		t.Errorf("Indexer.HealthServerPort = %d", cfg.Indexer.HealthServerPort)
-	}
-	if cfg.Indexer.StartBuffer != 200 {
-		t.Errorf("Indexer.StartBuffer = %d", cfg.Indexer.StartBuffer)
-	}
+	assert.Equal(t, 5000, cfg.Indexer.StartHeight, "Indexer.StartHeight")
+	assert.Equal(t, 16, cfg.Indexer.ConcurrentBlocks, "Indexer.ConcurrentBlocks")
+	assert.Equal(t, 32, cfg.Indexer.ReceiptWorkers, "Indexer.ReceiptWorkers")
+	assert.Equal(t, 2000, cfg.Indexer.MaxDocsPerTxn, "Indexer.MaxDocsPerTxn")
+	assert.Equal(t, 60, cfg.Indexer.BlocksPerMinute, "Indexer.BlocksPerMinute")
+	assert.Equal(t, 9090, cfg.Indexer.HealthServerPort, "Indexer.HealthServerPort")
+	assert.Equal(t, 200, cfg.Indexer.StartBuffer, "Indexer.StartBuffer")
 }
 
 func TestApplyEnvOverrides_IndexerConfig_InvalidValues(t *testing.T) {
@@ -417,9 +310,7 @@ func TestApplyEnvOverrides_IndexerConfig_InvalidValues(t *testing.T) {
 	t.Setenv("INDEXER_START_BUFFER", "yyy")
 	applyEnvOverrides(cfg)
 
-	if cfg.Indexer.StartHeight != 1000 {
-		t.Errorf("StartHeight should be preserved as 1000, got %d", cfg.Indexer.StartHeight)
-	}
+	assert.Equal(t, 1000, cfg.Indexer.StartHeight, "StartHeight should be preserved as 1000")
 }
 
 func TestApplyEnvOverrides_LoggerConfig(t *testing.T) {
@@ -427,9 +318,7 @@ func TestApplyEnvOverrides_LoggerConfig(t *testing.T) {
 	t.Setenv("LOGGER_DEBUG", "true")
 	applyEnvOverrides(cfg)
 
-	if !cfg.Logger.Development {
-		t.Error("Logger.Development should be true")
-	}
+	assert.True(t, cfg.Logger.Development, "Logger.Development should be true")
 }
 
 func TestApplyEnvOverrides_LoggerConfig_Invalid(t *testing.T) {
@@ -437,9 +326,7 @@ func TestApplyEnvOverrides_LoggerConfig_Invalid(t *testing.T) {
 	t.Setenv("LOGGER_DEBUG", "not_a_bool")
 	applyEnvOverrides(cfg)
 
-	if cfg.Logger.Development {
-		t.Error("Logger.Development should remain false for invalid bool")
-	}
+	assert.False(t, cfg.Logger.Development, "Logger.Development should remain false for invalid bool")
 }
 
 func TestApplyEnvOverrides_PrunerConfig(t *testing.T) {
@@ -450,18 +337,10 @@ func TestApplyEnvOverrides_PrunerConfig(t *testing.T) {
 	t.Setenv("PRUNER_INTERVAL_SECONDS", "30")
 	applyEnvOverrides(cfg)
 
-	if !cfg.Pruner.Enabled {
-		t.Error("Pruner.Enabled should be true")
-	}
-	if cfg.Pruner.MaxBlocks != 1000 {
-		t.Errorf("Pruner.MaxBlocks = %d", cfg.Pruner.MaxBlocks)
-	}
-	if cfg.Pruner.PruneThreshold != 100 {
-		t.Errorf("Pruner.PruneThreshold = %d", cfg.Pruner.PruneThreshold)
-	}
-	if cfg.Pruner.IntervalSeconds != 30 {
-		t.Errorf("Pruner.IntervalSeconds = %d", cfg.Pruner.IntervalSeconds)
-	}
+	assert.True(t, cfg.Pruner.Enabled, "Pruner.Enabled")
+	assert.Equal(t, int64(1000), cfg.Pruner.MaxBlocks, "Pruner.MaxBlocks")
+	assert.Equal(t, int64(100), cfg.Pruner.PruneThreshold, "Pruner.PruneThreshold")
+	assert.Equal(t, 30, cfg.Pruner.IntervalSeconds, "Pruner.IntervalSeconds")
 }
 
 func TestApplyEnvOverrides_PrunerConfig_Invalid(t *testing.T) {
@@ -472,9 +351,7 @@ func TestApplyEnvOverrides_PrunerConfig_Invalid(t *testing.T) {
 	t.Setenv("PRUNER_INTERVAL_SECONDS", "nope")
 	applyEnvOverrides(cfg)
 
-	if cfg.Pruner.Enabled {
-		t.Error("Pruner.Enabled should remain false")
-	}
+	assert.False(t, cfg.Pruner.Enabled, "Pruner.Enabled should remain false")
 }
 
 func TestApplyEnvOverrides_SnapshotConfig(t *testing.T) {
@@ -485,18 +362,10 @@ func TestApplyEnvOverrides_SnapshotConfig(t *testing.T) {
 	t.Setenv("SNAPSHOT_INTERVAL_SECONDS", "120")
 	applyEnvOverrides(cfg)
 
-	if !cfg.Snapshot.Enabled {
-		t.Error("Snapshot.Enabled should be true")
-	}
-	if cfg.Snapshot.Dir != "/custom/snapshots" {
-		t.Errorf("Snapshot.Dir = %q", cfg.Snapshot.Dir)
-	}
-	if cfg.Snapshot.BlocksPerFile != 5000 {
-		t.Errorf("Snapshot.BlocksPerFile = %d", cfg.Snapshot.BlocksPerFile)
-	}
-	if cfg.Snapshot.IntervalSeconds != 120 {
-		t.Errorf("Snapshot.IntervalSeconds = %d", cfg.Snapshot.IntervalSeconds)
-	}
+	assert.True(t, cfg.Snapshot.Enabled, "Snapshot.Enabled")
+	assert.Equal(t, "/custom/snapshots", cfg.Snapshot.Dir, "Snapshot.Dir")
+	assert.Equal(t, int64(5000), cfg.Snapshot.BlocksPerFile, "Snapshot.BlocksPerFile")
+	assert.Equal(t, 120, cfg.Snapshot.IntervalSeconds, "Snapshot.IntervalSeconds")
 }
 
 func TestApplyEnvOverrides_SnapshotConfig_Invalid(t *testing.T) {
@@ -506,9 +375,7 @@ func TestApplyEnvOverrides_SnapshotConfig_Invalid(t *testing.T) {
 	t.Setenv("SNAPSHOT_INTERVAL_SECONDS", "bad")
 	applyEnvOverrides(cfg)
 
-	if cfg.Snapshot.Enabled {
-		t.Error("Snapshot.Enabled should remain false")
-	}
+	assert.False(t, cfg.Snapshot.Enabled, "Snapshot.Enabled should remain false")
 }
 
 func TestLoadConfig_EnvironmentOverrides_Integration(t *testing.T) {
@@ -523,19 +390,13 @@ indexer:
   start_height: 1000
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
 	t.Setenv("INDEXER_START_HEIGHT", "2000")
 	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if cfg.Indexer.StartHeight != 2000 {
-		t.Errorf("Expected start_height 2000, got %d", cfg.Indexer.StartHeight)
-	}
+	assert.Equal(t, 2000, cfg.Indexer.StartHeight, "Indexer.StartHeight")
 }
 
 func TestLoadConfig_InvalidEnvironmentValues(t *testing.T) {
@@ -549,96 +410,64 @@ indexer:
   start_height: 1000
 `
 
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
 	t.Setenv("INDEXER_START_HEIGHT", "not_a_number")
 	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if cfg.Indexer.StartHeight != 1000 {
-		t.Errorf("Expected start_height 1000 (original), got %d", cfg.Indexer.StartHeight)
-	}
+	assert.Equal(t, 1000, cfg.Indexer.StartHeight, "StartHeight should be preserved as 1000")
 }
 
 func TestSchemaAuthModeDefault(t *testing.T) {
 	cfg := &Config{}
 	applyDefaults(cfg)
-	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeToken {
-		t.Errorf("SchemaAuthMode default = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeToken)
+	assert.Equal(t, constants.SchemaAuthModeToken, cfg.Indexer.SchemaAuthMode, "SchemaAuthMode default")
+}
+
+func TestSchemaAuthModeEnvOverride(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		want     string
+	}{
+		{"none", "none", constants.SchemaAuthModeNone},
+		{"token", "token", constants.SchemaAuthModeToken},
+		{"mtls", "mtls", constants.SchemaAuthModeMTLS},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			t.Setenv("SCHEMA_AUTH_MODE", tt.envValue)
+			applySchemaEnvOverrides(cfg)
+			assert.Equal(t, tt.want, cfg.Indexer.SchemaAuthMode, "SchemaAuthMode")
+		})
 	}
 }
 
-func TestSchemaAuthModeEnvOverride_None(t *testing.T) {
-	cfg := &Config{}
-	t.Setenv("SCHEMA_AUTH_MODE", "none")
-	applySchemaEnvOverrides(cfg)
-	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeNone {
-		t.Errorf("SchemaAuthMode = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeNone)
+func TestSchemaAPIKeysEnvOverride(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVal  string
+		want    []string
+		wantNil bool
+	}{
+		{"multiple", "key1, key2 ,key3", []string{"key1", "key2", "key3"}, false},
+		{"trims and drops empty", "a, b ,, c", []string{"a", "b", "c"}, false},
+		{"single key", "onlykey", []string{"onlykey"}, false},
+		{"empty string", "", nil, true},
 	}
-}
-
-func TestSchemaAuthModeEnvOverride_Token(t *testing.T) {
-	cfg := &Config{}
-	t.Setenv("SCHEMA_AUTH_MODE", "token")
-	applySchemaEnvOverrides(cfg)
-	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeToken {
-		t.Errorf("SchemaAuthMode = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeToken)
-	}
-}
-
-func TestSchemaAuthModeEnvOverride_MTLS(t *testing.T) {
-	cfg := &Config{}
-	t.Setenv("SCHEMA_AUTH_MODE", "mtls")
-	applySchemaEnvOverrides(cfg)
-	if cfg.Indexer.SchemaAuthMode != constants.SchemaAuthModeMTLS {
-		t.Errorf("SchemaAuthMode = %q, want %q", cfg.Indexer.SchemaAuthMode, constants.SchemaAuthModeMTLS)
-	}
-}
-
-func TestSchemaAPIKeysEnvOverride_Multiple(t *testing.T) {
-	cfg := &Config{}
-	t.Setenv("SCHEMA_API_KEYS", "key1, key2 ,key3")
-	applySchemaEnvOverrides(cfg)
-	if len(cfg.Indexer.SchemaAPIKeys) != 3 {
-		t.Fatalf("SchemaAPIKeys length = %d, want 3", len(cfg.Indexer.SchemaAPIKeys))
-	}
-	if cfg.Indexer.SchemaAPIKeys[0] != "key1" || cfg.Indexer.SchemaAPIKeys[1] != "key2" || cfg.Indexer.SchemaAPIKeys[2] != "key3" {
-		t.Errorf("SchemaAPIKeys = %v, want [key1 key2 key3]", cfg.Indexer.SchemaAPIKeys)
-	}
-}
-
-func TestSchemaAPIKeysEnvOverride_TrimsAndDropsEmpty(t *testing.T) {
-	cfg := &Config{}
-	t.Setenv("SCHEMA_API_KEYS", "a, b ,, c")
-	applySchemaEnvOverrides(cfg)
-	if len(cfg.Indexer.SchemaAPIKeys) != 3 {
-		t.Fatalf("SchemaAPIKeys length = %d, want 3", len(cfg.Indexer.SchemaAPIKeys))
-	}
-	if cfg.Indexer.SchemaAPIKeys[0] != "a" || cfg.Indexer.SchemaAPIKeys[1] != "b" || cfg.Indexer.SchemaAPIKeys[2] != "c" {
-		t.Errorf("SchemaAPIKeys = %v, want [a b c]", cfg.Indexer.SchemaAPIKeys)
-	}
-}
-
-func TestSchemaAPIKeysEnvOverride_SingleKey(t *testing.T) {
-	cfg := &Config{}
-	t.Setenv("SCHEMA_API_KEYS", "onlykey")
-	applySchemaEnvOverrides(cfg)
-	if len(cfg.Indexer.SchemaAPIKeys) != 1 || cfg.Indexer.SchemaAPIKeys[0] != "onlykey" {
-		t.Errorf("SchemaAPIKeys = %v, want [onlykey]", cfg.Indexer.SchemaAPIKeys)
-	}
-}
-
-func TestSchemaAPIKeysEnvOverride_EmptyString(t *testing.T) {
-	cfg := &Config{}
-	cfg.Indexer.SchemaAPIKeys = nil
-	t.Setenv("SCHEMA_API_KEYS", "")
-	applySchemaEnvOverrides(cfg)
-	if cfg.Indexer.SchemaAPIKeys != nil {
-		t.Errorf("SchemaAPIKeys should remain nil for empty env var, got %v", cfg.Indexer.SchemaAPIKeys)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			t.Setenv("SCHEMA_API_KEYS", tt.envVal)
+			applySchemaEnvOverrides(cfg)
+			if tt.wantNil {
+				assert.Nil(t, cfg.Indexer.SchemaAPIKeys, "SchemaAPIKeys should be nil")
+			} else {
+				assert.Equal(t, tt.want, cfg.Indexer.SchemaAPIKeys, "SchemaAPIKeys")
+			}
+		})
 	}
 }
 
@@ -647,37 +476,25 @@ func TestValidateConfig_InvalidAuthMode(t *testing.T) {
 	cfg.DefraDB.Embedded = true
 	cfg.Indexer.SchemaAuthMode = "invalid"
 	err := validateConfig(cfg)
-	if err == nil {
-		t.Fatal("expected error for invalid SCHEMA_AUTH_MODE")
-	}
-	if !strings.Contains(err.Error(), "invalid SCHEMA_AUTH_MODE") {
-		t.Errorf("error should mention invalid SCHEMA_AUTH_MODE, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid SCHEMA_AUTH_MODE")
 }
 
-func TestValidateConfig_ValidAuthModes_None(t *testing.T) {
-	cfg := &Config{}
-	cfg.DefraDB.Embedded = true
-	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeNone
-	if err := validateConfig(cfg); err != nil {
-		t.Errorf("unexpected error for mode 'none': %v", err)
+func TestValidateConfig_ValidAuthModes(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{"none", constants.SchemaAuthModeNone},
+		{"token", constants.SchemaAuthModeToken},
+		{"mtls", constants.SchemaAuthModeMTLS},
 	}
-}
-
-func TestValidateConfig_ValidAuthModes_Token(t *testing.T) {
-	cfg := &Config{}
-	cfg.DefraDB.Embedded = true
-	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
-	if err := validateConfig(cfg); err != nil {
-		t.Errorf("unexpected error for mode 'token': %v", err)
-	}
-}
-
-func TestValidateConfig_ValidAuthModes_MTLS(t *testing.T) {
-	cfg := &Config{}
-	cfg.DefraDB.Embedded = true
-	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeMTLS
-	if err := validateConfig(cfg); err != nil {
-		t.Errorf("unexpected error for mode 'mtls': %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Indexer.SchemaAuthMode = tt.mode
+			require.NoError(t, validateConfig(cfg))
+		})
 	}
 }
