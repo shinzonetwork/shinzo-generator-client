@@ -420,6 +420,7 @@ indexer:
 }
 
 func TestSchemaAuthModeDefault(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{}
 	applyDefaults(cfg)
 	assert.Equal(t, constants.SchemaAuthModeToken, cfg.Indexer.SchemaAuthMode, "SchemaAuthMode default")
@@ -471,30 +472,32 @@ func TestSchemaAPIKeysEnvOverride(t *testing.T) {
 	}
 }
 
-func TestValidateConfig_InvalidAuthMode(t *testing.T) {
-	cfg := &Config{}
-	cfg.DefraDB.Embedded = true
-	cfg.Indexer.SchemaAuthMode = "invalid"
-	err := validateConfig(cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid SCHEMA_AUTH_MODE")
-}
-
-func TestValidateConfig_ValidAuthModes(t *testing.T) {
+func TestValidateConfig_AuthModes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		name string
-		mode string
+		name        string
+		mode        string
+		shouldError bool
+		errContains string
 	}{
-		{"none", constants.SchemaAuthModeNone},
-		{"token", constants.SchemaAuthModeToken},
-		{"mtls", constants.SchemaAuthModeMTLS},
+		{"none", constants.SchemaAuthModeNone, false, ""},
+		{"token", constants.SchemaAuthModeToken, false, ""},
+		{"mtls", constants.SchemaAuthModeMTLS, false, ""},
+		{"invalid", "invalid", true, "invalid SCHEMA_AUTH_MODE"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
 			cfg.Indexer.SchemaAuthMode = tt.mode
-			require.NoError(t, validateConfig(cfg))
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
