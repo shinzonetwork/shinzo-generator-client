@@ -106,7 +106,7 @@ func PrecomputeCollectionSDLs(prefix string) (map[string]string, error) {
 	for _, typeName := range constants.SchemaApplyOrder() {
 		filename := constants.CollectionFileForType(typeName)
 		if filename == "" {
-			return nil, fmt.Errorf("%w: %s", ErrUnknownCollectionType, typeName)
+			continue
 		}
 		stem := strings.TrimSuffix(filename, ".graphql")
 		sdl, err := LoadCollectionSDLForChain(filename, prefix)
