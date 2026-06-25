@@ -9,8 +9,18 @@ import (
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
 
-// ErrEmptyPrefix is returned when a chain prefix is required but not provided.
-var ErrEmptyPrefix = errors.New("prefix must not be empty")
+var (
+	// ErrEmptyPrefix is returned when a chain prefix is required but not provided.
+	ErrEmptyPrefix = errors.New("prefix must not be empty")
+
+	// ErrUnknownCollectionType is returned when SchemaApplyOrder contains a type
+	// name that has no corresponding filename in CollectionFileForType.
+	ErrUnknownCollectionType = errors.New("unknown collection type")
+
+	// ErrEmptyCollectionFile is returned when a collection .graphql file exists
+	// in the embedded FS but contains no content.
+	ErrEmptyCollectionFile = errors.New("collection file is empty")
+)
 
 //go:embed collections/*.graphql
 var collectionFS embed.FS
@@ -29,7 +39,7 @@ func ListCollectionFiles() ([]string, error) {
 	for i, typeName := range order {
 		f := constants.CollectionFileForType(typeName)
 		if f == "" {
-			return nil, fmt.Errorf("unknown collection type: %s", typeName)
+			return nil, fmt.Errorf("%w: %s", ErrUnknownCollectionType, typeName)
 		}
 		files[i] = f
 	}
@@ -45,7 +55,7 @@ func LoadCollectionSDL(filename string) (string, error) {
 	}
 	content := strings.TrimSpace(string(data))
 	if content == "" {
-		return "", fmt.Errorf("collection file %s is empty", filename)
+		return "", fmt.Errorf("%w: %s", ErrEmptyCollectionFile, filename)
 	}
 	return content, nil
 }
@@ -87,20 +97,25 @@ func ListCollections(prefix string) []CollectionEntry {
 // PrecomputeCollectionSDLs builds a map of collection stem names to their
 // chain-specific SDLs. The map is computed once at registration time, so
 // per-request handlers never read from the embedded FS or run strings.ReplaceAll.
-func PrecomputeCollectionSDLs(prefix string) map[string]string {
+//
+// It returns an error if any collection file cannot be loaded or have its
+// prefix replaced, so callers fail fast at startup instead of silently serving
+// a degraded cache.
+func PrecomputeCollectionSDLs(prefix string) (map[string]string, error) {
 	cache := make(map[string]string)
 	for _, typeName := range constants.SchemaApplyOrder() {
 		filename := constants.CollectionFileForType(typeName)
 		if filename == "" {
-			continue
+			return nil, fmt.Errorf("%w: %s", ErrUnknownCollectionType, typeName)
 		}
 		stem := strings.TrimSuffix(filename, ".graphql")
 		sdl, err := LoadCollectionSDLForChain(filename, prefix)
-		if err == nil {
-			cache[stem] = sdl
+		if err != nil {
+			return nil, fmt.Errorf("load collection SDL %s for prefix %s: %w", filename, prefix, err)
 		}
+		cache[stem] = sdl
 	}
-	return cache
+	return cache, nil
 }
 
 // LoadSchemaSDL reads all collections/*.graphql files in dependency order

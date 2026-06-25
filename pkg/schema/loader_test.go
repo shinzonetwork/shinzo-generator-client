@@ -5,6 +5,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestListCollections(t *testing.T) {
@@ -67,7 +68,8 @@ func TestLoadSchemaSDLForChain_EmptyPrefix(t *testing.T) {
 func TestPrecomputeCollectionSDLs_DefaultPrefix(t *testing.T) {
 	t.Parallel()
 
-	cache := PrecomputeCollectionSDLs(constants.DefaultCollectionPrefix)
+	cache, err := PrecomputeCollectionSDLs(constants.DefaultCollectionPrefix)
+	require.NoError(t, err)
 
 	assert.NotEmpty(t, cache)
 
@@ -81,7 +83,8 @@ func TestPrecomputeCollectionSDLs_DefaultPrefix(t *testing.T) {
 func TestPrecomputeCollectionSDLs_KeysMatchValidCollections(t *testing.T) {
 	t.Parallel()
 
-	cache := PrecomputeCollectionSDLs("Ethereum__Mainnet")
+	cache, err := PrecomputeCollectionSDLs("Ethereum__Mainnet")
+	require.NoError(t, err)
 
 	for _, name := range []string{"block", "transaction", "log"} {
 		assert.Contains(t, cache, name)
@@ -94,10 +97,20 @@ func TestPrecomputeCollectionSDLs_PrefixReplacement(t *testing.T) {
 	t.Parallel()
 
 	prefix := "Arbitrum__Sepolia"
-	cache := PrecomputeCollectionSDLs(prefix)
+	cache, err := PrecomputeCollectionSDLs(prefix)
+	require.NoError(t, err)
 
 	sdl, ok := cache["block"]
 	assert.True(t, ok, "expected block entry in cache")
 	assert.Contains(t, sdl, prefix, "SDL should contain the chain prefix")
 	assert.NotContains(t, sdl, constants.DefaultCollectionPrefix, "SDL should not contain default prefix")
+}
+
+func TestPrecomputeCollectionSDLs_EmptyPrefixReturnsError(t *testing.T) {
+	t.Parallel()
+
+	cache, err := PrecomputeCollectionSDLs("")
+	require.Error(t, err)
+	assert.Nil(t, cache)
+	assert.ErrorIs(t, err, ErrEmptyPrefix)
 }

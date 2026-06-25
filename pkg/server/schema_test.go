@@ -18,9 +18,10 @@ const (
 	testNetwork = "Ethereum__Mainnet"
 )
 
-func newHealthServerWithSchema() *HealthServer {
+func newHealthServerWithSchema(t *testing.T) *HealthServer {
+	t.Helper()
 	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint(testSDL, testNetwork, NoOpAuthenticator{})
+	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, testNetwork, NoOpAuthenticator{}))
 	return hs
 }
 
@@ -87,7 +88,7 @@ func TestRequireReadMethod_AllowHeader(t *testing.T) {
 
 func TestSchemaHandler_ReturnsJSON(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -103,7 +104,7 @@ func TestSchemaHandler_ReturnsJSON(t *testing.T) {
 func TestSchemaHandler_EmptySDL_JSON(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint("", testNetwork, NoOpAuthenticator{})
+	require.NoError(t, hs.EnableSchemaEndpoint("", testNetwork, NoOpAuthenticator{}))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -117,7 +118,7 @@ func TestSchemaHandler_EmptySDL_JSON(t *testing.T) {
 
 func TestSchemaHandler_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
@@ -136,7 +137,7 @@ func TestSchemaHandler_MethodNotAllowed(t *testing.T) {
 
 func TestSchemaHandler_MethodNotAllowed_AllowHeader(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
@@ -150,7 +151,7 @@ func TestSchemaHandler_MethodNotAllowed_AllowHeader(t *testing.T) {
 
 func TestSchemaHandler_JSONContentType(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -159,7 +160,7 @@ func TestSchemaHandler_JSONContentType(t *testing.T) {
 
 func TestSchemaHandler_405ResponseContentType(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -170,7 +171,7 @@ func TestSchemaHandler_405ResponseContentType(t *testing.T) {
 
 func TestSchemaHandler_CacheControl_Set(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -180,7 +181,7 @@ func TestSchemaHandler_CacheControl_Set(t *testing.T) {
 
 func TestSchemaHandler_CacheControl_NotSetOn405(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -192,7 +193,7 @@ func TestSchemaHandler_CacheControl_NotSetOn405(t *testing.T) {
 
 func TestSchemaHandler_HEAD_JSON(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodHead, "/api/v1/schema", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -207,7 +208,7 @@ func TestSchemaHandler_HEAD_JSON(t *testing.T) {
 func TestEnableSchemaEndpoint_RegistersRoute(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint(testSDL, testNetwork, NoOpAuthenticator{})
+	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, testNetwork, NoOpAuthenticator{}))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
@@ -218,7 +219,7 @@ func TestEnableSchemaEndpoint_RegistersRoute(t *testing.T) {
 func TestEnableSchemaEndpoint_WithNoOpAuth_AllowsThrough(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint(testSDL, testNetwork, NoOpAuthenticator{})
+	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, testNetwork, NoOpAuthenticator{}))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
@@ -233,7 +234,7 @@ func TestEnableSchemaEndpoint_WithNoOpAuth_AllowsThrough(t *testing.T) {
 func TestEnableSchemaEndpoint_WithBearerAuth_MissingCreds_401(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint(testSDL, testNetwork, NewBearerAuthenticator([]string{"secret"}))
+	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, testNetwork, NewBearerAuthenticator([]string{"secret"})))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
@@ -245,7 +246,7 @@ func TestEnableSchemaEndpoint_WithBearerAuth_MissingCreds_401(t *testing.T) {
 func TestEnableSchemaEndpoint_WithBearerAuth_ValidCreds_200(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint(testSDL, testNetwork, NewBearerAuthenticator([]string{"secret"}))
+	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, testNetwork, NewBearerAuthenticator([]string{"secret"})))
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema", nil)
@@ -262,7 +263,7 @@ func TestEnableSchemaEndpoint_WithBearerAuth_ValidCreds_200(t *testing.T) {
 
 func TestCollectionHandler_ValidCollection_JSON(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema/block", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -277,7 +278,7 @@ func TestCollectionHandler_ValidCollection_JSON(t *testing.T) {
 
 func TestCollectionHandler_ValidCollection_HEAD(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodHead, "/api/v1/schema/block", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -289,7 +290,7 @@ func TestCollectionHandler_ValidCollection_HEAD(t *testing.T) {
 
 func TestCollectionHandler_UnknownCollection_404(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema/unknown", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -303,7 +304,7 @@ func TestCollectionHandler_UnknownCollection_404(t *testing.T) {
 
 func TestCollectionHandler_MethodNotAllowed_405(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/schema/block", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -319,7 +320,7 @@ func TestCollectionHandler_MethodNotAllowed_405(t *testing.T) {
 
 func TestCollectionsListHandler_JSON(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/schema/collections", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -341,7 +342,7 @@ func TestCollectionsListHandler_JSON(t *testing.T) {
 
 func TestCollectionsListHandler_MethodNotAllowed_405(t *testing.T) {
 	t.Parallel()
-	hs := newHealthServerWithSchema()
+	hs := newHealthServerWithSchema(t)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/schema/collections", nil)
 	hs.mux.ServeHTTP(rec, req)
@@ -354,7 +355,7 @@ func TestCollectionsListHandler_MethodNotAllowed_405(t *testing.T) {
 func TestEnableSchemaEndpoint_RegistersAllRoutes(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint(testSDL, testNetwork, NoOpAuthenticator{})
+	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, testNetwork, NoOpAuthenticator{}))
 
 	for _, tc := range []struct {
 		name   string
@@ -379,7 +380,7 @@ func TestEnableSchemaEndpoint_RegistersAllRoutes(t *testing.T) {
 func TestEnableSchemaEndpoint_CollectionEndpoint_WithBearerAuth(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
-	hs.EnableSchemaEndpoint(testSDL, testNetwork, NewBearerAuthenticator([]string{"secret"}))
+	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, testNetwork, NewBearerAuthenticator([]string{"secret"})))
 
 	t.Run("missing creds returns 401", func(t *testing.T) {
 		t.Parallel()

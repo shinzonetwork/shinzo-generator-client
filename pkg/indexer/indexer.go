@@ -302,6 +302,21 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	return int64(cfg.Indexer.StartHeight), nil
 }
 
+// newSchemaAuthenticator builds the authenticator for the schema endpoint and
+// warns when token auth is fail-closed with zero API keys configured.
+func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
+	auth, err := newAuthenticator(cfg.Indexer.SchemaAuthMode, cfg.Indexer.SchemaAPIKeys)
+	if err != nil {
+		return nil, fmt.Errorf("schema auth configuration error: %w", err)
+	}
+	if (cfg.Indexer.SchemaAuthMode == constants.SchemaAuthModeToken || cfg.Indexer.SchemaAuthMode == "") && len(cfg.Indexer.SchemaAPIKeys) == 0 {
+		logger.Sugar.Warn("schema auth is fail-closed with zero API keys configured — " +
+			"all schema requests will return 503. Set SCHEMA_API_KEYS env var (comma-separated) " +
+			"or set SCHEMA_AUTH_MODE=none to disable token auth")
+	}
+	return auth, nil
+}
+
 // initServices starts the health server, pruner, and snapshotter if configured.
 func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blockHandler *defra.BlockHandler) error {
 	if cfg.Indexer.HealthServerPort > 0 {
@@ -316,21 +331,18 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 			i.healthServer.SetDefraNode(i.defraNode)
 		}
 
-		auth, err := newAuthenticator(cfg.Indexer.SchemaAuthMode, cfg.Indexer.SchemaAPIKeys)
+		auth, err := newSchemaAuthenticator(cfg)
 		if err != nil {
-			return fmt.Errorf("schema auth configuration error: %w", err)
-		}
-		if (cfg.Indexer.SchemaAuthMode == constants.SchemaAuthModeToken || cfg.Indexer.SchemaAuthMode == "") && len(cfg.Indexer.SchemaAPIKeys) == 0 {
-			logger.Sugar.Warn("schema auth is fail-closed with zero API keys configured — " +
-				"all schema requests will return 503. Set SCHEMA_API_KEYS env var (comma-separated) " +
-				"or set SCHEMA_AUTH_MODE=none to disable token auth")
+			return err
 		}
 		prefix := chainPrefixFromConfig(cfg)
 		sdl, err := schema.GetSchemaForChain(prefix)
 		if err != nil {
 			return fmt.Errorf("load schema for chain %s: %w", prefix, err)
 		}
-		i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth)
+		if err := i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth); err != nil {
+			return fmt.Errorf("enable schema endpoint: %w", err)
+		}
 		go func() {
 			if err := i.healthServer.Start(); err != nil {
 				logger.Sugar.Errorf("Health server failed: %v", err)
