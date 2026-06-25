@@ -62,7 +62,7 @@ func (b *BearerAuthenticator) Authenticate(r *http.Request) error {
 func authMiddleware(auth Authenticator, next http.HandlerFunc, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := auth.Authenticate(r); err != nil {
-			reason := reasonFor(err)
+			reason := authErrors.ReasonFor(err)
 			logAttrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
@@ -109,12 +109,4 @@ func extractToken(r *http.Request) string {
 	}
 
 	return ""
-}
-
-func reasonFor(err error) string {
-	var r authErrors.AuthError
-	if errors.As(err, &r) {
-		return r.Reason()
-	}
-	return "unknown"
 }

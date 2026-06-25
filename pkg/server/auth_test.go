@@ -388,26 +388,26 @@ func TestExtractToken_NonBearerAuth_DisregardsValidApiKey(t *testing.T) {
 	assert.Equal(t, "", extractToken(req))
 }
 
-// --- reasonFor ---
+// --- ReasonFor (exported from errors package) ---
 
 func TestReasonFor_MissingCredentials(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, "missing_credentials", reasonFor(authErrors.ErrMissingCredentials))
+	assert.Equal(t, authErrors.MissingCredentialsReason, authErrors.ReasonFor(authErrors.ErrMissingCredentials))
 }
 
 func TestReasonFor_InvalidCredentials(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, "invalid_credentials", reasonFor(authErrors.ErrInvalidCredentials))
+	assert.Equal(t, authErrors.InvalidCredentialsReason, authErrors.ReasonFor(authErrors.ErrInvalidCredentials))
 }
 
 func TestReasonFor_NoKeysConfigured(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, "no_keys_configured", reasonFor(authErrors.ErrNoKeysConfigured))
+	assert.Equal(t, authErrors.NoKeysConfiguredReason, authErrors.ReasonFor(authErrors.ErrNoKeysConfigured))
 }
 
 func TestReasonFor_Unknown(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, "unknown", reasonFor(errors.New("boom"))) //nolint:err113
+	assert.Equal(t, authErrors.UnknownReason, authErrors.ReasonFor(errors.New("boom"))) //nolint:err113
 }
 
 // --- Error response content type verification ---

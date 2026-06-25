@@ -2,15 +2,9 @@ package errors
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
-
-func TestAuthErrorTypes_ImplementAuthError(t *testing.T) {
-	t.Parallel()
-	var _ AuthError = (*missingCredentialsError)(nil)
-	var _ AuthError = (*invalidCredentialsError)(nil)
-	var _ AuthError = (*noKeysConfiguredError)(nil)
-}
 
 func TestAuthError_ErrorStrings(t *testing.T) {
 	t.Parallel()
@@ -34,93 +28,34 @@ func TestAuthError_ErrorStrings(t *testing.T) {
 	}
 }
 
-func TestAuthError_ReasonStrings(t *testing.T) {
+func TestAuthError_ErrorsIs_Wrapped(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name     string
-		err      AuthError
-		expected string
-	}{
-		{"MissingCredentials", ErrMissingCredentials, "missing_credentials"},
-		{"InvalidCredentials", ErrInvalidCredentials, "invalid_credentials"},
-		{"NoKeysConfigured", ErrNoKeysConfigured, "no_keys_configured"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := tt.err.Reason(); got != tt.expected {
-				t.Errorf("Reason() = %q, want %q", got, tt.expected)
-			}
-		})
+	wrapped := fmt.Errorf("context: %w", ErrInvalidCredentials)
+	if !errors.Is(wrapped, ErrInvalidCredentials) {
+		t.Error("wrapped ErrInvalidCredentials should match sentinel via errors.Is")
 	}
 }
 
-func TestAuthError_ErrorsIs(t *testing.T) {
+func TestReasonFor(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
 		err      error
-		sentinel error
+		expected string
 	}{
-		{"MissingCredentials", ErrMissingCredentials, ErrMissingCredentials},
-		{"InvalidCredentials", ErrInvalidCredentials, ErrInvalidCredentials},
-		{"NoKeysConfigured", ErrNoKeysConfigured, ErrNoKeysConfigured},
+		{"MissingCredentials", ErrMissingCredentials, MissingCredentialsReason},
+		{"InvalidCredentials", ErrInvalidCredentials, InvalidCredentialsReason},
+		{"NoKeysConfigured", ErrNoKeysConfigured, NoKeysConfiguredReason},
+		{"Unknown", errors.New("boom"), UnknownReason},
+		{"WrappedInvalid", fmt.Errorf("context: %w", ErrInvalidCredentials), InvalidCredentialsReason},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if !errors.Is(tt.err, tt.sentinel) {
-				t.Errorf("errors.Is(%v, %v) = false, want true", tt.err, tt.sentinel)
+			if got := ReasonFor(tt.err); got != tt.expected {
+				t.Errorf("ReasonFor() = %q, want %q", got, tt.expected)
 			}
 		})
-	}
-}
-
-func TestAuthError_ErrorsIs_CrossCheck(t *testing.T) {
-	t.Parallel()
-	if errors.Is(ErrMissingCredentials, ErrInvalidCredentials) {
-		t.Error("ErrMissingCredentials should not match ErrInvalidCredentials")
-	}
-	if errors.Is(ErrMissingCredentials, ErrNoKeysConfigured) {
-		t.Error("ErrMissingCredentials should not match ErrNoKeysConfigured")
-	}
-	if errors.Is(ErrInvalidCredentials, ErrNoKeysConfigured) {
-		t.Error("ErrInvalidCredentials should not match ErrNoKeysConfigured")
-	}
-}
-
-func TestAuthError_ErrorsAsAuthError(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		err  error
-	}{
-		{"MissingCredentials", ErrMissingCredentials},
-		{"InvalidCredentials", ErrInvalidCredentials},
-		{"NoKeysConfigured", ErrNoKeysConfigured},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			var authErr AuthError
-			if !errors.As(tt.err, &authErr) {
-				t.Fatalf("errors.As(%v, &AuthError) = false, want true", tt.err)
-			}
-			if authErr.Reason() == "" {
-				t.Error("Reason() should not be empty")
-			}
-		})
-	}
-}
-
-func TestAuthError_ErrorsAs_NonAuthError(t *testing.T) {
-	t.Parallel()
-	plainErr := errors.New("plain error") //nolint:err113
-	var authErr AuthError
-	if errors.As(plainErr, &authErr) {
-		t.Error("plain error should not match AuthError interface")
 	}
 }
