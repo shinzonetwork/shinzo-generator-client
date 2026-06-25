@@ -36,11 +36,5 @@ const SchemaAuthModeMTLS = "mtls"
 // ContentTypeJSON is the MIME type for JSON responses.
 const ContentTypeJSON = "application/json"
 
-// ContentTypePlain is the MIME type for plain text responses.
-const ContentTypePlain = "text/plain"
-
-// AcceptHeaderMaxParts is the maximum number of parts when splitting an Accept header on semicolons.
-const AcceptHeaderMaxParts = 2
-
 // CacheControlSchema is the Cache-Control directive for schema responses.
 const CacheControlSchema = "no-cache"
