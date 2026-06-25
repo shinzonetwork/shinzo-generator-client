@@ -2,11 +2,15 @@ package schema
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 )
+
+// ErrEmptyPrefix is returned when a chain prefix is required but not provided.
+var ErrEmptyPrefix = errors.New("prefix must not be empty")
 
 //go:embed collections/*.graphql
 var collectionFS embed.FS
@@ -50,7 +54,7 @@ func LoadCollectionSDL(filename string) (string, error) {
 // replaces the default prefix with the provided one.
 func LoadCollectionSDLForChain(filename, prefix string) (string, error) {
 	if prefix == "" {
-		return "", fmt.Errorf("prefix must not be empty")
+		return "", ErrEmptyPrefix
 	}
 	raw, err := LoadCollectionSDL(filename)
 	if err != nil {
@@ -67,6 +71,10 @@ func ListCollections(prefix string) []CollectionEntry {
 	for _, typeName := range order {
 		filename := constants.CollectionFileForType(typeName)
 		stem := strings.TrimSuffix(filename, ".graphql")
+		// SchemaApplyOrder returns type names with the default chain prefix
+		// (e.g. "Ethereum__Mainnet__Block"). Strip the default prefix to get
+		// the collection suffix ("Block"), then re-apply the caller's prefix
+		// so the result is e.g. "Arbitrum__Block".
 		suffix := strings.TrimPrefix(typeName, constants.DefaultCollectionPrefix+"__")
 		entries = append(entries, CollectionEntry{
 			Name:     stem,
@@ -121,7 +129,7 @@ func LoadSchemaSDL() (string, error) {
 // prefix replaced by the provided one.
 func LoadSchemaSDLForChain(prefix string) (string, error) {
 	if prefix == "" {
-		return "", fmt.Errorf("prefix must not be empty")
+		return "", ErrEmptyPrefix
 	}
 	sdl, err := LoadSchemaSDL()
 	if err != nil {

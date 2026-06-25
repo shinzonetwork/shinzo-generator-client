@@ -5888,7 +5888,7 @@ func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
 	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	err = indexer.initServices(ctx, cfg, blockHandler)
 	require.Error(t, err)

@@ -54,14 +54,14 @@ func TestLoadCollectionSDLForChain_EmptyPrefix(t *testing.T) {
 	t.Parallel()
 
 	_, err := LoadCollectionSDLForChain("block.graphql", "")
-	assert.EqualError(t, err, "prefix must not be empty")
+	assert.ErrorIs(t, err, ErrEmptyPrefix)
 }
 
 func TestLoadSchemaSDLForChain_EmptyPrefix(t *testing.T) {
 	t.Parallel()
 
 	_, err := LoadSchemaSDLForChain("")
-	assert.EqualError(t, err, "prefix must not be empty")
+	assert.ErrorIs(t, err, ErrEmptyPrefix)
 }
 
 func TestPrecomputeCollectionSDLs_DefaultPrefix(t *testing.T) {
