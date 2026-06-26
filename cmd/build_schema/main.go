@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"os"
 
@@ -27,7 +26,7 @@ func run(args []string, stdout io.Writer) error {
 			return err
 		}
 		for _, f := range files {
-			if _, err := fmt.Fprintln(stdout, f); err != nil {
+			if _, err := io.WriteString(stdout, f+"\n"); err != nil {
 				return err
 			}
 		}
@@ -53,7 +52,7 @@ func run(args []string, stdout io.Writer) error {
 		}
 	}
 
-	_, err = fmt.Fprint(stdout, sdl)
+	_, err = io.WriteString(stdout, sdl)
 	return err
 }
 
