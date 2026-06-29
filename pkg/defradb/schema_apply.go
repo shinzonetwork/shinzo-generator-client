@@ -31,7 +31,7 @@ type DBBackend struct {
 
 // ApplySchema submits a schema SDL document via the DefraDB client API.
 func (b *DBBackend) ApplySchema(ctx context.Context, sdl string) error {
-	_, err := b.DB.AddSchema(ctx, sdl)
+	_, err := b.DB.AddCollection(ctx, sdl)
 	return err
 }
 

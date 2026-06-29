@@ -47,8 +47,8 @@ indexer:
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
 logger:
-  development: false
-  level: "error"
+  development: true
+  level: "info"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
   max_blocks: 1000          # Number of blocks to retain

@@ -8,6 +8,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -288,20 +289,8 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	return nil
 }
 
-// runStorageGC reclaims disk space from deleted entries by running Badger value log GC.
-func (p *Pruner) runStorageGC() {
-	if p.defraNode == nil {
-		return
-	}
-	startTime := time.Now()
-	if err := p.defraNode.RunStorageGC(); err != nil {
-		logger.Sugar.Debugf("Storage GC error (non-fatal): %v", err)
-	}
-	elapsed := time.Since(startTime)
-	if elapsed > time.Second {
-		logger.Sugar.Infof("Storage GC completed in %v", elapsed)
-	}
-}
+// runStorageGC is a no-op since defradb v1.0.0-rc1 removed the public RunStorageGC API.
+func (p *Pruner) runStorageGC() {}
 
 // filterBasedPrune checks the actual DB block count and prunes excess blocks.
 // Used by the indexer queue (no P2P) and as a fallback when the queue is underfilled.
@@ -463,14 +452,24 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 		return 0, fmt.Errorf("failed to get collection %s: %w", collectionName, err)
 	}
 
-	result, err := col.PurgeByDocIDs(ctx, docIDs, p.cfg.PruneHistory)
-	if err != nil {
+	clientDocIDs := make([]client.DocID, 0, len(docIDs))
+	for _, id := range docIDs {
+		docID, err := client.NewDocIDFromString(id)
+		if err != nil {
+			logger.Sugar.Warnf("Skipping invalid docID %s: %v", id, err)
+			continue
+		}
+		clientDocIDs = append(clientDocIDs, docID)
+	}
+
+	if err := col.PurgeByDocIDs(ctx, clientDocIDs, p.cfg.PruneHistory); err != nil {
 		return 0, err
 	}
 
+	count := int64(len(clientDocIDs))
 	logger.Sugar.Infof("Purged %d/%d documents from %s in %v",
-		result.Count, len(docIDs), collectionName, time.Since(startTime))
-	return result.Count, nil
+		count, len(docIDs), collectionName, time.Since(startTime))
+	return count, nil
 }
 
 // ─── Block number queries ────────────────────────────────────────────────────

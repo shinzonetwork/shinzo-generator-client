@@ -53,6 +53,6 @@ func NewSchemaApplierFromProvidedSchema(schema string) *SchemaApplierFromProvide
 
 // ApplySchema applies the provided schema text to the given DefraDB node.
 func (schema *SchemaApplierFromProvidedSchema) ApplySchema(ctx context.Context, defraNode *node.Node) error {
-	_, err := defraNode.DB.AddSchema(ctx, schema.ProvidedSchema)
+	_, err := defraNode.DB.AddCollection(ctx, schema.ProvidedSchema)
 	return err
 }

@@ -60,7 +60,7 @@ func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 	}
 
 	// Apply schema
-	_, err = defraNode.DB.AddSchema(ctx, schemaSDL)
+	_, err = defraNode.DB.AddCollection(ctx, schemaSDL)
 	if err != nil && !strings.Contains(err.Error(), errors.ErrStrCollectionAlreadyExists) {
 		_ = defraNode.Close(ctx)
 		t.Fatalf("Failed to apply schema: %v", err)
