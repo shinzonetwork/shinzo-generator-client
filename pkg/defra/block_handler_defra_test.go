@@ -870,12 +870,12 @@ func TestCreateBlockSignatureForExistingBlock_NoIdentity(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to create block signature without identity context
-	// SignBlock will return nil (no identity), causing "signing returned nil (no identity?)" error
+	// defaultSignBatch returns errNoIdentity, causing "failed to sign block: no identity available for signing"
 	_, err = handler.CreateBlockSignatureForExistingBlock(
 		context.Background(), 2700, block.Hash, block, nil, nil,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "signing returned nil")
+	assert.Contains(t, err.Error(), "no identity available for signing")
 }
 
 // ---------------------------------------------------------------------------

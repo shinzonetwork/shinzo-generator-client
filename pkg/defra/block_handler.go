@@ -3,6 +3,7 @@ package defra
 import (
 	"context"
 	"encoding/hex"
+	stderrors "errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -22,6 +23,8 @@ import (
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 )
+
+var errNoIdentity = stderrors.New("no identity available for signing") //nolint:gochecknoglobals
 
 // blockDB abstracts the DB operations used by BlockHandler for testability.
 type blockDB interface {
@@ -122,7 +125,7 @@ func (h *BlockHandler) defaultSignBatch(ctx context.Context, collector *node.Bat
 	if nodeIdent == nil {
 		id, ok := defracontext.IdentityFrom(ctx)
 		if !ok {
-			return nil, nil
+			return nil, errNoIdentity
 		}
 		nodeIdent = id
 	}
