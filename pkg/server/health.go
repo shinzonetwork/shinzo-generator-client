@@ -153,7 +153,7 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 	mux.HandleFunc("/registration", hs.registrationHandler)
 	mux.HandleFunc("/registration-app", hs.registrationAppHandler)
 	mux.HandleFunc("/metrics", hs.metricsHandler)
-	mux.HandleFunc("/", hs.rootHandler)
+	mux.HandleFunc("GET /{$}", hs.rootHandler)
 
 	return hs
 }

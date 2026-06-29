@@ -32,23 +32,10 @@ func (hs *HealthServer) EnableSchemaEndpoint(sdl string, network string, auth Au
 		return fmt.Errorf("precompute collection SDLs for network %s: %w", network, err)
 	}
 	handler := newSchemaHandler(sdl, network)
-	hs.mux.HandleFunc("/api/v1/schema", authMiddleware(auth, requireReadMethod(handler), slog.Default()))
-	hs.mux.HandleFunc("/api/v1/schema/{collection}", authMiddleware(auth, requireReadMethod(collectionH), slog.Default()))
-	hs.mux.HandleFunc("/api/v1/schema/collections", authMiddleware(auth, requireReadMethod(collectionsListHandler(network)), slog.Default()))
+	hs.mux.HandleFunc("GET /api/v1/schema", authMiddleware(auth, handler, slog.Default()))
+	hs.mux.HandleFunc("GET /api/v1/schema/{collection}", authMiddleware(auth, collectionH, slog.Default()))
+	hs.mux.HandleFunc("GET /api/v1/schema/collections", authMiddleware(auth, collectionsListHandler(network), slog.Default()))
 	return nil
-}
-
-// requireReadMethod wraps an http.HandlerFunc and rejects any request that is not GET or HEAD.
-// On rejection it returns 405 with a JSON error body and sets the Allow header per RFC 7231 §6.5.5.
-func requireReadMethod(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "only GET and HEAD are supported")
-			return
-		}
-		next(w, r)
-	}
 }
 
 // newSchemaHandler returns an http.HandlerFunc that serves the GraphQL schema as JSON.

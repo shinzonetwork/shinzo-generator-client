@@ -25,48 +25,6 @@ func newHealthServerWithSchema(t *testing.T, sdl string) *HealthServer {
 	return hs
 }
 
-// --- requireReadMethod unit tests ---
-
-func TestRequireReadMethod_AllowsReadMethods(t *testing.T) {
-	t.Parallel()
-	for _, method := range []string{http.MethodGet, http.MethodHead} {
-		t.Run(method, func(t *testing.T) {
-			t.Parallel()
-			called := false
-			handler := requireReadMethod(func(w http.ResponseWriter, _ *http.Request) {
-				called = true
-				w.WriteHeader(http.StatusOK)
-			})
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(method, "/test", nil)
-			handler(rec, req)
-			assert.True(t, called)
-			assert.Equal(t, http.StatusOK, rec.Code)
-		})
-	}
-}
-
-func TestRequireReadMethod_RejectsNonReadMethods(t *testing.T) {
-	t.Parallel()
-	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
-		t.Run(method, func(t *testing.T) {
-			t.Parallel()
-			handler := requireReadMethod(func(http.ResponseWriter, *http.Request) {})
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(method, "/test", nil)
-			handler(rec, req)
-			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-			assert.Equal(t, "GET, HEAD", rec.Header().Get("Allow"))
-			assert.Equal(t, constants.ContentTypeJSON, rec.Header().Get("Content-Type"))
-
-			var errResp errorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-			assert.Equal(t, "method_not_allowed", errResp.Code)
-			assert.Equal(t, "only GET and HEAD are supported", errResp.Message)
-		})
-	}
-}
-
 // --- SchemaHandler integration tests ---
 
 func TestSchemaHandler(t *testing.T) {
@@ -109,13 +67,6 @@ func TestSchemaHandler(t *testing.T) {
 
 				assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 				assert.Equal(t, "GET, HEAD", rec.Header().Get("Allow"))
-				assert.Equal(t, constants.ContentTypeJSON, rec.Header().Get("Content-Type"))
-				assert.Empty(t, rec.Header().Get("Cache-Control"))
-
-				var errResp errorResponse
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-				assert.Equal(t, "method_not_allowed", errResp.Code)
-				assert.Equal(t, "only GET and HEAD are supported", errResp.Message)
 			})
 		}
 	})
