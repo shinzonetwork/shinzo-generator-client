@@ -25,14 +25,10 @@ func TestListCollections(t *testing.T) {
 
 	assert.Len(t, entries, len(expectedNames))
 
-	var names, typeNames []string
-	for _, e := range entries {
-		names = append(names, e.Name)
-		typeNames = append(typeNames, e.TypeName)
+	for i, e := range entries {
+		assert.Equal(t, expectedNames[i], e.Name)
+		assert.Equal(t, expectedTypeNames[i], e.TypeName)
 	}
-
-	assert.Equal(t, expectedNames, names)
-	assert.Equal(t, expectedTypeNames, typeNames)
 }
 
 func TestListCollections_DefaultPrefix(t *testing.T) {
@@ -40,15 +36,12 @@ func TestListCollections_DefaultPrefix(t *testing.T) {
 
 	entries := ListCollections(constants.DefaultCollectionPrefix)
 
-	order := constants.SchemaApplyOrder()
-	assert.Len(t, entries, len(order))
+	expectedTypeNames := constants.SchemaApplyOrder()
+	assert.Len(t, entries, len(expectedTypeNames))
 
-	var typeNames []string
-	for _, e := range entries {
-		typeNames = append(typeNames, e.TypeName)
+	for i, e := range entries {
+		assert.Equal(t, expectedTypeNames[i], e.TypeName)
 	}
-
-	assert.Equal(t, order, typeNames)
 }
 
 func TestLoadCollectionSDLForChain_EmptyPrefix(t *testing.T) {
