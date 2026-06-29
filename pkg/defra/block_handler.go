@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	cid "github.com/ipfs/go-cid"
@@ -98,10 +99,10 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *const
 		collections = constants.NewCollectionNames(constants.DefaultCollectionPrefix)
 	}
 	h := &BlockHandler{
-		db:            defraNode.DB,
-		maxDocsPerTxn: maxDocsPerTxn,
-		collections:   collections,
-		maxCIDRetries: 15, //nolint:mnd
+		db:             defraNode.DB,
+		maxDocsPerTxn:  maxDocsPerTxn,
+		collections:    collections,
+		maxCIDRetries:  15, //nolint:mnd
 		retryBackoffFn: retryBackoff,
 	}
 	h.signBatchFn = h.defaultSignBatch
@@ -157,21 +158,76 @@ func (h *BlockHandler) defaultSignBatch(ctx context.Context, collector *node.Bat
 	return sig, nil
 }
 
+// buildDocIDJSONArray builds a JSON array string from docIDs for use in GQL filters.
+func buildDocIDJSONArray(docIDs []string) string {
+	var idsJSON strings.Builder
+	idsJSON.WriteString(`[`)
+	for i, id := range docIDs {
+		if i > 0 {
+			idsJSON.WriteString(",")
+		}
+		idsJSON.WriteString(`"` + id + `"`)
+	}
+	idsJSON.WriteString(`]`)
+	return idsJSON.String()
+}
+
+// extractCIDsFromCollection queries a single collection and returns all CIDs found.
+func (h *BlockHandler) extractCIDsFromCollection(ctx context.Context, colName, idsJSON string) []cid.Cid {
+	query := `query { ` + colName + `(filter: {_docID: {_in: ` + idsJSON + `}}) { _version { cid } } }`
+	result := h.db.ExecRequest(ctx, query)
+	if len(result.GQL.Errors) > 0 {
+		return nil
+	}
+	data, ok := result.GQL.Data.(map[string]any)
+	if !ok {
+		return nil
+	}
+	var docMaps []map[string]any
+	switch v := data[colName].(type) {
+	case []any:
+		for _, d := range v {
+			if m, ok := d.(map[string]any); ok {
+				docMaps = append(docMaps, m)
+			}
+		}
+	case []map[string]any:
+		docMaps = v
+	}
+	var cids []cid.Cid
+	for _, docMap := range docMaps {
+		var versions []map[string]any
+		switch v := docMap["_version"].(type) {
+		case []any:
+			for _, item := range v {
+				if m, ok := item.(map[string]any); ok {
+					versions = append(versions, m)
+				}
+			}
+		case []map[string]any:
+			versions = v
+		}
+		for _, vMap := range versions {
+			cidStr, _ := vMap["cid"].(string)
+			if cidStr == "" {
+				continue
+			}
+			c, err := cid.Decode(cidStr)
+			if err == nil {
+				cids = append(cids, c)
+			}
+		}
+	}
+	return cids
+}
+
 // defaultCollectDocCIDs queries each collection via GQL to retrieve CIDs for the given docIDs.
 func (h *BlockHandler) defaultCollectDocCIDs(ctx context.Context, docIDs []string) ([]cid.Cid, error) {
 	if len(docIDs) == 0 {
 		return nil, nil
 	}
 
-	// Build a JSON array string of docIDs for GQL filter.
-	idsJSON := `[`
-	for i, id := range docIDs {
-		if i > 0 {
-			idsJSON += ","
-		}
-		idsJSON += `"` + id + `"`
-	}
-	idsJSON += `]`
+	idsJSON := buildDocIDJSONArray(docIDs)
 
 	colNames := []string{
 		h.collections.Block,
@@ -182,49 +238,7 @@ func (h *BlockHandler) defaultCollectDocCIDs(ctx context.Context, docIDs []strin
 
 	var allCIDs []cid.Cid
 	for _, colName := range colNames {
-		query := `query { ` + colName + `(filter: {_docID: {_in: ` + idsJSON + `}}) { _version { cid } } }`
-		result := h.db.ExecRequest(ctx, query)
-		if len(result.GQL.Errors) > 0 {
-			continue
-		}
-		data, ok := result.GQL.Data.(map[string]any)
-		if !ok {
-			continue
-		}
-		var docMaps []map[string]any
-		switch v := data[colName].(type) {
-		case []any:
-			for _, d := range v {
-				if m, ok := d.(map[string]any); ok {
-					docMaps = append(docMaps, m)
-				}
-			}
-		case []map[string]any:
-			docMaps = v
-		}
-		for _, docMap := range docMaps {
-			var versions []map[string]any
-			switch v := docMap["_version"].(type) {
-			case []any:
-				for _, item := range v {
-					if m, ok := item.(map[string]any); ok {
-						versions = append(versions, m)
-					}
-				}
-			case []map[string]any:
-				versions = v
-			}
-			for _, vMap := range versions {
-				cidStr, _ := vMap["cid"].(string)
-				if cidStr == "" {
-					continue
-				}
-				c, err := cid.Decode(cidStr)
-				if err == nil {
-					allCIDs = append(allCIDs, c)
-				}
-			}
-		}
+		allCIDs = append(allCIDs, h.extractCIDsFromCollection(ctx, colName, idsJSON)...)
 	}
 	return allCIDs, nil
 }
@@ -815,7 +829,6 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 
 	for attempt := range maxRetries {
 		cids, err := h.collectDocCIDsFn(ctx, allDocIDs)
-
 		if err != nil {
 			lastErr = err
 			if attempt < maxRetries-1 {
