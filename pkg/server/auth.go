@@ -6,8 +6,15 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+)
 
-	authErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
+var (
+	// ErrMissingCredentials is returned when no authentication credentials are provided.
+	ErrMissingCredentials = errors.New("missing credentials")
+	// ErrInvalidCredentials is returned when the provided credentials are invalid.
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	// ErrNoKeysConfigured is returned when no API keys are configured on the server.
+	ErrNoKeysConfigured = errors.New("no API keys configured")
 )
 
 // Authenticator verifies the authenticity of an HTTP request.
@@ -42,12 +49,12 @@ func NewBearerAuthenticator(keys []string) *BearerAuthenticator {
 // Authenticate validates the request credentials against the configured keys.
 func (b *BearerAuthenticator) Authenticate(r *http.Request) error {
 	if len(b.keys) == 0 {
-		return authErrors.ErrNoKeysConfigured
+		return ErrNoKeysConfigured
 	}
 
 	token := extractToken(r)
 	if token == "" {
-		return authErrors.ErrMissingCredentials
+		return ErrMissingCredentials
 	}
 
 	for k := range b.keys {
@@ -56,28 +63,27 @@ func (b *BearerAuthenticator) Authenticate(r *http.Request) error {
 		}
 	}
 
-	return authErrors.ErrInvalidCredentials
+	return ErrInvalidCredentials
 }
 
 func authMiddleware(auth Authenticator, next http.HandlerFunc, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := auth.Authenticate(r); err != nil {
-			reason := authErrors.ReasonFor(err)
 			logAttrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
-				slog.String("reason", reason),
+				slog.String("reason", err.Error()),
 				slog.String("remote_addr", r.RemoteAddr),
 			}
 
 			switch {
-			case errors.Is(err, authErrors.ErrMissingCredentials):
+			case errors.Is(err, ErrMissingCredentials):
 				logger.Warn("authentication failed", logAttrs...)
 				writeJSONError(w, http.StatusUnauthorized, "unauthorized", "missing or empty credentials")
-			case errors.Is(err, authErrors.ErrInvalidCredentials):
+			case errors.Is(err, ErrInvalidCredentials):
 				logger.Warn("authentication failed", logAttrs...)
 				writeJSONError(w, http.StatusForbidden, "forbidden", "invalid credentials")
-			case errors.Is(err, authErrors.ErrNoKeysConfigured):
+			case errors.Is(err, ErrNoKeysConfigured):
 				logger.Error("authentication failed", logAttrs...)
 				writeJSONError(w, http.StatusServiceUnavailable, "service_unavailable", "no API keys configured on server")
 			default:

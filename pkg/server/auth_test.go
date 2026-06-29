@@ -10,10 +10,31 @@ import (
 	"strings"
 	"testing"
 
-	authErrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAuthError_ErrorStrings(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		err      error
+		expected string
+	}{
+		{"MissingCredentials", ErrMissingCredentials, "missing credentials"},
+		{"InvalidCredentials", ErrInvalidCredentials, "invalid credentials"},
+		{"NoKeysConfigured", ErrNoKeysConfigured, "no API keys configured"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.err.Error(); got != tt.expected {
+				t.Errorf("Error() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
 
 type failingAuthenticator struct {
 	err error
@@ -65,107 +86,49 @@ func TestNoOpAuthenticator_ReturnsNilOnAnyRequest(t *testing.T) {
 
 // --- BearerAuthenticator unit tests ---
 
-func TestBearerAuthenticator_NoKeysConfigured(t *testing.T) {
+func TestBearerAuthenticator(t *testing.T) {
 	t.Parallel()
-	auth := NewBearerAuthenticator(nil)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrNoKeysConfigured)
-}
+	tests := []struct {
+		name         string
+		keys         []string
+		authHeader   string
+		apiKeyHeader string
+		wantErr      error
+	}{
+		{"no keys configured", nil, "", "", ErrNoKeysConfigured},
+		{"no keys configured empty slice", []string{}, "", "", ErrNoKeysConfigured},
+		{"missing credentials", []string{"secret"}, "", "", ErrMissingCredentials},
+		{"empty bearer token", []string{"secret"}, "Bearer ", "", ErrMissingCredentials},
+		{"empty x-api-key", []string{"secret"}, "", "   ", ErrMissingCredentials},
+		{"invalid bearer token", []string{"secret"}, "Bearer wrong-token", "", ErrInvalidCredentials},
+		{"invalid x-api-key", []string{"secret"}, "", "wrong-key", ErrInvalidCredentials},
+		{"valid bearer token", []string{"secret"}, "Bearer secret", "", nil},
+		{"valid x-api-key", []string{"secret"}, "", "secret", nil},
+		{"bearer takes precedence over x-api-key", []string{"bearer-key", "xapi-key"}, "Bearer bearer-key", "xapi-key", nil},
+		{"bearer invalid does not fall back to x-api-key", []string{"xapi-key"}, "Bearer wrong-token", "xapi-key", ErrInvalidCredentials},
+		{"ignores empty keys", []string{"", "valid-key"}, "Bearer valid-key", "", nil},
+		{"ignores empty keys empty token fails", []string{"", "valid-key"}, "Bearer ", "", ErrMissingCredentials},
+	}
 
-func TestBearerAuthenticator_NoKeysConfigured_EmptySlice(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrNoKeysConfigured)
-}
-
-func TestBearerAuthenticator_MissingCredentials(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrMissingCredentials)
-}
-
-func TestBearerAuthenticator_EmptyBearerToken(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer ")
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrMissingCredentials)
-}
-
-func TestBearerAuthenticator_EmptyXAPIKey(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Api-Key", "   ")
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrMissingCredentials)
-}
-
-func TestBearerAuthenticator_InvalidBearerToken(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer wrong-token")
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrInvalidCredentials)
-}
-
-func TestBearerAuthenticator_InvalidXAPIKey(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Api-Key", "wrong-key")
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrInvalidCredentials)
-}
-
-func TestBearerAuthenticator_ValidBearerToken(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	assert.Nil(t, auth.Authenticate(req))
-}
-
-func TestBearerAuthenticator_ValidXAPIKey(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Api-Key", "secret")
-	assert.Nil(t, auth.Authenticate(req))
-}
-
-func TestBearerAuthenticator_BearerTakesPrecedenceOverXAPIKey(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"bearer-key", "xapi-key"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer bearer-key")
-	req.Header.Set("X-Api-Key", "xapi-key")
-	assert.Nil(t, auth.Authenticate(req))
-}
-
-func TestBearerAuthenticator_BearerInvalidDoesNotFallBackToXAPIKey(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"xapi-key"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer wrong-token")
-	req.Header.Set("X-Api-Key", "xapi-key")
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrInvalidCredentials)
-}
-
-func TestBearerAuthenticator_IgnoresEmptyKeys(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"", "valid-key"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer valid-key")
-	assert.Nil(t, auth.Authenticate(req))
-}
-
-func TestBearerAuthenticator_IgnoresEmptyKeys_EmptyTokenFails(t *testing.T) {
-	t.Parallel()
-	auth := NewBearerAuthenticator([]string{"", "valid-key"})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer ")
-	assert.ErrorIs(t, auth.Authenticate(req), authErrors.ErrMissingCredentials)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			auth := NewBearerAuthenticator(tt.keys)
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			if tt.apiKeyHeader != "" {
+				req.Header.Set("X-Api-Key", tt.apiKeyHeader)
+			}
+			err := auth.Authenticate(req)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				assert.Nil(t, err)
+			}
+		})
+	}
 }
 
 // --- authMiddleware integration tests ---
@@ -181,50 +144,66 @@ func TestAuthMiddleware_NoOp_AllowsThrough(t *testing.T) {
 	assert.Equal(t, "ok", rec.Body.String())
 }
 
-func TestAuthMiddleware_Bearer_MissingCredentials_401(t *testing.T) {
+func TestAuthMiddleware_ErrorResponses(t *testing.T) {
 	t.Parallel()
-	logger, _ := newCaptureLogger()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	handler := authMiddleware(auth, okHandler, logger)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	handler(rec, req)
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	var resp errorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "unauthorized", resp.Code)
-	assert.Equal(t, "missing or empty credentials", resp.Message)
-}
+	tests := []struct {
+		name       string
+		auth       Authenticator
+		setup      func(r *http.Request)
+		wantStatus int
+		wantCode   string
+		wantMsg    string
+	}{
+		{
+			name:       "missing credentials 401",
+			auth:       NewBearerAuthenticator([]string{"secret"}),
+			setup:      func(_ *http.Request) {},
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "unauthorized",
+			wantMsg:    "missing or empty credentials",
+		},
+		{
+			name:       "invalid credentials 403",
+			auth:       NewBearerAuthenticator([]string{"secret"}),
+			setup:      func(r *http.Request) { r.Header.Set("Authorization", "Bearer wrong") },
+			wantStatus: http.StatusForbidden,
+			wantCode:   "forbidden",
+			wantMsg:    "invalid credentials",
+		},
+		{
+			name:       "no keys 503",
+			auth:       NewBearerAuthenticator(nil),
+			setup:      func(_ *http.Request) {},
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "service_unavailable",
+			wantMsg:    "no API keys configured on server",
+		},
+		{
+			name:       "unknown error 500",
+			auth:       failingAuthenticator{err: errors.New("something unexpected")}, //nolint:err113
+			setup:      func(_ *http.Request) {},
+			wantStatus: http.StatusInternalServerError,
+			wantCode:   "internal_error",
+			wantMsg:    "unexpected authentication failure",
+		},
+	}
 
-func TestAuthMiddleware_Bearer_InvalidCredentials_403(t *testing.T) {
-	t.Parallel()
-	logger, _ := newCaptureLogger()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	handler := authMiddleware(auth, okHandler, logger)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("Authorization", "Bearer wrong")
-	handler(rec, req)
-	assert.Equal(t, http.StatusForbidden, rec.Code)
-	var resp errorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "forbidden", resp.Code)
-	assert.Equal(t, "invalid credentials", resp.Message)
-}
-
-func TestAuthMiddleware_Bearer_NoKeys_503(t *testing.T) {
-	t.Parallel()
-	logger, _ := newCaptureLogger()
-	auth := NewBearerAuthenticator(nil)
-	handler := authMiddleware(auth, okHandler, logger)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	handler(rec, req)
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	var resp errorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "service_unavailable", resp.Code)
-	assert.Equal(t, "no API keys configured on server", resp.Message)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			logger, _ := newCaptureLogger()
+			handler := authMiddleware(tt.auth, okHandler, logger)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			tt.setup(req)
+			handler(rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			var resp errorResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantCode, resp.Code)
+			assert.Equal(t, tt.wantMsg, resp.Message)
+		})
+	}
 }
 
 func TestAuthMiddleware_ValidBearer_200(t *testing.T) {
@@ -251,61 +230,54 @@ func TestAuthMiddleware_ValidXAPIKey_200(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestAuthMiddleware_UnknownError_500(t *testing.T) {
-	t.Parallel()
-	logger, _ := newCaptureLogger()
-	auth := failingAuthenticator{err: errors.New("something unexpected")} //nolint:err113
-	handler := authMiddleware(auth, okHandler, logger)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	handler(rec, req)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	var resp errorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "internal_error", resp.Code)
-	assert.Equal(t, "unexpected authentication failure", resp.Message)
-}
-
 // --- Audit logging tests ---
 
-func TestAuthMiddleware_LogsWarnOnMissingCredentials(t *testing.T) {
+func TestAuthMiddleware_AuditLogging(t *testing.T) {
 	t.Parallel()
-	logger, handler := newCaptureLogger()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	mw := authMiddleware(auth, okHandler, logger)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	mw(rec, req)
-	require.NotEmpty(t, handler.records)
-	assert.Equal(t, slog.LevelWarn, handler.records[0].Level)
-	assert.Equal(t, "missing_credentials", handler.records[0].Attrs["reason"])
-}
+	tests := []struct {
+		name       string
+		auth       Authenticator
+		setup      func(r *http.Request)
+		wantLevel  slog.Level
+		wantReason string
+	}{
+		{
+			name:       "warn on missing credentials",
+			auth:       NewBearerAuthenticator([]string{"secret"}),
+			setup:      func(_ *http.Request) {},
+			wantLevel:  slog.LevelWarn,
+			wantReason: "missing credentials",
+		},
+		{
+			name:       "warn on invalid credentials",
+			auth:       NewBearerAuthenticator([]string{"secret"}),
+			setup:      func(r *http.Request) { r.Header.Set("Authorization", "Bearer wrong") },
+			wantLevel:  slog.LevelWarn,
+			wantReason: "invalid credentials",
+		},
+		{
+			name:       "error on no keys",
+			auth:       NewBearerAuthenticator(nil),
+			setup:      func(_ *http.Request) {},
+			wantLevel:  slog.LevelError,
+			wantReason: "no API keys configured",
+		},
+	}
 
-func TestAuthMiddleware_LogsWarnOnInvalidCredentials(t *testing.T) {
-	t.Parallel()
-	logger, handler := newCaptureLogger()
-	auth := NewBearerAuthenticator([]string{"secret"})
-	mw := authMiddleware(auth, okHandler, logger)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("Authorization", "Bearer wrong")
-	mw(rec, req)
-	require.NotEmpty(t, handler.records)
-	assert.Equal(t, slog.LevelWarn, handler.records[0].Level)
-	assert.Equal(t, "invalid_credentials", handler.records[0].Attrs["reason"])
-}
-
-func TestAuthMiddleware_LogsErrorOnNoKeys(t *testing.T) {
-	t.Parallel()
-	logger, handler := newCaptureLogger()
-	auth := NewBearerAuthenticator(nil)
-	mw := authMiddleware(auth, okHandler, logger)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	mw(rec, req)
-	require.NotEmpty(t, handler.records)
-	assert.Equal(t, slog.LevelError, handler.records[0].Level)
-	assert.Equal(t, "no_keys_configured", handler.records[0].Attrs["reason"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			logger, handler := newCaptureLogger()
+			mw := authMiddleware(tt.auth, okHandler, logger)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			tt.setup(req)
+			mw(rec, req)
+			require.NotEmpty(t, handler.records)
+			assert.Equal(t, tt.wantLevel, handler.records[0].Level)
+			assert.Equal(t, tt.wantReason, handler.records[0].Attrs["reason"])
+		})
+	}
 }
 
 func TestAuthMiddleware_LogFields(t *testing.T) {
@@ -323,91 +295,38 @@ func TestAuthMiddleware_LogFields(t *testing.T) {
 
 // --- extractToken edge cases ---
 
-func TestExtractToken_CaseInsensitiveBearer(t *testing.T) {
+func TestExtractToken(t *testing.T) {
 	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "bearer my-token")
-	assert.Equal(t, "my-token", extractToken(req))
-}
+	tests := []struct {
+		name         string
+		authHeader   string
+		apiKeyHeader string
+		want         string
+	}{
+		{"case insensitive bearer", "bearer my-token", "", "my-token"},
+		{"bearer upper", "BEARER my-token", "", "my-token"},
+		{"bearer with extra spaces", "Bearer   my-token  ", "", "my-token"},
+		{"no auth header falls back to x-api-key", "", "api-key-123", "api-key-123"},
+		{"no headers", "", "", ""},
+		{"non-bearer auth blocks fallback", "Basic dXNlcjpwYXNz", "api-key-123", ""},
+		{"bearer empty token blocks fallback", "Bearer ", "api-key-123", ""},
+		{"non-bearer auth no api key", "Digest username=test", "", ""},
+		{"non-bearer auth disregards valid api key", "Negotiate token", "valid-key", ""},
+	}
 
-func TestExtractToken_BearerUpper(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "BEARER my-token")
-	assert.Equal(t, "my-token", extractToken(req))
-}
-
-func TestExtractToken_BearerWithExtraSpaces(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer   my-token  ")
-	assert.Equal(t, "my-token", extractToken(req))
-}
-
-func TestExtractToken_NoAuthHeader_FallsBackToXAPIKey(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Api-Key", "api-key-123")
-	assert.Equal(t, "api-key-123", extractToken(req))
-}
-
-func TestExtractToken_NoHeaders(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	assert.Equal(t, "", extractToken(req))
-}
-
-func TestExtractToken_NonBearerAuth_BlocksFallback(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
-	req.Header.Set("X-Api-Key", "api-key-123")
-	assert.Equal(t, "", extractToken(req))
-}
-
-func TestExtractToken_BearerEmptyToken_BlocksFallback(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer ")
-	req.Header.Set("X-Api-Key", "api-key-123")
-	assert.Equal(t, "", extractToken(req))
-}
-
-func TestExtractToken_NonBearerAuth_NoApiKey(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Digest username=test")
-	assert.Equal(t, "", extractToken(req))
-}
-
-func TestExtractToken_NonBearerAuth_DisregardsValidApiKey(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Negotiate token")
-	req.Header.Set("X-Api-Key", "valid-key")
-	assert.Equal(t, "", extractToken(req))
-}
-
-// --- ReasonFor (exported from errors package) ---
-
-func TestReasonFor_MissingCredentials(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, authErrors.MissingCredentialsReason, authErrors.ReasonFor(authErrors.ErrMissingCredentials))
-}
-
-func TestReasonFor_InvalidCredentials(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, authErrors.InvalidCredentialsReason, authErrors.ReasonFor(authErrors.ErrInvalidCredentials))
-}
-
-func TestReasonFor_NoKeysConfigured(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, authErrors.NoKeysConfiguredReason, authErrors.ReasonFor(authErrors.ErrNoKeysConfigured))
-}
-
-func TestReasonFor_Unknown(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, authErrors.UnknownReason, authErrors.ReasonFor(errors.New("boom"))) //nolint:err113
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			if tt.apiKeyHeader != "" {
+				req.Header.Set("X-Api-Key", tt.apiKeyHeader)
+			}
+			assert.Equal(t, tt.want, extractToken(req))
+		})
+	}
 }
 
 // --- Error response content type verification ---
