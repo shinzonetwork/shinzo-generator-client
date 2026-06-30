@@ -1,3 +1,13 @@
+// Package server provides HTTP handlers for the indexer's health, metrics, registration,
+// and schema endpoints.
+//
+// Error response formats differ by audience:
+//   - Host-client endpoints (/api/v1/*) return structured JSON errors via writeJSONError,
+//     using the errorResponse envelope {error, message}. These are consumed programmatically
+//     by other indexer clients that need machine-parseable error details.
+//   - User-facing endpoints (/, /health, /registration, /metrics, /snapshots) use plain text
+//     errors via http.Error. These serve browsers and operational dashboards where plain text
+//     is simpler and sufficient.
 package server
 
 import (
@@ -118,7 +128,7 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 	mux.HandleFunc("/registration", hs.registrationHandler)
 	mux.HandleFunc("/registration-app", hs.registrationAppHandler)
 	mux.HandleFunc("/metrics", hs.metricsHandler)
-	mux.HandleFunc("/", hs.rootHandler)
+	mux.HandleFunc("GET /{$}", hs.rootHandler)
 
 	return hs
 }
@@ -291,6 +301,9 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 			"/metrics 	    - Basic metrics",
 			"/snapshots     - List available snapshots",
 			"/snapshots/:id - Download a snapshot file",
+			"/api/v1/schema           - Full GraphQL schema SDL",
+			"/api/v1/schema/{name}    - Collection schema SDL",
+			"/api/v1/schema/collections - Collections metadata",
 		},
 	}
 

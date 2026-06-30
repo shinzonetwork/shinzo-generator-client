@@ -7,170 +7,109 @@ import (
 
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRun_DefaultSchema(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	if err := run([]string{"build_schema"}, &buf); err != nil {
-		t.Fatalf("run() error: %v", err)
-	}
+	require.NoError(t, run([]string{"build_schema"}, &buf))
 	sdl := buf.String()
-	if sdl == "" {
-		t.Fatal("expected non-empty schema output")
-	}
+	assert.NotEmpty(t, sdl)
 	for _, typeName := range constants.DefaultCollections() {
-		if !strings.Contains(sdl, typeName) {
-			t.Errorf("schema missing expected type %q", typeName)
-		}
+		assert.Contains(t, sdl, typeName)
 	}
 }
 
 func TestRun_WithPrefix(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	if err := run([]string{"build_schema", "--prefix", "Arbitrum__Mainnet"}, &buf); err != nil {
-		t.Fatalf("run() error: %v", err)
-	}
+	require.NoError(t, run([]string{"build_schema", "--prefix", "Arbitrum__Mainnet"}, &buf))
 	sdl := buf.String()
-	if sdl == "" {
-		t.Fatal("expected non-empty schema output")
-	}
-	if strings.Contains(sdl, constants.DefaultCollectionPrefix) {
-		t.Errorf("schema with custom prefix should not contain default prefix %q", constants.DefaultCollectionPrefix)
-	}
-	if !strings.Contains(sdl, "Arbitrum__Mainnet__Block") {
-		t.Error("schema should contain prefixed Block type")
-	}
+	assert.NotEmpty(t, sdl)
+	assert.NotContains(t, sdl, constants.DefaultCollectionPrefix)
+	assert.Contains(t, sdl, "Arbitrum__Mainnet__Block")
 }
 
 func TestRun_PrefixReplacesAllCollectionTypes(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	prefix := "Optimism__Mainnet"
-	if err := run([]string{"build_schema", "--prefix", prefix}, &buf); err != nil {
-		t.Fatalf("run() error: %v", err)
-	}
+	require.NoError(t, run([]string{"build_schema", "--prefix", prefix}, &buf))
 	sdl := buf.String()
 	collections := constants.NewCollectionNames(prefix)
 	for _, name := range collections.AllCollections() {
-		if !strings.Contains(sdl, name) {
-			t.Errorf("schema missing expected type %q", name)
-		}
+		assert.Contains(t, sdl, name)
 	}
 }
 
 func TestRun_InvalidFlag(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := run([]string{"build_schema", "--nonexistent"}, &buf)
-	if err == nil {
-		t.Fatal("expected error for invalid flag")
-	}
+	require.Error(t, run([]string{"build_schema", "--nonexistent"}, &buf))
 }
 
 func TestRun_OutputMatchesGetSchema(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	if err := run([]string{"build_schema"}, &buf); err != nil {
-		t.Fatalf("run() error: %v", err)
-	}
-	expected := schema.GetSchema()
-	if buf.String() != expected {
-		t.Error("output should match schema.GetSchema()")
-	}
+	require.NoError(t, run([]string{"build_schema"}, &buf))
+	expected, err := schema.GetSchema()
+	require.NoError(t, err)
+	assert.Equal(t, expected, buf.String())
 }
 
 func TestRun_OutputWithPrefixMatchesGetSchemaForChain(t *testing.T) {
 	t.Parallel()
 	prefix := "Arbitrum__Mainnet"
 	var buf bytes.Buffer
-	if err := run([]string{"build_schema", "--prefix", prefix}, &buf); err != nil {
-		t.Fatalf("run() error: %v", err)
-	}
-	expected := schema.GetSchemaForChain(prefix)
-	if buf.String() != expected {
-		t.Error("output should match schema.GetSchemaForChain()")
-	}
+	require.NoError(t, run([]string{"build_schema", "--prefix", prefix}, &buf))
+	expected, err := schema.GetSchemaForChain(prefix)
+	require.NoError(t, err)
+	assert.Equal(t, expected, buf.String())
 }
 
 func TestRun_SingleFile(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	if err := run([]string{"build_schema", "--file", "block.graphql"}, &buf); err != nil {
-		t.Fatalf("run() error: %v", err)
-	}
+	require.NoError(t, run([]string{"build_schema", "--file", "block.graphql"}, &buf))
 	sdl := buf.String()
-	if sdl == "" {
-		t.Fatal("expected non-empty output for --file block.graphql")
-	}
-	if !strings.Contains(sdl, "Ethereum__Mainnet__Block") {
-		t.Error("block.graphql should contain Ethereum__Mainnet__Block")
-	}
-	if strings.Contains(sdl, "type Ethereum__Mainnet__Transaction") {
-		t.Error("block.graphql should not define Transaction type")
-	}
+	assert.NotEmpty(t, sdl)
+	assert.Contains(t, sdl, "Ethereum__Mainnet__Block")
+	assert.NotContains(t, sdl, "type Ethereum__Mainnet__Transaction")
 }
 
 func TestRun_SingleFileWithPrefix(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	if err := run([]string{"build_schema", "--file", "block.graphql", "--prefix", "Arbitrum__Mainnet"}, &buf); err != nil {
-		t.Fatalf("run() error: %v", err)
-	}
+	require.NoError(t, run([]string{"build_schema", "--file", "block.graphql", "--prefix", "Arbitrum__Mainnet"}, &buf))
 	sdl := buf.String()
-	if strings.Contains(sdl, "Ethereum__Mainnet") {
-		t.Error("output with --prefix should not contain default prefix")
-	}
-	if !strings.Contains(sdl, "Arbitrum__Mainnet__Block") {
-		t.Error("output should contain prefixed Block type")
-	}
+	assert.NotContains(t, sdl, "Ethereum__Mainnet")
+	assert.Contains(t, sdl, "Arbitrum__Mainnet__Block")
 }
 
 func TestRun_SingleFileNotFound(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := run([]string{"build_schema", "--file", "nonexistent.graphql"}, &buf)
-	if err == nil {
-		t.Fatal("expected error for nonexistent file")
-	}
+	require.Error(t, run([]string{"build_schema", "--file", "nonexistent.graphql"}, &buf))
 }
 
 func TestRun_ListFiles(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	if err := run([]string{"build_schema", "--list-files"}, &buf); err != nil {
-		t.Fatalf("run() error: %v", err)
-	}
+	require.NoError(t, run([]string{"build_schema", "--list-files"}, &buf))
 	output := strings.TrimSpace(buf.String())
-	if output == "" {
-		t.Fatal("expected non-empty file list output")
-	}
+	assert.NotEmpty(t, output)
 	lines := strings.Split(output, "\n")
 	expected, err := schema.ListCollectionFiles()
-	if err != nil {
-		t.Fatalf("ListCollectionFiles() error: %v", err)
-	}
-	if len(lines) != len(expected) {
-		t.Fatalf("expected %d files, got %d", len(expected), len(lines))
-	}
-	for i, line := range lines {
-		if line != expected[i] {
-			t.Errorf("line %d: expected %q, got %q", i, expected[i], line)
-		}
-	}
+	require.NoError(t, err)
+	assert.Equal(t, expected, lines)
 }
 
 func TestRun_ListFilesIgnoresPrefix(t *testing.T) {
 	t.Parallel()
 	var bufNoPrefix, bufWithPrefix bytes.Buffer
-	if err := run([]string{"build_schema", "--list-files"}, &bufNoPrefix); err != nil {
-		t.Fatalf("run() without prefix error: %v", err)
-	}
-	if err := run([]string{"build_schema", "--list-files", "--prefix", "Arbitrum__Mainnet"}, &bufWithPrefix); err != nil {
-		t.Fatalf("run() with prefix error: %v", err)
-	}
-	if bufNoPrefix.String() != bufWithPrefix.String() {
-		t.Error("--list-files output should be identical regardless of --prefix")
-	}
+	require.NoError(t, run([]string{"build_schema", "--list-files"}, &bufNoPrefix))
+	require.NoError(t, run([]string{"build_schema", "--list-files", "--prefix", "Arbitrum__Mainnet"}, &bufWithPrefix))
+	assert.Equal(t, bufNoPrefix.String(), bufWithPrefix.String())
 }

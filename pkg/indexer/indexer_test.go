@@ -4102,6 +4102,7 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 		require.NotNil(t, info)
 		assert.False(t, info.Enabled)
 	}
+}
 
 // ===========================================================================
 // NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%.
@@ -5822,4 +5823,75 @@ func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
 
 	indexer.shouldIndex = false
 	indexer.StopIndexing()
+}
+
+// ---------------------------------------------------------------------------
+// newAuthenticator tests
+// ---------------------------------------------------------------------------
+
+func TestNewAuthenticator(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		mode     string
+		keys     []string
+		wantErr  error
+		wantType any
+	}{
+		{"none", constants.SchemaAuthModeNone, nil, nil, server.NoOpAuthenticator{}},
+		{"empty", "", nil, nil, &server.BearerAuthenticator{}},
+		{"token", constants.SchemaAuthModeToken, []string{"key1", "key2"}, nil, &server.BearerAuthenticator{}},
+		{"mtls_not_implemented", constants.SchemaAuthModeMTLS, nil, ErrMTLSNotImplemented, nil},
+		{"unknown", "invalid", nil, ErrUnknownAuthMode, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			auth, err := newAuthenticator(tt.mode, tt.keys)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, auth)
+			} else {
+				require.NoError(t, err)
+				assert.IsType(t, tt.wantType, auth)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// initServices mTLS error propagation
+// ---------------------------------------------------------------------------
+
+func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	td := testutils.SetupTestDefraDB(t)
+
+	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			URL: fmt.Sprintf("http://localhost:%d", td.Port),
+		},
+		Indexer: config.IndexerConfig{
+			SchemaAuthMode:   constants.SchemaAuthModeMTLS,
+			HealthServerPort: 1,
+		},
+	}
+
+	indexer := &ChainIndexer{
+		defraNode: td.Node,
+		cfg:       cfg,
+	}
+
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err = indexer.initServices(ctx, cfg, blockHandler)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema auth configuration")
+	assert.ErrorIs(t, err, ErrMTLSNotImplemented)
 }

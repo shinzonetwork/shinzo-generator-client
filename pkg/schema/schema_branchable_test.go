@@ -10,7 +10,10 @@ import (
 
 func TestGetSchema(t *testing.T) {
 	t.Parallel()
-	s := GetSchema()
+	s, err := GetSchema()
+	if err != nil {
+		t.Fatalf("GetSchema() error: %v", err)
+	}
 	if s == "" {
 		t.Fatal("GetSchema() returned empty string")
 	}

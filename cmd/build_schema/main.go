@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"os"
 
@@ -19,6 +18,7 @@ func run(args []string, stdout io.Writer) error {
 	}
 
 	var sdl string
+	var err error
 	switch {
 	case *listFiles:
 		files, err := schema.ListCollectionFiles()
@@ -26,13 +26,12 @@ func run(args []string, stdout io.Writer) error {
 			return err
 		}
 		for _, f := range files {
-			if _, err := fmt.Fprintln(stdout, f); err != nil {
+			if _, err := io.WriteString(stdout, f+"\n"); err != nil {
 				return err
 			}
 		}
 		return nil
 	case *file != "":
-		var err error
 		if *prefix != "" {
 			sdl, err = schema.LoadCollectionSDLForChain(*file, *prefix)
 		} else {
@@ -42,12 +41,18 @@ func run(args []string, stdout io.Writer) error {
 			return err
 		}
 	case *prefix != "":
-		sdl = schema.GetSchemaForChain(*prefix)
+		sdl, err = schema.GetSchemaForChain(*prefix)
+		if err != nil {
+			return err
+		}
 	default:
-		sdl = schema.GetSchema()
+		sdl, err = schema.GetSchema()
+		if err != nil {
+			return err
+		}
 	}
 
-	_, err := fmt.Fprint(stdout, sdl)
+	_, err = io.WriteString(stdout, sdl)
 	return err
 }
 

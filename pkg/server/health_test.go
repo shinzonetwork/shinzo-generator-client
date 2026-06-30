@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,9 +50,11 @@ func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.p2pInfo,
 func (m *mockHealthChecker) GetSourceChainInfo() (string, uint64) {
 	return m.sourceChain, m.sourceChainID
 }
+
 func (m *mockHealthChecker) SignRegistrationMessage(_ string) (DefraPKRegistration, error) {
 	return m.defraReg, m.signErr
 }
+
 func (m *mockHealthChecker) SignMessages(_ string) (DefraPKRegistration, PeerIDRegistration, error) {
 	return m.defraReg, m.peerReg, m.signErr
 }
@@ -441,6 +444,35 @@ func TestRootHandler_RootPath(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "Shinzo Network Indexer", resp["service"])
+}
+
+func TestRootHandler_EndpointsIncludesCollections(t *testing.T) {
+	t.Parallel()
+	hs := NewHealthServer(0, nil, "")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	hs.rootHandler(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	endpoints, ok := resp["endpoints"].([]any)
+	require.True(t, ok, "endpoints should be a slice")
+
+	var foundCollection, foundCollections bool
+	for _, ep := range endpoints {
+		s, ok := ep.(string)
+		require.True(t, ok)
+		if strings.Contains(s, "/api/v1/schema/{name}") {
+			foundCollection = true
+		}
+		if strings.Contains(s, "/api/v1/schema/collections") {
+			foundCollections = true
+		}
+	}
+	assert.True(t, foundCollection, "endpoints should include /api/v1/schema/{name}")
+	assert.True(t, foundCollections, "endpoints should include /api/v1/schema/collections")
 }
 
 func TestRootHandler_NotFound(t *testing.T) {
