@@ -50,9 +50,11 @@ func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.p2pInfo,
 func (m *mockHealthChecker) GetSourceChainInfo() (string, uint64) {
 	return m.sourceChain, m.sourceChainID
 }
+
 func (m *mockHealthChecker) SignRegistrationMessage(_ string) (DefraPKRegistration, error) {
 	return m.defraReg, m.signErr
 }
+
 func (m *mockHealthChecker) SignMessages(_ string) (DefraPKRegistration, PeerIDRegistration, error) {
 	return m.defraReg, m.peerReg, m.signErr
 }
