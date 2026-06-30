@@ -79,6 +79,10 @@ http {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/registration;
     }
+    location = /registration-app {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-indexer:8080/registration-app;
+    }
 
     # Metrics endpoint
     location = /metrics {
@@ -108,5 +112,4 @@ http {
   }
 }
 EOF
-
 
