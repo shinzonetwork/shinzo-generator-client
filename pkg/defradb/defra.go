@@ -342,7 +342,7 @@ func replaceLoopbackAddress(value, ipAddress string) string {
 	return value
 }
 
-func buildStoreOptions(cfg *config.Config) []func(*options.NodeOptions) {
+func buildStoreOptions(cfg *config.Config) []func(*options.NodeOptions) { //nolint:revive // TODO! Update or remove function if it is confirmed that it is outdated
 	// Badger tuning knobs (BlockCacheMB, MemTableMB, IndexCacheMB, NumCompactors,
 	// NumLevelZeroTables, NumLevelZeroTablesStall) were removed from NodeStoreOptions
 	// in defradb v1.0.0-rc1. Any corresponding config fields are intentionally ignored.

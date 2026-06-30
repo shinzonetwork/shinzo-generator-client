@@ -252,7 +252,7 @@ func (nh *NetworkHandler) startReconnectionLoop(ctx *context.Context) {
 func (nh *NetworkHandler) startNoPeersEventListener(_ *context.Context) {}
 
 // forceReconnectAll marks all peers as disconnected and triggers immediate reconnection.
-func (nh *NetworkHandler) forceReconnectAll(ctx *context.Context) {
+func (nh *NetworkHandler) forceReconnectAll(ctx *context.Context) { //nolint:unused // TODO! Update or remove function if it is confirmed that it is outdated
 	nh.peersMu.Lock()
 	for _, peer := range nh.peers {
 		if peer.State == StateConnected {
