@@ -1975,15 +1975,15 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	var callCount atomic.Int64
 	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := callCount.Add(1)
 			if n <= 1 {
 				// First call: return null (not found)
 				return nil, errors.New("not found")
 			}
-			// Second call: return valid block
-			return fullBlockResponse("0x4e20", nil), nil // block 20000
-		case "eth_getBlockReceipts":
+			// Second call: return valid block.
+			return fullBlockResponse("0x4e20", nil), nil // block 20000.
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2660,7 +2660,7 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create indexer with embedded node — exercise all code paths in GetPeerInfo
+	// Create indexer with embedded node — exercise all code paths in GetPeerInfo.
 	indexer := &ChainIndexer{
 		defraNode:      td.Node,
 		networkHandler: nil,
@@ -2670,8 +2670,8 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// The test node has P2P disabled, so no active peers
-	// This still exercises the deduplication code with 0 active peers
+	// The test node has P2P disabled, so no active peers.
+	// This still exercises the deduplication code with 0 active peers.
 	assert.NotNil(t, info.PeerInfo)
 }
 
@@ -4081,9 +4081,9 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 	// May succeed or fail depending on timing, but shouldn't panic.
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — embedded node without P2P (covers lines 596+)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — embedded node without P2P (covers lines 596+).
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 	t.Parallel()
@@ -4096,16 +4096,15 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 
 	info, err := indexer.GetPeerInfo()
 	if err != nil {
-		// PeerInfo may error without P2P — that's the line 596-598 path
+		// PeerInfo may error without P2P — that's the line 596-598 path.
 		assert.Contains(t, err.Error(), "peer info")
 	} else {
 		require.NotNil(t, info)
 		assert.False(t, info.Enabled)
 	}
-}
 
 // ===========================================================================
-// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%
+// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------

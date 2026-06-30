@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -638,6 +639,39 @@ func (i *ChainIndexer) SignMessages(message string) (server.DefraPKRegistration,
 			PeerID:        peerPubKey,
 			SignedPeerMsg: peerSignedMsg,
 		}, nil
+}
+
+// SignRegistrationMessage signs a registration message using only the DefraDB identity key.
+func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRegistration, error) {
+	signedMsg, err := signer.SignWithDefraKeys(message, i.defraNode, i.cfg)
+	if err != nil {
+		return server.DefraPKRegistration{}, err
+	}
+
+	nodePubKey, err := i.GetNodePublicKey()
+	if err != nil {
+		return server.DefraPKRegistration{}, fmt.Errorf("failed to get node public key: %w", err)
+	}
+
+	return server.DefraPKRegistration{
+		PublicKey:   nodePubKey,
+		SignedPKMsg: signedMsg,
+	}, nil
+}
+
+// GetSourceChainInfo returns the ShinzoHub registration source chain metadata for this indexer.
+func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
+	if i == nil || i.cfg == nil {
+		return "", 0
+	}
+
+	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
+	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
+	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
+		return "ethereum", 1
+	}
+
+	return "", 0
 }
 
 // GetNodePublicKey returns the DefraDB node's public key as a hex string.

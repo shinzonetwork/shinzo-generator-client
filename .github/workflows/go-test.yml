@@ -5,6 +5,11 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   test:
@@ -12,7 +17,7 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
 
     - name: Set up Go
       uses: actions/setup-go@v6
@@ -37,12 +42,15 @@ jobs:
         DEFRADB_URL: http://localhost:9181
         LOG_LEVEL: error
       run: |
-        go test -parallel=${{ steps.cpu.outputs.count  }} ./...
-
-    - name: Upload coverage
-      uses: codecov/codecov-action@v6
+        go test -parallel=${{ steps.cpu.outputs.count  }} \
+        -covermode=atomic \
+        -coverprofile=coverage.out \
+        ./...
+    
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
       with:
-        file: ./coverage.out
-        flags: unittests
-        name: codecov-umbrella
-      continue-on-error: true
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: shinzonetwork/shinzo-indexer-client
+        files: coverage.out
+        fail_ci_if_error: true

@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test test-branchable testrpc coverage bootstrap playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt
+.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -12,9 +12,6 @@ GETH_API_KEY ?=
 
 build:
 	go build -o bin/block_poster cmd/block_poster/main.go
-
-build-branchable:
-	go build -tags branchable -o bin/block_poster cmd/block_poster/main.go
 
 start:
 	./bin/block_poster
@@ -66,12 +63,6 @@ test:
 	rm -f /tmp/test_output.log; \
 	exit $$exit_code
 
-test-branchable:
-	go test -tags branchable ./pkg/schema/ -v -coverprofile=schema_branch.out
-	@echo ""
-	@echo "Coverage:"
-	@go tool cover -func=schema_branch.out | tail -1
-
 test-local:
 	@echo "🧪 Running local indexer test with Geth endpoint..."
 	@if [ -z "$(GETH_RPC_URL)" ]; then \
@@ -110,14 +101,6 @@ fmt:
 	@echo "📝 Formatting code..."
 	@gofmt -s -w .
 	@goimports -w -local github.com/shinzonetwork/shinzo-indexer-client .
-
-bootstrap:
-	@if [ -z "$(DEFRA_PATH)" ]; then \
-		echo "ERROR: You must pass DEFRA_PATH. Usage:"; \
-		echo "  make bootstrap DEFRA_PATH=../path/to/defradb"; \
-		exit 1; \
-	fi
-	@scripts/bootstrap.sh "$(DEFRA_PATH)" "$(PLAYGROUND)"
 
 playground:
 	@if [ -z "$(DEFRA_PATH)" ]; then \
