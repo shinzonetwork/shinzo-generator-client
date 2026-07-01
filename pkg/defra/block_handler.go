@@ -380,7 +380,6 @@ func (h *BlockHandler) buildAndCreateSingleTxnDocs(ctx context.Context, txn clie
 	if err != nil {
 		return "", nil, nil, nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build block document", err)
 	}
-	blockID := blockDoc.ID().String()
 
 	if err := cols.block.AddDocument(ctx, blockDoc); err != nil {
 		if errors.IsErrAlreadyExists(err) {
@@ -388,6 +387,8 @@ func (h *BlockHandler) buildAndCreateSingleTxnDocs(ctx context.Context, txn clie
 		}
 		return "", nil, nil, nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", err.Error(), err)
 	}
+
+	blockID := blockDoc.ID().String()
 
 	txHashToID, err := h.createSingleTxnTransactions(ctx, txn, transactions, blockID, cols.tx)
 	if err != nil {
@@ -415,6 +416,7 @@ func (h *BlockHandler) createSingleTxnTransactions(ctx context.Context, _ client
 	}
 
 	txDocs := make([]*client.Document, 0, len(transactions))
+	txHashes := make([]string, 0, len(transactions))
 	for _, tx := range transactions {
 		if tx == nil {
 			continue
@@ -424,12 +426,15 @@ func (h *BlockHandler) createSingleTxnTransactions(ctx context.Context, _ client
 			return nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build tx document", err)
 		}
 		txDocs = append(txDocs, txDoc)
-		txHashToID[tx.Hash] = txDoc.ID().String()
+		txHashes = append(txHashes, tx.Hash)
 	}
 
 	if len(txDocs) > 0 {
 		if err := colTx.AddManyDocuments(ctx, txDocs); err != nil {
 			return nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to create transactions", err)
+		}
+		for i, doc := range txDocs {
+			txHashToID[txHashes[i]] = doc.ID().String()
 		}
 	}
 
@@ -987,7 +992,6 @@ func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Blo
 		txn.Discard()
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to build block document", err)
 	}
-	blockID := blockDoc.ID().String()
 
 	if err := colBlock.AddDocument(ctx, blockDoc); err != nil {
 		txn.Discard()
@@ -996,6 +1000,8 @@ func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Blo
 		}
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create block", err)
 	}
+
+	blockID := blockDoc.ID().String()
 
 	if err := txn.Commit(); err != nil {
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
@@ -1029,6 +1035,7 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 		}
 
 		txDocs := make([]*client.Document, 0, len(batch))
+		txHashes := make([]string, 0, len(batch))
 		for _, tx := range batch {
 			if tx == nil {
 				continue
@@ -1039,8 +1046,7 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 				continue
 			}
 			txDocs = append(txDocs, txDoc)
-			txID := txDoc.ID().String()
-			txHashToID[tx.Hash] = txID
+			txHashes = append(txHashes, tx.Hash)
 		}
 
 		if len(txDocs) > 0 {
@@ -1052,6 +1058,9 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 					logger.Sugar.Debugf("Block %d: tx batch already exists via P2P, skipping", blockInt)
 				}
 				continue
+			}
+			for i, doc := range txDocs {
+				txHashToID[txHashes[i]] = doc.ID().String()
 			}
 		}
 
@@ -1126,7 +1135,6 @@ func (h *BlockHandler) createLogBatch(ctx context.Context, blockInt int64, block
 			continue
 		}
 		logDocs = append(logDocs, logDoc)
-		ids = append(ids, logDoc.ID().String())
 	}
 
 	if len(logDocs) > 0 {
@@ -1137,6 +1145,9 @@ func (h *BlockHandler) createLogBatch(ctx context.Context, blockInt int64, block
 				return nil, nil
 			}
 			return nil, fmt.Errorf("create log batch: %w", err)
+		}
+		for _, doc := range logDocs {
+			ids = append(ids, doc.ID().String())
 		}
 	}
 
@@ -1202,7 +1213,6 @@ func (h *BlockHandler) createALEBatch(ctx context.Context, blockInt int64, batch
 			continue
 		}
 		aleDocs = append(aleDocs, aleDoc)
-		ids = append(ids, aleDoc.ID().String())
 	}
 
 	if len(aleDocs) > 0 {
@@ -1213,6 +1223,9 @@ func (h *BlockHandler) createALEBatch(ctx context.Context, blockInt int64, batch
 				return nil, nil
 			}
 			return nil, fmt.Errorf("create ALE batch: %w", err)
+		}
+		for _, doc := range aleDocs {
+			ids = append(ids, doc.ID().String())
 		}
 	}
 
