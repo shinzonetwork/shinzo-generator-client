@@ -54,10 +54,13 @@ const (
 	ethGetTransactionReceipt = "eth_getTransactionReceipt"
 
 	testDefraURL         = "http://localhost:9181"
+	testDefraRandomURL   = "127.0.0.1:0"
 	testMinerAddr        = "0x1111111111111111111111111111111111111111"
 	testSha3Uncles       = "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
 	testTransactionsRoot = "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 )
+
+var testDefraP2PDisabled = config.DefraDBP2PConfig{Enabled: false, ListenAddr: "/ip4/127.0.0.1/tcp/0"}
 
 // TestIndexing_StartDefraFirst is now replaced by mock-based integration tests.
 // See ./integration/ directory for comprehensive integration tests with mock data.
@@ -1672,11 +1675,9 @@ func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           "",
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P: config.DefraDBP2PConfig{
-				Enabled: false,
-			},
+			P2P:           testDefraP2PDisabled,
 			Store: config.DefraDBStoreConfig{
 				Path: tmpDir,
 			},
@@ -1756,8 +1757,9 @@ func TestStartIndexing_Embedded_WithConfiguredStartHeight(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -1816,7 +1818,7 @@ func TestStartIndexing_Embedded_WithHealthServer(t *testing.T) {
 		DefraDB: config.DefraDBConfig{
 			URL:           "http://localhost:9999", // Set Url so healthDefraURL uses config URL branch.
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -2966,8 +2968,9 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3063,8 +3066,9 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3158,8 +3162,9 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3520,8 +3525,9 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3819,8 +3825,9 @@ func TestStartIndexing_ResumeFromQueue(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3908,8 +3915,9 @@ func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3990,8 +3998,9 @@ func TestStartIndexing_WithOpenBrowser(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -4454,8 +4463,9 @@ func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -4542,9 +4552,9 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           "", // Empty URL → health server uses defraNode port.
+			URL:           testDefraRandomURL, // Random port → health server uses defraNode port.
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -4637,8 +4647,9 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5418,8 +5429,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	// Phase 1: Start an indexer to populate some blocks.
 	cfg1 := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5469,8 +5481,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 
 	cfg2 := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5550,8 +5563,9 @@ func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5702,8 +5716,9 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
