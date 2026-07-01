@@ -804,7 +804,7 @@ func TestApplySchemaViaHTTP_Success(t *testing.T) {
 	t.Parallel()
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v0/schema", r.URL.Path)
+		assert.Equal(t, "/api/v0/collections", r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
 		callCount++
 		w.WriteHeader(http.StatusOK)
@@ -1554,7 +1554,7 @@ func TestStartIndexing_ExternalDefraDB_SchemaApplyFails(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":{"__schema":{"types":[]}}}`))
 			return
 		}
-		if r.URL.Path == "/api/v0/schema" && r.Method == "POST" {
+		if r.URL.Path == "/api/v0/collections" && r.Method == "POST" {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("schema application failed"))
 			return
@@ -1589,7 +1589,7 @@ func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":{"__schema":{"types":[]}}}`))
 			return
 		}
-		if r.URL.Path == "/api/v0/schema" && r.Method == "POST" {
+		if r.URL.Path == "/api/v0/collections" && r.Method == "POST" {
 			callCount++
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(indexerErrors.ErrStrCollectionAlreadyExists))
