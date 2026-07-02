@@ -71,6 +71,7 @@ type BlockHandler struct {
 	signBatchFn      func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error)
 	verifyBatchSigFn func(sig *node.BatchSignature, cids []cid.Cid) (bool, error)
 	collectDocCIDsFn func(ctx context.Context, docIDs []string) ([]cid.Cid, error)
+	blockExistsFn    func(ctx context.Context, blockNumber int64) (bool, error)
 	maxCIDRetries    int
 	retryBackoffFn   func(int) time.Duration
 }
@@ -111,7 +112,27 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *const
 	h.signBatchFn = h.defaultSignBatch
 	h.verifyBatchSigFn = node.VerifyBatchSignature
 	h.collectDocCIDsFn = h.defaultCollectDocCIDs
+	h.blockExistsFn = h.defaultBlockExists
 	return h, nil
+}
+
+func (h *BlockHandler) defaultBlockExists(ctx context.Context, blockNumber int64) (bool, error) {
+	query := `query { ` + h.collections.Block + `(filter: {number: {_eq: ` + strconv.FormatInt(blockNumber, 10) + `}}) { _docID } }`
+	result := h.db.ExecRequest(ctx, query)
+	if len(result.GQL.Errors) > 0 {
+		return false, fmt.Errorf("block exists check failed: %w", result.GQL.Errors[0])
+	}
+	data, ok := result.GQL.Data.(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	switch results := data[h.collections.Block].(type) {
+	case []any:
+		return len(results) > 0, nil
+	case []map[string]any:
+		return len(results) > 0, nil
+	}
+	return false, nil
 }
 
 // SetNodeIdentity sets the node identity used for block signing.
@@ -275,6 +296,14 @@ func (h *BlockHandler) CreateBlockBatch(ctx context.Context, block *types.Block,
 	blockInt, err := utils.HexToInt(block.Number)
 	if err != nil {
 		return "", err
+	}
+
+	exists, err := h.blockExistsFn(ctx, blockInt)
+	if err != nil {
+		return "", errors.NewQueryFailed("defra", "CreateBlockBatch", "block exists check failed", err)
+	}
+	if exists {
+		return "", fmt.Errorf("block already exists") //nolint: err113
 	}
 
 	receiptMap := make(map[string]*types.TransactionReceipt)

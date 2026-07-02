@@ -80,6 +80,7 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 		collectDocCIDsFn: func(_ context.Context, _ []string) ([]cid.Cid, error) {
 			return nil, nil
 		},
+		blockExistsFn:  func(_ context.Context, _ int64) (bool, error) { return false, nil },
 		maxCIDRetries:  1,
 		retryBackoffFn: func(int) time.Duration { return 0 },
 	}
