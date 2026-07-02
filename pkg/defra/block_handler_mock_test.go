@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	cid "github.com/ipfs/go-cid"
+	mh "github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -20,6 +22,16 @@ import (
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
+
+var testDocIDCounter atomic.Uint64
+
+func nextTestDocID() client.DocID {
+	n := testDocIDCounter.Add(1)
+	data := fmt.Appendf(nil, "test-doc-%d", n)
+	h, _ := mh.Sum(data, mh.SHA2_256, -1)
+	c := cid.NewCidV1(cid.DagCBOR, h)
+	return client.NewDocIDV0(c)
+}
 
 // ---------------------------------------------------------------------------
 // mockBlockDB — implements blockDB interface for unit tests
@@ -1948,7 +1960,12 @@ func (v *realCollectionVersions) blockCol(t *testing.T) *mocks.Collection {
 func (v *realCollectionVersions) blockColWithAddDocument(t *testing.T, createErr error) *mocks.Collection {
 	t.Helper()
 	c := v.blockCol(t)
-	c.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Return(createErr).Maybe()
+	c.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, doc *client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		if createErr != nil {
+			return
+		}
+		client.ApplySavedDocumentID(doc, nextTestDocID())
+	}).Return(createErr).Maybe()
 	return c
 }
 
@@ -1962,7 +1979,14 @@ func (v *realCollectionVersions) txCol(t *testing.T) *mocks.Collection {
 func (v *realCollectionVersions) txColWithAddManyDocuments(t *testing.T, err error) *mocks.Collection {
 	t.Helper()
 	c := v.txCol(t)
-	c.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(err).Maybe()
+	c.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, docs []*client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		if err != nil {
+			return
+		}
+		for _, doc := range docs {
+			client.ApplySavedDocumentID(doc, nextTestDocID())
+		}
+	}).Return(err).Maybe()
 	return c
 }
 
@@ -1976,7 +2000,14 @@ func (v *realCollectionVersions) logCol(t *testing.T) *mocks.Collection {
 func (v *realCollectionVersions) logColWithAddManyDocuments(t *testing.T, err error) *mocks.Collection {
 	t.Helper()
 	c := v.logCol(t)
-	c.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(err).Maybe()
+	c.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, docs []*client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		if err != nil {
+			return
+		}
+		for _, doc := range docs {
+			client.ApplySavedDocumentID(doc, nextTestDocID())
+		}
+	}).Return(err).Maybe()
 	return c
 }
 
@@ -1997,7 +2028,12 @@ func (v *realCollectionVersions) sigCol(t *testing.T) *mocks.Collection {
 func (v *realCollectionVersions) sigColWithAddDocument(t *testing.T, createErr error) *mocks.Collection {
 	t.Helper()
 	c := v.sigCol(t)
-	c.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Return(createErr).Maybe()
+	c.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, doc *client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		if createErr != nil {
+			return
+		}
+		client.ApplySavedDocumentID(doc, nextTestDocID())
+	}).Return(createErr).Maybe()
 	return c
 }
 
@@ -2015,7 +2051,11 @@ func TestSingleTxn_TrackBlock_WithALEs(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithAddManyDocuments(t, nil), nil)
 	aleCol := mocks.NewCollection(t)
 	aleCol.EXPECT().Version().Return(td.aleVersion)
-	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, docs []*client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		for _, doc := range docs {
+			client.ApplySavedDocumentID(doc, nextTestDocID())
+		}
+	}).Return(nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(aleCol, nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Commit().Return(nil)
@@ -2471,7 +2511,11 @@ func TestBatched_ALEBatch_Commit_Error(t *testing.T) {
 
 	aleCol := mocks.NewCollection(t)
 	aleCol.EXPECT().Version().Return(td.aleVersion)
-	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, docs []*client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		for _, doc := range docs {
+			client.ApplySavedDocumentID(doc, nextTestDocID())
+		}
+	}).Return(nil)
 	aleBatchTxn := mocks.NewTxn(t)
 	aleBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(aleCol, nil)
 	aleBatchTxn.EXPECT().Commit().Return(fmt.Errorf("ale commit error"))
