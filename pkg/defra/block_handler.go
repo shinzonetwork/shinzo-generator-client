@@ -713,15 +713,15 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 	ctx context.Context,
 	blockNumber int64,
 	blockHash string,
-	block *types.Block,
-	transactions []*types.Transaction,
-	receipts []*types.TransactionReceipt,
+	_ *types.Block,
+	_ []*types.Transaction,
+	_ []*types.TransactionReceipt,
 ) (string, error) {
 	if h.db == nil {
 		return "", fmt.Errorf("defraNode is nil") //nolint: err113
 	}
 
-	allDocIDs, err := h.collectExistingBlockDocIDs(ctx, blockNumber, block, transactions, receipts)
+	allDocIDs, err := h.collectExistingBlockDocIDs(ctx, blockNumber)
 	if err != nil {
 		return "", err
 	}
@@ -733,129 +733,67 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 	return h.signAndStoreExistingBlockSignature(ctx, blockNumber, blockHash, allDocIDs)
 }
 
-// collectExistingBlockDocIDs builds all documents in memory to compute their deterministic IDs.
-func (h *BlockHandler) collectExistingBlockDocIDs(ctx context.Context, blockNumber int64, block *types.Block, transactions []*types.Transaction, receipts []*types.TransactionReceipt) ([]string, error) {
-	tmpTxn, err := h.db.NewTxn(false)
+// collectExistingBlockDocIDs queries the DB for all docIDs associated with the given block number.
+func (h *BlockHandler) collectExistingBlockDocIDs(ctx context.Context, blockNumber int64) ([]string, error) {
+	var allDocIDs []string
+	blockNumStr := strconv.FormatInt(blockNumber, 10)
+
+	blockDocIDs, err := h.queryDocIDsByBlockNumber(ctx, h.collections.Block, "number", blockNumStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create transaction: %w", err) //nolint: err113
+		return nil, fmt.Errorf("query block docIDs: %w", err)
 	}
-	defer tmpTxn.Discard()
+	allDocIDs = append(allDocIDs, blockDocIDs...)
 
-	cols, err := h.getExistingBlockCollections(ctx, tmpTxn)
+	txDocIDs, err := h.queryDocIDsByBlockNumber(ctx, h.collections.Transaction, "blockNumber", blockNumStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query tx docIDs: %w", err)
 	}
+	allDocIDs = append(allDocIDs, txDocIDs...)
 
-	blockDoc, err := h.buildBlockDocument(ctx, block, blockNumber, cols.block)
+	logDocIDs, err := h.queryDocIDsByBlockNumber(ctx, h.collections.Log, "blockNumber", blockNumStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build block document: %w", err) //nolint: err113
+		return nil, fmt.Errorf("query log docIDs: %w", err)
 	}
-	blockID := blockDoc.ID().String()
-	allDocIDs := []string{blockID}
+	allDocIDs = append(allDocIDs, logDocIDs...)
 
-	receiptMap := make(map[string]*types.TransactionReceipt)
-	for _, receipt := range receipts {
-		if receipt != nil {
-			receiptMap[receipt.TransactionHash] = receipt
-		}
+	aleDocIDs, err := h.queryDocIDsByBlockNumber(ctx, h.collections.AccessListEntry, "blockNumber", blockNumStr)
+	if err != nil {
+		return nil, fmt.Errorf("query ale docIDs: %w", err)
 	}
-
-	txHashToID := h.collectTxDocIDs(ctx, transactions, blockID, cols.tx, &allDocIDs)
-	h.collectLogDocIDs(ctx, transactions, receiptMap, txHashToID, blockID, cols.log, &allDocIDs)
-	h.collectALEDocIDs(ctx, transactions, txHashToID, blockNumber, cols.ale, &allDocIDs)
+	allDocIDs = append(allDocIDs, aleDocIDs...)
 
 	return allDocIDs, nil
 }
 
-// existingBlockCollections holds collections needed for existing block doc ID collection.
-type existingBlockCollections struct {
-	block client.Collection
-	tx    client.Collection
-	log   client.Collection
-	ale   client.Collection
-}
-
-// getExistingBlockCollections fetches all collections needed for doc ID computation.
-func (h *BlockHandler) getExistingBlockCollections(ctx context.Context, txn client.Txn) (*existingBlockCollections, error) {
-	colBlock, err := txn.GetCollectionByName(ctx, h.collections.Block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get block collection: %w", err) //nolint: err113
+// queryDocIDsByBlockNumber queries a collection for docIDs filtered by a block number field.
+func (h *BlockHandler) queryDocIDsByBlockNumber(ctx context.Context, colName, filterField, value string) ([]string, error) {
+	query := `query { ` + colName + `(filter: {` + filterField + `: {_eq: ` + value + `}}) { _docID } }`
+	result := h.db.ExecRequest(ctx, query)
+	if len(result.GQL.Errors) > 0 {
+		return nil, result.GQL.Errors[0]
 	}
-	colTx, err := txn.GetCollectionByName(ctx, h.collections.Transaction)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction collection: %w", err) //nolint: err113
+	data, ok := result.GQL.Data.(map[string]any)
+	if !ok {
+		return nil, nil
 	}
-	colLog, err := txn.GetCollectionByName(ctx, h.collections.Log)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get log collection: %w", err) //nolint: err113
-	}
-	colALE, err := txn.GetCollectionByName(ctx, h.collections.AccessListEntry)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ALE collection: %w", err) //nolint: err113
-	}
-	return &existingBlockCollections{block: colBlock, tx: colTx, log: colLog, ale: colALE}, nil
-}
-
-// collectTxDocIDs builds transaction documents and appends their IDs to allDocIDs.
-func (h *BlockHandler) collectTxDocIDs(ctx context.Context, transactions []*types.Transaction, blockID string, colTx client.Collection, allDocIDs *[]string) map[string]string {
-	txHashToID := make(map[string]string)
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		txDoc, err := h.buildTransactionDocument(ctx, tx, blockID, colTx)
-		if err != nil {
-			continue
-		}
-		txID := txDoc.ID().String()
-		txHashToID[tx.Hash] = txID
-		*allDocIDs = append(*allDocIDs, txID)
-	}
-	return txHashToID
-}
-
-// collectLogDocIDs builds log documents and appends their IDs to allDocIDs.
-func (h *BlockHandler) collectLogDocIDs(ctx context.Context, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt, txHashToID map[string]string, blockID string, colLog client.Collection, allDocIDs *[]string) {
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		receipt, ok := receiptMap[tx.Hash]
-		if !ok || receipt == nil {
-			continue
-		}
-		txID, ok := txHashToID[tx.Hash]
-		if !ok {
-			continue
-		}
-		for i := range receipt.Logs {
-			logDoc, err := h.buildLogDocument(ctx, &receipt.Logs[i], blockID, txID, colLog)
-			if err != nil {
-				continue
+	var docIDs []string
+	switch results := data[colName].(type) {
+	case []any:
+		for _, r := range results {
+			if m, ok := r.(map[string]any); ok {
+				if id, ok := m["_docID"].(string); ok {
+					docIDs = append(docIDs, id)
+				}
 			}
-			*allDocIDs = append(*allDocIDs, logDoc.ID().String())
 		}
-	}
-}
-
-// collectALEDocIDs builds ALE documents and appends their IDs to allDocIDs.
-func (h *BlockHandler) collectALEDocIDs(ctx context.Context, transactions []*types.Transaction, txHashToID map[string]string, blockNumber int64, colALE client.Collection, allDocIDs *[]string) {
-	for _, tx := range transactions {
-		if tx == nil {
-			continue
-		}
-		txID, ok := txHashToID[tx.Hash]
-		if !ok {
-			continue
-		}
-		for i := range tx.AccessList {
-			aleDoc, err := h.buildALEDocument(ctx, &tx.AccessList[i], txID, blockNumber, colALE)
-			if err != nil {
-				continue
+	case []map[string]any:
+		for _, m := range results {
+			if id, ok := m["_docID"].(string); ok {
+				docIDs = append(docIDs, id)
 			}
-			*allDocIDs = append(*allDocIDs, aleDoc.ID().String())
 		}
 	}
+	return docIDs, nil
 }
 
 // waitForCIDs retries until CIDs are available for all documents (P2P data may still be arriving).
