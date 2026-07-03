@@ -67,6 +67,7 @@ docker run -d \
   --label com.centurylinklabs.watchtower.enable=true \
   --name shinzo-indexer \
   --restart unless-stopped \
+  -p 8080:8080 \
   -p 9171:9171 \
   -v /mnt/defradb-data:/app/.defra \
   -v /mnt/defradb-data/logs:/app/logs \
