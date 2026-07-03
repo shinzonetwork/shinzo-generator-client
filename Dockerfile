@@ -159,7 +159,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Expose ports health, p2p, graphql
-EXPOSE 8080 9171 9181
+EXPOSE 9171 9181
 
 # Use dumb-init for proper signal handling
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
