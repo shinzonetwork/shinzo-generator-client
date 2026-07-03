@@ -56,14 +56,27 @@ sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
 
 http {
+  resolver 127.0.0.11 valid=10s;
+
   map $http_origin $cors_origin {
     default "";
     "~^https://[^/]+\.shinzo\.network$" $http_origin;
   }
 
   server {
-    listen 8080;
+    listen 80;
     server_name _;
+    return 301 https://$host$request_uri;
+  }
+
+  server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/ssl/nginx.crt;
+    ssl_certificate_key /etc/nginx/ssl/nginx.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
 
     add_header 'Access-Control-Allow-Origin' $cors_origin always;
     add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
@@ -81,6 +94,7 @@ http {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/registration;
     }
+
     location = /registration-app {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-indexer:8080/registration-app;
