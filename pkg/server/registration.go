@@ -89,7 +89,7 @@ func buildRegistrationAppURL(registration *DisplayRegistration) string {
 	redirectURL := url.URL{
 		Scheme: "https",
 		Host:   registrationAppHost,
-		Path:   "/indexer-registration",
+		Path:   "/generator-registration",
 	}
 	query := redirectURL.Query()
 	query.Set("signedMessage", registration.Message)

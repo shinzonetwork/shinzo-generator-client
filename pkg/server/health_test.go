@@ -376,7 +376,7 @@ func TestRegistrationAppHandler_Redirect(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https", redirectURL.Scheme)
 	assert.Equal(t, "registration.shinzo.network", redirectURL.Host)
-	assert.Equal(t, "/indexer-registration", redirectURL.Path)
+	assert.Equal(t, "/generator-registration", redirectURL.Path)
 
 	query := redirectURL.Query()
 	assert.Equal(t, testRegistrationMsg, query.Get("signedMessage"))
