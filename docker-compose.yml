@@ -4,10 +4,10 @@ networks:
 
 services:
   indexer:
-    container_name: shinzo-indexer
+    container_name: shinzo-generator
     platform: linux/amd64
     image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
-    user: "1001:1001" # shinzo-indexer identity
+    user: "1001:1001" # shinzo-generator identity
     restart: unless-stopped
     networks:
       - shinzo-net

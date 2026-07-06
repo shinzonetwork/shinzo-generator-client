@@ -65,7 +65,7 @@ docker run -d \
 ```bash
 docker run -d \
   --label com.centurylinklabs.watchtower.enable=true \
-  --name shinzo-indexer \
+  --name shinzo-generator \
   --restart unless-stopped \
   -p 8080:8080 \
   -p 9171:9171 \
@@ -100,17 +100,17 @@ docker exec watchtower /watchtower --run-once
 ### Manual rollback
 ```bash
 # Stop current container
-docker stop shinzo-indexer && docker rm shinzo-indexer
+docker stop shinzo-generator && docker rm shinzo-generator
 
 # Start with specific SHA tag
 docker run -d \
   --label com.centurylinklabs.watchtower.enable=true \
-  --name shinzo-indexer \
+  --name shinzo-generator \
   ... \
   ghcr.io/shinzonetwork/indexer:sha-abc1234
 ```
 
 ### Container not updating
-- Verify the container has the Watchtower label: `docker inspect shinzo-indexer | grep watchtower`
+- Verify the container has the Watchtower label: `docker inspect shinzo-generator | grep watchtower`
 - Check GHCR credentials: `cat ~/.docker/config.json`
 - Verify Watchtower is running: `docker ps | grep watchtower`

@@ -131,8 +131,8 @@ COPY --from=builder /usr/local/include/ /usr/local/include/
 ENV LD_LIBRARY_PATH="/usr/local/lib"
 
 # Create non-root user for security
-RUN groupadd -g 1001 shinzo-indexer && \
-    useradd -u 1001 -g shinzo-indexer -m -s /bin/bash shinzo-indexer
+RUN groupadd -g 1001 shinzo-generator && \
+    useradd -u 1001 -g shinzo-generator -m -s /bin/bash shinzo-generator
 
 # Set working directory
 WORKDIR /app
@@ -147,12 +147,12 @@ COPY --from=builder /app/pkg/schema/ /app/pkg/schema/
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/.defra /app/logs /tmp && \
     touch /app/logs/logfile && \
-    chown -R shinzo-indexer:shinzo-indexer /app && \
+    chown -R shinzo-generator:shinzo-generator /app && \
     chmod -R 755 /app && \
     chmod +x /app/block_poster
 
 # Switch to non-root user
-USER shinzo-indexer
+USER shinzo-generator
 
 # Health check with better error handling
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
