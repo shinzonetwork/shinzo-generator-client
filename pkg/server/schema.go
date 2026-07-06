@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
 type schemaResponse struct {

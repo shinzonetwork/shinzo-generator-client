@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
 // TestErrorLoggingPatterns demonstrates how to use structured error logging in tests.

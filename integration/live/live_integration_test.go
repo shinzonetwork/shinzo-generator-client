@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/indexer"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
 var (

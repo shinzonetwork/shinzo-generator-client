@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

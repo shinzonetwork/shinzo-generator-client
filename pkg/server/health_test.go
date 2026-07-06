@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +67,7 @@ var (
 	testDefraPublicKey  = "0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 	testDefraSignedMsg  = "0xsigned-pk"
 	testIndexerPeerID   = "12D3KooWTestPeer"
-	testRegistrationMsg = "0x5368696e7a6f204e6574776f726b20496e646578657220726567697374726174696f6e"
+	testRegistrationMsg = "0x5368696e7a6f204e6574776f726b2047656e657261746f7220726567697374726174696f6e"
 )
 
 func (testSignFailedError) Error() string { return "sign failed" }
@@ -376,7 +376,7 @@ func TestRegistrationAppHandler_Redirect(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https", redirectURL.Scheme)
 	assert.Equal(t, "registration.shinzo.network", redirectURL.Host)
-	assert.Equal(t, "/indexer-registration", redirectURL.Path)
+	assert.Equal(t, "/generator-registration", redirectURL.Path)
 
 	query := redirectURL.Query()
 	assert.Equal(t, testRegistrationMsg, query.Get("signedMessage"))

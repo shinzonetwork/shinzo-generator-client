@@ -4,7 +4,7 @@ import (
 	stderrors "errors"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 )
 
 func TestNumberToHex(t *testing.T) {

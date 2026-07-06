@@ -48,9 +48,9 @@ jobs:
         ./...
     
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        slug: shinzonetwork/shinzo-indexer-client
+        slug: shinzonetwork/shinzo-generator-client
         files: coverage.out
         fail_ci_if_error: true

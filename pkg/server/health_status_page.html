@@ -335,7 +335,7 @@
                     </div>
                     <div class="info-row" id="registrationActionRow" style="display: none;">
                         <span class="info-label">Action</span>
-                        <span class="info-value"><a id="registrationActionLink" href="/registration-app">Register indexer</a></span>
+                        <span class="info-value"><a id="registrationActionLink" href="/registration-app">Register generator</a></span>
                     </div>
                 </div>
             </div>
@@ -555,7 +555,7 @@
                 const data = await response.json();
                 const did = data.registration && data.registration.did;
                 if (!did) {
-                    renderRegistrationStatus('unknown', '', 'Missing indexer DID');
+                    renderRegistrationStatus('unknown', '', 'Missing generator DID');
                     return;
                 }
 
