@@ -1,6 +1,6 @@
 # Deployment Configuration
 
-This document describes the CI/CD setup for auto-deploying the indexer.
+This document describes the CI/CD setup for auto-deploying the generator.
 
 ## Architecture
 
@@ -32,8 +32,8 @@ Push to main → GitHub Actions (test + build) → Push to GHCR → Watchtower p
 5. Watchtower stops old container, pulls new image, starts new container
 
 ### Image Tags
-- `ghcr.io/shinzonetwork/indexer:latest` - Most recent main build (Watchtower watches this)
-- `ghcr.io/shinzonetwork/indexer:sha-<7chars>` - Specific commit for rollback
+- `ghcr.io/shinzonetwork/generator:latest` - Most recent main build (Watchtower watches this)
+- `ghcr.io/shinzonetwork/generator:sha-<7chars>` - Specific commit for rollback
 
 ## VM Setup
 
@@ -60,7 +60,7 @@ docker run -d \
   containrrr/watchtower
 ```
 
-### Indexer Container
+### Generator Container
 
 ```bash
 docker run -d \
@@ -77,7 +77,7 @@ docker run -d \
   --health-timeout=10s \
   --health-retries=3 \
   --health-start-period=60s \
-  ghcr.io/shinzonetwork/indexer:latest
+  ghcr.io/shinzonetwork/generator:latest
 ```
 
 ## Troubleshooting
@@ -89,7 +89,7 @@ docker logs watchtower --tail 50
 
 ### Check if Watchtower can pull images
 ```bash
-docker pull ghcr.io/shinzonetwork/indexer:latest
+docker pull ghcr.io/shinzonetwork/generator:latest
 ```
 
 ### Force immediate update
@@ -107,7 +107,7 @@ docker run -d \
   --label com.centurylinklabs.watchtower.enable=true \
   --name shinzo-generator \
   ... \
-  ghcr.io/shinzonetwork/indexer:sha-abc1234
+  ghcr.io/shinzonetwork/generator:sha-abc1234
 ```
 
 ### Container not updating
