@@ -3,7 +3,7 @@ networks:
     driver: bridge
 
 services:
-  indexer:
+  generator:
     container_name: shinzo-generator
     platform: linux/amd64
     image: shinzo-generator:latest
@@ -28,7 +28,7 @@ services:
       # DefraDB Configuration (embedded)
       - DEFRADB_KEYRING_SECRET=${DEFRADB_KEYRING_SECRET:-}
       
-      # Indexer Configuration
+      # Generator Configuration
       - INDEXER_START_HEIGHT=${INDEXER_START_HEIGHT:-0}
       - GOMEMLIMIT=14GiB
       - SNAPSHOT_ENABLED=false
@@ -47,3 +47,15 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - generator
+    networks:
+      - shinzo-net
+    restart: unless-stopped
