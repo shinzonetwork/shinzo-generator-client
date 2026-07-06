@@ -9,8 +9,8 @@
 ## Steps
 
 ```shell
-git clone git@github.com:shinzonetwork/shinzo-indexer-client.git
-cd shinzo-indexer-client
+git clone git@github.com:shinzonetwork/shinzo-generator-client.git
+cd shinzo-generator-client
 cp .env.sample .env   # fill in your node credentials
 go mod download
 make build

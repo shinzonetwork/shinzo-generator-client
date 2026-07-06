@@ -5,7 +5,7 @@ networks:
 
 services:
   shinzo-indexer:
-    image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
     user: "0:0"
     container_name: shinzo-indexer
     restart: unless-stopped

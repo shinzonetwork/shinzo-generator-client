@@ -6,7 +6,7 @@ services:
   indexer:
     container_name: shinzo-indexer
     platform: linux/amd64
-    image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
     user: "1001:1001" # shinzo-indexer identity
     restart: unless-stopped
     networks:

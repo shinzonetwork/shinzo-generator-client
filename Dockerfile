@@ -105,7 +105,7 @@ LABEL maintainer="Shinzo Network <team@shinzo.network>" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.source="https://github.com/shinzonetwork/shinzo-indexer-client"
+      org.opencontainers.image.source="https://github.com/shinzonetwork/shinzo-generator-client"
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
