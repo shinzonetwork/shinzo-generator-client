@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/indexer"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 )
 
 func main() {

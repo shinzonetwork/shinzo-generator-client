@@ -7,9 +7,9 @@
 
 # Shinzo Indexer Client
 
-![Build Status](https://img.shields.io/github/actions/workflow/status/shinzonetwork/shinzo-indexer-client/.github/workflows/go-test.yml)
-![License](https://img.shields.io/github/license/shinzonetwork/shinzo-indexer-client)
-![Docker](https://img.shields.io/docker/v/shinzonetwork/shinzo-indexer-client)
+![Build Status](https://img.shields.io/github/actions/workflow/status/shinzonetwork/shinzo-generator-client/.github/workflows/go-test.yml)
+![License](https://img.shields.io/github/license/shinzonetwork/shinzo-generator-client)
+![Docker](https://img.shields.io/docker/v/shinzonetwork/shinzo-generator-client)
 
 Blockchain indexing client that connects to EVM nodes and stores block, transaction, and log data in DefraDB.
 

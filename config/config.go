@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"gopkg.in/yaml.v3"
 )
 

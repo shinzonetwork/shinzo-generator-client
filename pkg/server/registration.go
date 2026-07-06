@@ -10,7 +10,7 @@ import (
 
 	sdkcrypto "github.com/TBD54566975/ssi-sdk/crypto"
 	didkey "github.com/TBD54566975/ssi-sdk/did/key"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
 const (

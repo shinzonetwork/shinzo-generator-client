@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 const (

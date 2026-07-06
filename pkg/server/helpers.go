@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 )
 
 // errorResponse is the JSON envelope for API error responses on /api/v1/* endpoints.

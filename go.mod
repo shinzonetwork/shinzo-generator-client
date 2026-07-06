@@ -1,4 +1,4 @@
-module github.com/shinzonetwork/shinzo-indexer-client
+module github.com/shinzonetwork/shinzo-generator-client
 
 go 1.26
 
