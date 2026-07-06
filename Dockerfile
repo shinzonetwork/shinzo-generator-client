@@ -1,4 +1,4 @@
-# Multi-stage build for Shinzo Network Ethereum Indexer
+# Multi-stage build for Shinzo Network Ethereum Generator.
 # Stage 1: Builder stage
 FROM golang:1.26 AS builder
 
@@ -101,7 +101,7 @@ ARG VERSION=dev
 # Labels for metadata
 LABEL maintainer="Shinzo Network <team@shinzo.network>" \
       org.opencontainers.image.title="Shinzo Network Generator" \
-      org.opencontainers.image.description="Ethereum blockchain indexer for Shinzo Network" \
+      org.opencontainers.image.description="Ethereum blockchain generator for Shinzo Network" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \

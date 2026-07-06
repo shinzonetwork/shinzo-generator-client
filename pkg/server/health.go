@@ -1,10 +1,10 @@
-// Package server provides HTTP handlers for the indexer's health, metrics, registration,
+// Package server provides HTTP handlers for the generator's health, metrics, registration,
 // and schema endpoints.
 //
 // Error response formats differ by audience:
 //   - Host-client endpoints (/api/v1/*) return structured JSON errors via writeJSONError,
 //     using the errorResponse envelope {error, message}. These are consumed programmatically
-//     by other indexer clients that need machine-parseable error details.
+//     by other generator clients that need machine-parseable error details.
 //   - User-facing endpoints (/, /health, /registration, /metrics, /snapshots) use plain text
 //     errors via http.Error. These serve browsers and operational dashboards where plain text
 //     is simpler and sufficient.
