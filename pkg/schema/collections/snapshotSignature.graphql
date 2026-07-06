@@ -1,5 +1,5 @@
 # SnapshotSignature seals a snapshot file with a Merkle root over per-block block
-# signature Merkle roots. Used for cross-indexer attestation and snapshot exchange.
+# signature Merkle roots. Used for cross-generator attestation and snapshot exchange.
 type Ethereum__Mainnet__SnapshotSignature {
     startBlock: Int
     endBlock: Int
