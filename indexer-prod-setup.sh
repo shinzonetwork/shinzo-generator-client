@@ -30,6 +30,7 @@ services:
       - LOG_LEVEL=error
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
+      - SCHEMA_AUTH_MODE=none
     logging:
       options:
         max-size: "50m"
