@@ -67,7 +67,7 @@ var (
 	testDefraPublicKey  = "0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 	testDefraSignedMsg  = "0xsigned-pk"
 	testIndexerPeerID   = "12D3KooWTestPeer"
-	testRegistrationMsg = "0x5368696e7a6f204e6574776f726b20496e646578657220726567697374726174696f6e"
+	testRegistrationMsg = "0x5368696e7a6f204e6574776f726b2047656e657261746f7220726567697374726174696f6e"
 )
 
 func (testSignFailedError) Error() string { return "sign failed" }
