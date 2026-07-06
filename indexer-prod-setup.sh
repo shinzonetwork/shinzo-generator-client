@@ -37,8 +37,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "80:80"
-      - "443:443"
+      - "443:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
@@ -64,7 +63,7 @@ http {
   }
 
   server {
-    listen 80;
+    listen 8080;
     server_name _;
     return 301 https://$host$request_uri;
   }
