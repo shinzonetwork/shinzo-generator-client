@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	cid "github.com/ipfs/go-cid"
+	mh "github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -21,29 +24,34 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
+var testDocIDCounter atomic.Uint64
+
+func nextTestDocID() client.DocID {
+	n := testDocIDCounter.Add(1)
+	data := fmt.Appendf(nil, "test-doc-%d", n)
+	h, _ := mh.Sum(data, mh.SHA2_256, -1)
+	c := cid.NewCidV1(cid.DagCBOR, h)
+	return client.NewDocIDV0(c)
+}
+
 // ---------------------------------------------------------------------------
 // mockBlockDB — implements blockDB interface for unit tests
 // ---------------------------------------------------------------------------
 
 type mockBlockDB struct {
-	newTxnFn  func() (client.Txn, error)
-	initCtxFn func(ctx context.Context, txn client.Txn) context.Context
+	newTxnFn  func(readOnly bool) (client.Txn, error)
 	execReqFn func(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult
 }
 
-func (m *mockBlockDB) NewBlindWriteTxn() (client.Txn, error) {
-	return m.newTxnFn()
-}
-
-func (m *mockBlockDB) InitContext(ctx context.Context, txn client.Txn) context.Context {
-	if m.initCtxFn != nil {
-		return m.initCtxFn(ctx, txn)
-	}
-	return ctx
+func (m *mockBlockDB) NewTxn(readOnly bool) (client.Txn, error) {
+	return m.newTxnFn(readOnly)
 }
 
 func (m *mockBlockDB) ExecRequest(ctx context.Context, request string, opts ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
-	return m.execReqFn(ctx, request, opts...)
+	if m.execReqFn != nil {
+		return m.execReqFn(ctx, request, opts...)
+	}
+	return &client.RequestResult{}
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +62,51 @@ type errDocIDTracker struct{}
 
 func (e *errDocIDTracker) TrackBlock(_ context.Context, _ int64, _ *BlockCreationResult) error {
 	return errors.New("tracker error") //nolint: err113
+}
+
+// emptyExecReqFn returns an execReqFn that yields empty GQL data (no docIDs).
+// collectExistingBlockDocIDs will return an empty allDocIDs slice.
+func emptyExecReqFn() func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+	return func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+		return &client.RequestResult{GQL: client.GQLResult{Data: map[string]any{}}}
+	}
+}
+
+// execReqFnWithDocIDs returns an execReqFn that yields one docID for every
+// collection query, so allDocIDs is non-empty (4 elements for 4 collections).
+func execReqFnWithDocIDs() func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+	return func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		return &client.RequestResult{
+			GQL: client.GQLResult{
+				Data: map[string]any{
+					constants.CollectionBlock:           arr,
+					constants.CollectionTransaction:     arr,
+					constants.CollectionLog:             arr,
+					constants.CollectionAccessListEntry: arr,
+				},
+			},
+		}
+	}
+}
+
+// execReqFnWithErrorForCol returns an execReqFn that returns a GQL error when
+// the request targets the given collection name, and empty data otherwise.
+func execReqFnWithErrorForCol(targetCol string) func(_ context.Context, request string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+	return func(_ context.Context, request string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+		if strings.Contains(request, targetCol) {
+			return &client.RequestResult{
+				GQL: client.GQLResult{Errors: []error{fmt.Errorf("query error for %s", targetCol)}},
+			}
+		}
+		return &client.RequestResult{GQL: client.GQLResult{Data: map[string]any{}}}
+	}
+}
+
+// oneTestCID returns a reusable CID for mock tests.
+func oneTestCID() cid.Cid {
+	c, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
+	return c
 }
 
 // ---------------------------------------------------------------------------
@@ -67,36 +120,19 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 		db:            db,
 		maxDocsPerTxn: 1000,
 		collections:   constants.NewCollectionNames(constants.DefaultCollectionPrefix),
-		signBlockFn: func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
+		signBatchFn: func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 			return nil, nil // no identity → nil sig
 		},
-		verifyBlockSigFn: func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) {
+		verifyBatchSigFn: func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 			return true, nil
 		},
 		collectDocCIDsFn: func(_ context.Context, _ []string) ([]cid.Cid, error) {
 			return nil, nil
 		},
+		blockExistsFn:  func(_ context.Context, _ int64) (bool, error) { return false, nil },
 		maxCIDRetries:  1,
 		retryBackoffFn: func(int) time.Duration { return 0 },
 	}
-}
-
-// mockTxnWithCollections creates a mock txn where GetCollectionByName returns
-// real-looking mock collections that allow document creation.
-func mockTxnWithCollections(t *testing.T, td *testDefraCollections) *mocks.Txn {
-	t.Helper()
-	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).
-		Return(td.block, nil).Maybe()
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).
-		Return(td.tx, nil).Maybe()
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).
-		Return(td.log, nil).Maybe()
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).
-		Return(td.ale, nil).Maybe()
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).
-		Return(td.blockSig, nil).Maybe()
-	return txn
 }
 
 // testDefraCollections bundles mock collections with empty versions for
@@ -116,8 +152,8 @@ func emptyVersionCollections(t *testing.T) *testDefraCollections {
 	mk := func() *mocks.Collection {
 		c := mocks.NewCollection(t)
 		c.EXPECT().Version().Return(client.CollectionVersion{}).Maybe()
-		c.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-		c.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		c.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+		c.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 		return c
 	}
 	return &testDefraCollections{
@@ -148,7 +184,7 @@ func testReceipt() *types.TransactionReceipt {
 func TestSingleTxn_NewBlindWriteTxn_Error(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			return nil, fmt.Errorf("txn error") //nolint: err113
 		},
 	}
@@ -166,7 +202,7 @@ func TestSingleTxn_GetCollection_Block_Error(t *testing.T) {
 		Return(nil, fmt.Errorf("no such collection")) //nolint: err113
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	_, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
@@ -183,7 +219,7 @@ func TestSingleTxn_GetCollection_Tx_Error(t *testing.T) {
 		Return(nil, fmt.Errorf("no tx col")) //nolint: err113
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	// buildBlockDocument will fail because empty version → covers that error path too
@@ -201,7 +237,7 @@ func TestSingleTxn_GetCollection_Log_Error(t *testing.T) {
 		Return(nil, fmt.Errorf("no log col")) //nolint: err113
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	_, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
@@ -219,7 +255,7 @@ func TestSingleTxn_GetCollection_ALE_Error(t *testing.T) {
 		Return(nil, fmt.Errorf("no ale col")) //nolint: err113
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	_, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
@@ -238,7 +274,7 @@ func TestSingleTxn_GetCollection_BlockSig_Error(t *testing.T) {
 		Return(nil, fmt.Errorf("no sig col")) //nolint: err113
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	_, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
@@ -257,7 +293,7 @@ func TestSingleTxn_BuildBlockDocument_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(cols.blockSig, nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	_, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
@@ -272,7 +308,7 @@ func TestSingleTxn_BlockCreate_NonDuplicateError(t *testing.T) {
 	txn := mocks.NewTxn(t)
 	blockCol := mocks.NewCollection(t)
 	blockCol.EXPECT().Version().Return(td.blockVersion)
-	blockCol.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).
+	blockCol.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).
 		Return(fmt.Errorf("some internal error"))
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(blockCol, nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil).Maybe()
@@ -281,7 +317,7 @@ func TestSingleTxn_BlockCreate_NonDuplicateError(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil).Maybe()
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	_, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
@@ -294,7 +330,7 @@ func TestSingleTxn_BuildTxDocument_Error(t *testing.T) {
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
-	blockCol := td.blockColWithCreate(t, nil) // Create succeeds
+	blockCol := td.blockColWithAddDocument(t, nil) // Create succeeds
 	txCol := mocks.NewCollection(t)
 	txCol.EXPECT().Version().Return(client.CollectionVersion{}) // empty → build fails
 
@@ -305,7 +341,7 @@ func TestSingleTxn_BuildTxDocument_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	tx := testTx()
@@ -319,10 +355,10 @@ func TestSingleTxn_CreateManyTx_Error(t *testing.T) {
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
-	blockCol := td.blockColWithCreate(t, nil)
+	blockCol := td.blockColWithAddDocument(t, nil)
 	txCol := mocks.NewCollection(t)
 	txCol.EXPECT().Version().Return(td.txVersion)
-	txCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create many tx error")) //nolint: err113
+	txCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create many tx error")) //nolint: err113
 
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(blockCol, nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(txCol, nil)
@@ -331,7 +367,7 @@ func TestSingleTxn_CreateManyTx_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	tx := testTx()
@@ -345,8 +381,8 @@ func TestSingleTxn_BuildLogDocument_Error(t *testing.T) {
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
-	blockCol := td.blockColWithCreate(t, nil)
-	txCol := td.txColWithCreateMany(t, nil)
+	blockCol := td.blockColWithAddDocument(t, nil)
+	txCol := td.txColWithAddManyDocuments(t, nil)
 	logCol := mocks.NewCollection(t)
 	logCol.EXPECT().Version().Return(client.CollectionVersion{}) // empty → build fails
 
@@ -357,7 +393,7 @@ func TestSingleTxn_BuildLogDocument_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	tx := testTx()
@@ -373,11 +409,11 @@ func TestSingleTxn_CreateManyLogs_Error(t *testing.T) {
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
-	blockCol := td.blockColWithCreate(t, nil)
-	txCol := td.txColWithCreateMany(t, nil)
+	blockCol := td.blockColWithAddDocument(t, nil)
+	txCol := td.txColWithAddManyDocuments(t, nil)
 	logCol := mocks.NewCollection(t)
 	logCol.EXPECT().Version().Return(td.logVersion)
-	logCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create many logs error")) //nolint: err113
+	logCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create many logs error")) //nolint: err113
 
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(blockCol, nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(txCol, nil)
@@ -386,7 +422,7 @@ func TestSingleTxn_CreateManyLogs_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	tx := testTx()
@@ -402,9 +438,9 @@ func TestSingleTxn_BuildALEDocument_Error(t *testing.T) {
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
-	blockCol := td.blockColWithCreate(t, nil)
-	txCol := td.txColWithCreateMany(t, nil)
-	logCol := td.logColWithCreateMany(t, nil)
+	blockCol := td.blockColWithAddDocument(t, nil)
+	txCol := td.txColWithAddManyDocuments(t, nil)
+	logCol := td.logColWithAddManyDocuments(t, nil)
 	aleCol := mocks.NewCollection(t)
 	aleCol.EXPECT().Version().Return(client.CollectionVersion{}) // empty → build fails
 
@@ -415,7 +451,7 @@ func TestSingleTxn_BuildALEDocument_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	tx := testTx()
@@ -432,12 +468,12 @@ func TestSingleTxn_CreateManyALE_Error(t *testing.T) {
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
 
-	blockCol := td.blockColWithCreate(t, nil)
-	txCol := td.txColWithCreateMany(t, nil)
-	logCol := td.logColWithCreateMany(t, nil)
+	blockCol := td.blockColWithAddDocument(t, nil)
+	txCol := td.txColWithAddManyDocuments(t, nil)
+	logCol := td.logColWithAddManyDocuments(t, nil)
 	aleCol := mocks.NewCollection(t)
 	aleCol.EXPECT().Version().Return(td.aleVersion)
-	aleCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create many ALE error")) //nolint: err113
+	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create many ALE error")) //nolint: err113
 
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(blockCol, nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(txCol, nil)
@@ -446,7 +482,7 @@ func TestSingleTxn_CreateManyALE_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	tx := testTx()
@@ -462,16 +498,16 @@ func TestSingleTxn_SignBlock_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return nil, fmt.Errorf("signing error") //nolint: err113
 	}
 
@@ -484,20 +520,20 @@ func TestSingleTxn_VerifyBlockSig_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
-	sigCol := td.sigColWithCreate(t, nil)
+	sigCol := td.sigColWithAddDocument(t, nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	txn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) {
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 		return false, fmt.Errorf("verify error") //nolint: err113
 	}
 
@@ -510,20 +546,20 @@ func TestSingleTxn_VerifyBlockSig_False(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
-	sigCol := td.sigColWithCreate(t, nil)
+	sigCol := td.sigColWithAddDocument(t, nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	txn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) {
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 		return false, nil
 	}
 
@@ -536,7 +572,7 @@ func TestSingleTxn_BuildBlockSigDoc_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
@@ -545,12 +581,12 @@ func TestSingleTxn_BuildBlockSigDoc_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(emptySigCol, nil)
 	txn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) {
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 		return true, nil
 	}
 
@@ -563,22 +599,22 @@ func TestSingleTxn_CreateBlockSig_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
 	sigCol := mocks.NewCollection(t)
 	sigCol.EXPECT().Version().Return(td.sigVersion)
-	sigCol.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create sig error")) //nolint: err113
+	sigCol.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create sig error")) //nolint: err113
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	txn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) {
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 		return true, nil
 	}
 
@@ -591,14 +627,14 @@ func TestSingleTxn_Commit_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Commit().Return(fmt.Errorf("commit error")) //nolint: err113
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 
 	_, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
@@ -610,14 +646,14 @@ func TestSingleTxn_TrackBlock_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 	h.docIDTracker = &errDocIDTracker{}
 
@@ -633,7 +669,7 @@ func TestSingleTxn_TrackBlock_Error(t *testing.T) {
 func TestBatched_NewTxn_Initial_Error(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			return nil, fmt.Errorf("txn error") //nolint: err113
 		},
 	}
@@ -655,7 +691,7 @@ func TestBatched_GetCollection_Block_Error(t *testing.T) {
 		Return(nil, fmt.Errorf("no block col")) //nolint: err113
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 	h.maxDocsPerTxn = 2
 
@@ -671,7 +707,7 @@ func TestBatched_BuildBlockDoc_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 	h.maxDocsPerTxn = 2
 
@@ -687,12 +723,12 @@ func TestBatched_BlockCreate_NonDuplicateError(t *testing.T) {
 
 	blockCol := mocks.NewCollection(t)
 	blockCol.EXPECT().Version().Return(td.blockVersion)
-	blockCol.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("internal error")) //nolint: err113
+	blockCol.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("internal error")) //nolint: err113
 
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(blockCol, nil)
 	txn.EXPECT().Discard()
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 	h.maxDocsPerTxn = 2
 
@@ -705,10 +741,10 @@ func TestBatched_BlockCommit_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	txn.EXPECT().Commit().Return(fmt.Errorf("commit block error")) //nolint: err113
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 	h.maxDocsPerTxn = 2
 
@@ -722,11 +758,11 @@ func TestBatched_TxBatch_NewTxn_Error(t *testing.T) {
 	td := setupRealCollectionVersions(t)
 	callCount := 0
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil // block creation txn
@@ -752,7 +788,7 @@ func TestBatched_TxBatch_GetCollection_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	batchTxn := mocks.NewTxn(t)
@@ -760,7 +796,7 @@ func TestBatched_TxBatch_GetCollection_Error(t *testing.T) {
 	batchTxn.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -784,7 +820,7 @@ func TestBatched_TxBatch_BuildTxDoc_Warn(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	emptyTxCol := mocks.NewCollection(t)
@@ -798,7 +834,7 @@ func TestBatched_TxBatch_BuildTxDoc_Warn(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -824,12 +860,12 @@ func TestBatched_TxBatch_CreateMany_NonDupError(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txCol := mocks.NewCollection(t)
 	txCol.EXPECT().Version().Return(td.txVersion)
-	txCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("batch create error")) //nolint: err113
+	txCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("batch create error")) //nolint: err113
 
 	batchTxn := mocks.NewTxn(t)
 	batchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(txCol, nil)
@@ -839,7 +875,7 @@ func TestBatched_TxBatch_CreateMany_NonDupError(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -866,18 +902,18 @@ func TestBatched_TxBatch_Commit_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	batchTxn := mocks.NewTxn(t)
-	batchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	batchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	batchTxn.EXPECT().Commit().Return(fmt.Errorf("commit tx batch error")) //nolint: err113
 
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -901,33 +937,25 @@ func TestBatched_TxBatch_Commit_Error(t *testing.T) {
 func TestBatched_SignBlock_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
-	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().Discard()
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
-			}
-			return sigTxn, nil
+		newTxnFn: func(_ bool) (client.Txn, error) {
+			return blockTxn, nil
 		},
 	}
 	h := newMockHandler(t, db)
 	h.maxDocsPerTxn = 1000 // keep batched path but with no txns to batch
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return nil, fmt.Errorf("sign error") //nolint: err113
 	}
 
-	// Directly call batched since CreateBlockBatch routes based on doc count
+	// signBatchFn errors before sigTxn is created; sign error is logged, block creation succeeds
 	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err) // sign error is logged
+	require.NoError(t, err)
 	assert.NotEmpty(t, blockID)
 }
 
@@ -937,17 +965,17 @@ func TestBatched_VerifyBlockSig_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	sigTxn := mocks.NewTxn(t)
-	sigCol := td.sigColWithCreate(t, nil)
+	sigCol := td.sigColWithAddDocument(t, nil)
 	txn2 := sigTxn
 	txn2.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	txn2.EXPECT().Commit().Return(nil)
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -956,10 +984,10 @@ func TestBatched_VerifyBlockSig_Error(t *testing.T) {
 		},
 	}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) {
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 		return false, fmt.Errorf("verify error") //nolint: err113
 	}
 
@@ -974,16 +1002,16 @@ func TestBatched_VerifyBlockSig_False(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	sigTxn := mocks.NewTxn(t)
-	sigCol := td.sigColWithCreate(t, nil)
+	sigCol := td.sigColWithAddDocument(t, nil)
 	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	sigTxn.EXPECT().Commit().Return(nil)
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -992,10 +1020,10 @@ func TestBatched_VerifyBlockSig_False(t *testing.T) {
 		},
 	}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) {
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 		return false, nil
 	}
 
@@ -1010,11 +1038,11 @@ func TestBatched_SigTxn_NewTxn_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -1032,26 +1060,18 @@ func TestBatched_SigTxn_NewTxn_Error(t *testing.T) {
 func TestBatched_SigNil_Discard(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
-	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().Discard()
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
-			}
-			return sigTxn, nil
+		newTxnFn: func(_ bool) (client.Txn, error) {
+			return blockTxn, nil
 		},
 	}
 	h := newMockHandler(t, db)
-	// signBlockFn returns nil, nil → blockSig is nil → Discard
+	// signBatchFn returns nil, nil → blockSig is nil → returns early, no sigTxn created
 
 	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
 	require.NoError(t, err)
@@ -1064,7 +1084,7 @@ func TestBatched_GetSigCollection_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	sigTxn := mocks.NewTxn(t)
@@ -1073,7 +1093,7 @@ func TestBatched_GetSigCollection_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -1082,10 +1102,10 @@ func TestBatched_GetSigCollection_Error(t *testing.T) {
 		},
 	}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil // nolint:mnd
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil // nolint:mnd
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) {
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 		return true, nil
 	}
 
@@ -1100,7 +1120,7 @@ func TestBatched_BuildSigDoc_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	emptySigCol := mocks.NewCollection(t)
@@ -1110,7 +1130,7 @@ func TestBatched_BuildSigDoc_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -1119,10 +1139,10 @@ func TestBatched_BuildSigDoc_Error(t *testing.T) {
 		},
 	}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) { return true, nil }
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) { return true, nil }
 
 	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
 	require.NoError(t, err) // logged
@@ -1135,18 +1155,18 @@ func TestBatched_CreateSigDoc_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	sigCol := mocks.NewCollection(t)
 	sigCol.EXPECT().Version().Return(td.sigVersion)
-	sigCol.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create sig error")) // nolint:err113
+	sigCol.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create sig error")) // nolint:err113
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	sigTxn.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -1155,10 +1175,10 @@ func TestBatched_CreateSigDoc_Error(t *testing.T) {
 		},
 	}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil // nolint:mnd
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil // nolint:mnd
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) { return true, nil }
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) { return true, nil }
 
 	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
 	require.NoError(t, err)
@@ -1171,16 +1191,16 @@ func TestBatched_SigCommit_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
-	sigCol := td.sigColWithCreate(t, nil)
+	sigCol := td.sigColWithAddDocument(t, nil)
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	sigTxn.EXPECT().Commit().Return(fmt.Errorf("commit sig error")) // nolint:err113
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -1189,10 +1209,10 @@ func TestBatched_SigCommit_Error(t *testing.T) {
 		},
 	}
 	h := newMockHandler(t, db)
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil // nolint:mnd
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil // nolint:mnd
 	}
-	h.verifyBlockSigFn = func(_ *node.BlockSignature, _ []cid.Cid) (bool, error) { return true, nil }
+	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) { return true, nil }
 
 	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
 	require.NoError(t, err) // logged
@@ -1205,14 +1225,14 @@ func TestBatched_TrackBlock_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -1232,161 +1252,74 @@ func TestBatched_TrackBlock_Error(t *testing.T) {
 // CreateBlockSignatureForExistingBlock error paths
 // =========================================================================
 
-func TestExistingSig_NewTmpTxn_Error(t *testing.T) {
+func TestExistingSig_GQLQuery_Error(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) { return nil, fmt.Errorf("txn error") }, // nolint:err113
+		execReqFn: func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+			return &client.RequestResult{
+				GQL: client.GQLResult{Errors: []error{fmt.Errorf("gql query error")}},
+			}
+		},
 	}
 	h := newMockHandler(t, db)
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "txn error")
+	assert.Contains(t, err.Error(), "query block docIDs")
 }
 
 func TestExistingSig_GetBlockCol_Error(t *testing.T) {
 	t.Parallel()
-	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).
-		Return(nil, fmt.Errorf("no block col")) // nolint:err113
-	txn.EXPECT().Discard()
-
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{
+		execReqFn: execReqFnWithErrorForCol(constants.CollectionBlock),
+	}
 	h := newMockHandler(t, db)
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no block col")
+	assert.Contains(t, err.Error(), "query block docIDs")
 }
 
 func TestExistingSig_GetTxCol_Error(t *testing.T) {
 	t.Parallel()
-	txn := mocks.NewTxn(t)
-	cols := emptyVersionCollections(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).
-		Return(nil, fmt.Errorf("no tx col")) // nolint:err113
-	txn.EXPECT().Discard()
-
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{
+		execReqFn: execReqFnWithErrorForCol(constants.CollectionTransaction),
+	}
 	h := newMockHandler(t, db)
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "query tx docIDs")
 }
 
 func TestExistingSig_GetLogCol_Error(t *testing.T) {
 	t.Parallel()
-	txn := mocks.NewTxn(t)
-	cols := emptyVersionCollections(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(cols.tx, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).
-		Return(nil, fmt.Errorf("no log col")) // nolint:err113
-	txn.EXPECT().Discard()
-
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{
+		execReqFn: execReqFnWithErrorForCol(constants.CollectionLog),
+	}
 	h := newMockHandler(t, db)
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "query log docIDs")
 }
 
 func TestExistingSig_GetALECol_Error(t *testing.T) {
 	t.Parallel()
-	txn := mocks.NewTxn(t)
-	cols := emptyVersionCollections(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(cols.tx, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(cols.log, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).
-		Return(nil, fmt.Errorf("no ale col")) // nolint:err113
-	txn.EXPECT().Discard()
-
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
-	h := newMockHandler(t, db)
-
-	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
-	require.Error(t, err)
-}
-
-func TestExistingSig_BuildBlockDoc_Error(t *testing.T) {
-	t.Parallel()
-	txn := mocks.NewTxn(t)
-	cols := emptyVersionCollections(t) // empty version → build fails
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(cols.block, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(cols.tx, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(cols.log, nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(cols.ale, nil)
-	txn.EXPECT().Discard()
-
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
-	h := newMockHandler(t, db)
-
-	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "field does not exist")
-}
-
-func TestExistingSig_BuildTxDoc_Continue(t *testing.T) {
-	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mocks.NewTxn(t)
-	tmpTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockCol(t), nil)
-	emptyTxCol := mocks.NewCollection(t)
-	emptyTxCol.EXPECT().Version().Return(client.CollectionVersion{}) // build tx fails → continue
-	tmpTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(emptyTxCol, nil)
-	tmpTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
-	tmpTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard().Maybe()
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			return cidTxn, nil
-		},
+		execReqFn: execReqFnWithErrorForCol(constants.CollectionAccessListEntry),
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return nil, fmt.Errorf("no cids") // nolint:err113
-	}
 
-	tx := testTx()
-	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), []*types.Transaction{tx}, nil)
+	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no CIDs found")
+	assert.Contains(t, err.Error(), "query ale docIDs")
 }
 
 func TestExistingSig_CIDRetry_CollectError(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard().Maybe()
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			return cidTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
@@ -1400,32 +1333,13 @@ func TestExistingSig_CIDRetry_CollectError(t *testing.T) {
 
 func TestExistingSig_CIDRetry_InsufficientCIDs(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard().Maybe()
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			return cidTxn, nil
-		},
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2
-	// Return some CIDs but fewer than needed (need >= 1 for the block doc)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return nil, nil // 0 CIDs < len(allDocIDs)
+		return nil, nil // 0 CIDs < len(allDocIDs)=4
 	}
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
@@ -1435,23 +1349,8 @@ func TestExistingSig_CIDRetry_InsufficientCIDs(t *testing.T) {
 
 func TestExistingSig_CIDRetry_TxnError(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			return nil, fmt.Errorf("cid txn error") // nolint:err113
-		},
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 
@@ -1462,35 +1361,16 @@ func TestExistingSig_CIDRetry_TxnError(t *testing.T) {
 
 func TestExistingSig_SigningTxn_Error(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard()
-
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn, nil // CID retry succeeds
-			}
-			return nil, fmt.Errorf("signing txn error") // nolint:err113
-		},
+		execReqFn: emptyExecReqFn(),
+		newTxnFn:  func(_ bool) (client.Txn, error) { return nil, fmt.Errorf("signing txn error") }, // nolint:err113
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return []cid.Cid{oneCID}, nil
+		return []cid.Cid{oneTestCID()}, nil
+	}
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
@@ -1500,41 +1380,15 @@ func TestExistingSig_SigningTxn_Error(t *testing.T) {
 
 func TestExistingSig_CollectCIDsForSigning_Error(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
 	collectCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard()
-
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().Discard()
-
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn, nil
-			}
-			return sigTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
 		collectCount++
 		if collectCount == 1 {
-			return []cid.Cid{oneCID}, nil // retry succeeds
+			return []cid.Cid{oneTestCID()}, nil // waitForCIDs succeeds
 		}
 		return nil, fmt.Errorf("collect signing error") // nolint:err113
 	}
@@ -1546,40 +1400,14 @@ func TestExistingSig_CollectCIDsForSigning_Error(t *testing.T) {
 
 func TestExistingSig_SignBlock_Error(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard()
-
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().Discard()
-
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn, nil
-			}
-			return sigTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return []cid.Cid{oneCID}, nil
+		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return nil, fmt.Errorf("sign error") // nolint:err113
 	}
 
@@ -1590,40 +1418,14 @@ func TestExistingSig_SignBlock_Error(t *testing.T) {
 
 func TestExistingSig_NilBlockSig(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard()
-
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().Discard()
-
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn, nil
-			}
-			return sigTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return []cid.Cid{oneCID}, nil
+		return []cid.Cid{oneTestCID()}, nil
 	}
-	// signBlockFn returns nil, nil → "signing returned nil"
+	// signBatchFn returns nil, nil -> "signing returned nil"
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
@@ -1632,43 +1434,21 @@ func TestExistingSig_NilBlockSig(t *testing.T) {
 
 func TestExistingSig_GetSigCol_Error(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard()
-
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).
 		Return(nil, fmt.Errorf("no sig col")) // nolint:err113
 	sigTxn.EXPECT().Discard()
 
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn, nil
-			}
-			return sigTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
+		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return []cid.Cid{oneCID}, nil
+		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
@@ -1678,17 +1458,6 @@ func TestExistingSig_GetSigCol_Error(t *testing.T) {
 
 func TestExistingSig_BuildSigDoc_Error(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard()
 
 	emptySigCol := mocks.NewCollection(t)
 	emptySigCol.EXPECT().Version().Return(client.CollectionVersion{})
@@ -1696,26 +1465,16 @@ func TestExistingSig_BuildSigDoc_Error(t *testing.T) {
 	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(emptySigCol, nil)
 	sigTxn.EXPECT().Discard()
 
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn, nil
-			}
-			return sigTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
+		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return []cid.Cid{oneCID}, nil
+		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
@@ -1726,44 +1485,24 @@ func TestExistingSig_BuildSigDoc_Error(t *testing.T) {
 func TestExistingSig_CreateSigDoc_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard()
 
 	sigCol := mocks.NewCollection(t)
 	sigCol.EXPECT().Version().Return(td.sigVersion)
-	sigCol.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create error")) // nolint:err113
+	sigCol.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create error")) // nolint:err113
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	sigTxn.EXPECT().Discard()
 
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn, nil
-			}
-			return sigTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
+		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return []cid.Cid{oneCID}, nil
+		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
@@ -1774,42 +1513,22 @@ func TestExistingSig_CreateSigDoc_Error(t *testing.T) {
 func TestExistingSig_Commit_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
-	callCount := 0
 
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard()
-
-	sigCol := td.sigColWithCreate(t, nil)
+	sigCol := td.sigColWithAddDocument(t, nil)
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	sigTxn.EXPECT().Commit().Return(fmt.Errorf("commit error")) // nolint:err113
 
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn, nil
-			}
-			return sigTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
+		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return []cid.Cid{oneCID}, nil
+		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return &node.BlockSignature{MerkleRoot: make([]byte, 32), Header: node.BlockSignature{}.Header}, nil
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
 	}
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
@@ -2017,12 +1736,11 @@ func setupRealCollectionVersions(t *testing.T) *realCollectionVersions {
 	td := testutilsSetupDefraDB(t)
 	ctx := context.Background()
 
-	txn, err := td.DB.NewBlindWriteTxn()
+	txn, err := td.DB.NewTxn(false)
 	require.NoError(t, err)
-	tctx := td.DB.InitContext(ctx, txn)
 
 	getVer := func(name string) client.CollectionVersion {
-		col, err := txn.GetCollectionByName(tctx, name)
+		col, err := txn.GetCollectionByName(ctx, name)
 		require.NoError(t, err)
 		return col.Version()
 	}
@@ -2045,10 +1763,15 @@ func (v *realCollectionVersions) blockCol(t *testing.T) *mocks.Collection {
 	return c
 }
 
-func (v *realCollectionVersions) blockColWithCreate(t *testing.T, createErr error) *mocks.Collection {
+func (v *realCollectionVersions) blockColWithAddDocument(t *testing.T, createErr error) *mocks.Collection {
 	t.Helper()
 	c := v.blockCol(t)
-	c.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return(createErr).Maybe()
+	c.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, doc *client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		if createErr != nil {
+			return
+		}
+		client.ApplySavedDocumentID(doc, nextTestDocID())
+	}).Return(createErr).Maybe()
 	return c
 }
 
@@ -2059,10 +1782,17 @@ func (v *realCollectionVersions) txCol(t *testing.T) *mocks.Collection {
 	return c
 }
 
-func (v *realCollectionVersions) txColWithCreateMany(t *testing.T, err error) *mocks.Collection {
+func (v *realCollectionVersions) txColWithAddManyDocuments(t *testing.T, err error) *mocks.Collection {
 	t.Helper()
 	c := v.txCol(t)
-	c.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(err).Maybe()
+	c.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, docs []*client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		if err != nil {
+			return
+		}
+		for _, doc := range docs {
+			client.ApplySavedDocumentID(doc, nextTestDocID())
+		}
+	}).Return(err).Maybe()
 	return c
 }
 
@@ -2073,10 +1803,17 @@ func (v *realCollectionVersions) logCol(t *testing.T) *mocks.Collection {
 	return c
 }
 
-func (v *realCollectionVersions) logColWithCreateMany(t *testing.T, err error) *mocks.Collection {
+func (v *realCollectionVersions) logColWithAddManyDocuments(t *testing.T, err error) *mocks.Collection {
 	t.Helper()
 	c := v.logCol(t)
-	c.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(err).Maybe()
+	c.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, docs []*client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		if err != nil {
+			return
+		}
+		for _, doc := range docs {
+			client.ApplySavedDocumentID(doc, nextTestDocID())
+		}
+	}).Return(err).Maybe()
 	return c
 }
 
@@ -2094,10 +1831,15 @@ func (v *realCollectionVersions) sigCol(t *testing.T) *mocks.Collection {
 	return c
 }
 
-func (v *realCollectionVersions) sigColWithCreate(t *testing.T, createErr error) *mocks.Collection {
+func (v *realCollectionVersions) sigColWithAddDocument(t *testing.T, createErr error) *mocks.Collection {
 	t.Helper()
 	c := v.sigCol(t)
-	c.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return(createErr).Maybe()
+	c.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, doc *client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		if createErr != nil {
+			return
+		}
+		client.ApplySavedDocumentID(doc, nextTestDocID())
+	}).Return(createErr).Maybe()
 	return c
 }
 
@@ -2110,17 +1852,21 @@ func TestSingleTxn_TrackBlock_WithALEs(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 	txn := mocks.NewTxn(t)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
-	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithCreateMany(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithAddManyDocuments(t, nil), nil)
 	aleCol := mocks.NewCollection(t)
 	aleCol.EXPECT().Version().Return(td.aleVersion)
-	aleCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, docs []*client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		for _, doc := range docs {
+			client.ApplySavedDocumentID(doc, nextTestDocID())
+		}
+	}).Return(nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(aleCol, nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigCol(t), nil)
 	txn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{newTxnFn: func() (client.Txn, error) { return txn, nil }}
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) { return txn, nil }}
 	h := newMockHandler(t, db)
 	h.docIDTracker = &errDocIDTracker{} // tracker error is logged, not returned.
 
@@ -2141,18 +1887,18 @@ func TestBatched_LogBatch_NewTxn_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2184,11 +1930,11 @@ func TestBatched_LogBatch_GetCollection_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	logBatchTxn := mocks.NewTxn(t)
@@ -2199,7 +1945,7 @@ func TestBatched_LogBatch_GetCollection_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2231,11 +1977,11 @@ func TestBatched_LogBatch_BuildDoc_Warn(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	emptyLogCol := mocks.NewCollection(t)
@@ -2248,7 +1994,7 @@ func TestBatched_LogBatch_BuildDoc_Warn(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2279,16 +2025,16 @@ func TestBatched_LogBatch_CreateMany_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	logCol := mocks.NewCollection(t)
 	logCol.EXPECT().Version().Return(td.logVersion)
-	logCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("log create many error"))
+	logCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("log create many error"))
 	logBatchTxn := mocks.NewTxn(t)
 	logBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(logCol, nil)
 	logBatchTxn.EXPECT().Discard()
@@ -2297,7 +2043,7 @@ func TestBatched_LogBatch_CreateMany_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2329,22 +2075,22 @@ func TestBatched_LogBatch_Commit_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	logBatchTxn := mocks.NewTxn(t)
-	logBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithCreateMany(t, nil), nil)
+	logBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithAddManyDocuments(t, nil), nil)
 	logBatchTxn.EXPECT().Commit().Return(fmt.Errorf("log commit error"))
 
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2378,18 +2124,18 @@ func TestBatched_ALEBatch_NewTxn_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2420,11 +2166,11 @@ func TestBatched_ALEBatch_GetCollection_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	aleBatchTxn := mocks.NewTxn(t)
@@ -2435,7 +2181,7 @@ func TestBatched_ALEBatch_GetCollection_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2466,11 +2212,11 @@ func TestBatched_ALEBatch_BuildDoc_Warn(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	emptyALECol := mocks.NewCollection(t)
@@ -2483,7 +2229,7 @@ func TestBatched_ALEBatch_BuildDoc_Warn(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2513,16 +2259,16 @@ func TestBatched_ALEBatch_CreateMany_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	aleCol := mocks.NewCollection(t)
 	aleCol.EXPECT().Version().Return(td.aleVersion)
-	aleCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("ale create many error"))
+	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("ale create many error"))
 	aleBatchTxn := mocks.NewTxn(t)
 	aleBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(aleCol, nil)
 	aleBatchTxn.EXPECT().Discard()
@@ -2531,7 +2277,7 @@ func TestBatched_ALEBatch_CreateMany_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2562,16 +2308,20 @@ func TestBatched_ALEBatch_Commit_Error(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	aleCol := mocks.NewCollection(t)
 	aleCol.EXPECT().Version().Return(td.aleVersion)
-	aleCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Run(func(_ context.Context, docs []*client.Document, _ ...options.Enumerable[options.AddDocumentOptions]) {
+		for _, doc := range docs {
+			client.ApplySavedDocumentID(doc, nextTestDocID())
+		}
+	}).Return(nil)
 	aleBatchTxn := mocks.NewTxn(t)
 	aleBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(aleCol, nil)
 	aleBatchTxn.EXPECT().Commit().Return(fmt.Errorf("ale commit error"))
@@ -2580,7 +2330,7 @@ func TestBatched_ALEBatch_Commit_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2613,12 +2363,12 @@ func TestBatched_TxBatch_CreateMany_DuplicateError(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txCol := mocks.NewCollection(t)
 	txCol.EXPECT().Version().Return(td.txVersion)
-	txCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("document already exists"))
+	txCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("document already exists"))
 	batchTxn := mocks.NewTxn(t)
 	batchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(txCol, nil)
 	batchTxn.EXPECT().Discard()
@@ -2627,7 +2377,7 @@ func TestBatched_TxBatch_CreateMany_DuplicateError(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2653,16 +2403,16 @@ func TestBatched_LogBatch_CreateMany_DuplicateError(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	logCol := mocks.NewCollection(t)
 	logCol.EXPECT().Version().Return(td.logVersion)
-	logCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("document already exists"))
+	logCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("document already exists"))
 	logBatchTxn := mocks.NewTxn(t)
 	logBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(logCol, nil)
 	logBatchTxn.EXPECT().Discard()
@@ -2671,7 +2421,7 @@ func TestBatched_LogBatch_CreateMany_DuplicateError(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2702,16 +2452,16 @@ func TestBatched_ALEBatch_CreateMany_DuplicateError(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	aleCol := mocks.NewCollection(t)
 	aleCol.EXPECT().Version().Return(td.aleVersion)
-	aleCol.EXPECT().CreateMany(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("document already exists"))
+	aleCol.EXPECT().AddManyDocuments(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("document already exists"))
 	aleBatchTxn := mocks.NewTxn(t)
 	aleBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(aleCol, nil)
 	aleBatchTxn.EXPECT().Discard()
@@ -2720,7 +2470,7 @@ func TestBatched_ALEBatch_CreateMany_DuplicateError(t *testing.T) {
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2773,18 +2523,18 @@ func TestBatched_TrackBlock_WithData(t *testing.T) {
 	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithCreate(t, nil), nil)
+	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
 	txBatchTxn := mocks.NewTxn(t)
-	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithCreateMany(t, nil), nil)
+	txBatchTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
 	txBatchTxn.EXPECT().Commit().Return(nil)
 
 	sigTxn := mocks.NewTxn(t)
 	sigTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
+		newTxnFn: func(_ bool) (client.Txn, error) {
 			callCount++
 			if callCount == 1 {
 				return blockTxn, nil
@@ -2809,120 +2559,57 @@ func TestBatched_TrackBlock_WithData(t *testing.T) {
 
 func TestExistingSig_CIDRetry_BackoffPath(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
 	collectCount := 0
 
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn1 := mocks.NewTxn(t)
-	cidTxn1.EXPECT().Discard()
-	cidTxn2 := mocks.NewTxn(t)
-	cidTxn2.EXPECT().Discard()
-
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().Discard()
-
-	oneCID, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
-
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn1, nil // first CID retry
-			}
-			if callCount == 3 {
-				return cidTxn2, nil // second CID retry — succeeds
-			}
-			return sigTxn, nil
-		},
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
 		collectCount++
 		if collectCount == 1 {
-			return nil, nil // insufficient CIDs first time
+			return nil, nil // insufficient CIDs first time (triggers backoff)
 		}
-		return []cid.Cid{oneCID}, nil // sufficient second time
+		if collectCount == 2 {
+			return []cid.Cid{oneTestCID()}, nil // lastCIDCount=1, loop ends, waitForCIDs returns nil
+		}
+		return nil, fmt.Errorf("sign error") // nolint:err113 // 3rd call in signAndStore
 	}
-	h.signBlockFn = func(_ context.Context, _ *node.BlockCIDCollector) (*node.BlockSignature, error) {
-		return nil, fmt.Errorf("sign error")
+	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return nil, fmt.Errorf("sign error") // nolint:err113
 	}
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
 }
 
-// TestExistingSig_BuildLogDoc_Continue covers the log build error continue path (line 556-557).
+// TestExistingSig_BuildLogDoc_Continue covers the CID collection failure path:
+// collectExistingBlockDocIDs returns empty (no docs), collectDocCIDsFn errors,
+// waitForCIDs exhausts retries → "no CIDs found".
 func TestExistingSig_BuildLogDoc_Continue(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	emptyLogCol := mocks.NewCollection(t)
-	emptyLogCol.EXPECT().Version().Return(client.CollectionVersion{}) // build log fails → continue
-
-	tmpTxn := mocks.NewTxn(t)
-	tmpTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockCol(t), nil)
-	tmpTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
-	tmpTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(emptyLogCol, nil)
-	tmpTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn := mocks.NewTxn(t)
-	cidTxn.EXPECT().Discard().Maybe()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			return cidTxn, nil
-		},
+		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
 		return nil, fmt.Errorf("no cids")
 	}
 
-	tx := testTx()
-	receipt := testReceipt()
-	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CIDs found")
 }
 
 // TestExistingSig_CIDRetry_TxnError_Backoff covers the backoff path when
-// NewBlindWriteTxn fails on a non-last attempt (lines 592-594).
+// collectDocCIDsFn returns insufficient CIDs across multiple attempts.
 func TestExistingSig_CIDRetry_TxnError_Backoff(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			// Both CID retry attempts fail with txn error
-			return nil, fmt.Errorf("cid txn error")
-		},
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2 // two attempts → first hits backoff, second is last
@@ -2933,39 +2620,17 @@ func TestExistingSig_CIDRetry_TxnError_Backoff(t *testing.T) {
 }
 
 // TestExistingSig_CIDRetry_CollectError_Backoff covers the backoff path when
-// collectDocCIDsFn fails on a non-last attempt (lines 603-605).
+// collectDocCIDsFn fails on every attempt.
 func TestExistingSig_CIDRetry_CollectError_Backoff(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	tmpTxn := mockTxnWithCollections(t, &testDefraCollections{
-		block: td.blockCol(t), tx: td.txCol(t), log: td.logCol(t),
-		ale: td.aleCol(t), blockSig: td.sigCol(t),
-	})
-	tmpTxn.EXPECT().Discard()
-
-	cidTxn1 := mocks.NewTxn(t)
-	cidTxn1.EXPECT().Discard()
-	cidTxn2 := mocks.NewTxn(t)
-	cidTxn2.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		newTxnFn: func() (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return tmpTxn, nil
-			}
-			if callCount == 2 {
-				return cidTxn1, nil
-			}
-			return cidTxn2, nil
-		},
+		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2
 	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		return nil, fmt.Errorf("collect error") // both attempts fail
+		return nil, fmt.Errorf("collect error") // both attempts fail, triggers backoff between them
 	}
 
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)

@@ -335,7 +335,7 @@ func TestHTTPBackend_SetsContentType(t *testing.T) {
 
 	err := backend.ApplySchema(ctx, "type Test { name: String }")
 	require.NoError(t, err)
-	assert.Equal(t, "application/schema", contentType)
+	assert.Equal(t, "text/plain", contentType)
 }
 
 func TestApplyWithBackend_PreservesNonAlreadyExistsError(t *testing.T) {

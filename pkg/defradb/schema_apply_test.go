@@ -99,7 +99,7 @@ func TestApplyCollectionSchemas_FallbackPath_IndependentCollectionsPreSeed(t *te
 	for _, file := range independentFiles {
 		sdl, err := schema.LoadCollectionSDLForChain(file, constants.DefaultCollectionPrefix)
 		require.NoError(t, err, "failed to load %s", file)
-		_, err = defraNode.DB.AddSchema(ctx, sdl)
+		_, err = defraNode.DB.AddCollection(ctx, sdl)
 		require.NoError(t, err, "failed to pre-seed %s", file)
 	}
 
@@ -322,7 +322,7 @@ func TestApplyCollectionSchemas_PartialPreSeedAddsRemaining(t *testing.T) {
 	}
 
 	combinedSDL := strings.Join(parts, "\n\n")
-	_, err = defraNode.DB.AddSchema(ctx, combinedSDL)
+	_, err = defraNode.DB.AddCollection(ctx, combinedSDL)
 	require.NoError(t, err, "pre-seeding N-1 collections should succeed")
 
 	for _, typeName := range constants.DefaultCollections() {

@@ -53,8 +53,8 @@ indexer:
   # If you set schema_auth_mode to "token" (or leave it empty) without providing keys,
   # ALL schema requests will return 503 Service Unavailable.
 logger:
-  development: false
-  level: "error"
+  development: true
+  level: "info"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
   max_blocks: 1000          # Number of blocks to retain

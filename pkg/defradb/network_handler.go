@@ -8,7 +8,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
-	"github.com/sourcenetwork/defradb/event"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -249,39 +248,11 @@ func (nh *NetworkHandler) startReconnectionLoop(ctx *context.Context) {
 	nh.startNoPeersEventListener(ctx)
 }
 
-// startNoPeersEventListener subscribes to P2PNoPeers events and triggers immediate reconnection.
-func (nh *NetworkHandler) startNoPeersEventListener(ctx *context.Context) {
-	if nh.node == nil || nh.node.DB == nil {
-		return
-	}
-	sub, err := nh.node.DB.Events().Subscribe(event.P2PNoPeersName)
-	if err != nil {
-		logger.Sugar.Warnf("Failed to subscribe to P2PNoPeers events: %v", err)
-		return
-	}
-	detachedCtx := context.WithoutCancel(*ctx)
-	nh.wg.Go(func() {
-		for {
-			select {
-			case <-nh.reconnectStop:
-				return
-			case <-detachedCtx.Done():
-				return
-			case msg, ok := <-sub.Message():
-				if !ok {
-					return
-				}
-				if _, ok := msg.Data.(event.P2PNoPeers); ok {
-					nh.forceReconnectAll(&detachedCtx)
-				}
-			}
-		}
-	})
-	logger.Sugar.Info("P2PNoPeers event listener started")
-}
+// startNoPeersEventListener is a no-op: the P2PNoPeers event was removed in defradb v1.
+func (nh *NetworkHandler) startNoPeersEventListener(_ *context.Context) {}
 
 // forceReconnectAll marks all peers as disconnected and triggers immediate reconnection.
-func (nh *NetworkHandler) forceReconnectAll(ctx *context.Context) {
+func (nh *NetworkHandler) forceReconnectAll(ctx *context.Context) { //nolint:unused // TODO! Update or remove function if it is confirmed that it is outdated
 	nh.peersMu.Lock()
 	for _, peer := range nh.peers {
 		if peer.State == StateConnected {

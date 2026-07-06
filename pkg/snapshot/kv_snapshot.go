@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/binary"
@@ -85,6 +86,10 @@ func (s *Snapshotter) writeKVSnapshotFile(ctx context.Context, filePath string, 
 
 // writeKVSnapshotContents writes the header, KV pairs, and EOF marker to the gzip writer.
 func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writer, startBlock, endBlock int64) ([][]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	roots, _, err := getBlockSigMerkleRoots(ctx, s.defraNode, startBlock, endBlock)
 	if err != nil {
 		logger.Sugar.Warnf("KV snapshot: failed to get block sig roots: %v", err)
@@ -155,9 +160,21 @@ func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, 
 			continue
 		}
 
-		n, err := s.defraNode.DB.ExportDocKVs(ctx, col.name, docIDs, gw, true)
+		// ExportDocKVs writes its own EOF sentinel (uint32(0)) after the KV pairs.
+		// Buffer each call so we can strip that sentinel before writing to the shared
+		// gzip stream; our caller (writeKVSnapshotContents) writes the single final sentinel.
+		var buf bytes.Buffer
+		n, err := s.defraNode.DB.ExportDocKVs(ctx, col.name, docIDs, &buf, true)
 		if err != nil {
 			return 0, fmt.Errorf("export KVs for %s: %w", col.name, err)
+		}
+		data := buf.Bytes()
+		const sentinelLen = 4
+		if len(data) >= sentinelLen {
+			data = data[:len(data)-sentinelLen]
+		}
+		if _, err := gw.Write(data); err != nil {
+			return 0, fmt.Errorf("write KVs for %s: %w", col.name, err)
 		}
 		totalKVs += n
 		logger.Sugar.Debugf("Exported %d KV pairs for %s (%d docs)", n, col.name, len(docIDs))

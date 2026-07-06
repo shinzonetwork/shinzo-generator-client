@@ -31,7 +31,7 @@ type DBBackend struct {
 
 // ApplySchema submits a schema SDL document via the DefraDB client API.
 func (b *DBBackend) ApplySchema(ctx context.Context, sdl string) error {
-	_, err := b.DB.AddSchema(ctx, sdl)
+	_, err := b.DB.AddCollection(ctx, sdl)
 	return err
 }
 
@@ -52,12 +52,12 @@ func (e *httpError) Error() string {
 
 // ApplySchema submits a schema SDL document via HTTP POST to the DefraDB schema API.
 func (b *HTTPBackend) ApplySchema(ctx context.Context, sdl string) error {
-	schemaURL := b.URL + "/api/v0/schema"
+	schemaURL := b.URL + "/api/v0/collections"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, schemaURL, bytes.NewBufferString(sdl))
 	if err != nil {
 		return fmt.Errorf("failed to create schema request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/schema")
+	req.Header.Set("Content-Type", "text/plain")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
