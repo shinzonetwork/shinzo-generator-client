@@ -4,14 +4,14 @@ networks:
 
 services:
   indexer:
-    container_name: shinzo-indexer
+    container_name: shinzo-generator
     platform: linux/amd64
-    image: shinzo-indexer:latest
+    image: shinzo-generator:latest
     restart: unless-stopped 
     build:
       context: .
       dockerfile: Dockerfile
-    user: "1001:1001" # shinzo-indexer identity
+    user: "1001:1001" # shinzo-generator identity
     networks:
       - shinzo-net
     mem_limit: 16g 

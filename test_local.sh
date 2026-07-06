@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Local Test Setup for Shinzo Network Indexer
+# Local Test Setup for Shinzo Network Generator
 # This script sets up environment variables and runs tests locally with your endpoint
 
 echo "🔧 Setting up local test environment..."
@@ -31,7 +31,7 @@ if [ -n "$GETH_API_KEY" ]; then
 fi
 
 echo ""
-echo "🧪 Running indexer tests locally..."
+echo "🧪 Running generator tests locally..."
 echo "=================================================="
 
 # Run the specific test that was failing in GitHub

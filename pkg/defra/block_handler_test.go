@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	shinzoerrors "github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
+	shinzoerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 )
 
 // TestMain sets up testing environment.

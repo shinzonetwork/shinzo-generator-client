@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
 func run(args []string, stdout io.Writer) error {

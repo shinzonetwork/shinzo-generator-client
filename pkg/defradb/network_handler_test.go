@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 )
 
 func TestNetworkHandlerStateManagement(t *testing.T) {

@@ -5,11 +5,11 @@
   docs site. If you're tempted to add a section, link to the docs instead.
 -->
 
-# Shinzo Indexer Client
+# Shinzo Generator Client
 
-![Build Status](https://img.shields.io/github/actions/workflow/status/shinzonetwork/shinzo-indexer-client/.github/workflows/go-test.yml)
-![License](https://img.shields.io/github/license/shinzonetwork/shinzo-indexer-client)
-![Docker](https://img.shields.io/docker/v/shinzonetwork/shinzo-indexer-client)
+![Build Status](https://img.shields.io/github/actions/workflow/status/shinzonetwork/shinzo-generator-client/.github/workflows/go-test.yml)
+![License](https://img.shields.io/github/license/shinzonetwork/shinzo-generator-client)
+![Docker](https://img.shields.io/docker/v/shinzonetwork/shinzo-generator-client)
 
 Blockchain indexing client that connects to EVM nodes and stores block, transaction, and log data in DefraDB.
 
@@ -21,20 +21,20 @@ Copy the sample env file and fill in your node credentials:
 cp .env.sample .env
 ```
 
-Then start the indexer with Docker Compose:
+Then start the generator with Docker Compose:
 
 ```shell
 docker compose up
 ```
 
-Further instructions, as well as hardware recommendations, can be found at [docs.shinzo.network](https://docs.shinzo.network/indexer/install).
+Further instructions, as well as hardware recommendations, can be found at [docs.shinzo.network](https://docs.shinzo.network/generator/install).
 
 > [!TIP]
 > See [BUILD.md](./BUILD.md) for build-from-source instructions.
 
 ## Deployment
 
-See the [Shinzo documentation site](https://docs.shinzo.network/indexer/overview) for production deployment instructions.
+See the [Shinzo documentation site](https://docs.shinzo.network/generator/overview) for production deployment instructions.
 
 ## Contributing
 

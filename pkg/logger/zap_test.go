@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

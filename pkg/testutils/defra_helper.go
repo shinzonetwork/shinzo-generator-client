@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )

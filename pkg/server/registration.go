@@ -10,16 +10,16 @@ import (
 
 	sdkcrypto "github.com/TBD54566975/ssi-sdk/crypto"
 	didkey "github.com/TBD54566975/ssi-sdk/did/key"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
 const (
-	registrationMessage = "Shinzo Network Indexer registration"
+	registrationMessage = "Shinzo Network Generator registration"
 	registrationAppHost = "registration.shinzo.network"
 	defaultP2PPort      = "9171"
 )
 
-// DisplayRegistration holds the signed registration data for an indexer node.
+// DisplayRegistration holds the signed registration data for an generator node.
 type DisplayRegistration struct {
 	Enabled             bool                `json:"enabled"`
 	Message             string              `json:"message"`
@@ -42,7 +42,7 @@ type PeerIDRegistration struct {
 	SignedPeerMsg string `json:"signed_peer_message,omitempty"`
 }
 
-// getRegistrationData returns the signed registration data for the indexer.
+// getRegistrationData returns the signed registration data for the generator.
 func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistration, error) {
 	if hs.indexer == nil {
 		return nil, errIndexerNotAvailable
@@ -89,7 +89,7 @@ func buildRegistrationAppURL(registration *DisplayRegistration) string {
 	redirectURL := url.URL{
 		Scheme: "https",
 		Host:   registrationAppHost,
-		Path:   "/indexer-registration",
+		Path:   "/generator-registration",
 	}
 	query := redirectURL.Query()
 	query.Set("signedMessage", registration.Message)
