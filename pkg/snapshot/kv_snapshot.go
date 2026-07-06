@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
 // kvSnapshotHeader is written at the start of a .kvsnap.gz file.

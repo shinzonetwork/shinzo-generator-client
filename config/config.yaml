@@ -13,7 +13,7 @@ defradb:
   embedded: true
   p2p:
     enabled: true
-    accept_incoming: false          # Accept incoming P2P documents. false = reject all (indexer is source of truth).
+    accept_incoming: false          # Accept incoming P2P documents. false = reject all (generator is source of truth).
     bootstrap_peers: []
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
@@ -46,6 +46,12 @@ indexer:
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
+  schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
+  # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
+  # You MUST set keys via the SCHEMA_API_KEYS environment variable (comma-separated).
+  # Example: SCHEMA_API_KEYS=key1,key2,key3
+  # If you set schema_auth_mode to "token" (or leave it empty) without providing keys,
+  # ALL schema requests will return 503 Service Unavailable.
 logger:
   development: true
   level: "info"

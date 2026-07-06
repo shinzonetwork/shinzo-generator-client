@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"

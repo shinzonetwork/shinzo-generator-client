@@ -1,9 +1,9 @@
-module github.com/shinzonetwork/shinzo-indexer-client
+module github.com/shinzonetwork/shinzo-generator-client
 
 go 1.26
 
 require (
-	github.com/ethereum/go-ethereum v1.17.3
+	github.com/ethereum/go-ethereum v1.17.4
 	github.com/ipfs/go-cid v0.6.1
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.48.0
@@ -122,6 +122,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/ferranbt/fastssz v0.1.4 // indirect
 	github.com/filecoin-project/go-clock v0.1.0 // indirect
+	github.com/fjl/jsonw v0.1.0 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
@@ -268,6 +269,7 @@ require (
 	github.com/petermattis/goid v0.0.0-20260113132338-7c7de50cc741 // indirect
 	github.com/philippgille/chromem-go v0.7.0 // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
+	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/dtls/v3 v3.1.2 // indirect
 	github.com/pion/ice/v4 v4.0.10 // indirect
 	github.com/pion/interceptor v0.1.41 // indirect
@@ -279,7 +281,9 @@ require (
 	github.com/pion/sctp v1.8.39 // indirect
 	github.com/pion/sdp/v3 v3.0.18 // indirect
 	github.com/pion/srtp/v3 v3.0.8 // indirect
-	github.com/pion/stun/v3 v3.1.1 // indirect
+	github.com/pion/stun v0.6.1 // indirect
+	github.com/pion/stun/v3 v3.1.2 // indirect
+	github.com/pion/transport/v2 v2.2.10 // indirect
 	github.com/pion/transport/v3 v3.0.8 // indirect
 	github.com/pion/transport/v4 v4.0.1 // indirect
 	github.com/pion/turn/v4 v4.1.1 // indirect

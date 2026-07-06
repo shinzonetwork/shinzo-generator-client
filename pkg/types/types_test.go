@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 )
 
 func TestTransactionReceiptJSONMarshaling(t *testing.T) {

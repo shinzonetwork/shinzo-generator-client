@@ -9,7 +9,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: shinzonetwork/shinzo-indexer-client
+  IMAGE_NAME: shinzonetwork/shinzo-generator-client
 
 jobs:
   # Job 1: Build and push standard image (standard)
@@ -19,7 +19,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Get short SHA
         id: short_sha

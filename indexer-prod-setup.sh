@@ -4,10 +4,10 @@ networks:
     driver: bridge
 
 services:
-  shinzo-indexer:
-    image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
+  shinzo-generator:
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
     user: "0:0"
-    container_name: shinzo-indexer
+    container_name: shinzo-generator
     restart: unless-stopped
     networks:
       - shinzo-net
@@ -30,6 +30,7 @@ services:
       - LOG_LEVEL=error
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
+      - SCHEMA_AUTH_MODE=none
     logging:
       options:
         max-size: "50m"
@@ -40,9 +41,10 @@ services:
       - "443:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ~/ssl:/etc/nginx/ssl:ro
+      - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
+      - ~/ssl/nginx.key:/etc/nginx/ssl/nginx.key:ro
     depends_on:
-      - shinzo-indexer
+      - shinzo-generator
     networks:
       - shinzo-net
     restart: unless-stopped
@@ -54,6 +56,8 @@ sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
 
 http {
+  resolver 127.0.0.11 valid=10s;
+
   map $http_origin $cors_origin {
     default "";
     "~^https://[^/]+\.shinzo\.network$" $http_origin;
@@ -62,6 +66,17 @@ http {
   server {
     listen 8080;
     server_name _;
+    return 301 https://$host$request_uri;
+  }
+
+  server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/ssl/nginx.crt;
+    ssl_certificate_key /etc/nginx/ssl/nginx.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
 
     add_header 'Access-Control-Allow-Origin' $cors_origin always;
     add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
@@ -72,29 +87,34 @@ http {
     # Health endpoint
     location = /health {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/health;
+      proxy_pass http://shinzo-generator:8080/health;
     }
     # Optional - registration endpoint
     location = /registration {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/registration;
+      proxy_pass http://shinzo-generator:8080/registration;
+    }
+
+    location = /registration-app {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-generator:8080/registration-app;
     }
 
     # Metrics endpoint
     location = /metrics {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/metrics;
+      proxy_pass http://shinzo-generator:8080/metrics;
     }
 
     # Snapshots endpoint
     location = /snapshots {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/snapshots;
+      proxy_pass http://shinzo-generator:8080/snapshots;
     }
 
     location ~ ^/snapshots/(.+)$ {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/snapshots/$1;
+      proxy_pass http://shinzo-generator:8080/snapshots/$1;
       proxy_buffering off;
       proxy_read_timeout 300s;
       proxy_send_timeout 300s;
@@ -108,5 +128,4 @@ http {
   }
 }
 EOF
-
 

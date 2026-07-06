@@ -3,28 +3,38 @@ package indexer
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defradb"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/signer"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
+	indexerErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/signer"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
+)
+
+var (
+	// ErrMTLSNotImplemented is returned when the mTLS authentication mode is configured but not yet supported.
+	ErrMTLSNotImplemented = errors.New("mTLS auth mode is not yet implemented")
+	// ErrUnknownAuthMode is returned when an unrecognized schema authentication mode is provided.
+	ErrUnknownAuthMode = errors.New("unknown auth mode")
 )
 
 const (
@@ -90,14 +100,14 @@ func (i *ChainIndexer) GetDefraDBPort() int {
 // CreateIndexer creates a new ChainIndexer with the provided configuration.
 func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	if cfg == nil {
-		return nil, errors.NewConfigurationError(
+		return nil, indexerErrors.NewConfigurationError(
 			"indexer",
 			"CreateIndexer",
 			"config is nil",
 			"host=nil, port=nil",
 			nil,
-			errors.WithMetadata("host", "nil"),
-			errors.WithMetadata("port", "nil"))
+			indexerErrors.WithMetadata("host", "nil"),
+			indexerErrors.WithMetadata("port", "nil"))
 	}
 	return &ChainIndexer{
 		cfg:                       cfg,
@@ -163,7 +173,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	i.shouldIndex = true
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
-	i.initServices(ctx, cfg, blockHandler)
+	if err := i.initServices(ctx, cfg, blockHandler); err != nil {
+		return err
+	}
 
 	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers", cfg.Indexer.ConcurrentBlocks)
@@ -230,7 +242,7 @@ func (i *ChainIndexer) initClients(cfg *config.Config) (*defra.BlockHandler, *rp
 
 	ethClient, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey, cfg.Geth.APIKeyType)
 	if err != nil {
-		logCtx := errors.LogContext(err)
+		logCtx := indexerErrors.LogContext(err)
 		logger.Sugar.With("context", logCtx).Fatalf("Failed to connect to Ethereum client: %v", err)
 	}
 
@@ -291,8 +303,23 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	return int64(cfg.Indexer.StartHeight), nil
 }
 
+// newSchemaAuthenticator builds the authenticator for the schema endpoint and
+// warns when token auth is fail-closed with zero API keys configured.
+func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
+	auth, err := newAuthenticator(cfg.Indexer.SchemaAuthMode, cfg.Indexer.SchemaAPIKeys)
+	if err != nil {
+		return nil, fmt.Errorf("schema auth configuration error: %w", err)
+	}
+	if (cfg.Indexer.SchemaAuthMode == constants.SchemaAuthModeToken || cfg.Indexer.SchemaAuthMode == "") && len(cfg.Indexer.SchemaAPIKeys) == 0 {
+		logger.Sugar.Warn("schema auth is fail-closed with zero API keys configured — " +
+			"all schema requests will return 503. Set SCHEMA_API_KEYS env var (comma-separated) " +
+			"or set SCHEMA_AUTH_MODE=none to disable token auth")
+	}
+	return auth, nil
+}
+
 // initServices starts the health server, pruner, and snapshotter if configured.
-func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blockHandler *defra.BlockHandler) {
+func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blockHandler *defra.BlockHandler) error {
 	if cfg.Indexer.HealthServerPort > 0 {
 		var healthDefraURL string
 		if cfg.DefraDB.URL != "" {
@@ -303,6 +330,19 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 		i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
 		if i.defraNode != nil {
 			i.healthServer.SetDefraNode(i.defraNode)
+		}
+
+		auth, err := newSchemaAuthenticator(cfg)
+		if err != nil {
+			return err
+		}
+		prefix := chainPrefixFromConfig(cfg)
+		sdl, err := schema.GetSchemaForChain(prefix)
+		if err != nil {
+			return fmt.Errorf("load schema for chain %s: %w", prefix, err)
+		}
+		if err := i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth); err != nil {
+			return fmt.Errorf("enable schema endpoint: %w", err)
 		}
 		go func() {
 			if err := i.healthServer.Start(); err != nil {
@@ -341,6 +381,8 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 			i.healthServer.SetSnapshotter(i.snapshotter)
 		}
 	}
+
+	return nil
 }
 
 // runConcurrentIndexing runs the indexer with concurrent block processing.
@@ -599,6 +641,39 @@ func (i *ChainIndexer) SignMessages(message string) (server.DefraPKRegistration,
 		}, nil
 }
 
+// SignRegistrationMessage signs a registration message using only the DefraDB identity key.
+func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRegistration, error) {
+	signedMsg, err := signer.SignWithDefraKeys(message, i.defraNode, i.cfg)
+	if err != nil {
+		return server.DefraPKRegistration{}, err
+	}
+
+	nodePubKey, err := i.GetNodePublicKey()
+	if err != nil {
+		return server.DefraPKRegistration{}, fmt.Errorf("failed to get node public key: %w", err)
+	}
+
+	return server.DefraPKRegistration{
+		PublicKey:   nodePubKey,
+		SignedPKMsg: signedMsg,
+	}, nil
+}
+
+// GetSourceChainInfo returns the ShinzoHub registration source chain metadata for this indexer.
+func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
+	if i == nil || i.cfg == nil {
+		return "", 0
+	}
+
+	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
+	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
+	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
+		return "ethereum", 1
+	}
+
+	return "", 0
+}
+
 // GetNodePublicKey returns the DefraDB node's public key as a hex string.
 func (i *ChainIndexer) GetNodePublicKey() (string, error) {
 	return signer.GetDefraPublicKey(i.defraNode, i.cfg)
@@ -616,6 +691,20 @@ func (i *ChainIndexer) GetPrunerMetrics() *pruner.Metrics {
 	}
 	metrics := i.pruner.GetMetrics()
 	return &metrics
+}
+
+// newAuthenticator constructs an Authenticator based on the configured auth mode.
+func newAuthenticator(mode string, keys []string) (server.Authenticator, error) {
+	switch mode {
+	case constants.SchemaAuthModeNone:
+		return server.NoOpAuthenticator{}, nil
+	case constants.SchemaAuthModeToken, "":
+		return server.NewBearerAuthenticator(keys), nil
+	case constants.SchemaAuthModeMTLS:
+		return nil, ErrMTLSNotImplemented
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnknownAuthMode, mode)
+	}
 }
 
 // indexerQueueTracker adapts pruner's IndexerQueue to the local DocIDTrackerInterface.
