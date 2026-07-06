@@ -64,7 +64,7 @@ test:
 	exit $$exit_code
 
 test-local:
-	@echo "🧪 Running local indexer test with Geth endpoint..."
+	@echo "🧪 Running local generator test with Geth endpoint..."
 	@if [ -z "$(GETH_RPC_URL)" ]; then \
 		echo "❌ GETH_RPC_URL not set. Please export it first:"; \
 		echo "   export GETH_RPC_URL=<your-geth-url>"; \
@@ -134,11 +134,11 @@ stop:
 	rm -f .defra/block_poster.pid;
 
 help:
-	@echo "🚀 Shinzo Network Indexer - Available Make Targets"
+	@echo "🚀 Shinzo Network Generator - Available Make Targets"
 	@echo "=================================================="
 	@echo ""
 	@echo "📦 Build & Test:"
-	@echo "  build              - Build the indexer binary"
+	@echo "  build              - Build the generator binary"
 	@echo "  test               - Run all tests with summary"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
@@ -154,7 +154,7 @@ help:
 	@echo ""
 	@echo "🏃 Services:"
 	@echo "  defra-start        - Start DefraDB"
-	@echo "  start              - Start the indexer"
+	@echo "  start              - Start the generator"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for geth-status:"
