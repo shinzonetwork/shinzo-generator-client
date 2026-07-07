@@ -5,8 +5,8 @@ networks:
 
 services:
   shinzo-generator:
-    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
-    user: "0:0"
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:sha-3d5230d
+    user: "1001:1001"
     container_name: shinzo-generator
     restart: unless-stopped
     networks:
@@ -21,7 +21,7 @@ services:
     environment:
       - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
       - GETH_WS_URL=ws://ws.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
-      - GETH_API_KEY=YOUR_API_KEY
+      - GETH_API_KEY=AIzaSyDNtHcjIFK5kODf48P7lQiwj_BK9eruVnA
       - GETH_API_KEY_TYPE=x-goog-api-key      
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
@@ -56,8 +56,6 @@ sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
 
 http {
-  resolver 127.0.0.11 valid=10s;
-
   map $http_origin $cors_origin {
     default "";
     "~^https://[^/]+\.shinzo\.network$" $http_origin;
@@ -66,17 +64,6 @@ http {
   server {
     listen 8080;
     server_name _;
-    return 301 https://$host$request_uri;
-  }
-
-  server {
-    listen 443 ssl;
-    server_name _;
-
-    ssl_certificate     /etc/nginx/ssl/nginx.crt;
-    ssl_certificate_key /etc/nginx/ssl/nginx.key;
-    ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         HIGH:!aNULL:!MD5;
 
     add_header 'Access-Control-Allow-Origin' $cors_origin always;
     add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
@@ -84,12 +71,11 @@ http {
     add_header 'Access-Control-Max-Age' 3600 always;
     add_header 'Vary' 'Origin' always;
 
-    # Health endpoint
     location = /health {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/health;
     }
-    # Optional - registration endpoint
+
     location = /registration {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/registration;
@@ -100,13 +86,11 @@ http {
       proxy_pass http://shinzo-generator:8080/registration-app;
     }
 
-    # Metrics endpoint
     location = /metrics {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/metrics;
     }
 
-    # Snapshots endpoint
     location = /snapshots {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/snapshots;
@@ -138,5 +122,6 @@ http {
     }
   }
 }
+
 EOF
 
