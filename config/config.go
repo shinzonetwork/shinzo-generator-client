@@ -78,6 +78,9 @@ type IndexerConfig struct {
 	ConcurrentBlocks   int    `yaml:"concurrent_blocks"`
 	ReceiptWorkers     int    `yaml:"receipt_workers"`
 	MaxDocsPerTxn      int    `yaml:"max_docs_per_txn"`
+	MaxTxDocsPerBatch  int    `yaml:"max_tx_docs_per_batch"`
+	MaxLogDocsPerBatch int    `yaml:"max_log_docs_per_batch"`
+	MaxALEDocsPerBatch int    `yaml:"max_ale_docs_per_batch"`
 	BlocksPerMinute    int    `yaml:"blocks_per_minute"`
 	HealthServerPort   int    `yaml:"health_server_port"`
 	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"`
@@ -154,6 +157,15 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Indexer.MaxDocsPerTxn <= 0 {
 		cfg.Indexer.MaxDocsPerTxn = 1000
+	}
+	if cfg.Indexer.MaxTxDocsPerBatch <= 0 {
+		cfg.Indexer.MaxTxDocsPerBatch = 100
+	}
+	if cfg.Indexer.MaxLogDocsPerBatch <= 0 {
+		cfg.Indexer.MaxLogDocsPerBatch = 250
+	}
+	if cfg.Indexer.MaxALEDocsPerBatch <= 0 {
+		cfg.Indexer.MaxALEDocsPerBatch = 500
 	}
 	if cfg.Indexer.HealthServerPort == 0 {
 		cfg.Indexer.HealthServerPort = 8080
@@ -313,6 +325,21 @@ func applyIndexerEnvOverrides(cfg *Config) {
 	if maxDocsPerTxn := os.Getenv("INDEXER_MAX_DOCS_PER_TXN"); maxDocsPerTxn != "" {
 		if n, err := strconv.Atoi(maxDocsPerTxn); err == nil {
 			cfg.Indexer.MaxDocsPerTxn = n
+		}
+	}
+	if v := os.Getenv("INDEXER_MAX_TX_DOCS_PER_BATCH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Indexer.MaxTxDocsPerBatch = n
+		}
+	}
+	if v := os.Getenv("INDEXER_MAX_LOG_DOCS_PER_BATCH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Indexer.MaxLogDocsPerBatch = n
+		}
+	}
+	if v := os.Getenv("INDEXER_MAX_ALE_DOCS_PER_BATCH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Indexer.MaxALEDocsPerBatch = n
 		}
 	}
 	if blocksPerMinute := os.Getenv("INDEXER_BLOCKS_PER_MINUTE"); blocksPerMinute != "" {

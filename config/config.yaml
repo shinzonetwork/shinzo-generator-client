@@ -42,6 +42,9 @@ indexer:
   concurrent_blocks: 16     # Number of blocks to process concurrently
   receipt_workers: 16       # Concurrent receipt fetchers per block
   max_docs_per_txn: 3000    # Docs threshold for single-txn block creation
+  max_tx_docs_per_batch: 100   # Tx batch size (Zone I: O(n^1.7) curve — 100 near-optimal)
+  max_log_docs_per_batch: 250  # Log batch size (Zone I: O(n^1.5) curve — 250 near-optimal)
+  max_ale_docs_per_batch: 500  # ALE batch size (negligible at all sizes)
   blocks_per_minute: 0      # Block indexing rate limit (0 = disabled)
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
