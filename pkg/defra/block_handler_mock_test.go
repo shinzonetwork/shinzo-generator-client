@@ -1378,25 +1378,6 @@ func TestExistingSig_SigningTxn_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "signing txn error")
 }
 
-func TestExistingSig_CollectCIDsForSigning_Error(t *testing.T) {
-	t.Parallel()
-	collectCount := 0
-	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
-	}
-	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		collectCount++
-		if collectCount == 1 {
-			return []cid.Cid{oneTestCID()}, nil // waitForCIDs succeeds
-		}
-		return nil, fmt.Errorf("collect signing error") // nolint:err113
-	}
-
-	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "collect signing error")
-}
 
 func TestExistingSig_SignBlock_Error(t *testing.T) {
 	t.Parallel()

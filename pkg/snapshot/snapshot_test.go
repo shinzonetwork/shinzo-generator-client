@@ -1749,10 +1749,11 @@ func TestCreateKVSnapshot_HeaderValid(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
-	assert.Equal(t, 1, header.Version)
+	assert.Equal(t, 2, header.Version)
 	assert.Equal(t, int64(2000), header.StartBlock)
 	assert.Equal(t, int64(2004), header.EndBlock)
 	assert.NotEmpty(t, header.CreatedAt)
+	assert.NotEmpty(t, header.FieldMappings, "V2 snapshots must embed field mappings for all collections")
 }
 
 func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
