@@ -61,11 +61,14 @@ type DocIDTrackerInterface interface {
 
 // BlockHandler manages the creation and storage of blocks, transactions, and logs in DefraDB.
 type BlockHandler struct {
-	db            blockDB                    // DB interface (from defraNode.DB).
-	maxDocsPerTxn int                        // Threshold for single-txn vs batched block creation.
-	docIDTracker  DocIDTrackerInterface      // Optional tracker for docIDs.
-	collections   *constants.CollectionNames // Chain-specific collection names.
-	nodeIdentity  identity.Identity          // Node identity for signing.
+	db              blockDB                    // DB interface (from defraNode.DB).
+	maxDocsPerTxn   int                        // Threshold for single-txn vs batched block creation.
+	maxTxBatchSize  int                        // Per-collection batch size for transactions (0 = use maxDocsPerTxn).
+	maxLogBatchSize int                        // Per-collection batch size for logs (0 = use maxDocsPerTxn).
+	maxALEBatchSize int                        // Per-collection batch size for ALEs (0 = use maxDocsPerTxn).
+	docIDTracker    DocIDTrackerInterface      // Optional tracker for docIDs.
+	collections     *constants.CollectionNames // Chain-specific collection names.
+	nodeIdentity    identity.Identity          // Node identity for signing.
 
 	// Injectable functions for testability (set to defaults in NewBlockHandler).
 	signBatchFn      func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error)
@@ -114,6 +117,35 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *const
 	h.collectDocCIDsFn = h.defaultCollectDocCIDs
 	h.blockExistsFn = h.defaultBlockExists
 	return h, nil
+}
+
+// SetBatchSizes sets per-collection batch sizes for transactions, logs, and ALEs.
+// A value of 0 means "use maxDocsPerTxn" for that collection.
+func (h *BlockHandler) SetBatchSizes(txDocs, logDocs, aleDocs int) {
+	h.maxTxBatchSize = txDocs
+	h.maxLogBatchSize = logDocs
+	h.maxALEBatchSize = aleDocs
+}
+
+func (h *BlockHandler) txBatchSize() int {
+	if h.maxTxBatchSize > 0 {
+		return h.maxTxBatchSize
+	}
+	return h.maxDocsPerTxn
+}
+
+func (h *BlockHandler) logBatchSize() int {
+	if h.maxLogBatchSize > 0 {
+		return h.maxLogBatchSize
+	}
+	return h.maxDocsPerTxn
+}
+
+func (h *BlockHandler) aleBatchSize() int {
+	if h.maxALEBatchSize > 0 {
+		return h.maxALEBatchSize
+	}
+	return h.maxDocsPerTxn
 }
 
 func (h *BlockHandler) defaultBlockExists(ctx context.Context, blockNumber int64) (bool, error) {
@@ -982,8 +1014,10 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 	txHashToID := make(map[string]string)
 	var batchErrors []error
 
-	for i := 0; i < len(transactions); i += h.maxDocsPerTxn {
-		end := min(i+h.maxDocsPerTxn, len(transactions))
+	txBS := h.txBatchSize()
+
+	for i := 0; i < len(transactions); i += txBS {
+		end := min(i+txBS, len(transactions))
 		batch := transactions[i:end]
 		if len(batch) == 0 {
 			continue
@@ -1062,8 +1096,9 @@ func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, tran
 
 	var allLogIDs []string
 	var batchErrors []error
-	for i := 0; i < len(allLogs); i += h.maxDocsPerTxn {
-		end := min(i+h.maxDocsPerTxn, len(allLogs))
+	logBS := h.logBatchSize()
+	for i := 0; i < len(allLogs); i += logBS {
+		end := min(i+logBS, len(allLogs))
 		batch := allLogs[i:end]
 		if len(batch) == 0 {
 			continue
@@ -1144,8 +1179,9 @@ func (h *BlockHandler) batchCreateALEs(ctx context.Context, blockInt int64, tran
 
 	var allALEIDs []string
 	var batchErrors []error
-	for i := 0; i < len(allALEs); i += h.maxDocsPerTxn {
-		end := min(i+h.maxDocsPerTxn, len(allALEs))
+	aleBS := h.aleBatchSize()
+	for i := 0; i < len(allALEs); i += aleBS {
+		end := min(i+aleBS, len(allALEs))
 		ids, err := h.createALEBatch(ctx, blockInt, allALEs[i:end])
 		allALEIDs = append(allALEIDs, ids...)
 		if err != nil {
