@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	cid "github.com/ipfs/go-cid"
@@ -912,10 +913,26 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		allTxIDs = append(allTxIDs, id)
 	}
 
-	allLogIDs, logErrors := h.batchCreateLogs(ctx, blockInt, transactions, receiptMap, blockID, txHashToID)
+	// Logs and ALEs are independent — run them concurrently.
+	// BatchCIDCollector is goroutine-safe (mutex-protected).
+	var (
+		allLogIDs []string
+		logErrors []error
+		allALEIDs []string
+		aleErrors []error
+		wg        sync.WaitGroup
+	)
+	wg.Add(2) //nolint:mnd
+	go func() {
+		defer wg.Done()
+		allLogIDs, logErrors = h.batchCreateLogs(ctx, blockInt, transactions, receiptMap, blockID, txHashToID)
+	}()
+	go func() {
+		defer wg.Done()
+		allALEIDs, aleErrors = h.batchCreateALEs(ctx, blockInt, transactions, txHashToID)
+	}()
+	wg.Wait()
 	batchErrors = append(batchErrors, logErrors...)
-
-	allALEIDs, aleErrors := h.batchCreateALEs(ctx, blockInt, transactions, txHashToID)
 	batchErrors = append(batchErrors, aleErrors...)
 
 	blockSigDocID := h.createBlockSignature(ctx, block, blockInt, collector)
