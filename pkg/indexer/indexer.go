@@ -238,7 +238,9 @@ func (i *ChainIndexer) initClients(cfg *config.Config) (*defra.BlockHandler, *rp
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create block handler: %w", err)
 	}
-	logger.Sugar.Infof("Using direct DB access for embedded DefraDB (maxDocsPerTxn=%d)", cfg.Indexer.MaxDocsPerTxn)
+	blockHandler.SetBatchSizes(cfg.Indexer.MaxTxDocsPerBatch, cfg.Indexer.MaxLogDocsPerBatch, cfg.Indexer.MaxALEDocsPerBatch)
+	logger.Sugar.Infof("Using direct DB access for embedded DefraDB (maxDocsPerTxn=%d, txBatch=%d, logBatch=%d, aleBatch=%d)",
+		cfg.Indexer.MaxDocsPerTxn, cfg.Indexer.MaxTxDocsPerBatch, cfg.Indexer.MaxLogDocsPerBatch, cfg.Indexer.MaxALEDocsPerBatch)
 
 	ethClient, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey, cfg.Geth.APIKeyType)
 	if err != nil {

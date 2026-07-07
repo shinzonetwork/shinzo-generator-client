@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
@@ -60,7 +59,9 @@ type ConcurrentBlockProcessor struct {
 	receiptWorkers  int
 	blocksPerMinute int
 	resultChan      chan *BlockResult
-	inFlight        atomic.Int64 // blocks dispatched but not yet committed
+	pendingMu       sync.Mutex
+	pending         map[int64]*BlockResult
+	nextToCommit    int64
 	signingChan     chan signingJob
 }
 
@@ -79,16 +80,19 @@ func NewConcurrentBlockProcessor(
 		receiptWorkers:  receiptWorkers,
 		blocksPerMinute: blocksPerMinute,
 		resultChan:      make(chan *BlockResult, workers*DefaultWorkersAhead),
+		pending:         make(map[int64]*BlockResult),
 		signingChan:     make(chan signingJob, SigningQueueSize),
 	}
 }
 
-// ProcessBlocks dispatches blocks to workers and commits results as they complete.
+// ProcessBlocks dispatches blocks to workers and commits results in order.
 func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	ctx context.Context,
 	startBlock int64,
 	onBlockProcessed func(blockNum int64),
 ) error {
+	p.nextToCommit = startBlock
+
 	workChan, wg, collectWg, signingWg := p.startWorkers(ctx, onBlockProcessed)
 
 	shutdown := func() {
@@ -143,22 +147,34 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 	return workChan, &wg, &collectWg, &signingWg
 }
 
-// collectResults commits blocks as they complete without requiring sequential ordering.
+// collectResults reads from resultChan and commits blocks in order.
 func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum int64)) {
 	for result := range p.resultChan {
-		if result.Success {
-			if result.BlockID != "existing" {
-				logger.Sugar.Infof("Committed block %d (ID: %s)", result.BlockNum, result.BlockID)
+		p.pendingMu.Lock()
+		p.pending[result.BlockNum] = result
+
+		for {
+			next, ok := p.pending[p.nextToCommit]
+			if !ok {
+				break
+			}
+			delete(p.pending, p.nextToCommit)
+
+			if next.Success {
+				if next.BlockID != "existing" {
+					logger.Sugar.Infof("Committed block %d (ID: %s)", next.BlockNum, next.BlockID)
+				} else {
+					logger.Sugar.Infof("Block %d already existed, skipping", next.BlockNum)
+				}
+				if onBlockProcessed != nil {
+					onBlockProcessed(next.BlockNum)
+				}
 			} else {
-				logger.Sugar.Infof("Block %d already existed, skipping", result.BlockNum)
+				logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
 			}
-			if onBlockProcessed != nil {
-				onBlockProcessed(result.BlockNum)
-			}
-		} else {
-			logger.Sugar.Warnf("Block %d failed: %v", result.BlockNum, result.Error)
+			p.nextToCommit++
 		}
-		p.inFlight.Add(-1)
+		p.pendingMu.Unlock()
 	}
 }
 
@@ -186,7 +202,11 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 			}
 		}
 
-		if p.inFlight.Load() >= int64(p.workers*DefaultWorkersAhead) {
+		p.pendingMu.Lock()
+		tooFarAhead := nextBlock-p.nextToCommit >= int64(p.workers*DefaultWorkersAhead)
+		p.pendingMu.Unlock()
+
+		if tooFarAhead {
 			select {
 			case <-ctx.Done():
 				shutdown()
@@ -201,7 +221,6 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 			shutdown()
 			return ctx.Err()
 		case workChan <- nextBlock:
-			p.inFlight.Add(1)
 			lastDispatch = time.Now()
 			nextBlock++
 		}

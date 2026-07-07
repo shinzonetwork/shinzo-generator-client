@@ -784,6 +784,7 @@ func TestNewConcurrentBlockProcessor(t *testing.T) {
 	assert.Equal(t, 8, p.receiptWorkers)
 	assert.Equal(t, 60, p.blocksPerMinute)
 	assert.NotNil(t, p.resultChan)
+	assert.NotNil(t, p.pending)
 	assert.NotNil(t, p.signingChan)
 }
 

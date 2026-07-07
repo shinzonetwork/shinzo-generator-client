@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	cid "github.com/ipfs/go-cid"
@@ -64,6 +63,9 @@ type DocIDTrackerInterface interface {
 type BlockHandler struct {
 	db            blockDB                    // DB interface (from defraNode.DB).
 	maxDocsPerTxn int                        // Threshold for single-txn vs batched block creation.
+	txBatchSize   int                        // Max tx docs per batch transaction (Zone I: ~100 optimal).
+	logBatchSize  int                        // Max log docs per batch transaction (Zone I: ~250 optimal).
+	aleBatchSize  int                        // Max ALE docs per batch transaction (negligible, 500).
 	docIDTracker  DocIDTrackerInterface      // Optional tracker for docIDs.
 	collections   *constants.CollectionNames // Chain-specific collection names.
 	nodeIdentity  identity.Identity          // Node identity for signing.
@@ -106,6 +108,9 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *const
 	h := &BlockHandler{
 		db:             defraNode.DB,
 		maxDocsPerTxn:  maxDocsPerTxn,
+		txBatchSize:    100, //nolint:mnd // Zone I: O(n^1.7) curve — 100 is near-optimal
+		logBatchSize:   250, //nolint:mnd // Zone I: O(n^1.5) curve — 250 is near-optimal
+		aleBatchSize:   500, //nolint:mnd // Zone I: negligible at all sizes
 		collections:    collections,
 		maxCIDRetries:  15, //nolint:mnd
 		retryBackoffFn: retryBackoff,
@@ -115,6 +120,20 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *const
 	h.collectDocCIDsFn = h.defaultCollectDocCIDs
 	h.blockExistsFn = h.defaultBlockExists
 	return h, nil
+}
+
+// SetBatchSizes overrides the per-collection batch loop step sizes determined by Zone I profiling.
+// Zero values leave the corresponding default unchanged.
+func (h *BlockHandler) SetBatchSizes(txBatch, logBatch, aleBatch int) {
+	if txBatch > 0 {
+		h.txBatchSize = txBatch
+	}
+	if logBatch > 0 {
+		h.logBatchSize = logBatch
+	}
+	if aleBatch > 0 {
+		h.aleBatchSize = aleBatch
+	}
 }
 
 func (h *BlockHandler) defaultBlockExists(ctx context.Context, blockNumber int64) (bool, error) {
@@ -913,26 +932,10 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 		allTxIDs = append(allTxIDs, id)
 	}
 
-	// Logs and ALEs are independent — run them concurrently.
-	// BatchCIDCollector is goroutine-safe (mutex-protected).
-	var (
-		allLogIDs []string
-		logErrors []error
-		allALEIDs []string
-		aleErrors []error
-		wg        sync.WaitGroup
-	)
-	wg.Add(2) //nolint:mnd
-	go func() {
-		defer wg.Done()
-		allLogIDs, logErrors = h.batchCreateLogs(ctx, blockInt, transactions, receiptMap, blockID, txHashToID)
-	}()
-	go func() {
-		defer wg.Done()
-		allALEIDs, aleErrors = h.batchCreateALEs(ctx, blockInt, transactions, txHashToID)
-	}()
-	wg.Wait()
+	allLogIDs, logErrors := h.batchCreateLogs(ctx, blockInt, transactions, receiptMap, blockID, txHashToID)
 	batchErrors = append(batchErrors, logErrors...)
+
+	allALEIDs, aleErrors := h.batchCreateALEs(ctx, blockInt, transactions, txHashToID)
 	batchErrors = append(batchErrors, aleErrors...)
 
 	blockSigDocID := h.createBlockSignature(ctx, block, blockInt, collector)
@@ -999,8 +1002,8 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 	txHashToID := make(map[string]string)
 	var batchErrors []error
 
-	for i := 0; i < len(transactions); i += h.maxDocsPerTxn {
-		end := min(i+h.maxDocsPerTxn, len(transactions))
+	for i := 0; i < len(transactions); i += h.txBatchSize {
+		end := min(i+h.txBatchSize, len(transactions))
 		batch := transactions[i:end]
 		if len(batch) == 0 {
 			continue
@@ -1079,8 +1082,8 @@ func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, tran
 
 	var allLogIDs []string
 	var batchErrors []error
-	for i := 0; i < len(allLogs); i += h.maxDocsPerTxn {
-		end := min(i+h.maxDocsPerTxn, len(allLogs))
+	for i := 0; i < len(allLogs); i += h.logBatchSize {
+		end := min(i+h.logBatchSize, len(allLogs))
 		batch := allLogs[i:end]
 		if len(batch) == 0 {
 			continue
@@ -1161,8 +1164,8 @@ func (h *BlockHandler) batchCreateALEs(ctx context.Context, blockInt int64, tran
 
 	var allALEIDs []string
 	var batchErrors []error
-	for i := 0; i < len(allALEs); i += h.maxDocsPerTxn {
-		end := min(i+h.maxDocsPerTxn, len(allALEs))
+	for i := 0; i < len(allALEs); i += h.aleBatchSize {
+		end := min(i+h.aleBatchSize, len(allALEs))
 		ids, err := h.createALEBatch(ctx, blockInt, allALEs[i:end])
 		allALEIDs = append(allALEIDs, ids...)
 		if err != nil {
