@@ -18,12 +18,16 @@ import (
 
 // kvSnapshotHeader is written at the start of a .kvsnap.gz file.
 type kvSnapshotHeader struct {
-	Magic               string   `json:"magic"`
-	Version             int      `json:"version"`
-	StartBlock          int64    `json:"start_block"`
-	EndBlock            int64    `json:"end_block"`
-	CreatedAt           string   `json:"created_at"`
-	BlockSigMerkleRoots []string `json:"block_sig_merkle_roots,omitempty"`
+	Magic               string                     `json:"magic"`
+	Version             int                        `json:"version"`
+	StartBlock          int64                      `json:"start_block"`
+	EndBlock            int64                      `json:"end_block"`
+	CreatedAt           string                     `json:"created_at"`
+	BlockSigMerkleRoots []string                   `json:"block_sig_merkle_roots,omitempty"`
+	// FieldMappings maps collection name → field mapping JSON (from ExportFieldMapping).
+	// Present in version 2+ snapshots. Used by ImportRawKVsWithMapping on the destination
+	// node to translate local short IDs that differ between nodes.
+	FieldMappings       map[string]json.RawMessage `json:"field_mappings,omitempty"`
 }
 
 // createKVSnapshot exports raw Badger KV pairs for a block range to a binary file.
@@ -84,7 +88,15 @@ func (s *Snapshotter) writeKVSnapshotFile(ctx context.Context, filePath string, 
 	return roots, nil
 }
 
-// writeKVSnapshotContents writes the header, KV pairs, and EOF marker to the gzip writer.
+// writeKVSnapshotContents writes the header, KV sections, and section terminator to the gzip writer.
+// Format (version 2):
+//   [4 bytes] header length
+//   [N bytes] JSON header (includes FieldMappings per collection)
+//   Per collection with data:
+//     [4 bytes] collection name length
+//     [M bytes] collection name
+//     [KV pairs written by ExportDocKVs, including its uint32(0) sentinel]
+//   [4 bytes = 0] section terminator (name length = 0)
 func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writer, startBlock, endBlock int64) ([][]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -100,13 +112,31 @@ func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writ
 		rootsHex = append(rootsHex, hex.EncodeToString(r))
 	}
 
+	// Collect field mappings for all collections so the destination node can remap short IDs.
+	fieldMappings := make(map[string]json.RawMessage)
+	for _, colName := range []string{
+		constants.CollectionBlock,
+		constants.CollectionTransaction,
+		constants.CollectionLog,
+		constants.CollectionAccessListEntry,
+		constants.CollectionBlockSignature,
+	} {
+		mapping, mappingErr := s.defraNode.DB.ExportFieldMapping(ctx, colName)
+		if mappingErr != nil {
+			logger.Sugar.Warnf("KV snapshot: failed to export field mapping for %s: %v", colName, mappingErr)
+			continue
+		}
+		fieldMappings[colName] = json.RawMessage(mapping)
+	}
+
 	header := kvSnapshotHeader{
 		Magic:               constants.HeaderMagicValue,
-		Version:             1,
+		Version:             2, //nolint:mnd
 		StartBlock:          startBlock,
 		EndBlock:            endBlock,
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 		BlockSigMerkleRoots: rootsHex,
+		FieldMappings:       fieldMappings,
 	}
 	headerBytes, err := json.Marshal(header)
 	if err != nil {
@@ -127,17 +157,16 @@ func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writ
 		return nil, err
 	}
 
-	binary.BigEndian.PutUint32(lenBuf[:], 0)
-	if _, err := gw.Write(lenBuf[:]); err != nil {
-		return nil, err
-	}
-
 	logger.Sugar.Infof("KV snapshot written (%d KV pairs)", totalKVs)
 
 	return roots, nil
 }
 
 // exportCollectionKVs exports KV pairs for all collections in the block range.
+// Each collection is written as a named section: [name_len][name][KV pairs + sentinel].
+// The sentinel (uint32(0)) from ExportDocKVs terminates the section and is preserved so
+// that ImportRawKVsWithMapping knows where each collection's data ends.
+// A final uint32(0) name_len signals the end of all sections.
 func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, startBlock, endBlock int64) (int, error) {
 	collections := []struct {
 		name       string
@@ -151,6 +180,7 @@ func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, 
 	}
 
 	totalKVs := 0
+	var lenBuf [4]byte
 	for _, col := range collections {
 		docIDs, err := s.queryDocIDs(ctx, col.name, col.blockField, startBlock, endBlock)
 		if err != nil {
@@ -160,24 +190,35 @@ func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, 
 			continue
 		}
 
-		// ExportDocKVs writes its own EOF sentinel (uint32(0)) after the KV pairs.
-		// Buffer each call so we can strip that sentinel before writing to the shared
-		// gzip stream; our caller (writeKVSnapshotContents) writes the single final sentinel.
+		// Buffer so we can write section name before KV data only on success.
 		var buf bytes.Buffer
 		n, err := s.defraNode.DB.ExportDocKVs(ctx, col.name, docIDs, &buf, true)
 		if err != nil {
 			return 0, fmt.Errorf("export KVs for %s: %w", col.name, err)
 		}
-		data := buf.Bytes()
-		const sentinelLen = 4
-		if len(data) >= sentinelLen {
-			data = data[:len(data)-sentinelLen]
+
+		// Write section header: collection name length + name.
+		nameBytes := []byte(col.name)
+		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(nameBytes))) //nolint:gosec
+		if _, err := gw.Write(lenBuf[:]); err != nil {
+			return 0, err
 		}
-		if _, err := gw.Write(data); err != nil {
+		if _, err := gw.Write(nameBytes); err != nil {
+			return 0, err
+		}
+		// Write KV data including ExportDocKVs's own uint32(0) sentinel.
+		// That sentinel terminates this section for ImportRawKVsWithMapping.
+		if _, err := gw.Write(buf.Bytes()); err != nil {
 			return 0, fmt.Errorf("write KVs for %s: %w", col.name, err)
 		}
 		totalKVs += n
 		logger.Sugar.Debugf("Exported %d KV pairs for %s (%d docs)", n, col.name, len(docIDs))
+	}
+
+	// Write section terminator: name_len = 0 signals no more collections.
+	binary.BigEndian.PutUint32(lenBuf[:], 0)
+	if _, err := gw.Write(lenBuf[:]); err != nil {
+		return 0, err
 	}
 
 	return totalKVs, nil
