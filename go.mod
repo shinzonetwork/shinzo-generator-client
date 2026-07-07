@@ -429,7 +429,7 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
-	github.com/sourcenetwork/defradb v1.0.1-0.20260706225440-7f26b463eb14
+	github.com/sourcenetwork/defradb v1.0.1-0.20260707165346-cc1993c8e3fa
 	github.com/stretchr/testify v1.11.1
 	github.com/supranational/blst v0.3.16 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
