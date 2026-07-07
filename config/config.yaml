@@ -39,10 +39,10 @@ geth:
   api_key_type: "${GETH_API_KEY_TYPE}"
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
-  concurrent_blocks: 1      # Number of blocks to process concurrently
-  receipt_workers: 8        # Concurrent receipt fetchers per block
-  max_docs_per_txn: 500    # Docs threshold for single-txn block creation
-  blocks_per_minute: 60     # Block indexing rate limit
+  concurrent_blocks: 16     # Number of blocks to process concurrently
+  receipt_workers: 16       # Concurrent receipt fetchers per block
+  max_docs_per_txn: 3000    # Docs threshold for single-txn block creation
+  blocks_per_minute: 0      # Block indexing rate limit (0 = disabled)
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
@@ -54,7 +54,7 @@ indexer:
   # ALL schema requests will return 503 Service Unavailable.
 logger:
   development: true
-  level: "info"
+  level: "debug"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
   max_blocks: 1000          # Number of blocks to retain
