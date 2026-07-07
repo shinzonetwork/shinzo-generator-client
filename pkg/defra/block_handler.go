@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	stderrors "errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -267,15 +266,6 @@ func (h *BlockHandler) defaultCollectDocCIDs(ctx context.Context, docIDs []strin
 	return allCIDs, nil
 }
 
-// sortedCIDStrings returns a sorted slice of CID strings.
-func sortedCIDStrings(cids []cid.Cid) []string {
-	out := make([]string, len(cids))
-	for i, c := range cids {
-		out[i] = c.String()
-	}
-	sort.Strings(out)
-	return out
-}
 
 // SetDocIDTracker sets the tracker for recording docIDs at insert time.
 func (h *BlockHandler) SetDocIDTracker(tracker DocIDTrackerInterface) {
@@ -552,7 +542,7 @@ func (h *BlockHandler) buildAndCreateSingleTxnSignature(ctx context.Context, blo
 		logger.Sugar.Warnf("Block %d: block signature verification FAILED", blockInt)
 	}
 
-	sortedCIDs := sortedCIDStrings(collectedCIDs)
+	sortedCIDs := SortedCIDStrings(collectedCIDs)
 	blockSigDoc, err := h.buildBlockSignatureDocument(ctx, blockSig, block.Hash, blockInt, colBlockSig, sortedCIDs)
 	if err != nil {
 		logger.Sugar.Warnf("Block %d: failed to build block signature document: %v", blockInt, err)
@@ -726,11 +716,12 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 		return "", err
 	}
 
-	if err := h.waitForCIDs(ctx, blockNumber, allDocIDs); err != nil {
+	cids, err := h.waitForCIDs(ctx, blockNumber, allDocIDs)
+	if err != nil {
 		return "", err
 	}
 
-	return h.signAndStoreExistingBlockSignature(ctx, blockNumber, blockHash, allDocIDs)
+	return h.signAndStoreWithCIDs(ctx, blockNumber, blockHash, cids)
 }
 
 // collectExistingBlockDocIDs queries the DB for all docIDs associated with the given block number.
@@ -797,10 +788,13 @@ func (h *BlockHandler) queryDocIDsByBlockNumber(ctx context.Context, colName, fi
 }
 
 // waitForCIDs retries until CIDs are available for all documents (P2P data may still be arriving).
-func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDocIDs []string) error {
+// waitForCIDs retries until CIDs are available for all documents (P2P data may still be arriving).
+// Returns the collected CIDs on success so the caller can sign without a second query.
+func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDocIDs []string) ([]cid.Cid, error) {
 	maxRetries := h.maxCIDRetries
 	var lastCIDCount int
 	var lastErr error
+	var lastCIDs []cid.Cid
 
 	for attempt := range maxRetries {
 		cids, err := h.collectDocCIDsFn(ctx, allDocIDs)
@@ -813,8 +807,9 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 		}
 
 		lastCIDCount = len(cids)
+		lastCIDs = cids
 		if len(cids) >= len(allDocIDs) {
-			return nil
+			return cids, nil
 		}
 
 		lastErr = fmt.Errorf("got %d CIDs for %d docs", len(cids), len(allDocIDs))
@@ -826,20 +821,15 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 	}
 
 	if lastCIDCount == 0 {
-		return fmt.Errorf("no CIDs found for block %d after %d retries (%d docs): %w", //nolint: err113
+		return nil, fmt.Errorf("no CIDs found for block %d after %d retries (%d docs): %w", //nolint: err113
 			blockNumber, maxRetries, len(allDocIDs), lastErr)
 	}
 
-	return nil
+	return lastCIDs, nil
 }
 
-// signAndStoreExistingBlockSignature collects CIDs, signs, and stores the block signature.
-func (h *BlockHandler) signAndStoreExistingBlockSignature(ctx context.Context, blockNumber int64, blockHash string, allDocIDs []string) (string, error) {
-	cids, err := h.collectDocCIDsFn(ctx, allDocIDs)
-	if err != nil {
-		return "", fmt.Errorf("failed to collect CIDs for signing: %w", err) //nolint: err113
-	}
-
+// signAndStoreWithCIDs signs and stores a BlockSignature document using pre-collected CIDs.
+func (h *BlockHandler) signAndStoreWithCIDs(ctx context.Context, blockNumber int64, blockHash string, cids []cid.Cid) (string, error) {
 	collector := node.NewBatchCIDCollector()
 	for _, c := range cids {
 		collector.Add(c)
@@ -864,7 +854,7 @@ func (h *BlockHandler) signAndStoreExistingBlockSignature(ctx context.Context, b
 		return "", fmt.Errorf("failed to get block signature collection: %w", err) //nolint: err113
 	}
 
-	sortedCIDs := sortedCIDStrings(cids)
+	sortedCIDs := SortedCIDStrings(cids)
 	blockSigDoc, err := h.buildBlockSignatureDocument(ctx, blockSig, blockHash, blockNumber, colBlockSig, sortedCIDs)
 	if err != nil {
 		sigTxn.Discard()
@@ -881,8 +871,8 @@ func (h *BlockHandler) signAndStoreExistingBlockSignature(ctx context.Context, b
 	}
 
 	docID := blockSigDoc.ID().String()
-	logger.Sugar.Infof("Block %d: block sig for existing block (%d docs, %d CIDs, identity: %s...)",
-		blockNumber, len(allDocIDs), len(cids), truncate(string(blockSig.Header.Identity), 16)) //nolint:mnd
+	logger.Sugar.Infof("Block %d: block sig (%d CIDs, identity: %s...)",
+		blockNumber, len(cids), truncate(string(blockSig.Header.Identity), 16)) //nolint:mnd
 
 	return docID, nil
 }
@@ -895,30 +885,35 @@ func truncate(s string, n int) string {
 }
 
 // createBlockBatched creates the block using multiple transactions for large blocks.
-// This is the fallback for blocks exceeding MaxDocsPerTransaction.
-// createBlockBatched creates all documents for a block using batched transactions.
+// CIDs are collected from doc.Head() after each transaction commits — no GQL queries needed.
 func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
-	collector := node.NewBatchCIDCollector()
-	ctx = node.ContextWithBatchSigning(ctx, collector)
-
-	blockID, err := h.createBlockDocument(ctx, block, blockInt)
+	blockID, blockCID, err := h.createBlockDocument(ctx, block, blockInt)
 	if err != nil {
 		return "", err
 	}
 
-	txHashToID, batchErrors := h.batchCreateTransactions(ctx, blockInt, transactions, blockID)
+	txHashToID, txCIDs, batchErrors := h.batchCreateTransactions(ctx, blockInt, transactions, blockID)
 	allTxIDs := make([]string, 0, len(txHashToID))
 	for _, id := range txHashToID {
 		allTxIDs = append(allTxIDs, id)
 	}
 
-	allLogIDs, logErrors := h.batchCreateLogs(ctx, blockInt, transactions, receiptMap, blockID, txHashToID)
+	allLogIDs, logCIDs, logErrors := h.batchCreateLogs(ctx, blockInt, transactions, receiptMap, blockID, txHashToID)
 	batchErrors = append(batchErrors, logErrors...)
 
-	allALEIDs, aleErrors := h.batchCreateALEs(ctx, blockInt, transactions, txHashToID)
+	allALEIDs, aleCIDs, aleErrors := h.batchCreateALEs(ctx, blockInt, transactions, txHashToID)
 	batchErrors = append(batchErrors, aleErrors...)
 
-	blockSigDocID := h.createBlockSignature(ctx, block, blockInt, collector)
+	// Assemble all head CIDs collected from doc.Head() after each committed transaction.
+	allCIDs := make([]cid.Cid, 0, 1+len(txCIDs)+len(logCIDs)+len(aleCIDs))
+	if blockCID.Defined() {
+		allCIDs = append(allCIDs, blockCID)
+	}
+	allCIDs = append(allCIDs, txCIDs...)
+	allCIDs = append(allCIDs, logCIDs...)
+	allCIDs = append(allCIDs, aleCIDs...)
+
+	blockSigDocID, _ := h.signAndStoreWithCIDs(ctx, blockInt, block.Hash, allCIDs)
 
 	if h.docIDTracker != nil {
 		result := &BlockCreationResult{
@@ -942,44 +937,47 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 }
 
 // createBlockDocument creates the block document in its own transaction.
-func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Block, blockInt int64) (string, error) {
+// Returns the docID and the head CID of the committed composite block.
+func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Block, blockInt int64) (string, cid.Cid, error) {
 	txn, err := h.db.NewTxn(false)
 	if err != nil {
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
+		return "", cid.Undef, errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
 	}
 
 	colBlock, err := txn.GetCollectionByName(ctx, h.collections.Block)
 	if err != nil {
 		txn.Discard()
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err)
+		return "", cid.Undef, errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err)
 	}
 
 	blockDoc, err := h.buildBlockDocument(ctx, block, blockInt, colBlock)
 	if err != nil {
 		txn.Discard()
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to build block document", err)
+		return "", cid.Undef, errors.NewQueryFailed("defra", "createBlockBatched", "failed to build block document", err)
 	}
 
 	if err := colBlock.AddDocument(ctx, blockDoc); err != nil {
 		txn.Discard()
 		if errors.IsErrAlreadyExists(err) {
-			return "", fmt.Errorf("block already exists") //nolint: err113
+			return "", cid.Undef, fmt.Errorf("block already exists") //nolint: err113
 		}
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create block", err)
+		return "", cid.Undef, errors.NewQueryFailed("defra", "createBlockBatched", "failed to create block", err)
 	}
 
 	blockID := blockDoc.ID().String()
 
 	if err := txn.Commit(); err != nil {
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
+		return "", cid.Undef, errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
 	}
 
-	return blockID, nil
+	// doc.SetHead is fired by txn.OnSuccess after Commit — safe to read now.
+	return blockID, blockDoc.Head(), nil
 }
 
 // batchCreateTransactions creates transaction documents in batches.
-func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int64, transactions []*types.Transaction, blockID string) (map[string]string, []error) {
+func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int64, transactions []*types.Transaction, blockID string) (map[string]string, []cid.Cid, []error) {
 	txHashToID := make(map[string]string)
+	var allCIDs []cid.Cid
 	var batchErrors []error
 
 	for i := 0; i < len(transactions); i += h.maxDocsPerTxn {
@@ -1033,15 +1031,20 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 
 		if err := txn.Commit(); err != nil {
 			batchErrors = append(batchErrors, fmt.Errorf("commit tx batch: %w", err))
+			continue
+		}
+		for _, doc := range txDocs {
+			if c := doc.Head(); c.Defined() {
+				allCIDs = append(allCIDs, c)
+			}
 		}
 	}
 
-	return txHashToID, batchErrors
+	return txHashToID, allCIDs, batchErrors
 }
 
 // batchCreateLogs creates log documents in batches.
-// batchCreateLogs creates log documents in batches.
-func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt, blockID string, txHashToID map[string]string) ([]string, []error) {
+func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt, blockID string, txHashToID map[string]string) ([]string, []cid.Cid, []error) {
 	var allLogs []logEntry
 	for _, tx := range transactions {
 		if tx == nil {
@@ -1061,6 +1064,7 @@ func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, tran
 	}
 
 	var allLogIDs []string
+	var allCIDs []cid.Cid
 	var batchErrors []error
 	for i := 0; i < len(allLogs); i += h.maxDocsPerTxn {
 		end := min(i+h.maxDocsPerTxn, len(allLogs))
@@ -1068,26 +1072,27 @@ func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, tran
 		if len(batch) == 0 {
 			continue
 		}
-		ids, err := h.createLogBatch(ctx, blockInt, blockID, batch)
+		ids, batchCIDs, err := h.createLogBatch(ctx, blockInt, blockID, batch)
 		allLogIDs = append(allLogIDs, ids...)
+		allCIDs = append(allCIDs, batchCIDs...)
 		if err != nil {
 			batchErrors = append(batchErrors, err)
 		}
 	}
 
-	return allLogIDs, batchErrors
+	return allLogIDs, allCIDs, batchErrors
 }
 
 // createLogBatch creates a single batch of log documents in one transaction.
-func (h *BlockHandler) createLogBatch(ctx context.Context, blockInt int64, blockID string, batch []logEntry) ([]string, error) {
+func (h *BlockHandler) createLogBatch(ctx context.Context, blockInt int64, blockID string, batch []logEntry) ([]string, []cid.Cid, error) {
 	txn, err := h.db.NewTxn(false)
 	if err != nil {
-		return nil, fmt.Errorf("create txn for log batch: %w", err)
+		return nil, nil, fmt.Errorf("create txn for log batch: %w", err)
 	}
 	colLog, err := txn.GetCollectionByName(ctx, h.collections.Log)
 	if err != nil {
 		txn.Discard()
-		return nil, fmt.Errorf("get log collection: %w", err)
+		return nil, nil, fmt.Errorf("get log collection: %w", err)
 	}
 
 	var ids []string
@@ -1109,9 +1114,9 @@ func (h *BlockHandler) createLogBatch(ctx context.Context, blockInt int64, block
 			txn.Discard()
 			if errors.IsErrAlreadyExists(err) {
 				logger.Sugar.Debugf("Block %d: log batch already exists via P2P, skipping", blockInt)
-				return nil, nil
+				return nil, nil, nil
 			}
-			return nil, fmt.Errorf("create log batch: %w", err)
+			return nil, nil, fmt.Errorf("create log batch: %w", err)
 		}
 		for _, doc := range logDocs {
 			ids = append(ids, doc.ID().String())
@@ -1119,15 +1124,20 @@ func (h *BlockHandler) createLogBatch(ctx context.Context, blockInt int64, block
 	}
 
 	if err := txn.Commit(); err != nil {
-		return nil, fmt.Errorf("commit log batch: %w", err)
+		return nil, nil, fmt.Errorf("commit log batch: %w", err)
 	}
 
-	return ids, nil
+	var batchCIDs []cid.Cid
+	for _, doc := range logDocs {
+		if c := doc.Head(); c.Defined() {
+			batchCIDs = append(batchCIDs, c)
+		}
+	}
+	return ids, batchCIDs, nil
 }
 
 // batchCreateALEs creates access list entry documents in batches.
-// batchCreateALEs creates access list entry documents in batches.
-func (h *BlockHandler) batchCreateALEs(ctx context.Context, blockInt int64, transactions []*types.Transaction, txHashToID map[string]string) ([]string, []error) {
+func (h *BlockHandler) batchCreateALEs(ctx context.Context, blockInt int64, transactions []*types.Transaction, txHashToID map[string]string) ([]string, []cid.Cid, []error) {
 	var allALEs []aleEntry
 	for _, tx := range transactions {
 		if tx == nil {
@@ -1143,29 +1153,31 @@ func (h *BlockHandler) batchCreateALEs(ctx context.Context, blockInt int64, tran
 	}
 
 	var allALEIDs []string
+	var allCIDs []cid.Cid
 	var batchErrors []error
 	for i := 0; i < len(allALEs); i += h.maxDocsPerTxn {
 		end := min(i+h.maxDocsPerTxn, len(allALEs))
-		ids, err := h.createALEBatch(ctx, blockInt, allALEs[i:end])
+		ids, batchCIDs, err := h.createALEBatch(ctx, blockInt, allALEs[i:end])
 		allALEIDs = append(allALEIDs, ids...)
+		allCIDs = append(allCIDs, batchCIDs...)
 		if err != nil {
 			batchErrors = append(batchErrors, err)
 		}
 	}
 
-	return allALEIDs, batchErrors
+	return allALEIDs, allCIDs, batchErrors
 }
 
 // createALEBatch creates a single batch of ALE documents in one transaction.
-func (h *BlockHandler) createALEBatch(ctx context.Context, blockInt int64, batch []aleEntry) ([]string, error) {
+func (h *BlockHandler) createALEBatch(ctx context.Context, blockInt int64, batch []aleEntry) ([]string, []cid.Cid, error) {
 	txn, err := h.db.NewTxn(false)
 	if err != nil {
-		return nil, fmt.Errorf("create txn for ALE batch: %w", err)
+		return nil, nil, fmt.Errorf("create txn for ALE batch: %w", err)
 	}
 	colALE, err := txn.GetCollectionByName(ctx, h.collections.AccessListEntry)
 	if err != nil {
 		txn.Discard()
-		return nil, fmt.Errorf("get ALE collection: %w", err)
+		return nil, nil, fmt.Errorf("get ALE collection: %w", err)
 	}
 
 	var ids []string
@@ -1187,9 +1199,9 @@ func (h *BlockHandler) createALEBatch(ctx context.Context, blockInt int64, batch
 			txn.Discard()
 			if errors.IsErrAlreadyExists(err) {
 				logger.Sugar.Debugf("Block %d: ALE batch already exists via P2P, skipping", blockInt)
-				return nil, nil
+				return nil, nil, nil
 			}
-			return nil, fmt.Errorf("create ALE batch: %w", err)
+			return nil, nil, fmt.Errorf("create ALE batch: %w", err)
 		}
 		for _, doc := range aleDocs {
 			ids = append(ids, doc.ID().String())
@@ -1197,69 +1209,16 @@ func (h *BlockHandler) createALEBatch(ctx context.Context, blockInt int64, batch
 	}
 
 	if err := txn.Commit(); err != nil {
-		return nil, fmt.Errorf("commit ALE batch: %w", err)
+		return nil, nil, fmt.Errorf("commit ALE batch: %w", err)
 	}
 
-	return ids, nil
-}
-
-// createBlockSignature creates the block signature document in its own transaction.
-func (h *BlockHandler) createBlockSignature(ctx context.Context, block *types.Block, blockInt int64, collector *node.BatchCIDCollector) string {
-	collectedCIDs := collector.GetCIDs()
-
-	blockSig, err := h.signBatchFn(ctx, collector)
-	if err != nil {
-		logger.Sugar.Warnf("Failed to create block signature for block %d: %v", blockInt, err)
-		return ""
+	var batchCIDs []cid.Cid
+	for _, doc := range aleDocs {
+		if c := doc.Head(); c.Defined() {
+			batchCIDs = append(batchCIDs, c)
+		}
 	}
-	if blockSig == nil {
-		return ""
-	}
-
-	valid, verifyErr := h.verifyBatchSigFn(blockSig, collectedCIDs)
-	if verifyErr != nil {
-		logger.Sugar.Warnf("Block %d: block signature verification error: %v", blockInt, verifyErr)
-	} else if !valid {
-		logger.Sugar.Warnf("Block %d: block signature verification FAILED", blockInt)
-	}
-
-	sigTxn, err := h.db.NewTxn(false)
-	if err != nil {
-		logger.Sugar.Warnf("Block %d: failed to create txn for block signature: %v", blockInt, err)
-		return ""
-	}
-
-	colBlockSig, err := sigTxn.GetCollectionByName(ctx, h.collections.BlockSignature)
-	if err != nil {
-		sigTxn.Discard()
-		logger.Sugar.Warnf("Block %d: failed to get block signature collection: %v", blockInt, err)
-		return ""
-	}
-
-	sortedCIDs := sortedCIDStrings(collectedCIDs)
-	blockSigDoc, err := h.buildBlockSignatureDocument(ctx, blockSig, block.Hash, blockInt, colBlockSig, sortedCIDs)
-	if err != nil {
-		sigTxn.Discard()
-		logger.Sugar.Warnf("Block %d: failed to build block signature document: %v", blockInt, err)
-		return ""
-	}
-
-	if err := colBlockSig.AddDocument(ctx, blockSigDoc); err != nil {
-		sigTxn.Discard()
-		logger.Sugar.Warnf("Block %d: failed to create block signature document: %v", blockInt, err)
-		return ""
-	}
-
-	if err := sigTxn.Commit(); err != nil {
-		logger.Sugar.Warnf("Block %d: failed to commit block signature: %v", blockInt, err)
-		return ""
-	}
-
-	blockSigDocID := blockSigDoc.ID().String()
-	logger.Sugar.Debugf("Block %d (batched): block sig created, %d CIDs, merkle: %x, verified: %v",
-		blockInt, blockSig.CIDCount, blockSig.MerkleRoot[:8], valid) //nolint:mnd
-
-	return blockSigDocID
+	return ids, batchCIDs, nil
 }
 
 // GetHighestBlockNumber returns the highest block number stored in DefraDB.
