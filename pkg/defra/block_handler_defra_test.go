@@ -8,12 +8,12 @@ import (
 
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
-	"github.com/sourcenetwork/immutable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 // ---------------------------------------------------------------------------
@@ -479,11 +479,7 @@ func ctxWithIdentity(t *testing.T) context.Context {
 	t.Helper()
 	ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
 	require.NoError(t, err)
-	ctx := identity.WithContext(
-		context.Background(),
-		immutable.Some[identity.Identity](ident),
-	)
-	return ctx
+	return defracontext.WithIdentity(context.Background(), ident)
 }
 
 // ---------------------------------------------------------------------------
@@ -874,12 +870,12 @@ func TestCreateBlockSignatureForExistingBlock_NoIdentity(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to create block signature without identity context
-	// SignBlock will return nil (no identity), causing "signing returned nil (no identity?)" error
+	// defaultSignBatch returns errNoIdentity, causing "failed to sign block: no identity available for signing"
 	_, err = handler.CreateBlockSignatureForExistingBlock(
 		context.Background(), 2700, block.Hash, block, nil, nil,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "signing returned nil")
+	assert.Contains(t, err.Error(), "no identity available for signing")
 }
 
 // ---------------------------------------------------------------------------

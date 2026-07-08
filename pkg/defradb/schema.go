@@ -2,15 +2,9 @@ package defradb
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
 )
-
-// This could be moved to schema package
 
 // SchemaApplier applies a schema to a DefraDB node.
 type SchemaApplier interface {
@@ -25,31 +19,24 @@ func (schema *MockSchemaApplierThatSucceeds) ApplySchema(_ context.Context, _ *n
 	return nil
 }
 
-const defaultPath = "schema/schema.graphql"
-
-// SchemaApplierFromFile reads a schema file and applies it to a DefraDB node.
-type SchemaApplierFromFile struct {
-	DefaultPath string
+// SchemaApplierFromDir applies the embedded modular schema to a DefraDB node.
+// It delegates to ApplyCollectionSchemas, which first attempts a monolithic
+// AddSchema call and falls back to per-file application on restart.
+// Note: only additive schema changes are supported. See ApplyCollectionSchemas
+// for details.
+type SchemaApplierFromDir struct {
+	ChainPrefix string
 }
 
-// ApplySchema loads schema text from disk and applies it to the given DefraDB node.
-func (schema *SchemaApplierFromFile) ApplySchema(ctx context.Context, defraNode *node.Node) error {
-	if len(schema.DefaultPath) == 0 {
-		schema.DefaultPath = defaultPath
-	}
+// NewSchemaApplierFromDir creates a schema applier that uses the embedded
+// modular collection files. If chainPrefix is empty, the default prefix is used.
+func NewSchemaApplierFromDir(chainPrefix string) *SchemaApplierFromDir {
+	return &SchemaApplierFromDir{ChainPrefix: chainPrefix}
+}
 
-	schemaPath, err := utils.FindFile(schema.DefaultPath)
-	if err != nil {
-		return fmt.Errorf("failed to find schema file: %w", err)
-	}
-
-	schemaBytes, err := os.ReadFile(filepath.Clean(schemaPath))
-	if err != nil {
-		return fmt.Errorf("failed to read schema file: %w", err)
-	}
-
-	_, err = defraNode.DB.AddSchema(ctx, string(schemaBytes))
-	return err
+// ApplySchema applies the embedded schema to the given DefraDB node.
+func (s *SchemaApplierFromDir) ApplySchema(ctx context.Context, defraNode *node.Node) error {
+	return ApplyCollectionSchemas(ctx, defraNode, s.ChainPrefix)
 }
 
 // SchemaApplierFromProvidedSchema applies schema text provided directly in memory.
@@ -66,6 +53,6 @@ func NewSchemaApplierFromProvidedSchema(schema string) *SchemaApplierFromProvide
 
 // ApplySchema applies the provided schema text to the given DefraDB node.
 func (schema *SchemaApplierFromProvidedSchema) ApplySchema(ctx context.Context, defraNode *node.Node) error {
-	_, err := defraNode.DB.AddSchema(ctx, schema.ProvidedSchema)
+	_, err := defraNode.DB.AddCollection(ctx, schema.ProvidedSchema)
 	return err
 }

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,33 +58,31 @@ func insertTestBlock(t *testing.T, n *node.Node, blockNum int64, txCount int) st
 	t.Helper()
 	ctx := context.Background()
 	// Insert block
-	mutation := fmt.Sprintf(`mutation { create_TestBlock(input: {number: %d, hash: "hash%d"}) { _docID } }`, blockNum, blockNum)
+	mutation := fmt.Sprintf(`mutation { add_TestBlock(input: [{number: %d, hash: "hash%d"}]) { _docID } }`, blockNum, blockNum)
 	result := n.DB.ExecRequest(ctx, mutation)
 	require.Empty(t, result.GQL.Errors, "insert block %d failed: %v", blockNum, result.GQL.Errors)
 
-	// Extract docID - DefraDB may return data in different shapes
+	// Extract docID from the returned list
 	blockDocID := ""
 	if data, ok := result.GQL.Data.(map[string]any); ok {
-		raw := data["create_TestBlock"]
+		raw := data["add_TestBlock"]
 		switch v := raw.(type) {
-		case map[string]any:
-			blockDocID, _ = v["_docID"].(string)
-		case []map[string]any:
-			if len(v) > 0 {
-				blockDocID, _ = v[0]["_docID"].(string)
-			}
 		case []any:
 			if len(v) > 0 {
 				if m, ok := v[0].(map[string]any); ok {
 					blockDocID, _ = m["_docID"].(string)
 				}
 			}
+		case []map[string]any:
+			if len(v) > 0 {
+				blockDocID, _ = v[0]["_docID"].(string)
+			}
 		}
 	}
 
 	// Insert transactions
 	for i := range txCount {
-		txMutation := fmt.Sprintf(`mutation { create_TestTx(input: {blockNumber: %d, txHash: "tx%d_%d"}) { _docID } }`, blockNum, blockNum, i)
+		txMutation := fmt.Sprintf(`mutation { add_TestTx(input: [{blockNumber: %d, txHash: "tx%d_%d"}]) { _docID } }`, blockNum, blockNum, i)
 		txResult := n.DB.ExecRequest(ctx, txMutation)
 		require.Empty(t, txResult.GQL.Errors, "insert tx %d_%d failed: %v", blockNum, i, txResult.GQL.Errors)
 	}

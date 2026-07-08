@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 )
 
 // NumberToHex converts any numeric type to a hex string with "0x" prefix.

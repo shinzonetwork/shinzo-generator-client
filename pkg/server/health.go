@@ -1,9 +1,18 @@
+// Package server provides HTTP handlers for the generator's health, metrics, registration,
+// and schema endpoints.
+//
+// Error response formats differ by audience:
+//   - Host-client endpoints (/api/v1/*) return structured JSON errors via writeJSONError,
+//     using the errorResponse envelope {error, message}. These are consumed programmatically
+//     by other generator clients that need machine-parseable error details.
+//   - User-facing endpoints (/, /health, /registration, /metrics, /snapshots) use plain text
+//     errors via http.Error. These serve browsers and operational dashboards where plain text
+//     is simpler and sufficient.
 package server
 
 import (
 	"context"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -26,12 +35,6 @@ var errIndexerNotAvailable = errors.New("indexer not available") //nolint:err113
 const (
 	// ServerUnhealthyStatus is the status string used when the server is unhealthy.
 	ServerUnhealthyStatus = "unhealthy"
-	// RegistrationAppBaseURL is the base URL for the Shinzo Network registration app.
-	// TODO: Make this configurable via config file.
-	RegistrationAppBaseURL = "https://registration.shinzo.network/"
-
-	// RegistrationMessage is the message used for indexer registration signing.
-	RegistrationMessage = "Shinzo Network Indexer registration"
 
 	// HealthCheckStaleThreshold is the duration after which a last-processed time is considered stale.
 	HealthCheckStaleThreshold = 5 * time.Minute
@@ -59,6 +62,8 @@ type HealthChecker interface {
 	GetCurrentBlock() int64
 	GetLastProcessedTime() time.Time
 	GetPeerInfo() (*P2PInfo, error)
+	GetSourceChainInfo() (string, uint64)
+	SignRegistrationMessage(message string) (DefraPKRegistration, error)
 	SignMessages(message string) (DefraPKRegistration, PeerIDRegistration, error)
 }
 
@@ -74,26 +79,6 @@ type PeerInfo struct {
 	ID        string   `json:"id"`
 	Addresses []string `json:"addresses"`
 	PublicKey string   `json:"public_key,omitempty"`
-}
-
-// DisplayRegistration holds the signed registration data for an indexer node.
-type DisplayRegistration struct {
-	Enabled             bool                `json:"enabled"`
-	Message             string              `json:"message"`
-	DefraPKRegistration DefraPKRegistration `json:"defra_pk_registration,omitzero"`
-	PeerIDRegistration  PeerIDRegistration  `json:"peer_id_registration,omitzero"`
-}
-
-// DefraPKRegistration holds the public key and signed message for DefraDB PK registration.
-type DefraPKRegistration struct {
-	PublicKey   string `json:"public_key,omitempty"`
-	SignedPKMsg string `json:"signed_pk_message,omitempty"`
-}
-
-// PeerIDRegistration holds the peer ID and signed message for P2P peer registration.
-type PeerIDRegistration struct {
-	PeerID        string `json:"peer_id,omitempty"`
-	SignedPeerMsg string `json:"signed_peer_message,omitempty"`
 }
 
 // HealthResponse represents the health check response.
@@ -143,7 +128,7 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 	mux.HandleFunc("/registration", hs.registrationHandler)
 	mux.HandleFunc("/registration-app", hs.registrationAppHandler)
 	mux.HandleFunc("/metrics", hs.metricsHandler)
-	mux.HandleFunc("/", hs.rootHandler)
+	mux.HandleFunc("GET /{$}", hs.rootHandler)
 
 	return hs
 }
@@ -222,34 +207,6 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// getRegistrationData returns the signed registration data for the indexer.
-func (hs *HealthServer) getRegistrationData() (*DisplayRegistration, error) {
-	if hs.indexer == nil {
-		return nil, errIndexerNotAvailable
-	}
-
-	defraReg, peerReg, signErr := hs.indexer.SignMessages(RegistrationMessage)
-	registration := &DisplayRegistration{
-		Enabled: signErr == nil,
-		Message: normalizeHex(hex.EncodeToString([]byte(RegistrationMessage))),
-	}
-	if signErr != nil {
-		return registration, signErr
-	}
-
-	// Normalize signed fields to 0x-prefixed hex strings for API consumers.
-	registration.DefraPKRegistration = DefraPKRegistration{
-		PublicKey:   normalizeHex(defraReg.PublicKey),
-		SignedPKMsg: normalizeHex(defraReg.SignedPKMsg),
-	}
-	registration.PeerIDRegistration = PeerIDRegistration{
-		PeerID:        normalizeHex(peerReg.PeerID),
-		SignedPeerMsg: normalizeHex(peerReg.SignedPeerMsg),
-	}
-
-	return registration, nil
-}
-
 // registrationHandler handles readiness probe requests.
 func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -291,7 +248,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		registration, _ := hs.getRegistrationData()
+		registration, _ := hs.getRegistrationData(r)
 		response.Registration = registration
 	}
 
@@ -302,26 +259,6 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
-}
-
-// registrationAppHandler redirects to the registration app with registration data as query params.
-func (hs *HealthServer) registrationAppHandler(w http.ResponseWriter, r *http.Request) {
-	registration, err := hs.getRegistrationData()
-	if err != nil || registration == nil || !registration.Enabled {
-		http.Error(w, "Registration data not available", http.StatusServiceUnavailable)
-		return
-	}
-	redirectURL := fmt.Sprintf(
-		"%s?role=indexer&signedMessage=%s&peerId=%s&peerSignedMessage=%s&defraPublicKey=%s&defraPublicKeySignedMessage=%s",
-		RegistrationAppBaseURL,
-		registration.Message,
-		registration.PeerIDRegistration.PeerID,
-		registration.PeerIDRegistration.SignedPeerMsg,
-		registration.DefraPKRegistration.PublicKey,
-		registration.DefraPKRegistration.SignedPKMsg,
-	)
-
-	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 }
 
 // metricsHandler provides basic metrics in JSON format.
@@ -360,9 +297,13 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 		"endpoints": []string{
 			"/health 	      - Health probe",
 			"/registration  - Registration information",
+			"/registration-app - Registration webapp",
 			"/metrics 	    - Basic metrics",
 			"/snapshots     - List available snapshots",
 			"/snapshots/:id - Download a snapshot file",
+			"/api/v1/schema           - Full GraphQL schema SDL",
+			"/api/v1/schema/{name}    - Collection schema SDL",
+			"/api/v1/schema/collections - Collections metadata",
 		},
 	}
 

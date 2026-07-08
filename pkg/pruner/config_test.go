@@ -3,7 +3,7 @@ package pruner
 import (
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/stretchr/testify/assert"
 )
 

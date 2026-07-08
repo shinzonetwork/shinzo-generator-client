@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
@@ -123,12 +124,12 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 // signMerkleRoot signs the given Merkle root using the identity from context.
 // Returns signature type, identity string, and signature bytes.
 func signMerkleRoot(ctx context.Context, merkleRoot []byte) (sigType, sigIdentity string, sigValue []byte, err error) {
-	ident := identity.FromContext(ctx)
-	if !ident.HasValue() {
+	rawIdent, ok := defracontext.IdentityFrom(ctx)
+	if !ok {
 		return "", "", nil, fmt.Errorf("no identity in context") //nolint: err113
 	}
 
-	fullIdent, ok := ident.Value().(identity.FullIdentity)
+	fullIdent, ok := rawIdent.(identity.FullIdentity)
 	if !ok {
 		return "", "", nil, fmt.Errorf("identity is not a full identity (no private key)") //nolint: err113
 	}
@@ -153,7 +154,7 @@ func signMerkleRoot(ctx context.Context, merkleRoot []byte) (sigType, sigIdentit
 
 // createSnapshotSignatureDoc creates a SnapshotSignature document in DefraDB.
 func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *SnapshotSignatureData) error {
-	txn, err := defraNode.DB.NewBlindWriteTxn()
+	txn, err := defraNode.DB.NewTxn(false)
 	if err != nil {
 		return fmt.Errorf("new txn: %w", err)
 	}
@@ -183,7 +184,7 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 		return fmt.Errorf("create doc from map: %w", err)
 	}
 
-	if err := col.Create(ctx, doc); err != nil {
+	if err := col.AddDocument(ctx, doc); err != nil {
 		txn.Discard()
 		return fmt.Errorf("create doc: %w", err)
 	}

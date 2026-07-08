@@ -13,7 +13,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: shinzonetwork/shinzo-indexer-client
+  IMAGE_NAME: shinzonetwork/shinzo-generator-client
 
 jobs:
   # Job 1: Build and push standard image (standard)
