@@ -100,7 +100,7 @@ lint-fix:
 fmt:
 	@echo "📝 Formatting code..."
 	@gofmt -s -w .
-	@goimports -w -local github.com/shinzonetwork/shinzo-indexer-client .
+	@goimports -w -local github.com/shinzonetwork/shinzo-generator-client .
 
 playground:
 	@if [ -z "$(DEFRA_PATH)" ]; then \
