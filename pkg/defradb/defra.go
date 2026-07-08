@@ -12,16 +12,17 @@ import (
 	"testing"
 
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
+	indexerErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/keyring"
 	"github.com/sourcenetwork/defradb/node"
-	"github.com/sourcenetwork/immutable"
 	"github.com/sourcenetwork/immutable/enumerable"
 )
 
@@ -232,13 +233,25 @@ func GetOrCreateNodeIdentity(cfg *config.Config) (identity.Identity, error) {
 	return getOrCreateNodeIdentity(cfg)
 }
 
+// WithIdentityContext returns a new context with the identity value set.
+// Thin wrapper over defracontext.WithIdentity for callers that already import this package.
+func WithIdentityContext(ctx context.Context, id identity.Identity) context.Context {
+	return defracontext.WithIdentity(ctx, id)
+}
+
+// IdentityFromContext returns the identity stored in the context, if any.
+// Thin wrapper over defracontext.IdentityFrom for callers that already import this package.
+func IdentityFromContext(ctx context.Context) (identity.Identity, bool) {
+	return defracontext.IdentityFrom(ctx)
+}
+
 // GetIdentityContext returns a context with the node identity attached.
 func GetIdentityContext(ctx context.Context, cfg *config.Config) (context.Context, error) {
 	nodeIdentity, err := getOrCreateNodeIdentity(cfg)
 	if err != nil {
 		return ctx, fmt.Errorf("failed to get node identity: %w", err)
 	}
-	return identity.WithContext(ctx, immutable.Some[identity.Identity](nodeIdentity)), nil
+	return defracontext.WithIdentity(ctx, nodeIdentity), nil
 }
 
 // CreateLibP2PKeyFromIdentity derives a deterministic libp2p Ed25519 private
@@ -329,41 +342,11 @@ func replaceLoopbackAddress(value, ipAddress string) string {
 	return value
 }
 
-func buildStoreOptions(cfg *config.Config) []func(*options.NodeOptions) {
-	var storeOpts []func(*options.NodeOptions)
-
-	if cfg.DefraDB.Store.BlockCacheMB > 0 {
-		size := cfg.DefraDB.Store.BlockCacheMB << log2BytesPerMebibyte
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerBlockCacheSize = size })
-		logger.Sugar.Infof("Badger block cache size: %dMB", cfg.DefraDB.Store.BlockCacheMB)
-	}
-	if cfg.DefraDB.Store.MemTableMB > 0 {
-		size := cfg.DefraDB.Store.MemTableMB << log2BytesPerMebibyte
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerMemTableSize = size })
-		logger.Sugar.Infof("Badger memtable size: %dMB", cfg.DefraDB.Store.MemTableMB)
-	}
-	if cfg.DefraDB.Store.IndexCacheMB > 0 {
-		size := cfg.DefraDB.Store.IndexCacheMB << log2BytesPerMebibyte
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerIndexCacheSize = size })
-		logger.Sugar.Infof("Badger index cache size: %dMB", cfg.DefraDB.Store.IndexCacheMB)
-	}
-	if cfg.DefraDB.Store.NumCompactors > 0 {
-		n := cfg.DefraDB.Store.NumCompactors
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumCompactors = n })
-		logger.Sugar.Infof("Badger num compactors: %d", cfg.DefraDB.Store.NumCompactors)
-	}
-	if cfg.DefraDB.Store.NumLevelZeroTables > 0 {
-		n := cfg.DefraDB.Store.NumLevelZeroTables
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumLevelZeroTables = n })
-		logger.Sugar.Infof("Badger L0 tables before compaction: %d", cfg.DefraDB.Store.NumLevelZeroTables)
-	}
-	if cfg.DefraDB.Store.NumLevelZeroTablesStall > 0 {
-		n := cfg.DefraDB.Store.NumLevelZeroTablesStall
-		storeOpts = append(storeOpts, func(o *options.NodeOptions) { o.Store.BadgerNumLevelZeroTablesStall = n })
-		logger.Sugar.Infof("Badger L0 tables stall threshold: %d", cfg.DefraDB.Store.NumLevelZeroTablesStall)
-	}
-
-	return storeOpts
+func buildStoreOptions(cfg *config.Config) []func(*options.NodeOptions) { //nolint:revive // TODO! Update or remove function if it is confirmed that it is outdated
+	// Badger tuning knobs (BlockCacheMB, MemTableMB, IndexCacheMB, NumCompactors,
+	// NumLevelZeroTables, NumLevelZeroTablesStall) were removed from NodeStoreOptions
+	// in defradb v1.0.0-rc1. Any corresponding config fields are intentionally ignored.
+	return nil
 }
 
 func buildNodeOptions(
@@ -427,18 +410,6 @@ func createAndStartNode(
 	return defraNode, nil
 }
 
-func applySchemaWithCollectionExistsTolerance(ctx context.Context, defraNode *node.Node, schemaApplier SchemaApplier) error {
-	err := schemaApplier.ApplySchema(ctx, defraNode)
-	if err == nil {
-		return nil
-	}
-	if strings.Contains(err.Error(), "collection already exists") {
-		logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
-		return nil
-	}
-	return fmt.Errorf("failed to apply schema: %w", err)
-}
-
 func initializeNetworkHandler(ctx *context.Context, defraNode *node.Node, cfg *config.Config) *NetworkHandler {
 	networkHandler := NewNetworkHandler(ctx, defraNode, cfg)
 	if cfg.DefraDB.P2P.Enabled {
@@ -482,12 +453,12 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 		return nil, nil, err
 	}
 
-	if err := applySchemaWithCollectionExistsTolerance(ctx, defraNode, schemaApplier); err != nil {
+	if err := schemaApplier.ApplySchema(ctx, defraNode); err != nil {
 		_ = defraNode.Close(ctx)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to apply schema: %w", err)
 	}
 
-	err = defraNode.DB.CreateP2PCollections(ctx, collectionsOfInterest)
+	err = defraNode.DB.AddP2PCollections(ctx, collectionsOfInterest)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add collections of interest %v: %w", collectionsOfInterest, err)
 	}
@@ -655,9 +626,9 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 		return fmt.Errorf("schema cannot be empty")
 	}
 
-	_, err := c.node.DB.AddSchema(ctx, schema)
+	_, err := c.node.DB.AddCollection(ctx, schema)
 	if err != nil {
-		if strings.Contains(err.Error(), "collection already exists") {
+		if strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
 			logger.Sugar.Warnf("Failed to apply schema: %v\nProceeding...", err)
 			return nil
 		}
@@ -665,6 +636,18 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 	}
 
 	return nil
+}
+
+// ApplyCollectionSchemas applies the embedded collection schemas to the
+// started node using the provided chain prefix. If chainPrefix is empty,
+// the default prefix is used. See ApplyCollectionSchemas for details on
+// the monolithic-first strategy and additive-only guarantee.
+func (c *Client) ApplyCollectionSchemas(ctx context.Context, chainPrefix string) error {
+	if c.node == nil {
+		return fmt.Errorf("client must be started before applying schema")
+	}
+
+	return ApplyCollectionSchemas(ctx, c.node, chainPrefix)
 }
 
 // GetNode returns the underlying DefraDB node.

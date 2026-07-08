@@ -49,9 +49,8 @@ jobs:
     
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
-      env:
-        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       with:
-        slug: shinzonetwork/shinzo-indexer-client
+        token: ${{ secrets.CODECOV_TOKEN }}
+        slug: shinzonetwork/shinzo-generator-client
         files: coverage.out
         fail_ci_if_error: true

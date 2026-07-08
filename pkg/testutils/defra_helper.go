@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -24,7 +25,11 @@ type TestDefraDB struct {
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDB(t *testing.T) *TestDefraDB {
-	return SetupTestDefraDBWithSchema(t, schema.GetSchema())
+	sdl, err := schema.GetSchema()
+	if err != nil {
+		t.Fatalf("GetSchema: %v", err)
+	}
+	return SetupTestDefraDBWithSchema(t, sdl)
 }
 
 // SetupTestDefraDBWithSchema creates and starts an in-memory DefraDB node with a provided schema.
@@ -59,8 +64,8 @@ func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 	}
 
 	// Apply schema
-	_, err = defraNode.DB.AddSchema(ctx, schemaSDL)
-	if err != nil && !strings.Contains(err.Error(), "collection already exists") {
+	_, err = defraNode.DB.AddCollection(ctx, schemaSDL)
+	if err != nil && !strings.Contains(err.Error(), errors.ErrStrCollectionAlreadyExists) {
 		_ = defraNode.Close(ctx)
 		t.Fatalf("Failed to apply schema: %v", err)
 	}

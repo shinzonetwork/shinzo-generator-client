@@ -4,10 +4,10 @@ networks:
     driver: bridge
 
 services:
-  shinzo-indexer:
-    image: ghcr.io/shinzonetwork/shinzo-indexer-client:standard
-    user: "0:0"
-    container_name: shinzo-indexer
+  shinzo-generator:
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
+    user: "1001:1001"
+    container_name: shinzo-generator
     restart: unless-stopped
     networks:
       - shinzo-net
@@ -21,7 +21,7 @@ services:
     environment:
       - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
       - GETH_WS_URL=ws://ws.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
-      - GETH_API_KEY=YOUR_API_KEY
+      - GETH_API_KEY=<YOUR_API_KEY>
       - GETH_API_KEY_TYPE=x-goog-api-key      
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
@@ -30,6 +30,7 @@ services:
       - LOG_LEVEL=error
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
+      - SCHEMA_AUTH_MODE=none
     logging:
       options:
         max-size: "50m"
@@ -40,9 +41,10 @@ services:
       - "443:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ~/ssl:/etc/nginx/ssl:ro
+      - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
+      - ~/ssl/nginx.key:/etc/nginx/ssl/nginx.key:ro
     depends_on:
-      - shinzo-indexer
+      - shinzo-generator
     networks:
       - shinzo-net
     restart: unless-stopped
@@ -69,36 +71,49 @@ http {
     add_header 'Access-Control-Max-Age' 3600 always;
     add_header 'Vary' 'Origin' always;
 
-    # Health endpoint
     location = /health {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/health;
+      proxy_pass http://shinzo-generator:8080/health;
     }
-    # Optional - registration endpoint
+
     location = /registration {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/registration;
+      proxy_pass http://shinzo-generator:8080/registration;
     }
 
-    # Metrics endpoint
+    location = /registration-app {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-generator:8080/registration-app;
+    }
+
     location = /metrics {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/metrics;
+      proxy_pass http://shinzo-generator:8080/metrics;
     }
 
-    # Snapshots endpoint
     location = /snapshots {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/snapshots;
+      proxy_pass http://shinzo-generator:8080/snapshots;
     }
 
     location ~ ^/snapshots/(.+)$ {
       if ($request_method = OPTIONS) { return 204; }
-      proxy_pass http://shinzo-indexer:8080/snapshots/$1;
+      proxy_pass http://shinzo-generator:8080/snapshots/$1;
       proxy_buffering off;
       proxy_read_timeout 300s;
       proxy_send_timeout 300s;
       client_max_body_size 0;
+    }
+
+    # Schema endpoint
+    location = /api/v1/schema {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-generator:8080/api/v1/schema;
+    }
+
+    location ~ ^/api/v1/schema/(.+)$ {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-generator:8080/api/v1/schema/$1;
     }
 
     # Default 404 for unmatched routes
@@ -107,6 +122,6 @@ http {
     }
   }
 }
-EOF
 
+EOF
 

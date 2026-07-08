@@ -8,8 +8,9 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,14 +74,25 @@ type GethConfig struct {
 
 // IndexerConfig represents indexer configuration.
 type IndexerConfig struct {
-	StartHeight        int  `yaml:"start_height"`
-	ConcurrentBlocks   int  `yaml:"concurrent_blocks"`
-	ReceiptWorkers     int  `yaml:"receipt_workers"`
-	MaxDocsPerTxn      int  `yaml:"max_docs_per_txn"`
-	BlocksPerMinute    int  `yaml:"blocks_per_minute"`
-	HealthServerPort   int  `yaml:"health_server_port"`
-	OpenBrowserOnStart bool `yaml:"open_browser_on_start"`
-	StartBuffer        int  `yaml:"start_buffer"`
+	StartHeight        int    `yaml:"start_height"`
+	ConcurrentBlocks   int    `yaml:"concurrent_blocks"`
+	ReceiptWorkers     int    `yaml:"receipt_workers"`
+	MaxDocsPerTxn      int    `yaml:"max_docs_per_txn"`
+	MaxTxDocsPerBatch  int    `yaml:"max_tx_docs_per_batch"`
+	MaxLogDocsPerBatch int    `yaml:"max_log_docs_per_batch"`
+	MaxALEDocsPerBatch int    `yaml:"max_ale_docs_per_batch"`
+	BlocksPerMinute    int    `yaml:"blocks_per_minute"`
+	HealthServerPort   int    `yaml:"health_server_port"`
+	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"`
+	StartBuffer        int    `yaml:"start_buffer"`
+	SchemaAuthMode     string `yaml:"schema_auth_mode"`
+	// SchemaAPIKeys are the accepted bearer tokens for the /api/v1/schema/* endpoints.
+	//
+	// ⚠ IMPORTANT: This field uses yaml:"-", which means YAML configuration is SILENTLY IGNORED.
+	// Keys MUST be provided via the SCHEMA_API_KEYS environment variable as a comma-separated list.
+	// Setting this field in config.yaml will NOT work — the server will start with zero keys,
+	// causing ALL schema requests to return 503 Service Unavailable (fail-closed auth).
+	SchemaAPIKeys []string `yaml:"-"`
 }
 
 // LoggerConfig represents logger configuration.
@@ -146,12 +158,17 @@ func applyDefaults(cfg *Config) {
 	if cfg.Indexer.MaxDocsPerTxn <= 0 {
 		cfg.Indexer.MaxDocsPerTxn = 1000
 	}
+	// Per-collection batch sizes default to 0, meaning "use MaxDocsPerTxn".
 	if cfg.Indexer.HealthServerPort == 0 {
 		cfg.Indexer.HealthServerPort = 8080
 	}
 	if cfg.Indexer.StartBuffer <= 0 {
 		cfg.Indexer.StartBuffer = 100
 	}
+	if cfg.Indexer.SchemaAuthMode == "" {
+		cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+	}
+
 	// Pruner defaults.
 	cfg.Pruner.SetDefaults()
 
@@ -163,6 +180,12 @@ func applyDefaults(cfg *Config) {
 func validateConfig(cfg *Config) error {
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
+	}
+
+	switch cfg.Indexer.SchemaAuthMode {
+	case constants.SchemaAuthModeNone, constants.SchemaAuthModeToken, constants.SchemaAuthModeMTLS:
+	default:
+		return fmt.Errorf("invalid SCHEMA_AUTH_MODE %q: must be one of none, token, mtls", cfg.Indexer.SchemaAuthMode)
 	}
 
 	// When using an external DefraDB instance (embedded=false), a URL is required.
@@ -178,6 +201,7 @@ func applyEnvOverrides(cfg *Config) {
 	applyDefraEnvOverrides(cfg)
 	applyChainEnvOverrides(cfg)
 	applyIndexerEnvOverrides(cfg)
+	applySchemaEnvOverrides(cfg)
 	applyPrunerEnvOverrides(cfg)
 	applySnapshotEnvOverrides(cfg)
 
@@ -295,6 +319,21 @@ func applyIndexerEnvOverrides(cfg *Config) {
 			cfg.Indexer.MaxDocsPerTxn = n
 		}
 	}
+	if v := os.Getenv("INDEXER_MAX_TX_DOCS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Indexer.MaxTxDocsPerBatch = n
+		}
+	}
+	if v := os.Getenv("INDEXER_MAX_LOG_DOCS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Indexer.MaxLogDocsPerBatch = n
+		}
+	}
+	if v := os.Getenv("INDEXER_MAX_ALE_DOCS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Indexer.MaxALEDocsPerBatch = n
+		}
+	}
 	if blocksPerMinute := os.Getenv("INDEXER_BLOCKS_PER_MINUTE"); blocksPerMinute != "" {
 		if n, err := strconv.Atoi(blocksPerMinute); err == nil {
 			cfg.Indexer.BlocksPerMinute = n
@@ -309,6 +348,23 @@ func applyIndexerEnvOverrides(cfg *Config) {
 		if n, err := strconv.Atoi(startBuffer); err == nil {
 			cfg.Indexer.StartBuffer = n
 		}
+	}
+}
+
+func applySchemaEnvOverrides(cfg *Config) {
+	if mode := os.Getenv("SCHEMA_AUTH_MODE"); mode != "" {
+		cfg.Indexer.SchemaAuthMode = mode
+	}
+	if keys := os.Getenv("SCHEMA_API_KEYS"); keys != "" {
+		raw := strings.Split(keys, ",")
+		trimmed := make([]string, 0, len(raw))
+		for _, k := range raw {
+			k = strings.TrimSpace(k)
+			if k != "" {
+				trimmed = append(trimmed, k)
+			}
+		}
+		cfg.Indexer.SchemaAPIKeys = trimmed
 	}
 }
 

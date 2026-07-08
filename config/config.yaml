@@ -13,7 +13,7 @@ defradb:
   embedded: true
   p2p:
     enabled: true
-    accept_incoming: false          # Accept incoming P2P documents. false = reject all (indexer is source of truth).
+    accept_incoming: false          # Accept incoming P2P documents. false = reject all (generator is source of truth).
     bootstrap_peers: []
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
     max_retries: 5                  # Number of connection attempts before marking peer as failed
@@ -41,14 +41,23 @@ indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
   concurrent_blocks: 1      # Number of blocks to process concurrently
   receipt_workers: 8        # Concurrent receipt fetchers per block
-  max_docs_per_txn: 500    # Docs threshold for single-txn block creation
+  max_docs_per_txn: 100    # Docs threshold for single-txn block creation
+  max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
+  max_log_docs_per_batch: 125  # Per-batch size for logs (0 = use max_docs_per_txn)
+  max_ale_docs_per_batch: 500  # Per-batch size for ALEs (0 = use max_docs_per_txn)
   blocks_per_minute: 60     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
+  schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
+  # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
+  # You MUST set keys via the SCHEMA_API_KEYS environment variable (comma-separated).
+  # Example: SCHEMA_API_KEYS=key1,key2,key3
+  # If you set schema_auth_mode to "token" (or leave it empty) without providing keys,
+  # ALL schema requests will return 503 Service Unavailable.
 logger:
-  development: false
-  level: "error"
+  development: true
+  level: "info"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
   max_blocks: 1000          # Number of blocks to retain

@@ -10,15 +10,17 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,12 +39,22 @@ type mockHealthChecker struct {
 	defraReg      DefraPKRegistration
 	peerReg       PeerIDRegistration
 	signErr       error
+	sourceChain   string
+	sourceChainID uint64
 }
 
 func (m *mockHealthChecker) IsHealthy() bool                 { return m.healthy }
 func (m *mockHealthChecker) GetCurrentBlock() int64          { return m.currentBlock }
 func (m *mockHealthChecker) GetLastProcessedTime() time.Time { return m.lastProcessed }
 func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.p2pInfo, m.p2pErr }
+func (m *mockHealthChecker) GetSourceChainInfo() (string, uint64) {
+	return m.sourceChain, m.sourceChainID
+}
+
+func (m *mockHealthChecker) SignRegistrationMessage(_ string) (DefraPKRegistration, error) {
+	return m.defraReg, m.signErr
+}
+
 func (m *mockHealthChecker) SignMessages(_ string) (DefraPKRegistration, PeerIDRegistration, error) {
 	return m.defraReg, m.peerReg, m.signErr
 }
@@ -50,8 +62,12 @@ func (m *mockHealthChecker) SignMessages(_ string) (DefraPKRegistration, PeerIDR
 type testSignFailedError struct{}
 
 var (
-	errP2P         = errors.New("p2p error")    //nolint:err113
-	errQueryFailed = errors.New("query failed") //nolint:err113
+	errP2P              = errors.New("p2p error")    //nolint:err113
+	errQueryFailed      = errors.New("query failed") //nolint:err113
+	testDefraPublicKey  = "0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+	testDefraSignedMsg  = "0xsigned-pk"
+	testIndexerPeerID   = "12D3KooWTestPeer"
+	testRegistrationMsg = "0x5368696e7a6f204e6574776f726b2047656e657261746f7220726567697374726174696f6e"
 )
 
 func (testSignFailedError) Error() string { return "sign failed" }
@@ -243,21 +259,21 @@ func TestRegistrationHandler_WithSignedRegistration(t *testing.T) {
 		lastProcessed: time.Now(),
 		p2pInfo: &P2PInfo{
 			Enabled:  true,
+			Self:     &PeerInfo{ID: testIndexerPeerID, Addresses: []string{"/ip4/0.0.0.0/tcp/9171"}},
 			PeerInfo: []PeerInfo{{ID: "peer1"}},
 		},
 		defraReg: DefraPKRegistration{
-			PublicKey:   "0xpubkey",
-			SignedPKMsg: "0xsigned-pk",
+			PublicKey:   testDefraPublicKey,
+			SignedPKMsg: testDefraSignedMsg,
 		},
-		peerReg: PeerIDRegistration{
-			PeerID:        "0xpeer1",
-			SignedPeerMsg: "0xsigned-peer",
-		},
+		sourceChain:   "ethereum",
+		sourceChainID: 1,
 	}
 
 	hs := NewHealthServer(0, mock, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/registration", nil)
+	req.Host = "192.0.2.1:8080"
 	hs.registrationHandler(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -265,7 +281,12 @@ func TestRegistrationHandler_WithSignedRegistration(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotNil(t, resp.Registration)
 	require.True(t, resp.Registration.Enabled)
-	assert.Equal(t, "0xpubkey", resp.Registration.DefraPKRegistration.PublicKey)
+	assert.Equal(t, testDefraPublicKey, resp.Registration.DefraPKRegistration.PublicKey)
+	assert.NotEmpty(t, resp.Registration.DID)
+	assert.Equal(t, "/ip4/192.0.2.1/tcp/9171/p2p/"+testIndexerPeerID, resp.Registration.ConnectionString)
+	assert.Equal(t, "ethereum", resp.Registration.SourceChain)
+	assert.Equal(t, uint64(1), resp.Registration.SourceChainID)
+	assert.NotContains(t, rec.Body.String(), "peer_id_registration")
 }
 
 func TestRegistrationHandler_SignError(t *testing.T) {
@@ -333,16 +354,40 @@ func TestRegistrationAppHandler_SignError(t *testing.T) {
 func TestRegistrationAppHandler_Redirect(t *testing.T) {
 	t.Parallel()
 	mock := &mockHealthChecker{
-		defraReg: DefraPKRegistration{PublicKey: "pubkey123", SignedPKMsg: "signed123"},
-		peerReg:  PeerIDRegistration{PeerID: "peer123", SignedPeerMsg: "signedpeer123"},
+		defraReg: DefraPKRegistration{PublicKey: testDefraPublicKey, SignedPKMsg: "signed123"},
+		p2pInfo: &P2PInfo{
+			Self: &PeerInfo{
+				ID:        testIndexerPeerID,
+				Addresses: []string{"/ip4/0.0.0.0/tcp/9171"},
+			},
+		},
+		sourceChain:   "ethereum",
+		sourceChainID: 1,
 	}
 	hs := NewHealthServer(0, mock, "")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/registration-app", nil)
+	req.Host = "35.239.160.177:8080"
+	req.Header.Set("X-Forwarded-Host", "indexer.example.com")
 	hs.registrationAppHandler(rec, req)
 	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-	assert.Contains(t, rec.Header().Get("Location"), "registration.shinzo.network")
-	assert.Contains(t, rec.Header().Get("Location"), "0xpubkey123")
+
+	redirectURL, err := url.Parse(rec.Header().Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "https", redirectURL.Scheme)
+	assert.Equal(t, "registration.shinzo.network", redirectURL.Host)
+	assert.Equal(t, "/generator-registration", redirectURL.Path)
+
+	query := redirectURL.Query()
+	assert.Equal(t, testRegistrationMsg, query.Get("signedMessage"))
+	assert.Equal(t, testDefraPublicKey, query.Get("defraPublicKey"))
+	assert.Equal(t, "0xsigned123", query.Get("defraPublicKeySignedMessage"))
+	assert.Equal(t, "/ip4/35.239.160.177/tcp/9171/p2p/"+testIndexerPeerID, query.Get("connectionString"))
+	assert.Equal(t, "ethereum", query.Get("sourceChain"))
+	assert.Equal(t, "1", query.Get("sourceChainId"))
+	assert.Empty(t, query.Get("role"))
+	assert.Empty(t, query.Get("peerId"))
+	assert.Empty(t, query.Get("peerSignedMessage"))
 }
 
 // --- metricsHandler ---
@@ -399,6 +444,35 @@ func TestRootHandler_RootPath(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "Shinzo Network Indexer", resp["service"])
+}
+
+func TestRootHandler_EndpointsIncludesCollections(t *testing.T) {
+	t.Parallel()
+	hs := NewHealthServer(0, nil, "")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	hs.rootHandler(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	endpoints, ok := resp["endpoints"].([]any)
+	require.True(t, ok, "endpoints should be a slice")
+
+	var foundCollection, foundCollections bool
+	for _, ep := range endpoints {
+		s, ok := ep.(string)
+		require.True(t, ok)
+		if strings.Contains(s, "/api/v1/schema/{name}") {
+			foundCollection = true
+		}
+		if strings.Contains(s, "/api/v1/schema/collections") {
+			foundCollections = true
+		}
+	}
+	assert.True(t, foundCollection, "endpoints should include /api/v1/schema/{name}")
+	assert.True(t, foundCollections, "endpoints should include /api/v1/schema/collections")
 }
 
 func TestRootHandler_NotFound(t *testing.T) {

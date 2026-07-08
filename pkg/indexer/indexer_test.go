@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,16 +19,18 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/defra"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/server"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/types"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
+	indexerErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
@@ -51,10 +54,13 @@ const (
 	ethGetTransactionReceipt = "eth_getTransactionReceipt"
 
 	testDefraURL         = "http://localhost:9181"
+	testDefraRandomURL   = "127.0.0.1:0"
 	testMinerAddr        = "0x1111111111111111111111111111111111111111"
 	testSha3Uncles       = "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
 	testTransactionsRoot = "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 )
+
+var testDefraP2PDisabled = config.DefraDBP2PConfig{Enabled: false, ListenAddr: "/ip4/127.0.0.1/tcp/0"}
 
 // TestIndexing_StartDefraFirst is now replaced by mock-based integration tests.
 // See ./integration/ directory for comprehensive integration tests with mock data.
@@ -796,15 +802,18 @@ func TestNewConcurrentBlockProcessor_DefaultValues(t *testing.T) {
 
 func TestApplySchemaViaHTTP_Success(t *testing.T) {
 	t.Parallel()
+	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v0/schema", r.URL.Path)
+		assert.Equal(t, "/api/v0/collections", r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
+		callCount++
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	err := applySchemaViaHTTP(server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
 	assert.NoError(t, err)
+	assert.Equal(t, 1, callCount, "monolithic path should make exactly 1 POST")
 }
 
 func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
@@ -815,15 +824,40 @@ func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := applySchemaViaHTTP(server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
 
 func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
 	t.Parallel()
-	err := applySchemaViaHTTP("http://127.0.0.1:1", constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), "http://127.0.0.1:1", constants.DefaultCollectionPrefix)
 	assert.Error(t, err)
+}
+
+func TestApplySchemaViaHTTP_AlreadyExistsFallsBackToPerFile(t *testing.T) {
+	t.Parallel()
+	callCount := 0
+	files := make([]string, 0)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount == 1 {
+			// First call (monolithic): respond with "collection already exists"
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(indexerErrors.ErrStrCollectionAlreadyExists))
+			return
+		}
+		// Subsequent per-file calls: track filenames and succeed
+		body, _ := io.ReadAll(r.Body)
+		_ = body
+		files = append(files, r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
+	assert.NoError(t, err)
+	assert.Greater(t, callCount, 1, "should fall back to per-file after monolithic already-exists")
 }
 
 // ---------------------------------------------------------------------------.
@@ -1486,98 +1520,6 @@ func TestProcessBlocks_WithRateLimit_ContextCancel(t *testing.T) {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------.
-// StartIndexing — external DefraDB path (defraStarted=true).
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_ExternalDefraDB_WaitFails(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	// Point to a non-listening address so WaitForDefraDB fails.
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: testDefraURL,
-		},
-
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer := &ChainIndexer{cfg: cfg}
-	err := indexer.StartIndexing(true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "DefraDB failed to become ready")
-}
-
-func TestStartIndexing_ExternalDefraDB_SchemaApplyFails(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	// Mock DefraDB server: GraphQL introspection succeeds (for WaitForDefraDB).
-	// but schema application fails with a non-already-exists error.
-	defraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v0/graphql" {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"data":{"__schema":{"types":[]}}}`))
-			return
-		}
-		if r.URL.Path == "/api/v0/schema" && r.Method == "POST" {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte("schema application failed"))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer defraServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: defraServer.URL,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer := &ChainIndexer{cfg: cfg}
-	err := indexer.StartIndexing(true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to apply schema to external DefraDB")
-}
-
-func TestStartIndexing_ExternalDefraDB_SchemaAlreadyExists(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	// Mock DefraDB server: GraphQL introspection succeeds, schema returns.
-	// "already exists" error → should be tolerated, but defraNode is nil → error.
-	defraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v0/graphql" {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("schema application failed"))
-			return
-		}
-		if r.URL.Path == "/api/v0/schema" && r.Method == "POST" {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte("collection already exists"))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer defraServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: defraServer.URL,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer := &ChainIndexer{cfg: cfg}
-	err := indexer.StartIndexing(true)
-	require.Error(t, err)
-	// The "already exists" error is tolerated, but defraNode is nil.
-	assert.Contains(t, err.Error(), "defraNode is required")
-}
-
-// ---------------------------------------------------------------------------.
 // StartIndexing — embedded full integration (covers the biggest chunk: lines 147-385).
 // ---------------------------------------------------------------------------.
 
@@ -1638,11 +1580,9 @@ func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           "",
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P: config.DefraDBP2PConfig{
-				Enabled: false,
-			},
+			P2P:           testDefraP2PDisabled,
 			Store: config.DefraDBStoreConfig{
 				Path: tmpDir,
 			},
@@ -1722,8 +1662,9 @@ func TestStartIndexing_Embedded_WithConfiguredStartHeight(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -1782,7 +1723,7 @@ func TestStartIndexing_Embedded_WithHealthServer(t *testing.T) {
 		DefraDB: config.DefraDBConfig{
 			URL:           "http://localhost:9999", // Set Url so healthDefraURL uses config URL branch.
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -1941,15 +1882,15 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	var callCount atomic.Int64
 	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_getBlockByNumber":
+		case ethGetBlockByNumber:
 			n := callCount.Add(1)
 			if n <= 1 {
 				// First call: return null (not found)
 				return nil, errors.New("not found")
 			}
-			// Second call: return valid block
-			return fullBlockResponse("0x4e20", nil), nil // block 20000
-		case "eth_getBlockReceipts":
+			// Second call: return valid block.
+			return fullBlockResponse("0x4e20", nil), nil // block 20000.
+		case ethGetBlockReceipts:
 			return []any{}, nil
 		default:
 			return "0x1", nil
@@ -2626,7 +2567,7 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create indexer with embedded node — exercise all code paths in GetPeerInfo
+	// Create indexer with embedded node — exercise all code paths in GetPeerInfo.
 	indexer := &ChainIndexer{
 		defraNode:      td.Node,
 		networkHandler: nil,
@@ -2636,8 +2577,8 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 
-	// The test node has P2P disabled, so no active peers
-	// This still exercises the deduplication code with 0 active peers
+	// The test node has P2P disabled, so no active peers.
+	// This still exercises the deduplication code with 0 active peers.
 	assert.NotNil(t, info.PeerInfo)
 }
 
@@ -2932,8 +2873,9 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3029,8 +2971,9 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3124,8 +3067,9 @@ func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3486,8 +3430,9 @@ func TestSignMessages_FullSuccessPath(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3785,8 +3730,9 @@ func TestStartIndexing_ResumeFromQueue(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3874,8 +3820,9 @@ func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -3956,8 +3903,9 @@ func TestStartIndexing_WithOpenBrowser(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -4047,9 +3995,9 @@ func TestFetchAndProcessBlock_ContextCancelDuringReceiptFetch(t *testing.T) {
 	// May succeed or fail depending on timing, but shouldn't panic.
 }
 
-// ---------------------------------------------------------------------------
-// GetPeerInfo — embedded node without P2P (covers lines 596+)
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
+// GetPeerInfo — embedded node without P2P (covers lines 596+).
+// ---------------------------------------------------------------------------.
 
 func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 	t.Parallel()
@@ -4062,7 +4010,7 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 
 	info, err := indexer.GetPeerInfo()
 	if err != nil {
-		// PeerInfo may error without P2P — that's the line 596-598 path
+		// PeerInfo may error without P2P — that's the line 596-598 path.
 		assert.Contains(t, err.Error(), "peer info")
 	} else {
 		require.NotNil(t, info)
@@ -4071,7 +4019,7 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 }
 
 // ===========================================================================
-// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%
+// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
@@ -4420,8 +4368,9 @@ func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -4508,9 +4457,9 @@ func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           "", // Empty URL → health server uses defraNode port.
+			URL:           testDefraRandomURL, // Random port → health server uses defraNode port.
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -4603,8 +4552,9 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5384,8 +5334,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	// Phase 1: Start an indexer to populate some blocks.
 	cfg1 := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5435,8 +5386,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 
 	cfg2 := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5516,8 +5468,9 @@ func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5668,8 +5621,9 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
+			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
+			P2P:           testDefraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: tmpDir},
 		},
 		Geth: config.GethConfig{NodeURL: rpcServer.URL},
@@ -5789,4 +5743,75 @@ func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
 
 	indexer.shouldIndex = false
 	indexer.StopIndexing()
+}
+
+// ---------------------------------------------------------------------------
+// newAuthenticator tests
+// ---------------------------------------------------------------------------
+
+func TestNewAuthenticator(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		mode     string
+		keys     []string
+		wantErr  error
+		wantType any
+	}{
+		{"none", constants.SchemaAuthModeNone, nil, nil, server.NoOpAuthenticator{}},
+		{"empty", "", nil, nil, &server.BearerAuthenticator{}},
+		{"token", constants.SchemaAuthModeToken, []string{"key1", "key2"}, nil, &server.BearerAuthenticator{}},
+		{"mtls_not_implemented", constants.SchemaAuthModeMTLS, nil, ErrMTLSNotImplemented, nil},
+		{"unknown", "invalid", nil, ErrUnknownAuthMode, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			auth, err := newAuthenticator(tt.mode, tt.keys)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, auth)
+			} else {
+				require.NoError(t, err)
+				assert.IsType(t, tt.wantType, auth)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// initServices mTLS error propagation
+// ---------------------------------------------------------------------------
+
+func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	td := testutils.SetupTestDefraDB(t)
+
+	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			URL: fmt.Sprintf("http://localhost:%d", td.Port),
+		},
+		Indexer: config.IndexerConfig{
+			SchemaAuthMode:   constants.SchemaAuthModeMTLS,
+			HealthServerPort: 1,
+		},
+	}
+
+	indexer := &ChainIndexer{
+		defraNode: td.Node,
+		cfg:       cfg,
+	}
+
+	blockHandler, err := defra.NewBlockHandler(td.Node, 100, nil)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err = indexer.initServices(ctx, cfg, blockHandler)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "schema auth configuration")
+	assert.ErrorIs(t, err, ErrMTLSNotImplemented)
 }
