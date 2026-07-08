@@ -121,6 +121,17 @@ http {
       client_max_body_size 0;
     }
 
+    # Schema endpoint
+    location = /api/v1/schema {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-generator:8080/api/v1/schema;
+    }
+
+    location ~ ^/api/v1/schema/(.+)$ {
+      if ($request_method = OPTIONS) { return 204; }
+      proxy_pass http://shinzo-generator:8080/api/v1/schema/$1;
+    }
+
     # Default 404 for unmatched routes
     location / {
       return 404;
