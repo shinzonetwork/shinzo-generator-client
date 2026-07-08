@@ -5,7 +5,7 @@ networks:
 
 services:
   shinzo-generator:
-    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:v0.6.5-ethereum-mainnet
     user: "1001:1001"
     container_name: shinzo-generator
     restart: unless-stopped
@@ -74,31 +74,49 @@ http {
     location = /health {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/health;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location = /registration {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/registration;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location = /registration-app {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/registration-app;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location = /metrics {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/metrics;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location = /snapshots {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/snapshots;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location ~ ^/snapshots/(.+)$ {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/snapshots/$1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
       proxy_buffering off;
       proxy_read_timeout 300s;
       proxy_send_timeout 300s;
@@ -109,11 +127,17 @@ http {
     location = /api/v1/schema {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/api/v1/schema;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location ~ ^/api/v1/schema/(.+)$ {
       if ($request_method = OPTIONS) { return 204; }
       proxy_pass http://shinzo-generator:8080/api/v1/schema/$1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # Default 404 for unmatched routes
