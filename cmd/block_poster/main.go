@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -119,13 +118,4 @@ func truncateID(id string) string {
 		return id
 	}
 	return id[:20] + "..."
-}
-
-// isTruthy reports whether s is a common truthy string (case-insensitive).
-func isTruthy(s string) bool {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "1", "true", "yes", "on":
-		return true
-	}
-	return false
 }
