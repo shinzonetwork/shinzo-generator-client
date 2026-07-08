@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 )
 
 var logsQueryPath string

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"github.com/sourcenetwork/defradb/node"
 )
 

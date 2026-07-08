@@ -12,9 +12,9 @@ import (
 	"testing"
 
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/shinzonetwork/shinzo-indexer-client/config"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/options"

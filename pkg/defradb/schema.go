@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/utils"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
 )
 

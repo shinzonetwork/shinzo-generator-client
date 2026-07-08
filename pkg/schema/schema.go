@@ -4,7 +4,7 @@ import (
 	_ "embed"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-indexer-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 )
 
 // SchemaGraphQL contains the embedded GraphQL schema definition from schema.graphql.
