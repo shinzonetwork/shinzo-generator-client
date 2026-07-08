@@ -392,11 +392,15 @@ func buildNodeOptions(
 func createAndStartNode(
 	ctx context.Context,
 	allOpts []options.Enumerable[options.NodeOptions],
-	_ client.ReplicationFilter,
+	replicationFilter client.ReplicationFilter,
 ) (*node.Node, error) {
 	defraNode, err := node.New(ctx, allOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create defra node: %w", err)
+	}
+
+	if replicationFilter != nil {
+		defraNode.ReplicationFilter = replicationFilter
 	}
 
 	if err := defraNode.Start(ctx); err != nil {
