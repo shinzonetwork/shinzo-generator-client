@@ -5,7 +5,7 @@ networks:
 
 services:
   shinzo-generator:
-    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:v0.6.5-ethereum-mainnet
     user: "1001:1001"
     container_name: shinzo-generator
     restart: unless-stopped
