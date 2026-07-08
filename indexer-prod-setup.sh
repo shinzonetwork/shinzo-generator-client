@@ -5,7 +5,7 @@ networks:
 
 services:
   shinzo-generator:
-    image: ghcr.io/shinzonetwork/shinzo-generator-client:sha-3d5230d
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
     user: "1001:1001"
     container_name: shinzo-generator
     restart: unless-stopped
@@ -21,7 +21,7 @@ services:
     environment:
       - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
       - GETH_WS_URL=ws://ws.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
-      - GETH_API_KEY=AIzaSyDNtHcjIFK5kODf48P7lQiwj_BK9eruVnA
+      - GETH_API_KEY=<YOUR_API_KEY>
       - GETH_API_KEY_TYPE=x-goog-api-key      
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
