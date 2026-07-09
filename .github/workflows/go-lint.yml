@@ -1,4 +1,4 @@
-# This workflow will run 'go test' on the project when creating a PR (or trying to push to) main
+# This workflow will run 'go lint' on the project when creating a PR (or trying to push to) main
 name: Go Lint CI
 
 on:
