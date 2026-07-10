@@ -35,7 +35,7 @@ func nextTestDocID() client.DocID {
 }
 
 // ---------------------------------------------------------------------------
-// mockBlockDB — implements blockDB interface for unit tests
+// mockBlockDB: implements the blockDB interface for unit tests
 // ---------------------------------------------------------------------------
 
 type mockBlockDB struct {
@@ -55,7 +55,7 @@ func (m *mockBlockDB) ExecRequest(ctx context.Context, request string, opts ...o
 }
 
 // ---------------------------------------------------------------------------
-// errDocIDTracker — tracker that always returns an error
+// errDocIDTracker: tracker that always returns an error
 // ---------------------------------------------------------------------------
 
 type errDocIDTracker struct{}
@@ -107,6 +107,12 @@ func execReqFnWithErrorForCol(targetCol string) func(_ context.Context, request 
 func oneTestCID() cid.Cid {
 	c, _ := cid.Decode("bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
 	return c
+}
+
+// testCID returns a distinct CID derived from seed, for asserting which CIDs a block was signed over.
+func testCID(seed string) cid.Cid {
+	h, _ := mh.Sum([]byte(seed), mh.SHA2_256, -1)
+	return cid.NewCidV1(cid.DagCBOR, h)
 }
 
 // ---------------------------------------------------------------------------
@@ -524,7 +530,8 @@ func TestSingleTxn_VerifyBlockSig_Error(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
-	sigCol := td.sigColWithAddDocument(t, nil)
+	// No AddDocument expectation on the signature collection: a signature that fails verification must not be stored.
+	sigCol := td.sigCol(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	txn.EXPECT().Commit().Return(nil)
 
@@ -538,7 +545,7 @@ func TestSingleTxn_VerifyBlockSig_Error(t *testing.T) {
 	}
 
 	blockID, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err) // verify error is logged, not returned
+	require.NoError(t, err) // block is committed; the unverifiable signature is not stored
 	assert.NotEmpty(t, blockID)
 }
 
@@ -550,7 +557,8 @@ func TestSingleTxn_VerifyBlockSig_False(t *testing.T) {
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logCol(t), nil)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionAccessListEntry, mock.Anything).Return(td.aleCol(t), nil)
-	sigCol := td.sigColWithAddDocument(t, nil)
+	// No AddDocument expectation on the signature collection: a signature that fails verification must not be stored.
+	sigCol := td.sigCol(t)
 	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
 	txn.EXPECT().Commit().Return(nil)
 
@@ -564,7 +572,7 @@ func TestSingleTxn_VerifyBlockSig_False(t *testing.T) {
 	}
 
 	blockID, err := h.createBlockSingleTransaction(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err) // false verification is logged, not returned
+	require.NoError(t, err) // block is committed; the unverifiable signature is not stored
 	assert.NotEmpty(t, blockID)
 }
 
@@ -934,7 +942,9 @@ func TestBatched_TxBatch_Commit_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "batch errors")
 }
 
-func TestBatched_SignBlock_Error(t *testing.T) {
+// TestBatched_SignsCompleteBlock checks that a fully written block is signed over the CIDs
+// re-queried from the committed DB, not the in-memory collector.
+func TestBatched_SignsCompleteBlock(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
 
@@ -942,281 +952,208 @@ func TestBatched_SignBlock_Error(t *testing.T) {
 	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
-			return blockTxn, nil
-		},
-	}
-	h := newMockHandler(t, db)
-	h.maxDocsPerTxn = 1000 // keep batched path but with no txns to batch
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		return nil, fmt.Errorf("sign error") //nolint: err113
-	}
+	txTxn := mocks.NewTxn(t)
+	txTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
+	txTxn.EXPECT().Commit().Return(nil)
 
-	// signBatchFn errors before sigTxn is created; sign error is logged, block creation succeeds
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err)
-	assert.NotEmpty(t, blockID)
-}
-
-func TestBatched_VerifyBlockSig_Error(t *testing.T) {
-	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
-	blockTxn.EXPECT().Commit().Return(nil)
+	logTxn := mocks.NewTxn(t)
+	logTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithAddManyDocuments(t, nil), nil)
+	logTxn.EXPECT().Commit().Return(nil)
 
 	sigTxn := mocks.NewTxn(t)
-	sigCol := td.sigColWithAddDocument(t, nil)
-	txn2 := sigTxn
-	txn2.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
-	txn2.EXPECT().Commit().Return(nil)
-
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
-			}
-			return sigTxn, nil
-		},
-	}
-	h := newMockHandler(t, db)
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
-	}
-	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
-		return false, fmt.Errorf("verify error") //nolint: err113
-	}
-
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err)
-	assert.NotEmpty(t, blockID)
-}
-
-func TestBatched_VerifyBlockSig_False(t *testing.T) {
-	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
-	blockTxn.EXPECT().Commit().Return(nil)
-
-	sigTxn := mocks.NewTxn(t)
-	sigCol := td.sigColWithAddDocument(t, nil)
-	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
+	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(td.sigColWithAddDocument(t, nil), nil)
 	sigTxn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
-			}
-			return sigTxn, nil
-		},
-	}
-	h := newMockHandler(t, db)
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
-	}
-	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
-		return false, nil
-	}
-
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err)
-	assert.NotEmpty(t, blockID)
-}
-
-func TestBatched_SigTxn_NewTxn_Error(t *testing.T) {
-	t.Parallel()
-	td := setupRealCollectionVersions(t)
 	callCount := 0
-
-	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
-	blockTxn.EXPECT().Commit().Return(nil)
-
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
-			}
-			return nil, fmt.Errorf("sig txn error") //nolint: err113
-		},
-	}
-	h := newMockHandler(t, db)
-
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err) // sig txn error is logged
-	assert.NotEmpty(t, blockID)
-}
-
-func TestBatched_SigNil_Discard(t *testing.T) {
-	t.Parallel()
-	td := setupRealCollectionVersions(t)
-
-	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
-	blockTxn.EXPECT().Commit().Return(nil)
-
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) {
+		callCount++
+		switch callCount {
+		case 1:
 			return blockTxn, nil
-		},
-	}
+		case 2:
+			return txTxn, nil
+		case 3:
+			return logTxn, nil
+		default:
+			return sigTxn, nil
+		}
+	}}
 	h := newMockHandler(t, db)
-	// signBatchFn returns nil, nil → blockSig is nil → returns early, no sigTxn created
+	committedCIDs := []cid.Cid{testCID("cid-a"), testCID("cid-b"), testCID("cid-c")}
+	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+		return committedCIDs, nil
+	}
+	var signedCIDs []cid.Cid
+	h.signBatchFn = func(_ context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		signedCIDs = collector.GetCIDs()
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
+	}
 
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
+	tx := testTx()
+	receiptMap := map[string]*types.TransactionReceipt{tx.Hash: testReceipt()}
+	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, []*types.Transaction{tx}, receiptMap)
 	require.NoError(t, err)
 	assert.NotEmpty(t, blockID)
+	// The block is signed over the CIDs re-queried from the committed DB, not the in-memory collector.
+	assert.Equal(t, committedCIDs, signedCIDs)
 }
 
-func TestBatched_GetSigCollection_Error(t *testing.T) {
+// TestBatched_SkipsSign_OnBatchError checks that a block whose write reported an error is not
+// signed: the block is created, an error is returned, and signing never runs.
+func TestBatched_SkipsSign_OnBatchError(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
-	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
 	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).
-		Return(nil, fmt.Errorf("no sig col")) //nolint: err113
-	sigTxn.EXPECT().Discard()
+	txTxn := mocks.NewTxn(t)
+	txTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
+	txTxn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
-			}
-			return sigTxn, nil
-		},
-	}
+	logTxn := mocks.NewTxn(t)
+	logTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithAddManyDocuments(t, fmt.Errorf("log write error")), nil) //nolint:err113
+	logTxn.EXPECT().Discard().Maybe()
+
+	callCount := 0
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) {
+		callCount++
+		switch callCount {
+		case 1:
+			return blockTxn, nil
+		case 2:
+			return txTxn, nil
+		default:
+			return logTxn, nil
+		}
+	}}
 	h := newMockHandler(t, db)
+	signed := false
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil // nolint:mnd
-	}
-	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
-		return true, nil
+		signed = true
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
 
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err) // logged, not returned
+	tx := testTx()
+	receiptMap := map[string]*types.TransactionReceipt{tx.Hash: testReceipt()}
+	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, []*types.Transaction{tx}, receiptMap)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "batch errors")
 	assert.NotEmpty(t, blockID)
+	assert.False(t, signed)
 }
 
-func TestBatched_BuildSigDoc_Error(t *testing.T) {
+// TestBatched_SkipsSign_OnDroppedBatch checks that a silently dropped batch is not signed: an
+// already-exists batch leaves the block a document short without reporting a batch error, so the
+// doc-count gate must catch it.
+func TestBatched_SkipsSign_OnDroppedBatch(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
-	callCount := 0
 
 	blockTxn := mocks.NewTxn(t)
 	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
 	blockTxn.EXPECT().Commit().Return(nil)
 
-	emptySigCol := mocks.NewCollection(t)
-	emptySigCol.EXPECT().Version().Return(client.CollectionVersion{}) // build fails
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(emptySigCol, nil)
-	sigTxn.EXPECT().Discard()
+	txTxn := mocks.NewTxn(t)
+	txTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
+	txTxn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
-			}
-			return sigTxn, nil
-		},
-	}
+	logTxn := mocks.NewTxn(t)
+	logTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithAddManyDocuments(t, fmt.Errorf("already exists")), nil) //nolint:err113
+	logTxn.EXPECT().Discard().Maybe()
+
+	callCount := 0
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) {
+		callCount++
+		switch callCount {
+		case 1:
+			return blockTxn, nil
+		case 2:
+			return txTxn, nil
+		default:
+			return logTxn, nil
+		}
+	}}
 	h := newMockHandler(t, db)
+	signed := false
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil
+		signed = true
+		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
-	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) { return true, nil }
 
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err) // logged
+	tx := testTx()
+	receiptMap := map[string]*types.TransactionReceipt{tx.Hash: testReceipt()}
+	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, []*types.Transaction{tx}, receiptMap)
+	require.NoError(t, err) // already-exists is not reported as a batch error
 	assert.NotEmpty(t, blockID)
+	assert.False(t, signed)
 }
 
-func TestBatched_CreateSigDoc_Error(t *testing.T) {
+// TestBatched_SkipsSign_OnVerifyFailure checks that a signature which fails its own verification
+// is not stored: the block is created but no signature transaction is opened.
+func TestBatched_SkipsSign_OnVerifyFailure(t *testing.T) {
 	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
+	cases := []struct {
+		name   string
+		verify func(*node.BatchSignature, []cid.Cid) (bool, error)
+	}{
+		{"does not verify", func(*node.BatchSignature, []cid.Cid) (bool, error) { return false, nil }},
+		{"verify errors", func(*node.BatchSignature, []cid.Cid) (bool, error) {
+			return false, fmt.Errorf("verify error") //nolint:err113
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			td := setupRealCollectionVersions(t)
 
-	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
-	blockTxn.EXPECT().Commit().Return(nil)
+			blockTxn := mocks.NewTxn(t)
+			blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
+			blockTxn.EXPECT().Commit().Return(nil)
 
-	sigCol := mocks.NewCollection(t)
-	sigCol.EXPECT().Version().Return(td.sigVersion)
-	sigCol.EXPECT().AddDocument(mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("create sig error")) // nolint:err113
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
-	sigTxn.EXPECT().Discard()
+			txTxn := mocks.NewTxn(t)
+			txTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
+			txTxn.EXPECT().Commit().Return(nil)
 
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
+			logTxn := mocks.NewTxn(t)
+			logTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionLog, mock.Anything).Return(td.logColWithAddManyDocuments(t, nil), nil)
+			logTxn.EXPECT().Commit().Return(nil)
+
+			callCount := 0
+			db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) {
+				callCount++
+				switch callCount {
+				case 1:
+					return blockTxn, nil
+				case 2:
+					return txTxn, nil
+				case 3:
+					return logTxn, nil
+				default:
+					return nil, fmt.Errorf("signature transaction should not be opened") //nolint:err113
+				}
+			}}
+			h := newMockHandler(t, db)
+			h.collectDocCIDsFn = func(_ context.Context, docIDs []string) ([]cid.Cid, error) {
+				cids := make([]cid.Cid, len(docIDs))
+				for i := range docIDs {
+					cids[i] = oneTestCID()
+				}
+				return cids, nil
 			}
-			return sigTxn, nil
-		},
-	}
-	h := newMockHandler(t, db)
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil // nolint:mnd
-	}
-	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) { return true, nil }
-
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err)
-	assert.NotEmpty(t, blockID)
-}
-
-func TestBatched_SigCommit_Error(t *testing.T) {
-	t.Parallel()
-	td := setupRealCollectionVersions(t)
-	callCount := 0
-
-	blockTxn := mocks.NewTxn(t)
-	blockTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlock, mock.Anything).Return(td.blockColWithAddDocument(t, nil), nil)
-	blockTxn.EXPECT().Commit().Return(nil)
-
-	sigCol := td.sigColWithAddDocument(t, nil)
-	sigTxn := mocks.NewTxn(t)
-	sigTxn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionBlockSignature, mock.Anything).Return(sigCol, nil)
-	sigTxn.EXPECT().Commit().Return(fmt.Errorf("commit sig error")) // nolint:err113
-
-	db := &mockBlockDB{
-		newTxnFn: func(_ bool) (client.Txn, error) {
-			callCount++
-			if callCount == 1 {
-				return blockTxn, nil
+			h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+				return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 			}
-			return sigTxn, nil
-		},
-	}
-	h := newMockHandler(t, db)
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil // nolint:mnd
-	}
-	h.verifyBatchSigFn = func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) { return true, nil }
+			h.verifyBatchSigFn = tc.verify
 
-	blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, nil, nil)
-	require.NoError(t, err) // logged
-	assert.NotEmpty(t, blockID)
+			tx := testTx()
+			receiptMap := map[string]*types.TransactionReceipt{tx.Hash: testReceipt()}
+			blockID, err := h.createBlockBatched(context.Background(), testBlock(), 100, []*types.Transaction{tx}, receiptMap)
+			require.NoError(t, err)
+			assert.NotEmpty(t, blockID)
+			assert.Equal(t, 3, callCount) // signature transaction never opened
+		})
+	}
 }
 
 func TestBatched_TrackBlock_Error(t *testing.T) {
@@ -1376,26 +1313,6 @@ func TestExistingSig_SigningTxn_Error(t *testing.T) {
 	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "signing txn error")
-}
-
-func TestExistingSig_CollectCIDsForSigning_Error(t *testing.T) {
-	t.Parallel()
-	collectCount := 0
-	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
-	}
-	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
-		collectCount++
-		if collectCount == 1 {
-			return []cid.Cid{oneTestCID()}, nil // waitForCIDs succeeds
-		}
-		return nil, fmt.Errorf("collect signing error") // nolint:err113
-	}
-
-	_, err := h.CreateBlockSignatureForExistingBlock(context.Background(), 100, "0xhash", testBlock(), nil, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "collect signing error")
 }
 
 func TestExistingSig_SignBlock_Error(t *testing.T) {
@@ -1719,7 +1636,7 @@ func TestGetHighestBlockNumber_InvalidFormat(t *testing.T) {
 }
 
 // =========================================================================
-// Real collection version helpers — extract versions from a real DefraDB
+// Real collection version helpers: extract versions from a real DefraDB
 // to allow NewDocFromMap to succeed in mock tests
 // =========================================================================
 
@@ -1844,7 +1761,7 @@ func (v *realCollectionVersions) sigColWithAddDocument(t *testing.T, createErr e
 }
 
 // =========================================================================
-// Additional coverage tests — log/ALE batched loops, tracker with data, etc.
+// Additional coverage tests: log/ALE batched loops, tracker with data, etc.
 // =========================================================================
 
 // TestSingleTxn_TrackBlock_WithALEs covers the aleIDs loop (lines 342-344). We don't need to test the log loop as well since it's the same code and the log batch tests cover it.
