@@ -17,7 +17,7 @@ start:
 	./bin/block_poster
 
 clean:
-	rm -rf bin/ && rm -r logs/logfile && touch logs/logfile
+	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
 geth-status:
 	@if [ -z "$(GETH_RPC_URL)" ]; then \
