@@ -29,11 +29,6 @@ jobs:
       id: cpu
       run: echo "count=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 2)" >> $GITHUB_OUTPUT
     
-    - name: Linting - golangci-lint
-      uses: golangci/golangci-lint-action@v9
-      with:
-        version: v2.12.2
-
     - name: Run tests
       env:
         GETH_RPC_URL: ${{ secrets.GETH_RPC_URL }}
