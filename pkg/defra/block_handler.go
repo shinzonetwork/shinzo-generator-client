@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	stderrors "errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -1078,13 +1079,40 @@ func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Blo
 	return blockID, nil
 }
 
-// batchCreateTransactions creates transaction documents in batches.
+const (
+	// maxBatchRetries caps how many times a batch write is attempted when it hits a transaction
+	// conflict. Document creates share the /seq/doc sequence, so concurrent writers collide; a
+	// retry rebuilds and re-commits the batch.
+	maxBatchRetries = 3
+	// batchConflictRetryDelay is the base delay between batch retries; the wait grows linearly with
+	// the attempt (50ms, 100ms, ...).
+	batchConflictRetryDelay = 50 * time.Millisecond
+)
+
+// writeBatchWithRetry runs write, retrying on a transaction conflict up to maxBatchRetries with
+// backoff. kind names the batch for the retry log.
+func (h *BlockHandler) writeBatchWithRetry(blockInt int64, kind string, write func() error) error {
+	for attempt := range maxBatchRetries {
+		err := write()
+		if err == nil || !errors.IsErrTransactionConflict(err) {
+			return err
+		}
+		if attempt == maxBatchRetries-1 {
+			logger.Sugar.Warnf("Block %d: %s batch still conflicting after %d attempts, giving up", blockInt, kind, maxBatchRetries)
+			return err
+		}
+		logger.Sugar.Infof("Block %d: %s batch conflict, retrying (attempt %d/%d)", blockInt, kind, attempt+1, maxBatchRetries)
+		time.Sleep(time.Duration(attempt+1) * batchConflictRetryDelay)
+	}
+	return nil
+}
+
+// batchCreateTransactions creates transaction documents in batches, retrying a batch on conflict.
 func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int64, transactions []*types.Transaction, blockID string) (map[string]string, []error) {
 	txHashToID := make(map[string]string)
 	var batchErrors []error
 
 	txBS := h.txBatchSize()
-
 	for i := 0; i < len(transactions); i += txBS {
 		end := min(i+txBS, len(transactions))
 		batch := transactions[i:end]
@@ -1092,54 +1120,69 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 			continue
 		}
 
-		txn, err := h.db.NewTxn(false)
+		var ids map[string]string
+		err := h.writeBatchWithRetry(blockInt, "transaction", func() error {
+			var e error
+			ids, e = h.createTransactionBatch(ctx, blockInt, batch, blockID)
+			return e
+		})
+		maps.Copy(txHashToID, ids)
 		if err != nil {
-			batchErrors = append(batchErrors, fmt.Errorf("create txn for tx batch: %w", err))
-			continue
-		}
-		colTx, err := txn.GetCollectionByName(ctx, h.collections.Transaction)
-		if err != nil {
-			txn.Discard()
-			batchErrors = append(batchErrors, fmt.Errorf("get tx collection: %w", err))
-			continue
-		}
-
-		txDocs := make([]*client.Document, 0, len(batch))
-		txHashes := make([]string, 0, len(batch))
-		for _, tx := range batch {
-			if tx == nil {
-				continue
-			}
-			txDoc, err := h.buildTransactionDocument(ctx, tx, blockID, colTx)
-			if err != nil {
-				logger.Sugar.Warnf("Block %d: failed to build tx document %s, skipping: %v", blockInt, tx.Hash, err)
-				continue
-			}
-			txDocs = append(txDocs, txDoc)
-			txHashes = append(txHashes, tx.Hash)
-		}
-
-		if len(txDocs) > 0 {
-			if err := colTx.AddManyDocuments(ctx, txDocs); err != nil {
-				txn.Discard()
-				if !errors.IsErrAlreadyExists(err) {
-					batchErrors = append(batchErrors, fmt.Errorf("create tx batch: %w", err))
-				} else {
-					logger.Sugar.Warnf("Block %d: transaction batch already exists, skipping %d txs; their logs and access-list entries are skipped too", blockInt, len(txDocs))
-				}
-				continue
-			}
-			for i, doc := range txDocs {
-				txHashToID[txHashes[i]] = doc.ID().String()
-			}
-		}
-
-		if err := txn.Commit(); err != nil {
-			batchErrors = append(batchErrors, fmt.Errorf("commit tx batch: %w", err))
+			batchErrors = append(batchErrors, err)
 		}
 	}
 
 	return txHashToID, batchErrors
+}
+
+// createTransactionBatch writes one batch of transaction documents in a single transaction and
+// returns the hash-to-docID map for the batch.
+func (h *BlockHandler) createTransactionBatch(ctx context.Context, blockInt int64, batch []*types.Transaction, blockID string) (map[string]string, error) {
+	txn, err := h.db.NewTxn(false)
+	if err != nil {
+		return nil, fmt.Errorf("create txn for tx batch: %w", err)
+	}
+	colTx, err := txn.GetCollectionByName(ctx, h.collections.Transaction)
+	if err != nil {
+		txn.Discard()
+		return nil, fmt.Errorf("get tx collection: %w", err)
+	}
+
+	txDocs := make([]*client.Document, 0, len(batch))
+	txHashes := make([]string, 0, len(batch))
+	for _, tx := range batch {
+		if tx == nil {
+			continue
+		}
+		txDoc, err := h.buildTransactionDocument(ctx, tx, blockID, colTx)
+		if err != nil {
+			logger.Sugar.Warnf("Block %d: failed to build tx document %s, skipping: %v", blockInt, tx.Hash, err)
+			continue
+		}
+		txDocs = append(txDocs, txDoc)
+		txHashes = append(txHashes, tx.Hash)
+	}
+
+	ids := make(map[string]string, len(txDocs))
+	if len(txDocs) > 0 {
+		if err := colTx.AddManyDocuments(ctx, txDocs); err != nil {
+			txn.Discard()
+			if errors.IsErrAlreadyExists(err) {
+				logger.Sugar.Warnf("Block %d: transaction batch already exists, skipping %d txs; their logs and access-list entries are skipped too", blockInt, len(txDocs))
+				return ids, nil
+			}
+			return nil, fmt.Errorf("create tx batch: %w", err)
+		}
+		for i, doc := range txDocs {
+			ids[txHashes[i]] = doc.ID().String()
+		}
+	}
+
+	if err := txn.Commit(); err != nil {
+		return nil, fmt.Errorf("commit tx batch: %w", err)
+	}
+
+	return ids, nil
 }
 
 // batchCreateLogs creates log documents in batches.
@@ -1176,7 +1219,12 @@ func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, tran
 		if len(batch) == 0 {
 			continue
 		}
-		ids, err := h.createLogBatch(ctx, blockInt, blockID, batch)
+		var ids []string
+		err := h.writeBatchWithRetry(blockInt, "log", func() error {
+			var e error
+			ids, e = h.createLogBatch(ctx, blockInt, blockID, batch)
+			return e
+		})
 		allLogIDs = append(allLogIDs, ids...)
 		if err != nil {
 			batchErrors = append(batchErrors, err)
@@ -1259,7 +1307,13 @@ func (h *BlockHandler) batchCreateALEs(ctx context.Context, blockInt int64, tran
 	aleBS := h.aleBatchSize()
 	for i := 0; i < len(allALEs); i += aleBS {
 		end := min(i+aleBS, len(allALEs))
-		ids, err := h.createALEBatch(ctx, blockInt, allALEs[i:end])
+		batch := allALEs[i:end]
+		var ids []string
+		err := h.writeBatchWithRetry(blockInt, "access-list", func() error {
+			var e error
+			ids, e = h.createALEBatch(ctx, blockInt, batch)
+			return e
+		})
 		allALEIDs = append(allALEIDs, ids...)
 		if err != nil {
 			batchErrors = append(batchErrors, err)

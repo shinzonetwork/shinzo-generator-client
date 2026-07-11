@@ -1156,6 +1156,100 @@ func TestBatched_SkipsSign_OnVerifyFailure(t *testing.T) {
 	}
 }
 
+// TestWriteBatchWithRetry checks the retry loop: a conflict is retried, a non-conflict error is
+// not, and it gives up after maxBatchRetries.
+func TestWriteBatchWithRetry(t *testing.T) {
+	t.Parallel()
+	h := newMockHandler(t, &mockBlockDB{})
+
+	t.Run("retries a conflict then succeeds", func(t *testing.T) {
+		calls := 0
+		err := h.writeBatchWithRetry(100, "log", func() error {
+			calls++
+			if calls == 1 {
+				return fmt.Errorf("transaction conflict") //nolint:err113
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, calls)
+	})
+
+	t.Run("gives up after maxBatchRetries", func(t *testing.T) {
+		calls := 0
+		err := h.writeBatchWithRetry(100, "log", func() error {
+			calls++
+			return fmt.Errorf("transaction conflict") //nolint:err113
+		})
+		require.Error(t, err)
+		assert.Equal(t, maxBatchRetries, calls)
+	})
+
+	t.Run("does not retry a non-conflict error", func(t *testing.T) {
+		calls := 0
+		err := h.writeBatchWithRetry(100, "log", func() error {
+			calls++
+			return fmt.Errorf("some other error") //nolint:err113
+		})
+		require.Error(t, err)
+		assert.Equal(t, 1, calls)
+	})
+}
+
+// TestBatchCreateTransactions_RetriesConflict checks that a transaction batch whose commit
+// conflicts is retried and the transaction is still written.
+func TestBatchCreateTransactions_RetriesConflict(t *testing.T) {
+	t.Parallel()
+	td := setupRealCollectionVersions(t)
+
+	txn1 := mocks.NewTxn(t)
+	txn1.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
+	txn1.EXPECT().Commit().Return(fmt.Errorf("transaction conflict")) //nolint:err113
+	txn2 := mocks.NewTxn(t)
+	txn2.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, nil), nil)
+	txn2.EXPECT().Commit().Return(nil)
+
+	callCount := 0
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) {
+		callCount++
+		if callCount == 1 {
+			return txn1, nil
+		}
+		return txn2, nil
+	}}
+	h := newMockHandler(t, db)
+
+	blockID := nextTestDocID().String()
+	txHashToID, batchErrors := h.batchCreateTransactions(context.Background(), 100, []*types.Transaction{testTx()}, blockID)
+	assert.Empty(t, batchErrors)
+	assert.Len(t, txHashToID, 1)
+	assert.Equal(t, 2, callCount) // one conflict, one retry
+}
+
+// TestBatchCreateTransactions_AlreadyExistsDrops checks that an already-exists batch is dropped
+// without retrying and without reporting a batch error (it is P2P echo, not a conflict).
+func TestBatchCreateTransactions_AlreadyExistsDrops(t *testing.T) {
+	t.Parallel()
+	td := setupRealCollectionVersions(t)
+
+	txn := mocks.NewTxn(t)
+	txn.EXPECT().GetCollectionByName(mock.Anything, constants.CollectionTransaction, mock.Anything).Return(td.txColWithAddManyDocuments(t, fmt.Errorf("already exists")), nil) //nolint:err113
+	txn.EXPECT().Discard().Maybe()
+
+	callCount := 0
+	db := &mockBlockDB{newTxnFn: func(_ bool) (client.Txn, error) {
+		callCount++
+		return txn, nil
+	}}
+	h := newMockHandler(t, db)
+
+	blockID := nextTestDocID().String()
+	txHashToID, batchErrors := h.batchCreateTransactions(context.Background(), 100, []*types.Transaction{testTx()}, blockID)
+	assert.Empty(t, batchErrors)  // already-exists is not a batch error
+	assert.Empty(t, txHashToID)   // the batch was dropped
+	assert.Equal(t, 1, callCount) // not retried
+}
+
 func TestBatched_TrackBlock_Error(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
