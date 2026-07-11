@@ -1749,8 +1749,6 @@ github.com/sourcenetwork/corekv/namespace v0.3.1 h1:XllaUw6cteZkJYC5tgcJ40c6hIMh
 github.com/sourcenetwork/corekv/namespace v0.3.1/go.mod h1:uidxEQZsJ1eqecq1Zn5NipnFAgxL+VyXB6bPGziBewk=
 github.com/sourcenetwork/corelog v0.0.9 h1:wpoBbvju4wYtwpolfpGo8CrUVsRI8Gz1IeaXPQCW8yY=
 github.com/sourcenetwork/corelog v0.0.9/go.mod h1:cMabHgs3kARgYTQeQYSOmaGGP8XMU6sZrHd8LFrL3zA=
-github.com/sourcenetwork/defradb v1.0.1-0.20260710154212-9a094a131223 h1:WMymb/dEMYqzrpYehijBBKwfeuRuJIHro0qBaaermAQ=
-github.com/sourcenetwork/defradb v1.0.1-0.20260710154212-9a094a131223/go.mod h1:DItlsF6KS9fTUN7t1lnpYVjwDL3Anj8Uo9oImSUroWA=
 github.com/sourcenetwork/defradb v1.0.1-0.20260711015645-7c0bdf1359dc h1:tw2Oiv3u6GmeWDI/VujWtX7cKy2MK6rOWrwfoyrJypE=
 github.com/sourcenetwork/defradb v1.0.1-0.20260711015645-7c0bdf1359dc/go.mod h1:DItlsF6KS9fTUN7t1lnpYVjwDL3Anj8Uo9oImSUroWA=
 github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 h1:620zKV4rOn7U5j/WsPkk4SFj0z9/pVV4bBx0BpZQgro=
