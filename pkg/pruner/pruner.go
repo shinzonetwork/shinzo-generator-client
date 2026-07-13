@@ -161,7 +161,6 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 			if err := p.runPrune(ctx); err != nil {
 				logger.Sugar.Errorf("Prune failed: %v", err)
 			}
-			p.runStorageGC()
 		}
 	}
 }
@@ -288,9 +287,6 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 
 	return nil
 }
-
-// runStorageGC is a no-op since defradb v1.0.0-rc1 removed the public RunStorageGC API.
-func (p *Pruner) runStorageGC() {}
 
 // filterBasedPrune checks the actual DB block count and prunes excess blocks.
 // Used by the indexer queue (no P2P) and as a fallback when the queue is underfilled.

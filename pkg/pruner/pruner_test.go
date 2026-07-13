@@ -198,16 +198,6 @@ func TestPrunerStop_WithQueue(t *testing.T) {
 	assert.False(t, p.isRunning)
 }
 
-func TestRunStorageGC_NilNode(t *testing.T) {
-	cfg := &Config{Enabled: true}
-	p := NewPruner(cfg, nil)
-
-	// Should not panic with nil node
-	assert.NotPanics(t, func() {
-		p.runStorageGC()
-	})
-}
-
 func TestParseBlockNumber(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -707,18 +697,6 @@ func TestStartupCleanup_WithinLimit(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 2, countDocs(t, n, "TestBlock"))
 	assert.Equal(t, int64(0), p.totalBlocksPruned)
-}
-
-func TestRunStorageGC_WithRealNode(t *testing.T) {
-	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
-
-	// Should not panic
-	assert.NotPanics(t, func() {
-		p.runStorageGC()
-	})
 }
 
 func TestPurgeFromDrainResult(t *testing.T) {
