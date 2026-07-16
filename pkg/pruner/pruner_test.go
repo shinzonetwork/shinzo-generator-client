@@ -198,33 +198,28 @@ func TestPrunerStop_WithQueue(t *testing.T) {
 	assert.False(t, p.isRunning)
 }
 
-func TestRunStorageGC_NilNode(t *testing.T) {
-	cfg := &Config{Enabled: true}
-	p := NewPruner(cfg, nil)
-
-	// Should not panic with nil node
-	assert.NotPanics(t, func() {
-		p.runStorageGC()
-	})
-}
-
 func TestParseBlockNumber(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    any
-		expected int64
+		name        string
+		input       any
+		expected    int64
+		expectError bool
 	}{
-		{"float64", float64(42), 42},
-		{"int64", int64(100), 100},
-		{"int", int(200), 200},
-		{"string (unknown type)", "300", 0},
-		{"nil", nil, 0},
+		{"float64", float64(42), 42, false},
+		{"int64", int64(100), 100, false},
+		{"int", int(200), 200, false},
+		{"string (unknown type)", "300", 0, true},
+		{"nil", nil, 0, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := parseBlockNumber(tt.input)
-			assert.NoError(t, err)
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -235,24 +230,24 @@ func TestExtractBlockNumber(t *testing.T) {
 	cols := DefaultCollectionConfig()
 	p := NewPruner(cfg, nil, cols)
 
-	t.Run("nil data", func(t *testing.T) {
+	t.Run("nil data returns ErrNoBlocks", func(t *testing.T) {
 		result, err := p.extractBlockNumber(nil)
-		assert.NoError(t, err)
+		assert.ErrorIs(t, err, ErrNoBlocks)
 		assert.Equal(t, int64(0), result)
 	})
 
-	t.Run("wrong type", func(t *testing.T) {
-		result, err := p.extractBlockNumber("not a map")
-		assert.NoError(t, err)
-		assert.Equal(t, int64(0), result)
+	t.Run("wrong type returns error", func(t *testing.T) {
+		_, err := p.extractBlockNumber("not a map")
+		assert.Error(t, err)
+		assert.NotErrorIs(t, err, ErrNoBlocks)
 	})
 
-	t.Run("empty blocks array ([]interface{})", func(t *testing.T) {
+	t.Run("empty blocks array ([]interface{}) returns ErrNoBlocks", func(t *testing.T) {
 		data := map[string]any{
 			constants.CollectionBlock: []any{},
 		}
 		result, err := p.extractBlockNumber(data)
-		assert.NoError(t, err)
+		assert.ErrorIs(t, err, ErrNoBlocks)
 		assert.Equal(t, int64(0), result)
 	})
 
@@ -278,55 +273,181 @@ func TestExtractBlockNumber(t *testing.T) {
 		assert.Equal(t, int64(99), result)
 	})
 
-	t.Run("empty typed map array", func(t *testing.T) {
+	t.Run("empty typed map array returns ErrNoBlocks", func(t *testing.T) {
 		data := map[string]any{
 			constants.CollectionBlock: []map[string]any{},
 		}
 		result, err := p.extractBlockNumber(data)
-		assert.NoError(t, err)
+		assert.ErrorIs(t, err, ErrNoBlocks)
 		assert.Equal(t, int64(0), result)
 	})
 
-	t.Run("typed map array missing number field", func(t *testing.T) {
+	t.Run("typed map array missing number field skips to next valid block", func(t *testing.T) {
 		data := map[string]any{
 			constants.CollectionBlock: []map[string]any{
 				{"other_field": "value"},
+				{constants.NumberFieldValue: float64(42)},
 			},
 		}
 		result, err := p.extractBlockNumber(data)
 		assert.NoError(t, err)
-		assert.Equal(t, int64(0), result)
+		assert.Equal(t, int64(42), result)
 	})
 
-	t.Run("interface array with non-map element", func(t *testing.T) {
+	t.Run("typed map array all blocks missing number field returns error", func(t *testing.T) {
+		data := map[string]any{
+			constants.CollectionBlock: []map[string]any{
+				{"other_field": "value"},
+				{"another_field": 123},
+			},
+		}
+		_, err := p.extractBlockNumber(data)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrNoValidBlocks)
+	})
+
+	t.Run("block with nil number field skips to next valid block", func(t *testing.T) {
+		data := map[string]any{
+			constants.CollectionBlock: []map[string]any{
+				{constants.NumberFieldValue: nil},
+				{constants.NumberFieldValue: float64(7)},
+			},
+		}
+		result, err := p.extractBlockNumber(data)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(7), result)
+	})
+
+	t.Run("all blocks have nil number field returns error", func(t *testing.T) {
+		data := map[string]any{
+			constants.CollectionBlock: []map[string]any{
+				{constants.NumberFieldValue: nil},
+				{constants.NumberFieldValue: nil},
+			},
+		}
+		_, err := p.extractBlockNumber(data)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrNoValidBlocks)
+	})
+
+	t.Run("interface array with non-map element returns error", func(t *testing.T) {
 		data := map[string]any{
 			constants.CollectionBlock: []any{
 				"not a map",
 			},
 		}
-		result, err := p.extractBlockNumber(data)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(0), result)
+		_, err := p.extractBlockNumber(data)
+		assert.Error(t, err)
+		assert.NotErrorIs(t, err, ErrNoBlocks)
 	})
 
-	t.Run("interface array missing number field", func(t *testing.T) {
+	t.Run("interface array missing number field skips to next valid block", func(t *testing.T) {
 		data := map[string]any{
 			constants.CollectionBlock: []any{
 				map[string]any{"other": "value"},
+				map[string]any{constants.NumberFieldValue: float64(55)},
 			},
 		}
 		result, err := p.extractBlockNumber(data)
 		assert.NoError(t, err)
-		assert.Equal(t, int64(0), result)
+		assert.Equal(t, int64(55), result)
 	})
 
-	t.Run("missing block collection key", func(t *testing.T) {
+	t.Run("missing block collection key returns error", func(t *testing.T) {
 		data := map[string]any{
 			"Other_Collection": []any{},
 		}
-		result, err := p.extractBlockNumber(data)
+		_, err := p.extractBlockNumber(data)
+		assert.Error(t, err)
+		assert.NotErrorIs(t, err, ErrNoBlocks)
+	})
+}
+
+func TestExtractDocIDs(t *testing.T) {
+	t.Run("valid docs within max", func(t *testing.T) {
+		docs := []map[string]any{
+			{"_docID": "bae-aaa", "number": float64(1)},
+			{"_docID": "bae-bbb", "number": float64(2)},
+		}
+		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
 		assert.NoError(t, err)
-		assert.Equal(t, int64(0), result)
+		assert.Equal(t, []string{"bae-aaa", "bae-bbb"}, ids)
+	})
+
+	t.Run("stops at maxBlockNumber", func(t *testing.T) {
+		docs := []map[string]any{
+			{"_docID": "bae-aaa", "number": float64(1)},
+			{"_docID": "bae-bbb", "number": float64(5)},
+			{"_docID": "bae-ccc", "number": float64(10)},
+		}
+		ids, err := extractDocIDs(docs, "number", 3, "TestBlock")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"bae-aaa"}, ids)
+	})
+
+	t.Run("parse error skips doc and continues", func(t *testing.T) {
+		docs := []map[string]any{
+			{"_docID": "bae-aaa", "number": "not-a-number"},
+			{"_docID": "bae-bbb", "number": float64(2)},
+		}
+		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"bae-bbb"}, ids)
+	})
+
+	t.Run("nil block number skips doc and continues", func(t *testing.T) {
+		docs := []map[string]any{
+			{"_docID": "bae-aaa", "number": nil},
+			{"_docID": "bae-bbb", "number": float64(2)},
+		}
+		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"bae-bbb"}, ids)
+	})
+
+	t.Run("non-string _docID skips doc and continues", func(t *testing.T) {
+		docs := []map[string]any{
+			{"_docID": 123, "number": float64(1)},
+			{"_docID": "bae-bbb", "number": float64(2)},
+		}
+		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"bae-bbb"}, ids)
+	})
+
+	t.Run("empty docs returns nil", func(t *testing.T) {
+		ids, err := extractDocIDs(nil, "number", 10, "TestBlock")
+		assert.NoError(t, err)
+		assert.Nil(t, ids)
+	})
+
+	t.Run("all docs corrupt returns ErrNoValidDocs", func(t *testing.T) {
+		docs := []map[string]any{
+			{"_docID": "bae-aaa", "number": nil},
+			{"_docID": "bae-bbb", "number": "not-a-number"},
+		}
+		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
+		assert.Nil(t, ids)
+		assert.ErrorIs(t, err, ErrNoValidDocs)
+	})
+
+	t.Run("all docs above range returns nil without error", func(t *testing.T) {
+		docs := []map[string]any{
+			{"_docID": "bae-aaa", "number": float64(100)},
+		}
+		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
+		assert.NoError(t, err)
+		assert.Nil(t, ids)
+	})
+
+	t.Run("some corrupt, rest above range returns nil without error", func(t *testing.T) {
+		docs := []map[string]any{
+			{"_docID": "bae-aaa", "number": nil},
+			{"_docID": "bae-bbb", "number": float64(100)},
+		}
+		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
+		assert.NoError(t, err)
+		assert.Nil(t, ids)
 	})
 }
 
@@ -518,11 +639,11 @@ func TestGetLowestAndHighestBlockNumber(t *testing.T) {
 
 	// Empty DB
 	lowest, err := p.getLowestBlockNumber(ctx)
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, ErrNoBlocks)
 	assert.Equal(t, int64(0), lowest)
 
 	highest, err := p.getHighestBlockNumber(ctx)
-	assert.NoError(t, err)
+	assert.ErrorIs(t, err, ErrNoBlocks)
 	assert.Equal(t, int64(0), highest)
 
 	// Insert blocks
@@ -537,6 +658,34 @@ func TestGetLowestAndHighestBlockNumber(t *testing.T) {
 	highest, err = p.getHighestBlockNumber(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(30), highest)
+}
+
+func TestGetBlockRange(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
+	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	p := NewPruner(cfg, n, cols)
+	ctx := context.Background()
+
+	t.Run("empty database returns ErrNoBlocks", func(t *testing.T) {
+		lowest, highest, err := p.getBlockRange(ctx)
+		assert.ErrorIs(t, err, ErrNoBlocks)
+		assert.Equal(t, int64(0), lowest)
+		assert.Equal(t, int64(0), highest)
+	})
+
+	t.Run("populated database returns valid range", func(t *testing.T) {
+		for _, num := range []int64{10, 30, 20} {
+			mutation := fmt.Sprintf(`mutation { add_TestBlock(input: [{number: %d, hash: "hash%d"}]) { _docID } }`, num, num)
+			result := n.DB.ExecRequest(ctx, mutation)
+			require.Empty(t, result.GQL.Errors, "insert block %d failed: %v", num, result.GQL.Errors)
+		}
+
+		lowest, highest, err := p.getBlockRange(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(10), lowest)
+		assert.Equal(t, int64(30), highest)
+	})
 }
 
 func TestQueryOldestDocIDs(t *testing.T) {
@@ -565,6 +714,33 @@ func TestQueryOldestDocIDs(t *testing.T) {
 	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 100)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(docIDs))
+}
+
+func TestQueryOldestDocIDs_EmptyCollection(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
+	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	p := NewPruner(cfg, n, cols)
+	ctx := context.Background()
+
+	// TestTx collection exists in schema but has zero documents
+	docIDs, err := p.queryOldestDocIDs(ctx, "TestTx", "blockNumber", 100)
+	assert.NoError(t, err)
+	assert.Nil(t, docIDs)
+}
+
+func TestQueryOldestDocIDs_NonExistentCollection(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
+	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	p := NewPruner(cfg, n, cols)
+	ctx := context.Background()
+
+	// DefraDB returns a GQL error for unknown collections (caught at the GQL layer).
+	// The comma-ok check in queryOldestDocIDs is a defensive fallback for the case
+	// where DefraDB returns a valid Data map without the collection key.
+	_, err := p.queryOldestDocIDs(ctx, "NonExistent", "number", 100)
+	assert.Error(t, err)
 }
 
 func TestPurgeByDocIDs(t *testing.T) {
@@ -599,6 +775,30 @@ func TestPurgeByDocIDs(t *testing.T) {
 	// Purge with invalid collection name
 	_, err = p.purgeByDocIDs(ctx, "NonExistent", []string{"bae-550e8400-e29b-41d4-a716-446655440000"})
 	assert.Error(t, err)
+}
+
+func TestPurgeByDocIDs_InvalidDocID(t *testing.T) {
+	n := startTestNode(t)
+	cols := testCollections()
+	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p := NewPruner(cfg, n, cols)
+	ctx := context.Background()
+
+	insertTestBlock(t, n, 1, 0)
+	insertTestBlock(t, n, 2, 0)
+
+	validDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 2)
+	require.NoError(t, err)
+	require.Len(t, validDocIDs, 2)
+
+	// Mix valid and invalid docIDs
+	mixedDocIDs := append([]string{"not-a-valid-docid"}, validDocIDs...)
+
+	purged, err := p.purgeByDocIDs(ctx, "TestBlock", mixedDocIDs)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "skipped 1 invalid docID")
+	assert.Equal(t, int64(2), purged)
+	assert.Equal(t, 0, countDocs(t, n, "TestBlock"))
 }
 
 func TestPruneBlockRange(t *testing.T) {
@@ -709,18 +909,6 @@ func TestStartupCleanup_WithinLimit(t *testing.T) {
 	assert.Equal(t, int64(0), p.totalBlocksPruned)
 }
 
-func TestRunStorageGC_WithRealNode(t *testing.T) {
-	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
-
-	// Should not panic
-	assert.NotPanics(t, func() {
-		p.runStorageGC()
-	})
-}
-
 func TestPurgeFromDrainResult(t *testing.T) {
 	n := startTestNode(t)
 	cols := testCollections()
@@ -771,6 +959,59 @@ func TestPurgeFromDrainResult_EmptyCollections(t *testing.T) {
 
 	err := p.purgeFromDrainResult(ctx, drainResult)
 	assert.NoError(t, err)
+}
+
+func TestPurgeFromDrainResult_PurgeError(t *testing.T) {
+	t.Run("dependent_collection_error_propagates", func(t *testing.T) {
+		n := startTestNode(t)
+		cols := testCollections()
+		cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+		p := NewPruner(cfg, n, cols)
+		ctx := context.Background()
+
+		insertTestBlock(t, n, 1, 1)
+
+		blockDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 1)
+		require.NoError(t, err)
+		require.Len(t, blockDocIDs, 1)
+
+		drainResult := &DrainResult{
+			DocIDsByCollection: map[string][]string{
+				"TestBlock": blockDocIDs,
+				"TestTx":    {"not-a-valid-docid"},
+			},
+			BlockCount: 1,
+		}
+
+		err = p.purgeFromDrainResult(ctx, drainResult)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "dependent collection errors")
+		assert.Contains(t, err.Error(), "purge TestTx")
+		assert.Equal(t, int64(1), p.totalBlocksPruned)
+		assert.False(t, p.lastPruneTime.IsZero())
+	})
+
+	t.Run("block_collection_error_is_fatal", func(t *testing.T) {
+		n := startTestNode(t)
+		cols := testCollections()
+		cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+		p := NewPruner(cfg, n, cols)
+		ctx := context.Background()
+
+		drainResult := &DrainResult{
+			DocIDsByCollection: map[string][]string{
+				"TestBlock": {"not-a-valid-docid"},
+			},
+			BlockCount: 1,
+		}
+
+		err := p.purgeFromDrainResult(ctx, drainResult)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to purge blocks")
+		assert.NotContains(t, err.Error(), "dependent collection errors")
+		assert.Equal(t, int64(0), p.totalBlocksPruned)
+		assert.True(t, p.lastPruneTime.IsZero())
+	})
 }
 
 func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {

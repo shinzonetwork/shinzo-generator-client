@@ -2,6 +2,7 @@ package pruner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +12,19 @@ import (
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
+
+// ErrNoBlocks indicates that the query succeeded but no blocks were found.
+var ErrNoBlocks = errors.New("no blocks found")
+
+// ErrNoValidBlocks indicates that blocks exist in the database but none have
+// a parseable block number field. This is a data-integrity issue, not an
+// empty database — distinct from ErrNoBlocks.
+var ErrNoValidBlocks = errors.New("blocks exist but none have a valid block number")
+
+// ErrNoValidDocs indicates that documents exist in a collection but none have
+// a parseable block number field. This is a data-integrity issue, not an
+// empty result set — distinct from the (nil, nil) "no docs in range" return.
+var ErrNoValidDocs = errors.New("docs exist but none have a valid block number")
 
 // Pruner handles periodic removal of old blockchain documents from DefraDB.
 // It supports two queue types:
@@ -161,7 +175,6 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 			if err := p.runPrune(ctx); err != nil {
 				logger.Sugar.Errorf("Prune failed: %v", err)
 			}
-			p.runStorageGC()
 		}
 	}
 }
@@ -205,6 +218,7 @@ func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) erro
 func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) error {
 	startTime := time.Now()
 	totalPurged := int64(0)
+	var depErrs []error
 
 	// Dependent collections first, block collection last
 	for _, colName := range p.collections.DependentCollections {
@@ -213,19 +227,17 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 			continue
 		}
 		purged, err := p.purgeByDocIDs(ctx, colName, docIDs)
+		totalPurged += purged
 		if err != nil {
-			logger.Sugar.Errorf("Failed to purge %s: %v", colName, err)
-		} else {
-			totalPurged += purged
+			depErrs = append(depErrs, fmt.Errorf("purge %s: %w", colName, err))
 		}
 	}
 
 	if blockIDs, ok := result.DocIDsByCollection[p.collections.BlockCollection]; ok && len(blockIDs) > 0 {
 		purged, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockIDs)
+		totalPurged += purged
 		if err != nil {
-			logger.Sugar.Errorf("Failed to purge blocks: %v", err)
-		} else {
-			totalPurged += purged
+			return fmt.Errorf("failed to purge blocks: %w", err)
 		}
 	}
 
@@ -239,24 +251,25 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()
 
+	if len(depErrs) > 0 {
+		return fmt.Errorf("dependent collection errors: %w", errors.Join(depErrs...))
+	}
 	return nil
 }
 
 // startupCleanup removes blocks left over from previous runs that aren't in the queue.
 func (p *Pruner) startupCleanup(ctx context.Context) error {
-	lowest, err := p.getLowestBlockNumber(ctx)
+	lowest, highest, err := p.getBlockRange(ctx)
 	if err != nil {
-		return err
-	}
-
-	highest, err := p.getHighestBlockNumber(ctx)
-	if err != nil {
-		return err
-	}
-
-	if lowest == 0 && highest == 0 {
-		logger.Sugar.Debugf("No existing blocks in database")
-		return nil
+		if errors.Is(err, ErrNoBlocks) {
+			logger.Sugar.Debugf("No existing blocks in database")
+			return nil
+		}
+		if errors.Is(err, ErrNoValidBlocks) {
+			logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping cleanup")
+			return nil
+		}
+		return fmt.Errorf("startup cleanup: get block range: %w", err)
 	}
 
 	currentCount := highest - lowest + 1
@@ -289,24 +302,19 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	return nil
 }
 
-// runStorageGC is a no-op since defradb v1.0.0-rc1 removed the public RunStorageGC API.
-func (p *Pruner) runStorageGC() {}
-
 // filterBasedPrune checks the actual DB block count and prunes excess blocks.
 // Used by the indexer queue (no P2P) and as a fallback when the queue is underfilled.
 func (p *Pruner) filterBasedPrune(ctx context.Context) error {
-	highest, err := p.getHighestBlockNumber(ctx)
+	lowest, highest, err := p.getBlockRange(ctx)
 	if err != nil {
-		return err
-	}
-
-	lowest, err := p.getLowestBlockNumber(ctx)
-	if err != nil {
-		return err
-	}
-
-	if highest == 0 && lowest == 0 {
-		return nil
+		if errors.Is(err, ErrNoBlocks) {
+			return nil
+		}
+		if errors.Is(err, ErrNoValidBlocks) {
+			logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping prune")
+			return nil
+		}
+		return fmt.Errorf("filter-based prune: get block range: %w", err)
 	}
 
 	dbBlockCount := highest - lowest + 1
@@ -339,6 +347,7 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 // Safe to call with concurrent P2P replication — merge handles missing blocks gracefully.
 func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64) (int64, error) {
 	totalPurged := int64(0)
+	var depErrs []error
 
 	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
 		startBlock, endBlock, endBlock-startBlock+1)
@@ -347,15 +356,14 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 	for _, colName := range p.collections.DependentCollections {
 		docIDs, err := p.queryOldestDocIDs(ctx, colName, constants.BlockNumberKeyValue, endBlock)
 		if err != nil {
-			logger.Sugar.Warnf("pruneBlockRange: query failed for %s (skipping): %v", colName, err)
+			depErrs = append(depErrs, fmt.Errorf("query %s: %w", colName, err))
 			continue
 		}
 		if len(docIDs) > 0 {
 			purged, err := p.purgeByDocIDs(ctx, colName, docIDs)
+			totalPurged += purged
 			if err != nil {
-				logger.Sugar.Warnf("pruneBlockRange: failed to purge %s: %v", colName, err)
-			} else {
-				totalPurged += purged
+				depErrs = append(depErrs, fmt.Errorf("purge %s: %w", colName, err))
 			}
 		}
 	}
@@ -366,13 +374,17 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 	}
 	if len(blockDocIDs) > 0 {
 		purged, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockDocIDs)
+		totalPurged += purged
 		if err != nil {
 			return totalPurged, fmt.Errorf("failed to purge blocks: %w", err)
 		}
-		totalPurged += purged
 	}
 
 	logger.Sugar.Infof("pruneBlockRange: purged %d docs for blocks %d-%d", totalPurged, startBlock, endBlock)
+
+	if len(depErrs) > 0 {
+		return totalPurged, fmt.Errorf("dependent collection errors: %w", errors.Join(depErrs...))
+	}
 	return totalPurged, nil
 }
 
@@ -394,51 +406,88 @@ func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldNam
 		return nil, fmt.Errorf("query failed for %s: %w", collectionName, result.GQL.Errors[0])
 	}
 
+	// Data is nil when the query returns no result set at all (no errors, no data key).
+	if result.GQL.Data == nil {
+		return nil, nil // This is a legitimate empty result, not an error.
+	}
+
 	data, ok := result.GQL.Data.(map[string]any)
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("unexpected GQL data type %T for %s", result.GQL.Data, collectionName)
 	}
 
 	// DefraDB may return []map[string]interface{} or []interface{} depending on context.
 	// In Go these are distinct types, so we must handle both.
-	raw := data[collectionName]
-
-	var docIDs []string
+	raw, ok := data[collectionName]
+	if !ok {
+		return nil, fmt.Errorf("collection %s not found in GQL response", collectionName)
+	}
+	// The collection key exists but maps to nil — DefraDB returns nil for
+	// collections that exist in the schema but contain zero documents.
+	if raw == nil {
+		return nil, nil // This is a legitimate empty result, not an error.
+	}
 
 	switch docs := raw.(type) {
 	case []map[string]any:
-		for _, docMap := range docs {
-			bn, err := parseBlockNumber(docMap[fieldName])
-			if err != nil || bn > maxBlockNumber {
-				break // ordered ASC, so once we exceed maxBlockNumber we're done
-			}
-			if docID, ok := docMap["_docID"].(string); ok {
-				docIDs = append(docIDs, docID)
-			}
-		}
+		return extractDocIDs(docs, fieldName, maxBlockNumber, collectionName)
 	case []any:
+		typed := make([]map[string]any, 0, len(docs))
 		for _, doc := range docs {
 			docMap, ok := doc.(map[string]any)
 			if !ok {
-				continue
+				return nil, fmt.Errorf("unexpected element type %T in %s", doc, collectionName)
 			}
-			bn, err := parseBlockNumber(docMap[fieldName])
-			if err != nil || bn > maxBlockNumber {
-				break
-			}
-			if docID, ok := docMap["_docID"].(string); ok {
-				docIDs = append(docIDs, docID)
-			}
+			typed = append(typed, docMap)
 		}
+		return extractDocIDs(typed, fieldName, maxBlockNumber, collectionName)
 	default:
-		// Unknown format or nil data
-		return nil, nil
+		return nil, fmt.Errorf("unexpected collection result type %T for %s", raw, collectionName)
 	}
+}
 
-	return docIDs, nil //nolint:nilerr
+// extractDocIDs collects docIDs for documents whose block number is within the
+// allowed range. Docs with nil or unparseable block numbers, or non-string
+// _docID fields, are counted and skipped — a single corrupt doc must not
+// prevent pruning of all other valid docs. A single summary warning is logged
+// if any docs were skipped, instead of one log line per corrupt doc.
+//
+// Returns (nil, ErrNoValidDocs) when docs exist but none have a parseable
+// block number — this is a data-integrity issue distinct from "no docs in
+// range", which returns (nil, nil).
+func extractDocIDs(docs []map[string]any, fieldName string, maxBlockNumber int64, collectionName string) ([]string, error) {
+	var docIDs []string
+	skipped := 0
+	parsedAny := false
+	for _, docMap := range docs {
+		blockNumber, err := parseBlockNumber(docMap[fieldName])
+		if err != nil {
+			skipped++
+			continue
+		}
+		parsedAny = true
+		if blockNumber > maxBlockNumber {
+			break
+		}
+		docID, ok := docMap["_docID"].(string)
+		if !ok {
+			skipped++
+			continue
+		}
+		docIDs = append(docIDs, docID)
+	}
+	if skipped > 0 {
+		logger.Sugar.Warnf("Skipped %d doc(s) in %s with missing or unparseable fields", skipped, collectionName)
+	}
+	if len(docs) > 0 && !parsedAny {
+		return nil, fmt.Errorf("%s: %w", collectionName, ErrNoValidDocs)
+	}
+	return docIDs, nil
 }
 
 // purgeByDocIDs deletes documents by their docIDs.
+// Returns the count of successfully purged documents and an error if any
+// docIDs were invalid (skipped) or if the purge operation itself failed.
 func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docIDs []string) (int64, error) {
 	if len(docIDs) == 0 {
 		return 0, nil
@@ -453,10 +502,12 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 	}
 
 	clientDocIDs := make([]client.DocID, 0, len(docIDs))
+	skipped := 0
 	for _, id := range docIDs {
 		docID, err := client.NewDocIDFromString(id)
 		if err != nil {
 			logger.Sugar.Warnf("Skipping invalid docID %s: %v", id, err)
+			skipped++
 			continue
 		}
 		clientDocIDs = append(clientDocIDs, docID)
@@ -469,21 +520,42 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 	count := int64(len(clientDocIDs))
 	logger.Sugar.Infof("Purged %d/%d documents from %s in %v",
 		count, len(docIDs), collectionName, time.Since(startTime))
+
+	if skipped > 0 {
+		return count, fmt.Errorf("skipped %d invalid docID(s) out of %d", skipped, len(docIDs))
+	}
 	return count, nil
 }
 
 // ─── Block number queries ────────────────────────────────────────────────────
 
+// getBlockRange returns the lowest and highest block numbers from the database.
+// Returns (0, 0, ErrNoBlocks) if the database has no blocks.
+// Returns (0, 0, ErrNoValidBlocks) if blocks exist but none have parseable numbers.
+// Returns (0, 0, err) for query or type errors.
+// Returns (lowest, highest, nil) when valid block numbers are found.
+func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err error) {
+	lowest, err = p.getLowestBlockNumber(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	highest, err = p.getHighestBlockNumber(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	return lowest, highest, nil
+}
+
 func (p *Pruner) getLowestBlockNumber(ctx context.Context) (int64, error) {
 	query := `query {
-		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: ASC}, limit: 1) {
+		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: ASC}, limit: 7) {
 			` + p.collections.BlockNumberField + `
 		}
 	}`
 
 	result := p.defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return 0, result.GQL.Errors[0]
+		return 0, fmt.Errorf("lowest block query failed: %w", result.GQL.Errors[0])
 	}
 
 	return p.extractBlockNumber(result.GQL.Data)
@@ -491,51 +563,88 @@ func (p *Pruner) getLowestBlockNumber(ctx context.Context) (int64, error) {
 
 func (p *Pruner) getHighestBlockNumber(ctx context.Context) (int64, error) {
 	query := `query {
-		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: DESC}, limit: 1) {
+		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: DESC}, limit: 7) {
 			` + p.collections.BlockNumberField + `
 		}
 	}`
 
 	result := p.defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return 0, result.GQL.Errors[0]
+		return 0, fmt.Errorf("highest block query failed: %w", result.GQL.Errors[0])
 	}
 
 	return p.extractBlockNumber(result.GQL.Data)
 }
 
 func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
-	data, ok := gqlData.(map[string]any)
-	if !ok {
-		return 0, nil
+	if gqlData == nil {
+		return 0, ErrNoBlocks
 	}
 
-	blocksRaw := data[p.collections.BlockCollection]
+	data, ok := gqlData.(map[string]any)
+	if !ok {
+		return 0, fmt.Errorf("unexpected GQL data type %T", gqlData)
+	}
+
+	blocksRaw, ok := data[p.collections.BlockCollection]
+	if !ok {
+		return 0, fmt.Errorf("collection %s not found in GQL response", p.collections.BlockCollection)
+	}
 
 	if blocksTyped, ok := blocksRaw.([]map[string]any); ok {
 		if len(blocksTyped) == 0 {
-			return 0, nil
+			return 0, ErrNoBlocks
 		}
-		if number, ok := blocksTyped[0][p.collections.BlockNumberField]; ok {
-			return parseBlockNumber(number)
-		}
-		return 0, nil
+		return p.findFirstValidBlockNumber(blocksTyped)
 	}
 
 	blocks, ok := blocksRaw.([]any)
-	if !ok || len(blocks) == 0 {
-		return 0, nil
-	}
-
-	block, ok := blocks[0].(map[string]any)
 	if !ok {
-		return 0, nil
+		if blocksRaw == nil {
+			return 0, ErrNoBlocks
+		}
+		return 0, fmt.Errorf("unexpected blocks type %T", blocksRaw)
+	}
+	if len(blocks) == 0 {
+		return 0, ErrNoBlocks
 	}
 
-	if number, ok := block[p.collections.BlockNumberField]; ok {
-		return parseBlockNumber(number)
+	typed := make([]map[string]any, 0, len(blocks))
+	for _, block := range blocks {
+		blockMap, ok := block.(map[string]any)
+		if !ok {
+			return 0, fmt.Errorf("unexpected block element type %T", block)
+		}
+		typed = append(typed, blockMap)
 	}
-	return 0, nil
+	return p.findFirstValidBlockNumber(typed)
+}
+
+// findFirstValidBlockNumber iterates through blocks and returns the first valid
+// block number. Blocks with missing or unparseable number fields are counted and
+// skipped — this is not propagated as an error because a single corrupt block
+// (e.g. from P2P replication with a nil number field) must not prevent pruning
+// of all other valid blocks. A single summary warning is logged if any blocks
+// were skipped, instead of one log line per corrupt block.
+func (p *Pruner) findFirstValidBlockNumber(blocks []map[string]any) (int64, error) {
+	skipped := 0
+	for _, block := range blocks {
+		number, ok := block[p.collections.BlockNumberField]
+		if !ok {
+			skipped++
+			continue
+		}
+		blockNumber, err := parseBlockNumber(number)
+		if err != nil {
+			skipped++
+			continue
+		}
+		if skipped > 0 {
+			logger.Sugar.Warnf("Skipped %d block(s) with missing or unparseable number fields", skipped)
+		}
+		return blockNumber, nil
+	}
+	return 0, ErrNoValidBlocks
 }
 
 func parseBlockNumber(number any) (int64, error) {
@@ -547,5 +656,5 @@ func parseBlockNumber(number any) (int64, error) {
 	case int:
 		return int64(v), nil
 	}
-	return 0, nil
+	return 0, fmt.Errorf("unexpected block number type %T", number)
 }
