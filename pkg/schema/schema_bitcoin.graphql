@@ -1,0 +1,98 @@
+type Bitcoin__Mainnet__Block {
+    hash: String @index(unique: true)
+    # Non-unique: forks/orphans can share a height with the canonical block.
+    height: Int @index
+    version: Int
+    previousBlockHash: String
+    merkleRoot: String
+    time: Int
+    bits: String
+    nonce: String
+    chainwork: String
+    transactions: [Bitcoin__Mainnet__Transaction] @relation(name: "block_transactions")
+}
+
+type Bitcoin__Mainnet__BlockSignature {
+    blockHeight: Int @index
+    blockHash: String @index
+    merkleRoot: String
+    cidCount: Int
+    cids: [String]
+    signatureType: String
+    signatureIdentity: String
+    signatureValue: String
+    createdAt: String
+}
+
+type Bitcoin__Mainnet__SnapshotSignature {
+    startBlock: Int @index
+    endBlock: Int
+    merkleRoot: String
+    blockCount: Int
+    signatureType: String
+    signatureIdentity: String
+    signatureValue: String
+    snapshotFile: String
+    createdAt: String
+    blockSigMerkleRoots: [String]
+}
+
+# Composite (blockHeight, txIndex) supports "list txs of block N in order"
+# without sorting in the query layer.
+type Bitcoin__Mainnet__Transaction @index(includes: [{field: "blockHeight"}, {field: "txIndex"}]) {
+    # Non-unique: BIP30 allowed duplicate txids before height 91842.
+    txid: String @index
+    # hash differs from txid for SegWit transactions (witness-included hash)
+    hash: String
+    blockHash: String @index
+    blockHeight: Int
+    # txIndex is position within the block (0 = coinbase)
+    txIndex: Int
+    version: Int
+    locktime: Int
+    # fee in BTC; null when block undo data is unavailable
+    fee: String
+    isCoinbase: Boolean
+    block: Bitcoin__Mainnet__Block @relation(name: "block_transactions")
+    inputs: [Bitcoin__Mainnet__TxInput] @relation(name: "transaction_inputs")
+    outputs: [Bitcoin__Mainnet__TxOutput] @relation(name: "transaction_outputs")
+}
+
+# Transaction input (vin entry).
+# For coinbase inputs, prevTxid/prevVout/scriptSigHex/prevout* are unset
+# and `coinbase` holds the coinbase script.
+# Composite (prevTxid, prevVout) supports the canonical UTXO lookup
+# "which input spent output (txid, vout)?" — the core query for tracing flows.
+type Bitcoin__Mainnet__TxInput @index(includes: [{field: "prevTxid"}, {field: "prevVout"}]) {
+    txid: String @index
+    blockHeight: Int @index
+    inputIndex: Int
+    prevTxid: String
+    prevVout: Int
+    scriptSigHex: String
+    sequence: String
+    coinbase: String
+    witness: [String]
+    # Denormalized prevout fields (the spent output's value, address, type)
+    prevoutValue: String
+    # Index for "all spends from address X" queries.
+    prevoutAddress: String @index
+    prevoutType: String
+    transaction: Bitcoin__Mainnet__Transaction @relation(name: "transaction_inputs")
+}
+
+# Composite (txid, n) is the UTXO key — pair an input's (prevTxid, prevVout)
+# resolves to exactly one output here.
+type Bitcoin__Mainnet__TxOutput @index(includes: [{field: "txid"}, {field: "n"}]) {
+    txid: String
+    blockHeight: Int @index
+    n: Int
+    value: String
+    scriptPubKeyHex: String
+    # Index for "all receipts to address X" queries.
+    scriptPubKeyAddress: String @index
+    # type: nonstandard, anchor, pubkey, pubkeyhash, scripthash, multisig,
+    # nulldata, witness_v0_scripthash, witness_v0_keyhash, witness_v1_taproot, witness_unknown
+    scriptPubKeyType: String
+    transaction: Bitcoin__Mainnet__Transaction @relation(name: "transaction_outputs")
+}
