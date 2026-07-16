@@ -1052,13 +1052,13 @@ func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Blo
 	colBlock, err := txn.GetCollectionByName(ctx, h.collections.Block)
 	if err != nil {
 		txn.Discard()
-		return "", ctx, errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err) //nolint: err113
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err) //nolint: err113
 	}
 
 	blockDoc, err := h.buildBlockDocument(ctx, block, blockInt, colBlock)
 	if err != nil {
 		txn.Discard()
-		return "", ctx, errors.NewQueryFailed("defra", "createBlockBatched", "failed to build block document", err)
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to build block document", err)
 	}
 
 	if err := colBlock.AddDocument(ctx, blockDoc); err != nil {
@@ -1066,13 +1066,13 @@ func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Blo
 		if errors.IsErrAlreadyExists(err) {
 			return "", fmt.Errorf("block already exists") //nolint: err113
 		}
-		return "", ctx, errors.NewQueryFailed("defra", "createBlockBatched", "failed to create block", err)
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create block", err)
 	}
 
 	blockID := blockDoc.ID().String()
 
 	if err := txn.Commit(); err != nil {
-		return "", ctx, errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to commit block", err)
 	}
 
 	return blockID, nil
