@@ -1046,13 +1046,13 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Block, blockInt int64) (string, error) {
 	txn, err := h.db.NewTxn(false)
 	if err != nil {
-		return "", err
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
 	}
 
 	colBlock, err := txn.GetCollectionByName(ctx, h.collections.Block)
 	if err != nil {
 		txn.Discard()
-		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err) //nolint: err113
+		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err)
 	}
 
 	blockDoc, err := h.buildBlockDocument(ctx, block, blockInt, colBlock)
