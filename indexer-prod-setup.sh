@@ -5,7 +5,7 @@ networks:
 
 services:
   shinzo-generator:
-    image: ghcr.io/shinzonetwork/shinzo-generator-client:standard
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:v0.6.5.1-ethereum-mainnet
     user: "1001:1001"
     container_name: shinzo-generator
     restart: unless-stopped
@@ -38,7 +38,7 @@ services:
   nginx:
     image: nginx:alpine
     ports:
-      - "443:8080"
+      - "8080:8080"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ~/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
@@ -49,8 +49,6 @@ services:
       - shinzo-net
     restart: unless-stopped
 EOF
-
-&&
 
 sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
