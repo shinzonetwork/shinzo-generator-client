@@ -455,7 +455,6 @@ func (h *BlockHandler) buildAndCreateSingleTxnDocs(ctx context.Context, txn clie
 	if err != nil {
 		return "", nil, nil, nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to build block document", err)
 	}
-
 	if err := cols.block.AddDocument(ctx, blockDoc); err != nil {
 		if errors.IsErrAlreadyExists(err) {
 			return "", nil, nil, nil, fmt.Errorf("block already exists") //nolint: err113

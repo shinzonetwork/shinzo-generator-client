@@ -11,7 +11,7 @@
 ![License](https://img.shields.io/github/license/shinzonetwork/shinzo-generator-client)
 ![Docker](https://img.shields.io/docker/v/shinzonetwork/shinzo-generator-client)
 
-Blockchain indexing client that connects to EVM nodes and stores block, transaction, and log data in DefraDB.
+Sidecar application that connects to blockchain nodes and stores block, transaction, and log data in DefraDB.
 
 ## Getting started
 
@@ -21,7 +21,7 @@ Copy the sample env file and fill in your node credentials:
 cp .env.sample .env
 ```
 
-Then start the generator with Docker Compose:
+Then start the Generator client with Docker Compose:
 
 ```shell
 docker compose up
