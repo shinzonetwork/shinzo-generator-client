@@ -5,7 +5,7 @@ networks:
 
 services:
   shinzo-generator:
-    image: ghcr.io/shinzonetwork/shinzo-generator-client:v0.6.5-ethereum-mainnet
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:v0.6.5.1-ethereum-mainnet
     user: "1001:1001"
     container_name: shinzo-generator
     restart: unless-stopped
@@ -49,8 +49,6 @@ services:
       - shinzo-net
     restart: unless-stopped
 EOF
-
-&&
 
 sudo tee ~/nginx.conf <<'EOF'
 events { worker_connections 1024; }
