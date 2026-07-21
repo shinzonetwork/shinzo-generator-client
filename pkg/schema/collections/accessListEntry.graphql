@@ -1,6 +1,6 @@
 type Ethereum__Mainnet__AccessListEntry {
     address: String
-    blockNumber: Int
+    blockNumber: Int @index
     storageKeys: [String]
     transaction: Ethereum__Mainnet__Transaction @relation(name: "transaction_accessList")
 }

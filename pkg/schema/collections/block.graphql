@@ -1,6 +1,6 @@
 type Ethereum__Mainnet__Block {
     hash: String
-    number: Int
+    number: Int @index
     timestamp: String
     parentHash: String
     difficulty: String
