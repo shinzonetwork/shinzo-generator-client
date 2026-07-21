@@ -970,9 +970,9 @@ func expectedBlockDocCount(transactions []*types.Transaction, receiptMap map[str
 // createBlockBatched creates all documents for a block using batched transactions. It is the
 // path for blocks exceeding maxDocsPerTxn.
 func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
-	// A batch collector in the context puts DefraDB in batch-signing mode: per-block signing is
-	// skipped and the block is signed once, below, over the CIDs it commits. The collector's
-	// contents are not used for the signature.
+	// The batch collector puts DefraDB in batch-signing mode: per-block signing is skipped and the
+	// block is signed once, below, over the CIDs the writes commit. The collector records one CID
+	// per document (its composite head), which is the set the signature attests.
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
 
@@ -1009,8 +1009,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	blockSigDocID := ""
 	expectedDocs := expectedBlockDocCount(transactions, receiptMap)
 	if len(batchErrors) == 0 && len(allDocIDs) == expectedDocs {
-		if cids, err := h.waitForCIDs(ctx, blockInt, allDocIDs); err != nil {
-			logger.Sugar.Warnf("Block %d: not signing, incomplete CID coverage: %v", blockInt, err)
+		// The collector holds one CID per committed document. Read it before signBlockOverCIDs
+		// writes the signature doc, which would add its own CID. A count short of the written set
+		// means a document was missed, so skip signing rather than attest a subset.
+		cids := collector.GetCIDs()
+		if len(cids) != len(allDocIDs) {
+			logger.Sugar.Warnf("Block %d: not signing, collected %d CIDs for %d documents", blockInt, len(cids), len(allDocIDs))
 		} else if sigID, sigErr := h.signBlockOverCIDs(ctx, blockInt, block.Hash, len(allDocIDs), cids); sigErr != nil {
 			logger.Sugar.Warnf("Block %d: signing failed: %v", blockInt, sigErr)
 		} else {

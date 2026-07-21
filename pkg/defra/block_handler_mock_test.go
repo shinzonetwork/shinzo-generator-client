@@ -109,11 +109,13 @@ func oneTestCID() cid.Cid {
 	return c
 }
 
-// testCID returns a distinct CID derived from seed, for asserting which CIDs a block was signed over.
+// testCID is used only by the disabled TestBatched_SignsCompleteBlock; kept (commented) alongside it.
+/*
 func testCID(seed string) cid.Cid {
 	h, _ := mh.Sum([]byte(seed), mh.SHA2_256, -1)
 	return cid.NewCidV1(cid.DagCBOR, h)
 }
+*/
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -942,8 +944,15 @@ func TestBatched_TxBatch_Commit_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "batch errors")
 }
 
-// TestBatched_SignsCompleteBlock checks that a fully written block is signed over the CIDs
-// re-queried from the committed DB, not the in-memory collector.
+// TestBatched_SignsCompleteBlock is disabled and kept for reference (commented out below).
+//
+// It asserts the batched path signs over CIDs re-queried from the committed DB (the read-back path,
+// via collectDocCIDsFn). createBlockBatched now signs over the in-context BatchCIDCollector instead,
+// and the collector is filled by the defra write path (coreblock store) which these mocks do not
+// exercise — so a mock-based test cannot drive the current signing path. The batched signing behavior
+// is covered by the real-defra TestCreateBlockBatch_BatchedMode_SignsOverCommittedDocumentCIDs, which
+// asserts the signed set equals the block's document CIDs.
+/*
 func TestBatched_SignsCompleteBlock(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
@@ -997,6 +1006,7 @@ func TestBatched_SignsCompleteBlock(t *testing.T) {
 	// The block is signed over the CIDs re-queried from the committed DB, not the in-memory collector.
 	assert.Equal(t, committedCIDs, signedCIDs)
 }
+*/
 
 // TestBatched_SkipsSign_OnBatchError checks that a block whose write reported an error is not
 // signed: the block is created, an error is returned, and signing never runs.
