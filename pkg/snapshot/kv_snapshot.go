@@ -137,21 +137,23 @@ func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writ
 	return roots, nil
 }
 
+// snapshotCollections are the collections a KV snapshot covers. blockField scopes the export to a
+// block range; the same set is reindexed after import (see ImportKV).
+var snapshotCollections = []struct {
+	name       string
+	blockField string
+}{
+	{constants.CollectionBlock, constants.NumberFieldValue},
+	{constants.CollectionTransaction, constants.BlockNumberKeyValue},
+	{constants.CollectionLog, constants.BlockNumberKeyValue},
+	{constants.CollectionAccessListEntry, constants.BlockNumberKeyValue},
+	{constants.CollectionBlockSignature, constants.BlockNumberKeyValue},
+}
+
 // exportCollectionKVs exports KV pairs for all collections in the block range.
 func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, startBlock, endBlock int64) (int, error) {
-	collections := []struct {
-		name       string
-		blockField string
-	}{
-		{constants.CollectionBlock, "number"},                //nolint:goconst
-		{constants.CollectionTransaction, "blockNumber"},     //nolint:goconst
-		{constants.CollectionLog, "blockNumber"},             //nolint:goconst
-		{constants.CollectionAccessListEntry, "blockNumber"}, //nolint:goconst
-		{constants.CollectionBlockSignature, "blockNumber"},  //nolint:goconst
-	}
-
 	totalKVs := 0
-	for _, col := range collections {
+	for _, col := range snapshotCollections {
 		docIDs, err := s.queryDocIDs(ctx, col.name, col.blockField, startBlock, endBlock)
 		if err != nil {
 			return 0, fmt.Errorf("query docIDs for %s: %w", col.name, err)

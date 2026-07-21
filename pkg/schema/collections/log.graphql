@@ -4,7 +4,7 @@ type Ethereum__Mainnet__Log {
     data: String
     transactionHash: String
     blockHash: String
-    blockNumber: Int
+    blockNumber: Int @index
     transactionIndex: Int
     logIndex: Int
     removed: String

@@ -64,6 +64,15 @@ func ImportKV(ctx context.Context, defraNode *node.Node, filePath string) (*Impo
 		return nil, fmt.Errorf("import raw KVs: %w", err) //nolint: err113
 	}
 
+	// Raw KV import writes document data directly and bypasses index maintenance, leaving the
+	// destination's secondary indexes empty. Rebuild them for each imported collection.
+	logger.Sugar.Infof("Rebuilding secondary indexes for %d collections", len(snapshotCollections))
+	for _, col := range snapshotCollections {
+		if rebuildErr := defraNode.DB.RebuildCollectionIndexes(ctx, col.name); rebuildErr != nil {
+			return nil, fmt.Errorf("rebuild indexes for %s: %w", col.name, rebuildErr) //nolint: err113
+		}
+	}
+
 	logger.Sugar.Infof("KV import complete: %d KV pairs imported for blocks %d-%d",
 		count, header.StartBlock, header.EndBlock)
 
