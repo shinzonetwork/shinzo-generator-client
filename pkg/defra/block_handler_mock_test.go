@@ -109,11 +109,13 @@ func oneTestCID() cid.Cid {
 	return c
 }
 
-// testCID returns a distinct CID derived from seed, for asserting which CIDs a block was signed over.
+// testCID is used only by the disabled TestBatched_SignsCompleteBlock; kept (commented) alongside it.
+/*
 func testCID(seed string) cid.Cid {
 	h, _ := mh.Sum([]byte(seed), mh.SHA2_256, -1)
 	return cid.NewCidV1(cid.DagCBOR, h)
 }
+*/
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -942,8 +944,15 @@ func TestBatched_TxBatch_Commit_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "batch errors")
 }
 
-// TestBatched_SignsCompleteBlock checks that a fully written block is signed over the CIDs
-// re-queried from the committed DB, not the in-memory collector.
+// TestBatched_SignsCompleteBlock is disabled and kept for reference (commented out below).
+//
+// It asserts the batched path signs over CIDs re-queried from the committed DB (the read-back path,
+// via collectDocCIDsFn). createBlockBatched now signs over the in-context BatchCIDCollector instead,
+// and the collector is filled by the defra write path (coreblock store) which these mocks do not
+// exercise — so a mock-based test cannot drive the current signing path. The batched signing behavior
+// is covered by the real-defra TestCreateBlockBatch_BatchedMode_SignsOverCommittedDocumentCIDs, which
+// asserts the signed set equals the block's document CIDs.
+/*
 func TestBatched_SignsCompleteBlock(t *testing.T) {
 	t.Parallel()
 	td := setupRealCollectionVersions(t)
@@ -997,6 +1006,7 @@ func TestBatched_SignsCompleteBlock(t *testing.T) {
 	// The block is signed over the CIDs re-queried from the committed DB, not the in-memory collector.
 	assert.Equal(t, committedCIDs, signedCIDs)
 }
+*/
 
 // TestBatched_SkipsSign_OnBatchError checks that a block whose write reported an error is not
 // signed: the block is created, an error is returned, and signing never runs.
@@ -1157,14 +1167,14 @@ func TestBatched_SkipsSign_OnVerifyFailure(t *testing.T) {
 }
 
 // TestWriteBatchWithRetry checks the retry loop: a conflict is retried, a non-conflict error is
-// not, and it gives up after maxBatchRetries.
+// not, it gives up after maxBatchRetries, and a discarded attempt's CIDs are rolled back.
 func TestWriteBatchWithRetry(t *testing.T) {
 	t.Parallel()
 	h := newMockHandler(t, &mockBlockDB{})
 
 	t.Run("retries a conflict then succeeds", func(t *testing.T) {
 		calls := 0
-		err := h.writeBatchWithRetry(100, "log", func() error {
+		err := h.writeBatchWithRetry(context.Background(), 100, "log", func() error {
 			calls++
 			if calls == 1 {
 				return fmt.Errorf("transaction conflict") //nolint:err113
@@ -1177,7 +1187,7 @@ func TestWriteBatchWithRetry(t *testing.T) {
 
 	t.Run("gives up after maxBatchRetries", func(t *testing.T) {
 		calls := 0
-		err := h.writeBatchWithRetry(100, "log", func() error {
+		err := h.writeBatchWithRetry(context.Background(), 100, "log", func() error {
 			calls++
 			return fmt.Errorf("transaction conflict") //nolint:err113
 		})
@@ -1187,12 +1197,32 @@ func TestWriteBatchWithRetry(t *testing.T) {
 
 	t.Run("does not retry a non-conflict error", func(t *testing.T) {
 		calls := 0
-		err := h.writeBatchWithRetry(100, "log", func() error {
+		err := h.writeBatchWithRetry(context.Background(), 100, "log", func() error {
 			calls++
 			return fmt.Errorf("some other error") //nolint:err113
 		})
 		require.Error(t, err)
 		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("rolls back a discarded attempt's CIDs", func(t *testing.T) {
+		collector := node.NewBatchCIDCollector()
+		collector.Add(oneTestCID()) // a CID from an earlier committed batch
+		ctx := node.ContextWithBatchSigning(context.Background(), collector)
+
+		calls := 0
+		err := h.writeBatchWithRetry(ctx, 100, "log", func() error {
+			collector.Add(oneTestCID()) // the attempt records its CID before the transaction commits
+			calls++
+			if calls == 1 {
+				return fmt.Errorf("transaction conflict") //nolint:err113
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, calls)
+		// Earlier CID plus the committed attempt's CID; the discarded attempt's CID was rolled back.
+		assert.Equal(t, 2, collector.Len())
 	})
 }
 

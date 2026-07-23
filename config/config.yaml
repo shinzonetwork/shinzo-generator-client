@@ -63,7 +63,7 @@ pruner:
   max_blocks: 1000          # Number of blocks to retain
   prune_threshold: 1        # Trigger pruning when exceeding max_blocks by this amount
   interval_seconds: 30      # How often to check and prune
-  prune_history: false      # Walk DAG chains to delete historical block versions (2-3x slower)
+  prune_history: true       # Walk DAG chains to delete historical block versions (2-3x slower)
 snapshot:
   enabled: true             # Set to true to enable automatic snapshots before pruning
   dir: "./.defra/snapshots" # Directory to store snapshot files

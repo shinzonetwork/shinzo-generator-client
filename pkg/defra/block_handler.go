@@ -970,9 +970,9 @@ func expectedBlockDocCount(transactions []*types.Transaction, receiptMap map[str
 // createBlockBatched creates all documents for a block using batched transactions. It is the
 // path for blocks exceeding maxDocsPerTxn.
 func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Block, blockInt int64, transactions []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) (string, error) {
-	// A batch collector in the context puts DefraDB in batch-signing mode: per-block signing is
-	// skipped and the block is signed once, below, over the CIDs it commits. The collector's
-	// contents are not used for the signature.
+	// The batch collector puts DefraDB in batch-signing mode: per-block signing is skipped and the
+	// block is signed once, below, over the CIDs the writes commit. The collector records one CID
+	// per document (its composite head), which is the set the signature attests.
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
 
@@ -1009,8 +1009,12 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	blockSigDocID := ""
 	expectedDocs := expectedBlockDocCount(transactions, receiptMap)
 	if len(batchErrors) == 0 && len(allDocIDs) == expectedDocs {
-		if cids, err := h.waitForCIDs(ctx, blockInt, allDocIDs); err != nil {
-			logger.Sugar.Warnf("Block %d: not signing, incomplete CID coverage: %v", blockInt, err)
+		// The collector holds one CID per committed document. Read it before signBlockOverCIDs
+		// writes the signature doc, which would add its own CID. A count short of the written set
+		// means a document was missed, so skip signing rather than attest a subset.
+		cids := collector.GetCIDs()
+		if len(cids) != len(allDocIDs) {
+			logger.Sugar.Warnf("Block %d: not signing, collected %d CIDs for %d documents", blockInt, len(cids), len(allDocIDs))
 		} else if sigID, sigErr := h.signBlockOverCIDs(ctx, blockInt, block.Hash, len(allDocIDs), cids); sigErr != nil {
 			logger.Sugar.Warnf("Block %d: signing failed: %v", blockInt, sigErr)
 		} else {
@@ -1089,11 +1093,23 @@ const (
 )
 
 // writeBatchWithRetry runs write, retrying on a transaction conflict up to maxBatchRetries with
-// backoff. kind names the batch for the retry log.
-func (h *BlockHandler) writeBatchWithRetry(blockInt int64, kind string, write func() error) error {
+// backoff. A discarded attempt's collected CIDs are rolled back so the collector reflects only
+// committed writes. kind names the batch for the retry log.
+func (h *BlockHandler) writeBatchWithRetry(ctx context.Context, blockInt int64, kind string, write func() error) error {
+	collector := node.BatchSigningCollectorFromContext(ctx)
 	for attempt := range maxBatchRetries {
+		mark := 0
+		if collector != nil {
+			mark = collector.Len()
+		}
 		err := write()
-		if err == nil || !errors.IsErrTransactionConflict(err) {
+		if err == nil {
+			return nil
+		}
+		if collector != nil {
+			collector.Truncate(mark)
+		}
+		if !errors.IsErrTransactionConflict(err) {
 			return err
 		}
 		if attempt == maxBatchRetries-1 {
@@ -1120,7 +1136,7 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 		}
 
 		var ids map[string]string
-		err := h.writeBatchWithRetry(blockInt, "transaction", func() error {
+		err := h.writeBatchWithRetry(ctx, blockInt, "transaction", func() error {
 			var e error
 			ids, e = h.createTransactionBatch(ctx, blockInt, batch, blockID)
 			return e
@@ -1219,7 +1235,7 @@ func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, tran
 			continue
 		}
 		var ids []string
-		err := h.writeBatchWithRetry(blockInt, "log", func() error {
+		err := h.writeBatchWithRetry(ctx, blockInt, "log", func() error {
 			var e error
 			ids, e = h.createLogBatch(ctx, blockInt, blockID, batch)
 			return e
@@ -1308,7 +1324,7 @@ func (h *BlockHandler) batchCreateALEs(ctx context.Context, blockInt int64, tran
 		end := min(i+aleBS, len(allALEs))
 		batch := allALEs[i:end]
 		var ids []string
-		err := h.writeBatchWithRetry(blockInt, "access-list", func() error {
+		err := h.writeBatchWithRetry(ctx, blockInt, "access-list", func() error {
 			var e error
 			ids, e = h.createALEBatch(ctx, blockInt, batch)
 			return e

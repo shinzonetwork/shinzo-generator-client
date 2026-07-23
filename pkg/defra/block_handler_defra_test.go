@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"testing"
 
+	cid "github.com/ipfs/go-cid"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
+	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -619,6 +621,59 @@ func TestCreateBlockBatch_BatchedMode_WithSigningIdentity_AndTracker(t *testing.
 	assert.Len(t, tracker.trackedResults[0].TransactionIDs, 2)
 	assert.Len(t, tracker.trackedResults[0].LogIDs, 2)
 	assert.Len(t, tracker.trackedResults[0].AccessListIDs, 1)
+}
+
+// The batched path signs over the CIDs the writes commit (via the in-context collector), not a
+// post-write query. The signed set must equal the block's document CIDs, so the merkle root
+// matches what any other indexer signing the same block produces.
+func TestCreateBlockBatch_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched mode
+	require.NoError(t, err)
+
+	tracker := &mockDocIDTracker{}
+	handler.SetDocIDTracker(tracker)
+
+	// Capture the CIDs handed to the signer.
+	var signedCIDs []cid.Cid
+	inner := handler.signBatchFn
+	handler.signBatchFn = func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		signedCIDs = collector.GetCIDs()
+		return inner(ctx, collector)
+	}
+
+	ctx := ctxWithIdentity(t)
+	block := mockBlock("0x76C") // 1900
+	tx1 := mockTransaction("0xccc1000000000000000000000000000000000000000000000000000000000001", "1900")
+	tx2 := mockTransaction("0xccc2000000000000000000000000000000000000000000000000000000000002", "1900")
+	tx1.AccessList = []types.AccessListEntry{
+		{
+			Address:     "0x0000000000000000000000000000000000000050",
+			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000006"},
+		},
+	}
+	receipt1 := mockReceipt("0xccc1000000000000000000000000000000000000000000000000000000000001", "0x76C")
+	receipt2 := mockReceipt("0xccc2000000000000000000000000000000000000000000000000000000000002", "0x76C")
+
+	blockID, err := handler.CreateBlockBatch(ctx, block, []*types.Transaction{tx1, tx2}, []*types.TransactionReceipt{receipt1, receipt2})
+	require.NoError(t, err)
+	require.NotEmpty(t, blockID)
+
+	// The block was signed: signBlockOverCIDs self-verifies before storing, so a stored signature
+	// id means the collected CIDs produced a consistent signature.
+	require.Len(t, tracker.trackedResults, 1)
+	require.NotEmpty(t, tracker.trackedResults[0].BlockSignatureID, "batched block should be signed")
+	require.NotEmpty(t, signedCIDs)
+
+	// Collect the block's document CIDs independently via the query path and compare sets.
+	docIDs, err := handler.collectExistingBlockDocIDs(ctx, 1900)
+	require.NoError(t, err)
+	queriedCIDs, err := handler.defaultCollectDocCIDs(ctx, docIDs)
+	require.NoError(t, err)
+	require.NotEmpty(t, queriedCIDs)
+	assert.ElementsMatch(t, sortedCIDStrings(queriedCIDs), sortedCIDStrings(signedCIDs),
+		"batched signature must attest exactly the block's document CIDs")
 }
 
 func TestCreateBlockBatch_BatchedMode_DuplicateWithIdentity(t *testing.T) {
