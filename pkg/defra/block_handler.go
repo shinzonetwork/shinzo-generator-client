@@ -1093,11 +1093,23 @@ const (
 )
 
 // writeBatchWithRetry runs write, retrying on a transaction conflict up to maxBatchRetries with
-// backoff. kind names the batch for the retry log.
-func (h *BlockHandler) writeBatchWithRetry(blockInt int64, kind string, write func() error) error {
+// backoff. A discarded attempt's collected CIDs are rolled back so the collector reflects only
+// committed writes. kind names the batch for the retry log.
+func (h *BlockHandler) writeBatchWithRetry(ctx context.Context, blockInt int64, kind string, write func() error) error {
+	collector := node.BatchSigningCollectorFromContext(ctx)
 	for attempt := range maxBatchRetries {
+		mark := 0
+		if collector != nil {
+			mark = collector.Len()
+		}
 		err := write()
-		if err == nil || !errors.IsErrTransactionConflict(err) {
+		if err == nil {
+			return nil
+		}
+		if collector != nil {
+			collector.Truncate(mark)
+		}
+		if !errors.IsErrTransactionConflict(err) {
 			return err
 		}
 		if attempt == maxBatchRetries-1 {
@@ -1124,7 +1136,7 @@ func (h *BlockHandler) batchCreateTransactions(ctx context.Context, blockInt int
 		}
 
 		var ids map[string]string
-		err := h.writeBatchWithRetry(blockInt, "transaction", func() error {
+		err := h.writeBatchWithRetry(ctx, blockInt, "transaction", func() error {
 			var e error
 			ids, e = h.createTransactionBatch(ctx, blockInt, batch, blockID)
 			return e
@@ -1223,7 +1235,7 @@ func (h *BlockHandler) batchCreateLogs(ctx context.Context, blockInt int64, tran
 			continue
 		}
 		var ids []string
-		err := h.writeBatchWithRetry(blockInt, "log", func() error {
+		err := h.writeBatchWithRetry(ctx, blockInt, "log", func() error {
 			var e error
 			ids, e = h.createLogBatch(ctx, blockInt, blockID, batch)
 			return e
@@ -1312,7 +1324,7 @@ func (h *BlockHandler) batchCreateALEs(ctx context.Context, blockInt int64, tran
 		end := min(i+aleBS, len(allALEs))
 		batch := allALEs[i:end]
 		var ids []string
-		err := h.writeBatchWithRetry(blockInt, "access-list", func() error {
+		err := h.writeBatchWithRetry(ctx, blockInt, "access-list", func() error {
 			var e error
 			ids, e = h.createALEBatch(ctx, blockInt, batch)
 			return e

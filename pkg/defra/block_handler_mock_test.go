@@ -1167,14 +1167,14 @@ func TestBatched_SkipsSign_OnVerifyFailure(t *testing.T) {
 }
 
 // TestWriteBatchWithRetry checks the retry loop: a conflict is retried, a non-conflict error is
-// not, and it gives up after maxBatchRetries.
+// not, it gives up after maxBatchRetries, and a discarded attempt's CIDs are rolled back.
 func TestWriteBatchWithRetry(t *testing.T) {
 	t.Parallel()
 	h := newMockHandler(t, &mockBlockDB{})
 
 	t.Run("retries a conflict then succeeds", func(t *testing.T) {
 		calls := 0
-		err := h.writeBatchWithRetry(100, "log", func() error {
+		err := h.writeBatchWithRetry(context.Background(), 100, "log", func() error {
 			calls++
 			if calls == 1 {
 				return fmt.Errorf("transaction conflict") //nolint:err113
@@ -1187,7 +1187,7 @@ func TestWriteBatchWithRetry(t *testing.T) {
 
 	t.Run("gives up after maxBatchRetries", func(t *testing.T) {
 		calls := 0
-		err := h.writeBatchWithRetry(100, "log", func() error {
+		err := h.writeBatchWithRetry(context.Background(), 100, "log", func() error {
 			calls++
 			return fmt.Errorf("transaction conflict") //nolint:err113
 		})
@@ -1197,12 +1197,32 @@ func TestWriteBatchWithRetry(t *testing.T) {
 
 	t.Run("does not retry a non-conflict error", func(t *testing.T) {
 		calls := 0
-		err := h.writeBatchWithRetry(100, "log", func() error {
+		err := h.writeBatchWithRetry(context.Background(), 100, "log", func() error {
 			calls++
 			return fmt.Errorf("some other error") //nolint:err113
 		})
 		require.Error(t, err)
 		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("rolls back a discarded attempt's CIDs", func(t *testing.T) {
+		collector := node.NewBatchCIDCollector()
+		collector.Add(oneTestCID()) // a CID from an earlier committed batch
+		ctx := node.ContextWithBatchSigning(context.Background(), collector)
+
+		calls := 0
+		err := h.writeBatchWithRetry(ctx, 100, "log", func() error {
+			collector.Add(oneTestCID()) // the attempt records its CID before the transaction commits
+			calls++
+			if calls == 1 {
+				return fmt.Errorf("transaction conflict") //nolint:err113
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, calls)
+		// Earlier CID plus the committed attempt's CID; the discarded attempt's CID was rolled back.
+		assert.Equal(t, 2, collector.Len())
 	})
 }
 
