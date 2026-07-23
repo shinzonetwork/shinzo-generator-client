@@ -207,8 +207,8 @@ func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) erro
 		return nil
 	}
 
-	logger.Sugar.Infof("Pruning %d blocks (queue had %d blocks, keeping %d)",
-		result.BlockCount, blockCount, p.cfg.MaxBlocks)
+	logger.Sugar.Infof("Pruning %d blocks (queue had %d blocks, keeping %d, prune_history=%v)",
+		result.BlockCount, blockCount, p.cfg.MaxBlocks, p.cfg.PruneHistory)
 
 	return p.purgeFromDrainResult(ctx, result)
 }
