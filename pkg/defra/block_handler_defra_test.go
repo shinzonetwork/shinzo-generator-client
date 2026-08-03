@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"math/big"
 	"testing"
 
 	cid "github.com/ipfs/go-cid"
@@ -1145,4 +1146,136 @@ func TestGetHighestBlockNumber_ThreeBlocksDescOrder(t *testing.T) {
 	highest, err := handler.GetHighestBlockNumber(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(3600), highest)
+}
+
+// ---------------------------------------------------------------------------
+// GetDocIDsByBlockRange
+// ---------------------------------------------------------------------------
+
+func TestGetDocIDsByBlockRange(t *testing.T) {
+	t.Parallel()
+
+	type blockSeed struct {
+		num     int64
+		txCount int
+	}
+
+	type collectionExpect struct {
+		name  string
+		count int
+	}
+
+	hexNum := func(n int64) string {
+		return "0x" + big.NewInt(n).Text(16)
+	}
+
+	cases := []struct {
+		name        string
+		seeds       []blockSeed
+		from        int64
+		to          int64
+		expects     []collectionExpect
+		expectEmpty bool
+	}{
+		{
+			name:        "EmptyStore",
+			from:        100,
+			to:          200,
+			expectEmpty: true,
+		},
+		{
+			name:  "SingleBlockWithTx",
+			seeds: []blockSeed{{100, 2}},
+			from:  100,
+			to:    100,
+			expects: []collectionExpect{
+				{"Ethereum__Mainnet__Block", 1},
+				{"Ethereum__Mainnet__Transaction", 2},
+				{"Ethereum__Mainnet__Log", 2},
+				{"Ethereum__Mainnet__AccessListEntry", 2},
+				{"Ethereum__Mainnet__BlockSignature", 1},
+			},
+		},
+		{
+			name:  "MultiBlockFullRange",
+			seeds: []blockSeed{{100, 0}, {101, 0}, {102, 0}},
+			from:  100,
+			to:    102,
+			expects: []collectionExpect{
+				{"Ethereum__Mainnet__Block", 3},
+				{"Ethereum__Mainnet__BlockSignature", 3},
+			},
+		},
+		{
+			name:  "MultiBlockSingleBlockRange",
+			seeds: []blockSeed{{100, 0}, {101, 0}, {102, 0}},
+			from:  100,
+			to:    100,
+			expects: []collectionExpect{
+				{"Ethereum__Mainnet__Block", 1},
+				{"Ethereum__Mainnet__BlockSignature", 1},
+			},
+		},
+		{
+			name:        "EmptyRangeNoMatch",
+			seeds:       []blockSeed{{100, 0}, {101, 0}, {102, 0}},
+			from:        200,
+			to:          300,
+			expectEmpty: true,
+		},
+		{
+			name:  "PartialRange",
+			seeds: []blockSeed{{100, 0}, {101, 0}, {102, 0}, {103, 0}, {104, 0}, {105, 0}},
+			from:  102,
+			to:    103,
+			expects: []collectionExpect{
+				{"Ethereum__Mainnet__Block", 2},
+				{"Ethereum__Mainnet__BlockSignature", 2},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			td := testutils.SetupTestDefraDB(t)
+			handler, err := NewBlockHandler(td.Node, 1000, nil)
+			require.NoError(t, err)
+
+			ctx := ctxWithIdentity(t)
+
+			for _, s := range tc.seeds {
+				block := mockBlock(hexNum(s.num))
+				var txs []*types.Transaction
+				var receipts []*types.TransactionReceipt
+				for i := range s.txCount {
+					txHash := deterministicHash("tx-" + big.NewInt(s.num).String() + "-" + big.NewInt(int64(i)).String())
+					tx := mockTransaction(txHash, big.NewInt(s.num).String())
+					tx.AccessList = []types.AccessListEntry{{
+						Address:     "0x0000000000000000000000000000000000000010",
+						StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
+					}}
+					txs = append(txs, tx)
+					receipts = append(receipts, mockReceipt(txHash, hexNum(s.num)))
+				}
+				_, err := handler.CreateBlockBatch(ctx, block, txs, receipts)
+				require.NoError(t, err)
+			}
+
+			result, err := handler.GetDocIDsByBlockRange(ctx, tc.from, tc.to)
+			require.NoError(t, err)
+			assert.NotNil(t, result)
+
+			if tc.expectEmpty {
+				assert.Empty(t, result)
+				return
+			}
+
+			for _, exp := range tc.expects {
+				assert.Contains(t, result, exp.name)
+				assert.Len(t, result[exp.name], exp.count, "collection %s", exp.name)
+			}
+			assert.NotContains(t, result, "Ethereum__Mainnet__SnapshotSignature")
+		})
+	}
 }
