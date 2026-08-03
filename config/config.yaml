@@ -6,6 +6,7 @@
 chain:
   name: "Ethereum"       # Chain name (env: CHAIN_NAME)
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
+  adapter: "evm"         # Chain adapter: "evm" (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
