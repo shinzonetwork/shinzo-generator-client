@@ -126,7 +126,8 @@ func TestEVMAdapter_PreInitGuard(t *testing.T) {
 			return err
 		}},
 		{"FetchAndStoreBlock", func() error {
-			return a.FetchAndStoreBlock(ctx, 1)
+			_, err := a.FetchAndStoreBlock(ctx, 1)
+			return err
 		}},
 	}
 
@@ -213,7 +214,8 @@ func TestEVMAdapter_StoredBlockNumberDelegation(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 
 	// Persist block 100 via the adapter.
-	require.NoError(t, a.FetchAndStoreBlock(context.Background(), 100))
+	_, err = a.FetchAndStoreBlock(context.Background(), 100)
+	require.NoError(t, err)
 
 	highest, err := a.GetHighestStoredBlockNumber(context.Background())
 	require.NoError(t, err)
@@ -295,7 +297,8 @@ func TestEVMAdapter_FetchAndStoreBlock(t *testing.T) {
 			require.NoError(t, a.Init(context.Background(), td.Node))
 
 			for range tc.calls {
-				require.NoError(t, a.FetchAndStoreBlock(context.Background(), tc.blockNum))
+				_, err := a.FetchAndStoreBlock(context.Background(), tc.blockNum)
+				require.NoError(t, err)
 			}
 
 			highest, err := a.GetHighestStoredBlockNumber(context.Background())
@@ -370,7 +373,8 @@ func TestEVMAdapter_ReceiptFallback(t *testing.T) {
 			t.Cleanup(func() { _ = a.Close() })
 			require.NoError(t, a.Init(context.Background(), td.Node))
 
-			require.NoError(t, a.FetchAndStoreBlock(context.Background(), tc.blockNum))
+			_, err := a.FetchAndStoreBlock(context.Background(), tc.blockNum)
+			require.NoError(t, err)
 		})
 	}
 }
@@ -432,7 +436,7 @@ func TestEVMAdapter_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), tc.ctxTimeout)
 			defer cancel()
 
-			err := a.FetchAndStoreBlock(ctx, tc.blockNum)
+			_, err := a.FetchAndStoreBlock(ctx, tc.blockNum)
 			t.Logf("FetchAndStoreBlock error: %v", err)
 		})
 	}
@@ -472,7 +476,8 @@ func TestEVMAdapter_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- a.FetchAndStoreBlock(ctx, 0xddd0)
+		_, err := a.FetchAndStoreBlock(ctx, 0xddd0)
+		errCh <- err
 	}()
 
 	select {
@@ -509,13 +514,14 @@ func TestEVMAdapter_FetchAndStoreBlock_ContextCancelDuringBatch(t *testing.T) {
 	require.NoError(t, a.Init(context.Background(), td.Node))
 
 	// First call: block persists.
-	require.NoError(t, a.FetchAndStoreBlock(context.Background(), 0xdead))
+	_, err := a.FetchAndStoreBlock(context.Background(), 0xdead)
+	require.NoError(t, err)
 
 	// Second call with pre-canceled ctx — either already-exists or ctx error.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := a.FetchAndStoreBlock(ctx, 0xdead)
+	_, err = a.FetchAndStoreBlock(ctx, 0xdead)
 	if err != nil {
 		assert.Error(t, err)
 	}

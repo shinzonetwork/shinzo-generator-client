@@ -36,12 +36,14 @@ type Chain interface {
 	// FetchAndStoreBlock fetches the block and its receipts at the given height
 	// from the chain and persists them via the configured BlockHandler.
 	//
-	// When the block already exists in DefraDB a background signing job is
-	// enqueued and the method returns nil.
+	// It returns the DefraDB docID of the newly created block document. When the
+	// block already exists in DefraDB a background signing job is enqueued, the
+	// method returns nil, and the returned docID is empty (no new document was
+	// created).
 	//
 	// When the block is not yet available on chain the returned error matches
 	// errors.IsErrNotFound so the caller (e.g. the block processor) can retry.
-	FetchAndStoreBlock(ctx context.Context, height int64) error
+	FetchAndStoreBlock(ctx context.Context, height int64) (string, error)
 
 	// FetchHighestBlockNumber returns the latest block number known to the
 	// chain (the on-chain tip), querying the RPC endpoint directly.
