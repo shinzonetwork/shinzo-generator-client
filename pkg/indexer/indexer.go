@@ -13,14 +13,13 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chain"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
 	indexerErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/signer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -66,6 +65,7 @@ const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 type ChainIndexer struct {
 	cfg                       *config.Config
 	collections               *constants.CollectionNames
+	adapter                   *chain.EVMAdapter
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
@@ -154,18 +154,22 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, chainPrefixFromConfig(cfg))
 
-	ctx, err := i.initDefra(ctx, cfg, defraStarted)
+	adapter, err := chain.NewEVMAdapter(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create chain adapter: %w", err)
+	}
+	i.adapter = adapter
+
+	ctx, err = i.initDefra(ctx, cfg, defraStarted)
 	if err != nil {
 		return err
 	}
 
-	blockHandler, ethClient, err := i.initClients(cfg)
-	if err != nil {
-		return err
+	if err := adapter.Init(ctx, i.defraNode); err != nil {
+		return fmt.Errorf("failed to initialize chain adapter: %w", err)
 	}
-	defer func() { _ = ethClient.Close() }()
 
-	nextBlockToProcess, err := i.resolveStartHeight(ctx, cfg, blockHandler, ethClient)
+	nextBlockToProcess, err := i.resolveStartHeight(ctx, cfg, adapter)
 	if err != nil {
 		return err
 	}
@@ -173,13 +177,13 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	i.shouldIndex = true
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
-	if err := i.initServices(ctx, cfg, blockHandler); err != nil {
+	if err := i.initServices(ctx, cfg, adapter); err != nil {
 		return err
 	}
 
 	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers", cfg.Indexer.ConcurrentBlocks)
-		return i.runConcurrentIndexing(ctx, ethClient, blockHandler, nextBlockToProcess, cfg)
+		return i.runConcurrentIndexing(ctx, adapter, nextBlockToProcess, cfg)
 	}
 	return nil
 }
@@ -197,7 +201,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		}
 
 		defraNode, networkHandler, err := defradb.StartDefraInstance(cfg,
-			defradb.NewSchemaApplierFromDir(chainPrefixFromConfig(cfg)), nil, replicationFilter, i.collections.AllCollections()...)
+			defradb.NewSchemaApplierFromDir(chainPrefixFromConfig(cfg)), nil, replicationFilter, i.adapter.GetCollections()...)
 		if err != nil {
 			return ctx, fmt.Errorf("failed to start DefraDB instance: %w", err)
 		}
@@ -232,27 +236,8 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 	return ctx, nil
 }
 
-// initClients creates the block handler and Ethereum client.
-func (i *ChainIndexer) initClients(cfg *config.Config) (*defra.BlockHandler, *rpc.EthereumClient, error) {
-	blockHandler, err := defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn, i.collections)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create block handler: %w", err)
-	}
-	blockHandler.SetBatchSizes(cfg.Indexer.MaxTxDocsPerBatch, cfg.Indexer.MaxLogDocsPerBatch, cfg.Indexer.MaxALEDocsPerBatch)
-	logger.Sugar.Infof("Using direct DB access for embedded DefraDB (maxDocsPerTxn=%d, txBatch=%d, logBatch=%d, aleBatch=%d)",
-		cfg.Indexer.MaxDocsPerTxn, cfg.Indexer.MaxTxDocsPerBatch, cfg.Indexer.MaxLogDocsPerBatch, cfg.Indexer.MaxALEDocsPerBatch)
-
-	ethClient, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey, cfg.Geth.APIKeyType)
-	if err != nil {
-		logCtx := indexerErrors.LogContext(err)
-		logger.Sugar.With("context", logCtx).Fatalf("Failed to connect to Ethereum client: %v", err)
-	}
-
-	return blockHandler, ethClient, nil
-}
-
 // resolveStartHeight determines the block number to start indexing from.
-func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config, blockHandler *defra.BlockHandler, ethClient *rpc.EthereumClient) (int64, error) {
+func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config, chain chain.Chain) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
 	var pruneQueue *pruner.IndexerQueue
@@ -270,7 +255,7 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	}
 
 	if highestExisting == 0 {
-		nBlock, err := blockHandler.GetHighestBlockNumber(ctx)
+		nBlock, err := chain.GetHighestStoredBlockNumber(ctx)
 		if err != nil {
 			logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
 		} else {
@@ -278,11 +263,11 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 		}
 	}
 
-	latestBlock, err := ethClient.GetLatestBlockNumber(ctx)
+	latestBlock, err := chain.FetchHighestBlockNumber(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block number from RPC: %w", err)
 	}
-	chainTip := latestBlock.Int64()
+	chainTip := latestBlock
 	startBuffer := int64(cfg.Indexer.StartBuffer)
 
 	switch {
@@ -321,7 +306,7 @@ func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
 }
 
 // initServices starts the health server, pruner, and snapshotter if configured.
-func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blockHandler *defra.BlockHandler) error {
+func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter *chain.EVMAdapter) error {
 	if cfg.Indexer.HealthServerPort > 0 {
 		if err := i.initHealthServer(cfg); err != nil {
 			return err
@@ -341,7 +326,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 			logger.Sugar.Infof("Restored %d entries from prune queue file", restored)
 		}
 		i.pruner.SetQueue(pruneQueue)
-		blockHandler.SetDocIDTracker(&indexerQueueTracker{
+		adapter.SetDocIDTracker(&indexerQueueTracker{
 			queue:       pruneQueue,
 			collections: i.collections,
 		})
@@ -385,7 +370,7 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 		return err
 	}
 	prefix := chainPrefixFromConfig(cfg)
-	sdl, err := schema.GetSchemaForChain(prefix)
+	sdl, err := i.adapter.GetSchema()
 	if err != nil {
 		return fmt.Errorf("load schema for chain %s: %w", prefix, err)
 	}
@@ -410,8 +395,7 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 // runConcurrentIndexing runs the indexer with concurrent block processing.
 func (i *ChainIndexer) runConcurrentIndexing(
 	ctx context.Context,
-	ethClient *rpc.EthereumClient,
-	blockHandler *defra.BlockHandler,
+	chain chain.Chain,
 	startBlock int64,
 	cfg *config.Config,
 ) error {
@@ -419,10 +403,8 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	i.isStarted = true
 
 	processor := NewConcurrentBlockProcessor(
-		blockHandler,
-		ethClient,
+		chain,
 		cfg.Indexer.ConcurrentBlocks,
-		cfg.Indexer.ReceiptWorkers,
 		cfg.Indexer.BlocksPerMinute,
 	)
 
@@ -454,6 +436,12 @@ func (i *ChainIndexer) StopIndexing() {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultRetryDelay)
 		defer cancel()
 		_ = i.healthServer.Stop(ctx)
+	}
+
+	// Close chain adapter (cancels internal context, drains signing goroutine, closes RPC client)
+	if i.adapter != nil {
+		_ = i.adapter.Close()
+		i.adapter = nil
 	}
 
 	// Stop P2P network handler before closing the node
