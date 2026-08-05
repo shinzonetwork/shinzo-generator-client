@@ -19,6 +19,9 @@ package chain
 import (
 	"context"
 	stderrors "errors"
+
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/sourcenetwork/defradb/node"
 )
 
 // ErrAdapterNotInitialized is returned by methods that require a DefraDB-backed
@@ -72,4 +75,27 @@ type Chain interface {
 	// GetCollections returns the names of all collections for the configured
 	// chain in dependency-safe order.
 	GetCollections() []string
+}
+
+// Adapter extends Chain with the lifecycle methods needed only by the indexer
+// orchestrator. Pruner, snapshotter, and the concurrent block processor depend
+// solely on Chain — their interfaces stay narrow per the Interface Segregation
+// Principle.
+//
+// *EVMAdapter satisfies Adapter via structural typing.
+type Adapter interface {
+	Chain
+
+	// Init connects to the chain RPC endpoint and prepares the adapter for
+	// block processing. Must be called exactly once after DefraDB is started
+	// and before any fetch/store methods are invoked.
+	Init(ctx context.Context, node *node.Node) error
+
+	// Close releases the adapter's RPC connection and background resources.
+	// Safe to call multiple times.
+	Close() error
+
+	// SetDocIDTracker wires the pruner's DocIDTracker so the adapter can
+	// enqueue docIDs for pruning as blocks are stored.
+	SetDocIDTracker(tracker defra.DocIDTrackerInterface)
 }
