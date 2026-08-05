@@ -2400,6 +2400,88 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// ProcessBlocks — out-of-order completion is committed in nonce order.
+// ---------------------------------------------------------------------------
+
+// TestProcessBlocks_OutOfOrderCompletion verifies that collectResults commits
+// blocks strictly in ascending nonce order even when worker results arrive
+// out of order. Block 1002 is artificially slowed so that 1003–1005 complete
+// first; the hold-back loop must stash them in p.pending until 1002 arrives,
+// then commit 1002→1005 in a single pass. Blocks ≥1006 are parked on
+// ctx.Done() so collectResults sees exactly five results.
+//
+// This is a pure unit test: only testutils.MockChain is used (no DefraDB, no
+// RPC server). State is snapshotted BEFORE cancel() to avoid races with
+// parked workers waking up after cancellation.
+func TestProcessBlocks_OutOfOrderCompletion(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	mc := &testutils.MockChain{
+		FetchAndStoreBlockFn: func(ctx context.Context, height int64) (string, error) {
+			switch {
+			case height == 1002:
+				// Slow 1002 so that workers 3/4/5 finish first, producing
+				// out-of-order arrival at resultChan.
+				time.Sleep(250 * time.Millisecond)
+				return fmt.Sprintf("0x%x", height), nil
+			case height >= 1006:
+				// Park extra blocks so collectResults sees no result beyond 1005.
+				<-ctx.Done()
+				return "", ctx.Err()
+			default:
+				return fmt.Sprintf("0x%x", height), nil
+			}
+		},
+	}
+
+	p := NewConcurrentBlockProcessor(mc, 4, 0)
+
+	var (
+		mu        sync.Mutex
+		committed []int64
+		done      = make(chan struct{})
+	)
+	callback := func(blockNum int64) {
+		mu.Lock()
+		committed = append(committed, blockNum)
+		if len(committed) == 5 {
+			close(done)
+		}
+		mu.Unlock()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- p.ProcessBlocks(ctx, 1001, callback)
+	}()
+
+	// Wait for all 5 callbacks to fire (settled state).
+	<-done
+
+	// Race-free snapshot: capture processor state BEFORE cancel() so parked
+	// workers (≥1006) waking up after cancel can't mutate pending/nextToCommit.
+	p.pendingMu.Lock()
+	snapNextToCommit := p.nextToCommit
+	snapPendingLen := len(p.pending)
+	p.pendingMu.Unlock()
+
+	mu.Lock()
+	snapCommitted := append([]int64(nil), committed...)
+	mu.Unlock()
+
+	cancel()
+	err := <-errCh
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, int64(1006), snapNextToCommit, "nextToCommit should have advanced past all 5 blocks")
+	assert.Empty(t, snapPendingLen, "pending map should be drained after ordered commit")
+	assert.Equal(t, []int64{1001, 1002, 1003, 1004, 1005}, snapCommitted,
+		"committed blocks should be in strict nonce order despite out-of-order arrival")
+}
+
+// ---------------------------------------------------------------------------
 // GetPeerInfo — test peer deduplication with mock addresses
 // ---------------------------------------------------------------------------
 
@@ -3525,7 +3607,7 @@ func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// GetPeerInfo — full coverage with P2P enabled via app-sdk StartDefraInstance
+// GetPeerInfo — full coverage with P2P enabled via StartDefraInstance
 // This exercises: selfInfo construction (lines 601-612), peer dedup (624-638),
 // PeerInfo error path (596-598).
 // ---------------------------------------------------------------------------.

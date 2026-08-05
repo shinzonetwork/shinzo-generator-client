@@ -61,11 +61,23 @@ const (
 // defaultListenAddress is the default P2P listen address for the embedded DefraDB node.
 const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 
+// chainAdapter is the unexported seam over *chain.EVMAdapter. It exists so
+// tests can inject a recording wrapper that asserts StartIndexing's call order.
+// *chain.EVMAdapter satisfies it via structural typing.
+type chainAdapter interface {
+	chain.Chain
+	Init(ctx context.Context, node *node.Node) error
+	Close() error
+	SetDocIDTracker(tracker defra.DocIDTrackerInterface)
+}
+
+var _ chainAdapter = (*chain.EVMAdapter)(nil) // compile-time guard
+
 // ChainIndexer is the main indexer that processes blockchain blocks.
 type ChainIndexer struct {
 	cfg                       *config.Config
 	collections               *constants.CollectionNames
-	adapter                   *chain.EVMAdapter
+	adapter                   chainAdapter
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
@@ -306,7 +318,7 @@ func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
 }
 
 // initServices starts the health server, pruner, and snapshotter if configured.
-func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter *chain.EVMAdapter) error {
+func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter chainAdapter) error {
 	if cfg.Indexer.HealthServerPort > 0 {
 		if err := i.initHealthServer(cfg); err != nil {
 			return err
