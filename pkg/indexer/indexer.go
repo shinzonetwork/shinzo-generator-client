@@ -65,7 +65,7 @@ const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 type ChainIndexer struct {
 	cfg                       *config.Config
 	collections               *constants.CollectionNames
-	adapter                   chain.Adapter
+	adapter                   chain.Adapter // TODO: receive via adapterFactory field instead.
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
@@ -154,7 +154,11 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, chainPrefixFromConfig(cfg))
 
-	adapter, err := chain.NewEVMAdapter(cfg)
+	// TODO: replace chain.NewAdapter(cfg) with i.adapterFactory(cfg)
+	// once the adapterFactory field is added (when a second chain package exists).
+	// The factory itself moves to per-chain packages (pkg/chain/evm, pkg/chain/cosmos);
+	// pkg/chain keeps only the Adapter interface. The binary determines the chain.
+	adapter, err := chain.NewAdapter(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create chain adapter: %w", err)
 	}

@@ -20,6 +20,7 @@ import (
 	"context"
 	stderrors "errors"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -98,4 +99,22 @@ type Adapter interface {
 	// SetDocIDTracker wires the pruner's DocIDTracker so the adapter can
 	// enqueue docIDs for pruning as blocks are stored.
 	SetDocIDTracker(tracker defra.DocIDTrackerInterface)
+}
+
+// NewAdapter constructs the chain adapter for the configured chain backend.
+//
+// In Phase 1 the only implementation is the EVM adapter, so this function
+// delegates to NewEVMAdapter unconditionally — no runtime dispatch on
+// cfg.Chain.Adapter. The config value stays validation-only (config.go
+// rejects unknowns); the binary itself determines which chain package is
+// linked, not the config string.
+//
+// pkg/indexer calls this instead of NewEVMAdapter directly so the indexer
+// names only the chain-agnostic Adapter interface and this factory — never
+// an EVM-specific constructor symbol. When a second chain package arrives
+// (Phase 2 per-chain binaries), this default returns to per-chain packages
+// and the indexer receives its factory via constructor injection; the
+// indexer stays untouched.
+func NewAdapter(cfg *config.Config) (Adapter, error) {
+	return NewEVMAdapter(cfg)
 }
