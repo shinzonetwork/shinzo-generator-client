@@ -1995,6 +1995,21 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
+	// Create chain adapter (EVMAdapter) wired to a mock RPC server.
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			return fullBlockResponse("0x1", nil), nil
+		case ethGetBlockReceipts:
+			return []any{}, nil
+		default:
+			return "0x1", nil
+		}
+	})
+	defer rpcServer.Close()
+	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	require.NotNil(t, adapter)
+
 	// Create pruner.
 	p := pruner.NewPruner(&pruner.Config{
 		Enabled:   true,
@@ -2021,6 +2036,7 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 	indexer := &ChainIndexer{
 		shouldIndex:    true,
 		isStarted:      true,
+		adapter:        adapter,
 		defraNode:      td.Node,
 		pruner:         p,
 		snapshotter:    s,
@@ -2029,10 +2045,13 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 		cfg:            &config.Config{},
 	}
 
+	require.NotNil(t, indexer.adapter, "adapter should be set before StopIndexing")
+
 	indexer.StopIndexing()
 
 	assert.False(t, indexer.shouldIndex)
 	assert.False(t, indexer.isStarted)
+	assert.Nil(t, indexer.adapter, "StopIndexing should close and nil the adapter")
 	assert.Nil(t, indexer.defraNode)
 	assert.Nil(t, indexer.pruner)
 	assert.Nil(t, indexer.snapshotter)
