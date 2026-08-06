@@ -68,7 +68,7 @@ type HealthServer struct {
 	defraNode            *node.Node
 	startTime            time.Time
 	healthStatusPagePath string
-	querySnapshotSigsFn  func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error)
+	querySnapshotSigsFn  func(ctx context.Context, n *node.Node, snapshotSigCollection string) (map[string]*snapshot.SnapshotSignatureData, error)
 	shinzoHubRESTBase    string // full base URL injected into the health page template, e.g. "http://testnet.shinzo.network:1317"
 }
 
@@ -359,7 +359,7 @@ func (hs *HealthServer) snapshotsListHandler(w http.ResponseWriter, r *http.Requ
 	var sigs map[string]*snapshot.SnapshotSignatureData
 	if hs.defraNode != nil {
 		var err error
-		sigs, err = hs.querySnapshotSigsFn(r.Context(), hs.defraNode)
+		sigs, err = hs.querySnapshotSigsFn(r.Context(), hs.defraNode, hs.snapshotter.SnapshotSigCollection())
 		if err != nil {
 			logger.Sugar.Warnf("Failed to query snapshot signatures: %v", err)
 		}

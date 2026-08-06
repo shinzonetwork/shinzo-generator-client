@@ -11,16 +11,28 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// BlockRangeReader provides block-range queries and collection metadata.
+// It is a subset of chain.Chain; any chain.Chain implementer satisfies it.
+//
+// Defined locally (rather than importing pkg/chain.Chain) to break an import
+// cycle: pkg/snapshot → pkg/chain → config → pkg/snapshot (config embeds
+// snapshot.Config). Go's structural interfaces mean chain.Adapter,
+// testutils.MockChain, and any other chain.Chain implementer satisfy
+// BlockRangeReader without an explicit implements clause.
+type BlockRangeReader interface {
+	GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
+	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
+	GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error)
+	GetCollections() []string
+}
+
 // queryChunkSize is the number of blocks queried per GraphQL request.
 // to avoid memory pressure from large result sets.
 const (
-	// queryChunkSize is the number of blocks queried per GraphQL request.
-	queryChunkSize int64 = 100
 	// numFileParts is the expected number of parts in a snapshot filename when split by "_".
 	numFileParts = 3
 )
@@ -68,7 +80,13 @@ type Metrics struct {
 type Snapshotter struct {
 	cfg       *Config
 	defraNode *node.Node
+	chain     BlockRangeReader
 	ctx       context.Context //nolint:containedctx // stored from Start(), carries identity for signing
+
+	// blockSigCollection and snapshotSigCollection are the chain-specific
+	// collection names resolved from BlockRangeReader.GetCollections() by New().
+	blockSigCollection    string
+	snapshotSigCollection string
 
 	mu                sync.RWMutex
 	lastSnapshotBlock int64
@@ -77,13 +95,20 @@ type Snapshotter struct {
 	wg                sync.WaitGroup
 }
 
-// New creates a new Snapshotter.
-func New(cfg *Config, defraNode *node.Node) *Snapshotter {
-	return &Snapshotter{
+// New creates a new Snapshotter. The chain argument supplies block-range
+// queries and resolves chain-specific collection names; it may be nil for
+// tests that never invoke checkAndSnapshot.
+func New(cfg *Config, defraNode *node.Node, chain BlockRangeReader) *Snapshotter {
+	s := &Snapshotter{
 		cfg:       cfg,
 		defraNode: defraNode,
+		chain:     chain,
 		stopChan:  make(chan struct{}),
 	}
+	if chain != nil {
+		s.blockSigCollection, s.snapshotSigCollection = resolveSignatureCollections(chain.GetCollections())
+	}
+	return s
 }
 
 // Start begins the background snapshot loop.
@@ -175,6 +200,12 @@ func (s *Snapshotter) GetSnapshotPath(filename string) string {
 	return p
 }
 
+// SnapshotSigCollection returns the resolved SnapshotSignature collection name.
+// The name is resolved once in New from chain.GetCollections(); empty when chain is nil.
+func (s *Snapshotter) SnapshotSigCollection() string {
+	return s.snapshotSigCollection
+}
+
 // scanExisting reads the snapshot directory to find the highest snapshotted block.
 func (s *Snapshotter) scanExisting() {
 	files, err := filepath.Glob(filepath.Join(s.cfg.Dir, "snapshot_*.kvsnap.gz"))
@@ -224,17 +255,21 @@ func (s *Snapshotter) loop(ctx context.Context) {
 }
 
 func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
-	lowest, err := s.getBlockNumber(ctx, "ASC")
+	if s.chain == nil {
+		return nil
+	}
+
+	lowest, err := s.chain.GetLowestStoredBlockNumber(ctx)
 	if err != nil {
-		logger.Sugar.Warnf("Snapshot: getBlockNumber(ASC) failed: %v", err)
+		logger.Sugar.Warnf("Snapshot: GetLowestStoredBlockNumber failed: %v", err)
 		return err
 	}
 	if lowest == 0 {
 		return nil
 	}
-	highest, err := s.getBlockNumber(ctx, "DESC")
+	highest, err := s.chain.GetHighestStoredBlockNumber(ctx)
 	if err != nil {
-		logger.Sugar.Warnf("Snapshot: getBlockNumber(DESC) failed: %v", err)
+		logger.Sugar.Warnf("Snapshot: GetHighestStoredBlockNumber failed: %v", err)
 		return err
 	}
 	if highest == 0 {
@@ -288,55 +323,4 @@ func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
 
 func (s *Snapshotter) createSnapshot(ctx context.Context, startBlock, endBlock int64) error {
 	return s.createKVSnapshot(ctx, startBlock, endBlock)
-}
-
-func (s *Snapshotter) getBlockNumber(ctx context.Context, order string) (int64, error) {
-	query := fmt.Sprintf(`query { %s(order: {number: %s}, limit: 1) { number } }`,
-		constants.CollectionBlock, order)
-
-	result := s.defraNode.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return 0, fmt.Errorf("getBlockNumber(%s): %w", order, result.GQL.Errors[0])
-	}
-
-	data, ok := result.GQL.Data.(map[string]any)
-	if !ok {
-		return 0, nil
-	}
-
-	raw := data[constants.CollectionBlock]
-	if raw == nil {
-		return 0, nil
-	}
-
-	// DefraDB may return []map[string]any or []any depending on the code path.
-	var block map[string]any
-	switch typed := raw.(type) {
-	case []any:
-		if len(typed) == 0 {
-			return 0, nil
-		}
-		block, _ = typed[0].(map[string]any)
-	case []map[string]any:
-		if len(typed) == 0 {
-			return 0, nil
-		}
-		block = typed[0]
-	default:
-		return 0, nil
-	}
-
-	if block == nil {
-		return 0, nil
-	}
-
-	switch v := block["number"].(type) {
-	case float64:
-		return int64(v), nil
-	case int64:
-		return v, nil
-	case int:
-		return int64(v), nil
-	}
-	return 0, nil
 }
