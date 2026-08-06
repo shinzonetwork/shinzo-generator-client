@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -261,6 +262,9 @@ func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
 
 	lowest, err := s.chain.GetLowestStoredBlockNumber(ctx)
 	if err != nil {
+		if errors.IsErrNotFound(err) {
+			return nil
+		}
 		logger.Sugar.Warnf("Snapshot: GetLowestStoredBlockNumber failed: %v", err)
 		return err
 	}
@@ -269,6 +273,9 @@ func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
 	}
 	highest, err := s.chain.GetHighestStoredBlockNumber(ctx)
 	if err != nil {
+		if errors.IsErrNotFound(err) {
+			return nil
+		}
 		logger.Sugar.Warnf("Snapshot: GetHighestStoredBlockNumber failed: %v", err)
 		return err
 	}

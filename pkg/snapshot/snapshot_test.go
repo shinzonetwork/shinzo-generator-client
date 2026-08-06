@@ -1637,9 +1637,8 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 
 	// Verify the second node has no blocks yet
 	s2 := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
-	lowest, err := s2.chain.GetLowestStoredBlockNumber(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), lowest, "second node should have no blocks before import")
+	_, err = s2.chain.GetLowestStoredBlockNumber(ctx)
+	require.Error(t, err, "empty DB should return document-not-found")
 
 	// Import the snapshot into the second node
 	importResult, err := ImportKV(ctx, td2.Node, snapshotFile)
@@ -1649,7 +1648,7 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	assert.Equal(t, int64(1004), importResult.EndBlock)
 
 	// Verify blocks exist in the second node
-	lowest, err = s2.chain.GetLowestStoredBlockNumber(ctx)
+	lowest, err := s2.chain.GetLowestStoredBlockNumber(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1000), lowest, "second node should have block 1000 after import")
 
