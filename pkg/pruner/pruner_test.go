@@ -2,12 +2,14 @@ package pruner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
@@ -606,6 +608,19 @@ func TestGetBlockRange(t *testing.T) {
 		assert.Equal(t, int64(10), lowest)
 		assert.Equal(t, int64(30), highest)
 	})
+}
+
+func TestGetBlockRange_CorruptDataReturnsErrNoValidBlocks(t *testing.T) {
+	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	mock := &testutils.MockChain{
+		GetLowestStoredBlockNumberFn: func(_ context.Context) (int64, error) {
+			return 0, defra.ErrBlockNumberCorrupt
+		},
+	}
+	p := NewPruner(cfg, nil, mock)
+	_, _, err := p.getBlockRange(context.Background())
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNoValidBlocks))
 }
 
 func TestPurgeByDocIDs(t *testing.T) {

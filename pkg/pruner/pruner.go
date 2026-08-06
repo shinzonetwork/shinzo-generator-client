@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
@@ -40,6 +41,12 @@ const (
 
 // ErrNoBlocks indicates that the query succeeded but no blocks were found.
 var ErrNoBlocks = errors.New("no blocks found")
+
+// ErrNoValidBlocks indicates that block documents exist in the store but none
+// have a valid, parseable block number field (data corruption). Unlike
+// ErrNoBlocks, this is a hard error — pruning cannot safely proceed when the
+// block range is uncomputable.
+var ErrNoValidBlocks = errors.New("blocks exist but none have a valid block number")
 
 // Pruner handles periodic removal of old blockchain documents from DefraDB.
 // It supports two queue types:
@@ -468,12 +475,18 @@ func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err 
 		if pkgerrors.IsErrNotFound(err) {
 			return 0, 0, ErrNoBlocks
 		}
+		if errors.Is(err, defra.ErrBlockNumberCorrupt) {
+			return 0, 0, fmt.Errorf("get lowest block: %w", ErrNoValidBlocks)
+		}
 		return 0, 0, fmt.Errorf("get lowest block: %w", err)
 	}
 	highest, err = p.chain.GetHighestStoredBlockNumber(ctx)
 	if err != nil {
 		if pkgerrors.IsErrNotFound(err) {
 			return 0, 0, ErrNoBlocks
+		}
+		if errors.Is(err, defra.ErrBlockNumberCorrupt) {
+			return 0, 0, fmt.Errorf("get highest block: %w", ErrNoValidBlocks)
 		}
 		return 0, 0, fmt.Errorf("get highest block: %w", err)
 	}
