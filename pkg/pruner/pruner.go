@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -55,7 +56,7 @@ var ErrNoValidBlocks = errors.New("blocks exist but none have a valid block numb
 //
 // When no queue is set or the queue is underfilled, falls back to filter-based pruning.
 type Pruner struct {
-	cfg                *Config
+	cfg                *config.PrunerConfig
 	defraNode          *node.Node
 	chain              BlockRangeReader
 	blockCollection    string
@@ -84,7 +85,7 @@ type Metrics struct {
 // NewPruner creates a new Pruner instance.
 // The chain parameter provides block-range queries and collection names;
 // any chain.Chain implementer satisfies the local BlockRangeReader interface.
-func NewPruner(cfg *Config, defraNode *node.Node, chain BlockRangeReader) *Pruner {
+func NewPruner(cfg *config.PrunerConfig, defraNode *node.Node, chain BlockRangeReader) *Pruner {
 	p := &Pruner{
 		cfg:       cfg,
 		defraNode: defraNode,

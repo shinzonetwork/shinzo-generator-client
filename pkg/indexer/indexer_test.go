@@ -1161,7 +1161,7 @@ func TestGetPrunerMetrics_WithPruner(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	p := pruner.NewPruner(&pruner.Config{
+	p := pruner.NewPruner(&config.PrunerConfig{
 		Enabled:   true,
 		MaxBlocks: 1000,
 	}, td.Node, nil)
@@ -1211,7 +1211,7 @@ func TestStopIndexing_WithPruner(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
-	p := pruner.NewPruner(&pruner.Config{
+	p := pruner.NewPruner(&config.PrunerConfig{
 		Enabled:   true,
 		MaxBlocks: 1000,
 	}, td.Node, nil)
@@ -1481,7 +1481,7 @@ func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
 			HealthServerPort: 0, // disabled
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  500,
@@ -2011,7 +2011,7 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 	require.NotNil(t, adapter)
 
 	// Create pruner.
-	p := pruner.NewPruner(&pruner.Config{
+	p := pruner.NewPruner(&config.PrunerConfig{
 		Enabled:   true,
 		MaxBlocks: 1000,
 	}, td.Node, adapter)
@@ -2752,7 +2752,7 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 			HealthServerPort: 19876, // enable health server.
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  100,
@@ -2850,7 +2850,7 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  100,
@@ -3192,7 +3192,7 @@ func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	prunerCfg := &pruner.Config{
+	prunerCfg := &config.PrunerConfig{
 		Enabled:        true,
 		MaxBlocks:      100,
 		PruneThreshold: 10,
@@ -3377,7 +3377,7 @@ func TestStartIndexing_ResumeFromQueue(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  100,
@@ -4145,7 +4145,7 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  100,

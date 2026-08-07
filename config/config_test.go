@@ -611,3 +611,37 @@ indexer:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet implemented")
 }
+
+func TestPrunerConfigMaxDocs(t *testing.T) {
+	cfg := &PrunerConfig{MaxBlocks: 100, DocsPerBlock: 1000}
+	assert.Equal(t, int64(100000), cfg.MaxDocs())
+
+	cfg2 := &PrunerConfig{MaxBlocks: 0, DocsPerBlock: 1000}
+	assert.Equal(t, int64(0), cfg2.MaxDocs())
+}
+
+func TestPrunerConfigSetDefaults(t *testing.T) {
+	t.Run("fills zero values", func(t *testing.T) {
+		cfg := &PrunerConfig{}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(10000), cfg.MaxBlocks)
+		assert.Equal(t, 1000, cfg.DocsPerBlock)
+		assert.Equal(t, 60, cfg.IntervalSeconds)
+	})
+
+	t.Run("preserves non-zero values", func(t *testing.T) {
+		cfg := &PrunerConfig{MaxBlocks: 500, DocsPerBlock: 200, IntervalSeconds: 30}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(500), cfg.MaxBlocks)
+		assert.Equal(t, 200, cfg.DocsPerBlock)
+		assert.Equal(t, 30, cfg.IntervalSeconds)
+	})
+
+	t.Run("fills negative values", func(t *testing.T) {
+		cfg := &PrunerConfig{MaxBlocks: -1, DocsPerBlock: -1, IntervalSeconds: -1}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(10000), cfg.MaxBlocks)
+		assert.Equal(t, 1000, cfg.DocsPerBlock)
+		assert.Equal(t, 60, cfg.IntervalSeconds)
+	})
+}
