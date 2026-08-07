@@ -9,7 +9,6 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"gopkg.in/yaml.v3"
 )
 
@@ -136,15 +135,36 @@ func (c *PrunerConfig) SetDefaults() {
 	}
 }
 
+// SnapshotConfig holds snapshot configuration.
+type SnapshotConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	Dir             string `yaml:"dir"`
+	BlocksPerFile   int64  `yaml:"blocks_per_file"`
+	IntervalSeconds int    `yaml:"interval_seconds"`
+}
+
+// SetDefaults applies default values for unset fields.
+func (c *SnapshotConfig) SetDefaults() {
+	if c.Dir == "" {
+		c.Dir = "./snapshots"
+	}
+	if c.BlocksPerFile <= 0 {
+		c.BlocksPerFile = 1000
+	}
+	if c.IntervalSeconds <= 0 {
+		c.IntervalSeconds = 60
+	}
+}
+
 // Config represents the main configuration structure.
 type Config struct {
-	Chain    ChainConfig     `yaml:"chain"`
-	DefraDB  DefraDBConfig   `yaml:"defradb"`
-	Geth     GethConfig      `yaml:"geth"`
-	Indexer  IndexerConfig   `yaml:"indexer"`
-	Pruner   PrunerConfig    `yaml:"pruner"`
-	Snapshot snapshot.Config `yaml:"snapshot"`
-	Logger   LoggerConfig    `yaml:"logger"`
+	Chain    ChainConfig    `yaml:"chain"`
+	DefraDB  DefraDBConfig  `yaml:"defradb"`
+	Geth     GethConfig     `yaml:"geth"`
+	Indexer  IndexerConfig  `yaml:"indexer"`
+	Pruner   PrunerConfig   `yaml:"pruner"`
+	Snapshot SnapshotConfig `yaml:"snapshot"`
+	Logger   LoggerConfig   `yaml:"logger"`
 }
 
 // LoadConfig loads configuration from a YAML file and environment variables.

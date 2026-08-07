@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const snapshotsDefaultDir = "./snapshots"
+
 func TestLoadConfig_ValidYAML(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
@@ -644,4 +646,64 @@ func TestPrunerConfigSetDefaults(t *testing.T) {
 		assert.Equal(t, 1000, cfg.DocsPerBlock)
 		assert.Equal(t, 60, cfg.IntervalSeconds)
 	})
+}
+
+func TestSnapshotConfigSetDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    SnapshotConfig
+		expected SnapshotConfig
+	}{
+		{
+			name:     "empty config gets all defaults",
+			input:    SnapshotConfig{},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "preset values preserved",
+			input:    SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30},
+			expected: SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30},
+		},
+		{
+			name:     "zero blocks per file gets default",
+			input:    SnapshotConfig{BlocksPerFile: 0},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "negative blocks per file gets default",
+			input:    SnapshotConfig{BlocksPerFile: -5},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "zero interval seconds gets default",
+			input:    SnapshotConfig{IntervalSeconds: 0},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "negative interval seconds gets default",
+			input:    SnapshotConfig{IntervalSeconds: -10},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "enabled true unaffected",
+			input:    SnapshotConfig{Enabled: true},
+			expected: SnapshotConfig{Enabled: true, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "enabled false unaffected",
+			input:    SnapshotConfig{Enabled: false},
+			expected: SnapshotConfig{Enabled: false, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := tt.input
+			cfg.SetDefaults()
+			assert.Equal(t, tt.expected, cfg)
+		})
+	}
 }

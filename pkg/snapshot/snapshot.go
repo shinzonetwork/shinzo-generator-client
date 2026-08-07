@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
@@ -38,27 +39,6 @@ const (
 	numFileParts = 3
 )
 
-// Config holds snapshot configuration.
-type Config struct {
-	Enabled         bool   `yaml:"enabled"`
-	Dir             string `yaml:"dir"`
-	BlocksPerFile   int64  `yaml:"blocks_per_file"`
-	IntervalSeconds int    `yaml:"interval_seconds"`
-}
-
-// SetDefaults applies default values for unset fields.
-func (c *Config) SetDefaults() {
-	if c.Dir == "" {
-		c.Dir = "./snapshots"
-	}
-	if c.BlocksPerFile <= 0 {
-		c.BlocksPerFile = 1000
-	}
-	if c.IntervalSeconds <= 0 {
-		c.IntervalSeconds = 60
-	}
-}
-
 // SnapshotInfo describes a snapshot file on disk.
 //
 //nolint:revive // name is intentionally descriptive; renaming would break external references.
@@ -79,7 +59,7 @@ type Metrics struct {
 
 // Snapshotter exports block data to gzip'd KV snapshot files before they are pruned.
 type Snapshotter struct {
-	cfg       *Config
+	cfg       *config.SnapshotConfig
 	defraNode *node.Node
 	chain     BlockRangeReader
 	ctx       context.Context //nolint:containedctx // stored from Start(), carries identity for signing
@@ -99,7 +79,7 @@ type Snapshotter struct {
 // New creates a new Snapshotter. The chain argument supplies block-range
 // queries and resolves chain-specific collection names; it may be nil for
 // tests that never invoke checkAndSnapshot.
-func New(cfg *Config, defraNode *node.Node, chain BlockRangeReader) *Snapshotter {
+func New(cfg *config.SnapshotConfig, defraNode *node.Node, chain BlockRangeReader) *Snapshotter {
 	s := &Snapshotter{
 		cfg:       cfg,
 		defraNode: defraNode,

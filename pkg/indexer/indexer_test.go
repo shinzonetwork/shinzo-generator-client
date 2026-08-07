@@ -1181,7 +1181,7 @@ func TestStopIndexing_WithSnapshotter(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	dir := t.TempDir()
-	snapCfg := &snapshot.Config{
+	snapCfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             dir,
 		BlocksPerFile:   1000,
@@ -1487,7 +1487,7 @@ func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
 			PruneThreshold:  500,
 			IntervalSeconds: 3600,
 		},
-		Snapshot: snapshot.Config{
+		Snapshot: config.SnapshotConfig{
 			Enabled:         true,
 			Dir:             filepath.Join(tmpDir, "snapshots"),
 			BlocksPerFile:   1000,
@@ -2018,7 +2018,7 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 
 	// Create snapshotter.
 	snapDir := t.TempDir()
-	snapCfg := &snapshot.Config{
+	snapCfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             snapDir,
 		BlocksPerFile:   1000,
@@ -2758,7 +2758,7 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 			PruneThreshold:  100,
 			IntervalSeconds: 60,
 		},
-		Snapshot: snapshot.Config{
+		Snapshot: config.SnapshotConfig{
 			Enabled:         true,
 			Dir:             snapshotDir,
 			BlocksPerFile:   1000,
@@ -2856,7 +2856,7 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 			PruneThreshold:  100,
 			IntervalSeconds: 60,
 		},
-		Snapshot: snapshot.Config{
+		Snapshot: config.SnapshotConfig{
 			Enabled:         true,
 			Dir:             snapshotDir,
 			BlocksPerFile:   1000,
@@ -3201,7 +3201,7 @@ func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 	p.SetQueue(pruner.NewIndexerQueue())
 
 	snapshotDir := t.TempDir()
-	s := snapshot.New(&snapshot.Config{
+	s := snapshot.New(&config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             snapshotDir,
 		BlocksPerFile:   100,
@@ -4969,7 +4969,7 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		Snapshot: snapshot.Config{
+		Snapshot: config.SnapshotConfig{
 			Enabled:         true,
 			Dir:             filepath.Join(filepath.Clean(invalidSnapshotPath), "nested"), // under a file → MkdirAll fails.
 			BlocksPerFile:   1000,
