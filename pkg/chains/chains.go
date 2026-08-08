@@ -14,7 +14,7 @@
 // minimal EVMAdapter implementation. The adapter is additive dead-code at this
 // stage: nothing in the hot path is wired to it yet (Steps 2-5 perform the
 // rewiring).
-package chain
+package chains
 
 import (
 	"context"

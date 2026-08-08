@@ -20,7 +20,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -1016,7 +1016,7 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 
 // newTestEVMAdapter creates an EVMAdapter wired to the given mock RPC server
 // and test DefraDB node. The adapter's Close is registered for test cleanup.
-func newTestEVMAdapter(t *testing.T, td *testutils.TestDefraDB, rpcServerURL string, receiptWorkers int) *chain.EVMAdapter {
+func newTestEVMAdapter(t *testing.T, td *testutils.TestDefraDB, rpcServerURL string, receiptWorkers int) *chains.EVMAdapter {
 	t.Helper()
 	cfg := &config.Config{
 		Chain: config.ChainConfig{
@@ -1035,7 +1035,7 @@ func newTestEVMAdapter(t *testing.T, td *testutils.TestDefraDB, rpcServerURL str
 			MaxALEDocsPerBatch: 100,
 		},
 	}
-	adapter, err := chain.NewEVMAdapter(cfg)
+	adapter, err := chains.NewEVMAdapter(cfg)
 	require.NoError(t, err)
 	require.NoError(t, adapter.Init(context.Background(), td.Node))
 	t.Cleanup(func() { _ = adapter.Close() })

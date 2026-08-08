@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -65,7 +65,7 @@ const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 type ChainIndexer struct {
 	cfg                       *config.Config
 	collections               *constants.CollectionNames
-	adapter                   chain.Adapter // TODO: receive via adapterFactory field instead.
+	adapter                   chains.Adapter // TODO: receive via adapterFactory field instead.
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
@@ -118,7 +118,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	}, nil
 }
 
-// chainPrefixFromConfig returns the collection name prefix for the configured chain.
+// chainPrefixFromConfig returns the collection name prefix for the configured chains.
 // Falls back to the default Ethereum mainnet prefix for backward compatibility.
 func chainPrefixFromConfig(cfg *config.Config) string {
 	if cfg == nil {
@@ -154,11 +154,11 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, chainPrefixFromConfig(cfg))
 
-	// TODO: replace chain.NewAdapter(cfg) with i.adapterFactory(cfg)
+	// TODO: replace chains.NewAdapter(cfg) with i.adapterFactory(cfg)
 	// once the adapterFactory field is added (when a second chain package exists).
 	// The factory itself moves to per-chain packages (pkg/chain/evm, pkg/chain/cosmos);
-	// pkg/chain keeps only the Adapter interface. The binary determines the chain.
-	adapter, err := chain.NewAdapter(cfg)
+	// pkg/chain keeps only the Adapter interface. The binary determines the chains.
+	adapter, err := chains.NewAdapter(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create chain adapter: %w", err)
 	}
@@ -241,7 +241,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 }
 
 // resolveStartHeight determines the block number to start indexing from.
-func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config, chain chain.Chain) (int64, error) {
+func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config, chain chains.Chain) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
 	var pruneQueue *pruner.IndexerQueue
@@ -310,7 +310,7 @@ func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
 }
 
 // initServices starts the health server, pruner, and snapshotter if configured.
-func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter chain.Adapter) error {
+func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter chains.Adapter) error {
 	if cfg.Indexer.HealthServerPort > 0 {
 		if err := i.initHealthServer(cfg); err != nil {
 			return err
@@ -399,7 +399,7 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 // runConcurrentIndexing runs the indexer with concurrent block processing.
 func (i *ChainIndexer) runConcurrentIndexing(
 	ctx context.Context,
-	chain chain.Chain,
+	chain chains.Chain,
 	startBlock int64,
 	cfg *config.Config,
 ) error {
