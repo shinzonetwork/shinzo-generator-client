@@ -13,7 +13,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
@@ -61,7 +60,7 @@ func TestNewAdapter(t *testing.T) {
 			tc.cfgMutator(cfg)
 			a := newAdapter(cfg, &fakeRPCClient{})
 
-			expected := constants.NewCollectionNames(tc.expectedPrefix)
+			expected := NewCollectionNames(tc.expectedPrefix)
 			assert.Equal(t, expected, a.collections)
 			assert.Equal(t, tc.expectedWorkers, a.receiptWorkers)
 			assert.NotNil(t, a.signingChan)
@@ -94,10 +93,10 @@ func TestAdapter_GetCollections(t *testing.T) {
 	a := newAdapter(cfg, &fakeRPCClient{})
 
 	got := a.GetCollections()
-	expected := constants.NewCollectionNames("Ethereum__Mainnet").AllCollections()
+	expected := NewCollectionNames("Ethereum__Mainnet").AllCollections()
 	assert.Equal(t, expected, got)
-	assert.Contains(t, got, constants.DefaultCollectionPrefix+"__BlockSignature")
-	assert.Contains(t, got, constants.DefaultCollectionPrefix+"__SnapshotSignature")
+	assert.Contains(t, got, DefaultCollectionPrefix+"__BlockSignature")
+	assert.Contains(t, got, DefaultCollectionPrefix+"__SnapshotSignature")
 }
 
 // ---------------------------------------------------------------------------

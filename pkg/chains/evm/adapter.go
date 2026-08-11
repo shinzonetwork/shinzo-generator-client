@@ -9,7 +9,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -76,7 +75,7 @@ type signingJob struct {
 type Adapter struct {
 	client         rpcClient
 	blockHandler   *defra.BlockHandler
-	collections    *constants.CollectionNames
+	collections    *EVMCollectionNames
 	receiptWorkers int
 	signingChan    chan signingJob
 	node           *node.Node
@@ -106,7 +105,7 @@ func NewAdapter(cfg *config.Config) (*Adapter, error) {
 // the exported NewAdapter (production) and by tests (with a fake client).
 func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 	prefix := chainPrefixFromConfig(cfg)
-	collections := constants.NewCollectionNames(prefix)
+	collections := NewCollectionNames(prefix)
 
 	receiptWorkers := 0
 	if cfg != nil {
@@ -129,7 +128,7 @@ func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 // from the chain config, applying the same defaults as the existing indexer.
 func chainPrefixFromConfig(cfg *config.Config) string {
 	if cfg == nil {
-		return constants.DefaultCollectionPrefix
+		return DefaultCollectionPrefix
 	}
 	name := cfg.Chain.Name
 	network := cfg.Chain.Network
@@ -403,9 +402,6 @@ func (a *Adapter) SetDocIDTracker(tracker defra.DocIDTrackerInterface) {
 	}
 }
 
-// Temporary registration: NewAdapter still lives in package chains during
-// Phase 1. When Phase 2 moves it to pkg/chains/evm, this init() moves too
-// and pkg/chains becomes a true leaf.
 func init() {
 	chains.RegisterAdapter("evm", func(cfg *config.Config) (chains.Adapter, error) {
 		return NewAdapter(cfg)
