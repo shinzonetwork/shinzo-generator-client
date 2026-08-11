@@ -15,6 +15,7 @@ package chains
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/sourcenetwork/defradb/node"
@@ -92,20 +93,39 @@ type Adapter interface {
 	Close() error
 }
 
+// AdapterFactory is the constructor signature each chain family registers
+// under cfg.Chain.Adapter (e.g. "evm", future "cosmos").
+type AdapterFactory func(*config.Config) (Adapter, error)
+
+// adapterRegistry maps adapter names to their factory functions.
+// Populated by each chain package's init() via RegisterAdapter.
+var adapterRegistry = map[string]AdapterFactory{} //nolint:gochecknoglobals
+
+// RegisterAdapter registers a chain-family factory under the given name.
+// Called from each chain package's init(). Safe to call multiple times per
+// name (last wins; tests re-register freely).
+func RegisterAdapter(name string, f AdapterFactory) {
+	adapterRegistry[name] = f
+}
+
 // NewAdapter constructs the chain adapter for the configured chain backend.
 //
-// In Phase 1 the only implementation is the EVM adapter, so this function
-// delegates to NewEVMAdapter unconditionally — no runtime dispatch on
-// cfg.Chain.Adapter. The config value stays validation-only (config.go
-// rejects unknowns); the binary itself determines which chain package is
-// linked, not the config string.
+// Dispatch is via the init-time adapter registry: each chain package (e.g.
+// pkg/chains/evm) calls RegisterAdapter in its init(), and the binary
+// blank-imports the package so the registration runs. pkg/chains never
+// imports any chain subpackage, keeping the dependency graph acyclic.
 //
-// pkg/indexer calls this instead of NewEVMAdapter directly so the indexer
-// names only the chain-agnostic Adapter interface and this factory — never
-// an EVM-specific constructor symbol. When a second chain package arrives
-// (Phase 2 per-chain binaries), this default returns to per-chain packages
-// and the indexer receives its factory via constructor injection; the
-// indexer stays untouched.
+// pkg/indexer calls this instead of a concrete constructor directly so the
+// indexer names only the chain-agnostic Adapter interface and this factory —
+// never a chain-specific constructor symbol.
 func NewAdapter(cfg *config.Config) (Adapter, error) {
-	return NewEVMAdapter(cfg)
+	name := cfg.Chain.Adapter
+	if name == "" {
+		name = "evm"
+	}
+	f, ok := adapterRegistry[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown chain adapter %q", ErrAdapterNotInitialized, name)
+	}
+	return f(cfg)
 }

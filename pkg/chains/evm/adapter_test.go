@@ -1,4 +1,4 @@
-package chains
+package evm
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -22,7 +23,7 @@ import (
 // Construction
 // ---------------------------------------------------------------------------
 
-func TestNewEVMAdapter(t *testing.T) {
+func TestNewAdapter(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -58,7 +59,7 @@ func TestNewEVMAdapter(t *testing.T) {
 			t.Parallel()
 			cfg := testConfig()
 			tc.cfgMutator(cfg)
-			a := newEVMAdapter(cfg, &fakeRPCClient{})
+			a := newAdapter(cfg, &fakeRPCClient{})
 
 			expected := constants.NewCollectionNames(tc.expectedPrefix)
 			assert.Equal(t, expected, a.collections)
@@ -72,10 +73,10 @@ func TestNewEVMAdapter(t *testing.T) {
 // GetSchema / GetCollections (valid before Init)
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_GetSchema(t *testing.T) {
+func TestAdapter_GetSchema(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	a := newEVMAdapter(cfg, &fakeRPCClient{})
+	a := newAdapter(cfg, &fakeRPCClient{})
 
 	got, err := a.GetSchema()
 	require.NoError(t, err)
@@ -87,10 +88,10 @@ func TestEVMAdapter_GetSchema(t *testing.T) {
 	assert.Equal(t, def, got)
 }
 
-func TestEVMAdapter_GetCollections(t *testing.T) {
+func TestAdapter_GetCollections(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	a := newEVMAdapter(cfg, &fakeRPCClient{})
+	a := newAdapter(cfg, &fakeRPCClient{})
 
 	got := a.GetCollections()
 	expected := constants.NewCollectionNames("Ethereum__Mainnet").AllCollections()
@@ -103,10 +104,10 @@ func TestEVMAdapter_GetCollections(t *testing.T) {
 // Pre-Init guards
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_PreInitGuard(t *testing.T) {
+func TestAdapter_PreInitGuard(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	a := newEVMAdapter(cfg, &fakeRPCClient{})
+	a := newAdapter(cfg, &fakeRPCClient{})
 	ctx := context.Background()
 
 	cases := []struct {
@@ -134,7 +135,7 @@ func TestEVMAdapter_PreInitGuard(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			assert.ErrorIs(t, tc.call(), ErrAdapterNotInitialized)
+			assert.ErrorIs(t, tc.call(), chains.ErrAdapterNotInitialized)
 		})
 	}
 }
@@ -143,7 +144,7 @@ func TestEVMAdapter_PreInitGuard(t *testing.T) {
 // FetchHighestBlockNumber delegation (to rpcClient)
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_FetchHighestBlockNumber(t *testing.T) {
+func TestAdapter_FetchHighestBlockNumber(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -172,7 +173,7 @@ func TestEVMAdapter_FetchHighestBlockNumber(t *testing.T) {
 			t.Parallel()
 			cfg := testConfig()
 			client := &fakeRPCClient{latestNum: tc.latestNum, latestErr: tc.latestErr}
-			a := newEVMAdapter(cfg, client)
+			a := newAdapter(cfg, client)
 
 			n, err := a.FetchHighestBlockNumber(context.Background())
 			if tc.wantErr {
@@ -190,7 +191,7 @@ func TestEVMAdapter_FetchHighestBlockNumber(t *testing.T) {
 // GetHighest/GetLowestStoredBlockNumber/GetDocIDsByBlockRange delegation (to BlockHandler)
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_StoredBlockNumberDelegation(t *testing.T) {
+func TestAdapter_StoredBlockNumberDelegation(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cfg := testConfig()
@@ -199,7 +200,7 @@ func TestEVMAdapter_StoredBlockNumberDelegation(t *testing.T) {
 		batchErr:  stderrors.New("batch receipts unavailable"),
 		latestNum: big.NewInt(100),
 	}
-	a := newEVMAdapter(cfg, client)
+	a := newAdapter(cfg, client)
 	t.Cleanup(func() { _ = a.Close() })
 
 	require.NoError(t, a.Init(context.Background(), td.Node))
@@ -244,7 +245,7 @@ func TestEVMAdapter_StoredBlockNumberDelegation(t *testing.T) {
 // FetchAndStoreBlock: persistence, duplicate, batch receipts
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_FetchAndStoreBlock(t *testing.T) {
+func TestAdapter_FetchAndStoreBlock(t *testing.T) {
 	t.Parallel()
 
 	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -292,7 +293,7 @@ func TestEVMAdapter_FetchAndStoreBlock(t *testing.T) {
 				block:         block,
 				batchReceipts: tc.batchReceipts,
 			}
-			a := newEVMAdapter(cfg, client)
+			a := newAdapter(cfg, client)
 			t.Cleanup(func() { _ = a.Close() })
 			require.NoError(t, a.Init(context.Background(), td.Node))
 
@@ -312,7 +313,7 @@ func TestEVMAdapter_FetchAndStoreBlock(t *testing.T) {
 // Receipt fallback (batch fails → individual GetTransactionReceipt)
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_ReceiptFallback(t *testing.T) {
+func TestAdapter_ReceiptFallback(t *testing.T) {
 	t.Parallel()
 
 	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -369,7 +370,7 @@ func TestEVMAdapter_ReceiptFallback(t *testing.T) {
 				batchErr:    fmt.Errorf("eth_getBlockReceipts not supported"),
 				txReceiptFn: tc.txReceiptFn,
 			}
-			a := newEVMAdapter(cfg, client)
+			a := newAdapter(cfg, client)
 			t.Cleanup(func() { _ = a.Close() })
 			require.NoError(t, a.Init(context.Background(), td.Node))
 
@@ -383,7 +384,7 @@ func TestEVMAdapter_ReceiptFallback(t *testing.T) {
 // Context cancellation during receipt fetch
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_ReceiptFallback_ContextCancelTiming(t *testing.T) {
+func TestAdapter_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 	t.Parallel()
 
 	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -429,7 +430,7 @@ func TestEVMAdapter_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 					return fakeReceipt(txHash, tc.blockNum), nil
 				},
 			}
-			a := newEVMAdapter(cfg, client)
+			a := newAdapter(cfg, client)
 			t.Cleanup(func() { _ = a.Close() })
 			require.NoError(t, a.Init(context.Background(), td.Node))
 
@@ -442,7 +443,7 @@ func TestEVMAdapter_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 	}
 }
 
-func TestEVMAdapter_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) {
+func TestAdapter_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cfg := testConfig()
@@ -467,7 +468,7 @@ func TestEVMAdapter_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.
 			return nil, fmt.Errorf("timeout")
 		},
 	}
-	a := newEVMAdapter(cfg, client)
+	a := newAdapter(cfg, client)
 	t.Cleanup(func() { _ = a.Close() })
 	require.NoError(t, a.Init(context.Background(), td.Node))
 
@@ -501,7 +502,7 @@ func TestEVMAdapter_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.
 // Context cancellation during batch creation
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_FetchAndStoreBlock_ContextCancelDuringBatch(t *testing.T) {
+func TestAdapter_FetchAndStoreBlock_ContextCancelDuringBatch(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cfg := testConfig()
@@ -509,7 +510,7 @@ func TestEVMAdapter_FetchAndStoreBlock_ContextCancelDuringBatch(t *testing.T) {
 		block:         fakeBlock(0xdead),
 		batchReceipts: []*types.TransactionReceipt{},
 	}
-	a := newEVMAdapter(cfg, client)
+	a := newAdapter(cfg, client)
 	t.Cleanup(func() { _ = a.Close() })
 	require.NoError(t, a.Init(context.Background(), td.Node))
 
@@ -531,11 +532,11 @@ func TestEVMAdapter_FetchAndStoreBlock_ContextCancelDuringBatch(t *testing.T) {
 // Close
 // ---------------------------------------------------------------------------
 
-func TestEVMAdapter_CloseClosesClient(t *testing.T) {
+func TestAdapter_CloseClosesClient(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	client := &fakeRPCClient{}
-	a := newEVMAdapter(cfg, client)
+	a := newAdapter(cfg, client)
 
 	require.NoError(t, a.Close())
 	assert.True(t, client.closed)

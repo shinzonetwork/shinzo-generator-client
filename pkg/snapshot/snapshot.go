@@ -18,13 +18,13 @@ import (
 )
 
 // BlockRangeReader provides block-range queries and collection metadata.
-// It is a subset of chain.Chain; any chain.Chain implementer satisfies it.
+// It is a subset of chains.Chain; any chains.Chain implementer satisfies it.
 //
-// Defined locally (rather than importing pkg/chain.Chain) to break an import
-// cycle: pkg/snapshot → pkg/chain → config → pkg/snapshot (config embeds
-// snapshot.Config). Go's structural interfaces mean chain.Adapter,
-// testutils.MockChain, and any other chain.Chain implementer satisfy
-// BlockRangeReader without an explicit implements clause.
+// Defined locally (rather than importing pkg/chains.Chain) to keep the
+// snapshotter's dependency surface narrow per the Interface Segregation
+// Principle. pkg/chains imports config (for AdapterFactory), and config defines
+// SnapshotConfig directly, so no import cycle exists — the local interface is
+// a design choice, not a cycle-breaking necessity.
 type BlockRangeReader interface {
 	GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
 	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)

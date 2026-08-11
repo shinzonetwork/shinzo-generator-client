@@ -1,4 +1,4 @@
-package chains
+package evm
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
@@ -59,11 +60,11 @@ type signingJob struct {
 	receipts     []*types.TransactionReceipt
 }
 
-// EVMAdapter is a Chain implementation backed by an EVM JSON-RPC endpoint and a
+// Adapter is a Chain implementation backed by an EVM JSON-RPC endpoint and a
 // DefraDB BlockHandler.
 //
 // Lifecycle:
-//   - NewEVMAdapter dials the RPC endpoint and builds the collection names from
+//   - NewAdapter dials the RPC endpoint and builds the collection names from
 //     the configured chain prefix.
 //   - Init creates the BlockHandler from a running DefraDB node, sets the batch
 //     sizes and starts the background signing goroutine.
@@ -72,7 +73,7 @@ type signingJob struct {
 //
 // Before Init only GetSchema and GetCollections are valid; every other method
 // returns ErrAdapterNotInitialized.
-type EVMAdapter struct {
+type Adapter struct {
 	client         rpcClient
 	blockHandler   *defra.BlockHandler
 	collections    *constants.CollectionNames
@@ -84,26 +85,26 @@ type EVMAdapter struct {
 	cfg            *config.Config
 }
 
-// Compile-time guarantee that EVMAdapter implements Chain.
-var _ Chain = (*EVMAdapter)(nil)
+// Compile-time guarantee that Adapter implements Chain.
+var _ chains.Chain = (*Adapter)(nil)
 
-// NewEVMAdapter dials the configured RPC endpoint and returns an EVMAdapter
+// NewAdapter dials the configured RPC endpoint and returns an Adapter
 // ready to be initialised. Init must still be called before DefraDB-backed
 // methods can be used.
-func NewEVMAdapter(cfg *config.Config) (*EVMAdapter, error) {
+func NewAdapter(cfg *config.Config) (*Adapter, error) {
 	if cfg == nil {
-		return nil, errors.NewConfigurationError("chain", "NewEVMAdapter", "config is nil", "", nil)
+		return nil, errors.NewConfigurationError("chain", "NewAdapter", "config is nil", "", nil)
 	}
 	client, err := rpc.NewEthereumClient(cfg.Geth.NodeURL, cfg.Geth.WsURL, cfg.Geth.APIKey, cfg.Geth.APIKeyType)
 	if err != nil {
 		return nil, fmt.Errorf("create ethereum client: %w", err)
 	}
-	return newEVMAdapter(cfg, client), nil
+	return newAdapter(cfg, client), nil
 }
 
-// newEVMAdapter builds an EVMAdapter with an injected rpcClient. It is used by
-// the exported NewEVMAdapter (production) and by tests (with a fake client).
-func newEVMAdapter(cfg *config.Config, client rpcClient) *EVMAdapter {
+// newAdapter builds an Adapter with an injected rpcClient. It is used by
+// the exported NewAdapter (production) and by tests (with a fake client).
+func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 	prefix := chainPrefixFromConfig(cfg)
 	collections := constants.NewCollectionNames(prefix)
 
@@ -115,7 +116,7 @@ func newEVMAdapter(cfg *config.Config, client rpcClient) *EVMAdapter {
 		receiptWorkers = 16 //nolint:mnd
 	}
 
-	return &EVMAdapter{
+	return &Adapter{
 		client:         client,
 		collections:    collections,
 		receiptWorkers: receiptWorkers,
@@ -144,7 +145,7 @@ func chainPrefixFromConfig(cfg *config.Config) string {
 // Init wires the adapter to a running DefraDB node. After Init returns the
 // BlockHandler-backed methods are usable and the background signing goroutine
 // is running.
-func (a *EVMAdapter) Init(ctx context.Context, defraNode *node.Node) error {
+func (a *Adapter) Init(ctx context.Context, defraNode *node.Node) error {
 	if a.cfg == nil {
 		return errors.NewConfigurationError("chain", "Init", "config is nil", "", nil)
 	}
@@ -169,7 +170,7 @@ func (a *EVMAdapter) Init(ctx context.Context, defraNode *node.Node) error {
 
 // signBlocks drains the signing channel, signing existing blocks in the
 // background. It mirrors the signing goroutine in concurrent_processor.go.
-func (a *EVMAdapter) signBlocks(ctx context.Context) {
+func (a *Adapter) signBlocks(ctx context.Context) {
 	defer a.wg.Done()
 	for job := range a.signingChan {
 		if ctx.Err() != nil {
@@ -185,7 +186,7 @@ func (a *EVMAdapter) signBlocks(ctx context.Context) {
 
 // Close cancels the internal lifecycle, drains the signing goroutine and
 // closes the RPC client. It is idempotent.
-func (a *EVMAdapter) Close() error {
+func (a *Adapter) Close() error {
 	if a.cancel != nil {
 		a.cancel()
 	}
@@ -201,9 +202,9 @@ func (a *EVMAdapter) Close() error {
 }
 
 // FetchAndStoreBlock implements Chain.
-func (a *EVMAdapter) FetchAndStoreBlock(ctx context.Context, height int64) (string, error) {
+func (a *Adapter) FetchAndStoreBlock(ctx context.Context, height int64) (string, error) {
 	if a.blockHandler == nil {
-		return "", ErrAdapterNotInitialized
+		return "", chains.ErrAdapterNotInitialized
 	}
 	block, err := a.fetchBlockWithRetry(ctx, height)
 	if err != nil {
@@ -217,7 +218,7 @@ func (a *EVMAdapter) FetchAndStoreBlock(ctx context.Context, height int64) (stri
 // available on chain the error is returned as-is (it matches errors.IsErrNotFound)
 // so the caller can decide to retry. Other RPC errors are retried up to
 // maxRPCRetries times with linear backoff.
-func (a *EVMAdapter) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*types.Block, error) {
+func (a *Adapter) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*types.Block, error) {
 	otherErrors := 0
 	for {
 		if ctx.Err() != nil {
@@ -249,7 +250,7 @@ func (a *EVMAdapter) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*
 
 // fetchTransactionsAndReceipts builds the transaction pointer slice and fetches
 // receipts, falling back to individual fetches when the batch call fails.
-func (a *EVMAdapter) fetchTransactionsAndReceipts(ctx context.Context, block *types.Block, blockNum int64) ([]*types.Transaction, []*types.TransactionReceipt) {
+func (a *Adapter) fetchTransactionsAndReceipts(ctx context.Context, block *types.Block, blockNum int64) ([]*types.Transaction, []*types.TransactionReceipt) {
 	transactions := make([]*types.Transaction, len(block.Transactions))
 	for i := range block.Transactions {
 		transactions[i] = &block.Transactions[i]
@@ -303,7 +304,7 @@ func (a *EVMAdapter) fetchTransactionsAndReceipts(ctx context.Context, block *ty
 // createBlockBatchWithRetry persists the block batch via the BlockHandler. When
 // the block already exists a signing job is enqueued and nil is returned.
 // Transaction conflicts are retried up to maxRPCRetries times.
-func (a *EVMAdapter) createBlockBatchWithRetry(ctx context.Context, block *types.Block, blockNum int64, transactions []*types.Transaction, receipts []*types.TransactionReceipt) (string, error) {
+func (a *Adapter) createBlockBatchWithRetry(ctx context.Context, block *types.Block, blockNum int64, transactions []*types.Transaction, receipts []*types.TransactionReceipt) (string, error) {
 	for attempt := range maxRPCRetries {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
@@ -345,7 +346,7 @@ func (a *EVMAdapter) createBlockBatchWithRetry(ctx context.Context, block *types
 }
 
 // FetchHighestBlockNumber implements Chain.
-func (a *EVMAdapter) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
+func (a *Adapter) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	n, err := a.client.GetLatestBlockNumber(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block number: %w", err)
@@ -354,17 +355,17 @@ func (a *EVMAdapter) FetchHighestBlockNumber(ctx context.Context) (int64, error)
 }
 
 // GetHighestStoredBlockNumber implements Chain.
-func (a *EVMAdapter) GetHighestStoredBlockNumber(ctx context.Context) (int64, error) {
+func (a *Adapter) GetHighestStoredBlockNumber(ctx context.Context) (int64, error) {
 	if a.blockHandler == nil {
-		return 0, ErrAdapterNotInitialized
+		return 0, chains.ErrAdapterNotInitialized
 	}
 	return a.blockHandler.GetHighestBlockNumber(ctx)
 }
 
 // GetLowestStoredBlockNumber implements Chain.
-func (a *EVMAdapter) GetLowestStoredBlockNumber(ctx context.Context) (int64, error) {
+func (a *Adapter) GetLowestStoredBlockNumber(ctx context.Context) (int64, error) {
 	if a.blockHandler == nil {
-		return 0, ErrAdapterNotInitialized
+		return 0, chains.ErrAdapterNotInitialized
 	}
 	return a.blockHandler.GetLowestBlockNumber(ctx)
 }
@@ -376,28 +377,37 @@ func (a *EVMAdapter) GetLowestStoredBlockNumber(ctx context.Context) (int64, err
 // Delegates to BlockHandler, which uses chunked _geq/_leq GraphQL range
 // filters on the indexer's local DefraDB instance — the same approach the
 // snapshotter uses (pkg/snapshot/kv_snapshot.go).
-func (a *EVMAdapter) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error) {
+func (a *Adapter) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error) {
 	if a.blockHandler == nil {
-		return nil, ErrAdapterNotInitialized
+		return nil, chains.ErrAdapterNotInitialized
 	}
 	return a.blockHandler.GetDocIDsByBlockRange(ctx, from, to)
 }
 
 // GetSchema implements Chain.
-func (a *EVMAdapter) GetSchema() (string, error) {
+func (a *Adapter) GetSchema() (string, error) {
 	return schema.GetSchemaForChain(chainPrefixFromConfig(a.cfg))
 }
 
 // GetCollections implements Chain.
-func (a *EVMAdapter) GetCollections() []string {
+func (a *Adapter) GetCollections() []string {
 	return a.collections.AllCollections()
 }
 
 // SetDocIDTracker wires a docID tracker to the underlying BlockHandler. This is
 // a concrete (non-interface) method: the indexer uses it to glue the adapter to
 // the indexing queue.
-func (a *EVMAdapter) SetDocIDTracker(tracker defra.DocIDTrackerInterface) {
+func (a *Adapter) SetDocIDTracker(tracker defra.DocIDTrackerInterface) {
 	if a.blockHandler != nil {
 		a.blockHandler.SetDocIDTracker(tracker)
 	}
+}
+
+// Temporary registration: NewAdapter still lives in package chains during
+// Phase 1. When Phase 2 moves it to pkg/chains/evm, this init() moves too
+// and pkg/chains becomes a true leaf.
+func init() {
+	chains.RegisterAdapter("evm", func(cfg *config.Config) (chains.Adapter, error) {
+		return NewAdapter(cfg)
+	})
 }
