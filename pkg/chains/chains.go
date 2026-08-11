@@ -28,6 +28,10 @@ import (
 // Init is called; every other method enforces this guard.
 var ErrAdapterNotInitialized = stderrors.New("chain adapter not initialized: Init must be called before use")
 
+// ErrUnknownCollection is returned by Collections.GetCollection when the given
+// role string does not map to a known collection.
+var ErrUnknownCollection = stderrors.New("unknown collection")
+
 // Chain is the chain-agnostic interface implemented by each chain backend
 // adapter.
 //
@@ -128,4 +132,31 @@ func NewAdapter(cfg *config.Config) (Adapter, error) {
 		return nil, fmt.Errorf("%w: unknown chain adapter %q", ErrAdapterNotInitialized, name)
 	}
 	return f(cfg)
+}
+
+// Collections is the chain-agnostic abstraction over a chain family's named
+// collection set. Each chain family (EVM, future Cosmos) implements it so the
+// generic BlockHandler, schema loader, and P2P layer can consume collection
+// names without naming a chain-specific type.
+type Collections interface {
+	// Prefix returns the embedded-SDL prefix, e.g. "Ethereum__Mainnet".
+	Prefix() string
+
+	// AllCollections returns all collection names in P2P filter order.
+	AllCollections() []string
+
+	// SchemaApplyOrder returns the dependency-safe order for AddSchema.
+	SchemaApplyOrder() []string
+	
+
+	// CollectionFileForType maps a collection type name to its .graphql filename.
+	// e.g. "Ethereum__Mainnet__Block" → "block.graphql"
+	// Returns empty string if the type name does not match the default prefix.
+	CollectionFileForType(typeName string) string
+
+	// GetCollection returns the collection name for the given type name string
+	// (e.g. "block", "transaction", "log", "accessListEntry",
+	// "blockSignature", "snapshotSignature"). Returns ErrUnknownCollection
+	// when the type is not recognised.
+	GetCollection(typeName string) (string, error)
 }
