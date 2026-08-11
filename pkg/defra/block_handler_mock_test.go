@@ -127,7 +127,7 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 	return &BlockHandler{
 		db:            db,
 		maxDocsPerTxn: 1000,
-		collections:   constants.NewCollectionNames(constants.DefaultCollectionPrefix),
+		collections:   testutils.NewMockCollections(),
 		signBatchFn: func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 			return nil, nil // no identity → nil sig
 		},
