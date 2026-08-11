@@ -1,4 +1,6 @@
-// Package chain defines the chain-agnostic abstraction used by the indexer,
+package chains
+
+// Defines the chain-agnostic abstraction used by the indexer,
 // pruner, snapshotter, and schema applier to interact with a specific chain
 // backend (e.g. EVM-based chains) without depending on concrete RPC or DefraDB
 // implementations.
@@ -10,18 +12,11 @@
 //     snapshotting),
 //   - and exposing the schema/collection names for the configured chain.
 //
-// Step 1 of the chain-abstraction refactor introduces the interface and a
-// minimal EVMAdapter implementation. The adapter is additive dead-code at this
-// stage: nothing in the hot path is wired to it yet (Steps 2-5 perform the
-// rewiring).
-package chains
-
 import (
 	"context"
 	stderrors "errors"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -95,10 +90,6 @@ type Adapter interface {
 	// Close releases the adapter's RPC connection and background resources.
 	// Safe to call multiple times.
 	Close() error
-
-	// SetDocIDTracker wires the pruner's DocIDTracker so the adapter can
-	// enqueue docIDs for pruning as blocks are stored.
-	SetDocIDTracker(tracker defra.DocIDTrackerInterface)
 }
 
 // NewAdapter constructs the chain adapter for the configured chain backend.
