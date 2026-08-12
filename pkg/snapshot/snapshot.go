@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
@@ -30,6 +31,7 @@ type BlockRangeReader interface {
 	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
 	GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error)
 	GetCollections() []string
+	Collections() chains.Collections
 }
 
 // queryChunkSize is the number of blocks queried per GraphQL request.
@@ -87,7 +89,9 @@ func New(cfg *config.SnapshotConfig, defraNode *node.Node, chain BlockRangeReade
 		stopChan:  make(chan struct{}),
 	}
 	if chain != nil {
-		s.blockSigCollection, s.snapshotSigCollection = resolveSignatureCollections(chain.GetCollections())
+		cols := chain.Collections()
+		s.blockSigCollection, _ = cols.GetCollection("blockSignature")
+		s.snapshotSigCollection, _ = cols.GetCollection("snapshotSignature")
 		if s.blockSigCollection == "" || s.snapshotSigCollection == "" {
 			logger.Sugar.Warnf("Snapshot: could not resolve signature collections from chain (blockSig=%q, snapshotSig=%q); signing will be skipped",
 				s.blockSigCollection, s.snapshotSigCollection)

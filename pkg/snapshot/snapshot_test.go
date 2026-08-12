@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
@@ -34,13 +35,13 @@ import (
 const (
 	// Test collection names derived from the default prefix
 	// testBlockCollection is a constant for block collections.
-	testBlockCollection = constants.DefaultCollectionPrefix + "__Block"
+	testBlockCollection = evm.DefaultCollectionPrefix + "__Block"
 	// testTransactionCollection is a constant for transaction collections.
-	testTransactionCollection = constants.DefaultCollectionPrefix + "__Transaction"
+	testTransactionCollection = evm.DefaultCollectionPrefix + "__Transaction"
 	// testBlockSignatureCollection is a constant for blockSignature collections.
-	testBlockSignatureCollection = constants.DefaultCollectionPrefix + "__BlockSignature"
+	testBlockSignatureCollection = evm.DefaultCollectionPrefix + "__BlockSignature"
 	// testSnapshotSignatureCollection is a constant for snapshotSignature collections.
-	testSnapshotSignatureCollection = constants.DefaultCollectionPrefix + "__SnapshotSignature"
+	testSnapshotSignatureCollection = evm.DefaultCollectionPrefix + "__SnapshotSignature"
 )
 
 // testChain adapts *defra.BlockHandler to satisfy BlockRangeReader.
@@ -61,7 +62,11 @@ func (tc *testChain) GetDocIDsByBlockRange(ctx context.Context, from, to int64) 
 }
 
 func (tc *testChain) GetCollections() []string {
-	return constants.NewCollectionNames(constants.DefaultCollectionPrefix).AllCollections()
+	return evm.NewCollectionNames(evm.DefaultCollectionPrefix).AllCollections()
+}
+
+func (tc *testChain) Collections() chains.Collections {
+	return evm.NewCollectionNames(evm.DefaultCollectionPrefix)
 }
 
 // newTestChainFromNode creates a testChain wrapping a fresh BlockHandler for the given node.
@@ -4341,7 +4346,7 @@ func TestCheckAndSnapshot_UsesChainBlockRange(t *testing.T) {
 			return map[string][]string{}, nil
 		},
 		GetCollectionsFn: func() []string {
-			return constants.NewCollectionNames(constants.DefaultCollectionPrefix).AllCollections()
+			return evm.NewCollectionNames(evm.DefaultCollectionPrefix).AllCollections()
 		},
 	}
 
@@ -4375,7 +4380,7 @@ func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
 			return realDocIDs, nil
 		},
 		GetCollectionsFn: func() []string {
-			return constants.NewCollectionNames(constants.DefaultCollectionPrefix).AllCollections()
+			return evm.NewCollectionNames(evm.DefaultCollectionPrefix).AllCollections()
 		},
 	}
 
@@ -4397,15 +4402,8 @@ func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
 
 func TestNew_ResolvesSignatureCollectionsViaSuffixMatch(t *testing.T) {
 	mc := &testutils.MockChain{
-		GetCollectionsFn: func() []string {
-			return []string{
-				"CustomChain__Testnet__Block",
-				"CustomChain__Testnet__Transaction",
-				"CustomChain__Testnet__Log",
-				"CustomChain__Testnet__AccessListEntry",
-				"CustomChain__Testnet__BlockSignature",
-				"CustomChain__Testnet__SnapshotSignature",
-			}
+		CollectionsFn: func() chains.Collections {
+			return chains.NewStubCollections("CustomChain__Testnet")
 		},
 	}
 

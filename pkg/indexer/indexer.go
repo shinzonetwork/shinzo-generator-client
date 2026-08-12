@@ -341,7 +341,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, ada
 	}
 
 	if cfg.Snapshot.Enabled && i.defraNode != nil {
-		i.snapshotter = snapshot.New(&cfg.Snapshot, i.defraNode, adapter)
+		i.snapshotter = snapshot.New(&cfg.Snapshot, i.defraNode, i.adapter)
 		if err := i.snapshotter.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start snapshotter: %v", err)
 		}

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -32,30 +31,6 @@ type SnapshotSignatureData struct {
 	SignatureValue      string   `json:"signature_value"`
 	CreatedAt           string   `json:"created_at"`
 	BlockSigMerkleRoots []string `json:"block_sig_merkle_roots,omitempty"`
-}
-
-// Suffix constants for resolving chain-specific collection names from
-// chain.GetCollections(). The snapshotter owns these — BlockSignature
-// docIDs are included in GetDocIDsByBlockRange; SnapshotSignature is excluded.
-const (
-	blockSignatureSuffix    = "BlockSignature"
-	snapshotSignatureSuffix = "SnapshotSignature"
-)
-
-// resolveSignatureCollections finds the full collection names ending with
-// the BlockSignature and SnapshotSignature suffixes from the given list.
-// Returns ("", "") if neither suffix matches.
-func resolveSignatureCollections(collections []string) (blockSig, snapshotSig string) {
-	for _, name := range collections {
-		if strings.HasSuffix(name, snapshotSignatureSuffix) {
-			snapshotSig = name
-			continue
-		}
-		if strings.HasSuffix(name, blockSignatureSuffix) {
-			blockSig = name
-		}
-	}
-	return
 }
 
 // ComputeSnapshotMerkleRoot computes a Merkle root from per-block block signature
