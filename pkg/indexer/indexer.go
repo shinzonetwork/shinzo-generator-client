@@ -318,7 +318,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, ada
 	}
 
 	if cfg.Pruner.Enabled && i.defraNode != nil {
-		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, adapter)
+		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, i.adapter)
 		pruneQueue := pruner.NewIndexerQueue()
 		// Binds the queue to its file before anything tracks into it. Save is a no-op until this
 		// runs, so without it the queue is never written and never survives a restart.

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -30,15 +30,8 @@ type BlockRangeReader interface {
 	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
 	GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error)
 	GetCollections() []string
+	Collections() chains.Collections
 }
-
-// Suffixes used to resolve the block and block-signature collection names from
-// the chain's GetCollections() list. Collection names follow the convention
-// prefix + "__" + shortName (e.g. "Ethereum__Mainnet__Block").
-const (
-	blockCollectionSuffix          = "__Block"
-	blockSignatureCollectionSuffix = "__BlockSignature"
-)
 
 // ErrNoBlocks indicates that the query succeeded but no blocks were found.
 var ErrNoBlocks = errors.New("no blocks found")
@@ -93,24 +86,11 @@ func NewPruner(cfg *config.PrunerConfig, defraNode *node.Node, chain BlockRangeR
 		stopChan:  make(chan struct{}),
 	}
 	if chain != nil {
-		p.resolveCollectionNames(chain.GetCollections())
+		cols := chain.Collections()
+		p.blockCollection, _ = cols.GetCollection("block")
+		p.blockSigCollection, _ = cols.GetCollection("blockSignature")
 	}
 	return p
-}
-
-// resolveCollectionNames identifies the block and block-signature collection
-// names from the chain's collection list via suffix matching. Collection names
-// follow the convention prefix + "__" + shortName, so "__Block" uniquely
-// matches the block collection (not BlockSignature).
-func (p *Pruner) resolveCollectionNames(collections []string) {
-	for _, name := range collections {
-		switch {
-		case strings.HasSuffix(name, blockSignatureCollectionSuffix):
-			p.blockSigCollection = name
-		case strings.HasSuffix(name, blockCollectionSuffix):
-			p.blockCollection = name
-		}
-	}
 }
 
 // SetQueue sets the queue implementation for queue-based pruning.
