@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -613,5 +614,5 @@ func insertMockData() error {
 // applySchema applies the GraphQL schema to DefraDB node.
 func applySchema(ctx context.Context, defraNode *node.Node) error {
 	fmt.Println("Applying schema...")
-	return defradb.ApplyCollectionSchemas(ctx, defraNode, "")
+	return defradb.ApplyCollectionSchemas(ctx, defraNode, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 }
