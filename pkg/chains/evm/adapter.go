@@ -12,7 +12,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -27,6 +26,12 @@ const (
 	// signingQueueSize is the buffer size for the background block signing
 	// channel.
 	signingQueueSize = 64
+
+	// defaultChainName is the fallback chain name when config is empty.
+	defaultChainName = "Ethereum"
+
+	// defaultNetwork is the fallback network name when config is empty.
+	defaultNetwork = "Mainnet"
 )
 
 // signingJob holds the data needed to sign an existing block in the background.
@@ -55,6 +60,7 @@ type Adapter struct {
 	*Fetcher
 
 	blockHandler *defra.BlockHandler
+	converter    *Converter
 	collections  *CollectionNames
 	signingChan  chan signingJob
 	node         *node.Node
@@ -85,6 +91,7 @@ func NewAdapter(cfg *config.Config) (*Adapter, error) {
 func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 	prefix := chainPrefixFromConfig(cfg)
 	collections := NewCollectionNames(prefix)
+	converter := NewConverter(cfg)
 
 	receiptWorkers := 0
 	if cfg != nil {
@@ -96,6 +103,7 @@ func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 
 	return &Adapter{
 		Fetcher:     NewFetcher(client, receiptWorkers),
+		converter:   converter,
 		collections: collections,
 		signingChan: make(chan signingJob, signingQueueSize),
 		cfg:         cfg,
@@ -111,10 +119,10 @@ func chainPrefixFromConfig(cfg *config.Config) string {
 	name := cfg.Chain.Name
 	network := cfg.Chain.Network
 	if name == "" {
-		name = "Ethereum"
+		name = defaultChainName
 	}
 	if network == "" {
-		network = "Mainnet"
+		network = defaultNetwork
 	}
 	return fmt.Sprintf("%s__%s", name, network)
 }
@@ -240,7 +248,7 @@ func (a *Adapter) GetHighestStoredBlockNumber(ctx context.Context) (int64, error
 	if a.blockHandler == nil {
 		return 0, chains.ErrAdapterNotInitialized
 	}
-	return a.blockHandler.GetHighestBlockNumber(ctx)
+	return a.converter.GetHighestStoredBlockNumber(ctx, a.node)
 }
 
 // GetLowestStoredBlockNumber implements Chain.
@@ -248,7 +256,7 @@ func (a *Adapter) GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
 	if a.blockHandler == nil {
 		return 0, chains.ErrAdapterNotInitialized
 	}
-	return a.blockHandler.GetLowestBlockNumber(ctx)
+	return a.converter.GetLowestStoredBlockNumber(ctx, a.node)
 }
 
 // GetDocIDsByBlockRange implements Chain. It returns document IDs for every
@@ -262,17 +270,17 @@ func (a *Adapter) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (ma
 	if a.blockHandler == nil {
 		return nil, chains.ErrAdapterNotInitialized
 	}
-	return a.blockHandler.GetDocIDsByBlockRange(ctx, from, to)
+	return a.converter.GetDocIDsByBlockRange(ctx, a.node, from, to)
 }
 
 // GetSchema implements Chain.
 func (a *Adapter) GetSchema() (string, error) {
-	return schema.GetSchemaForChain(a.collections)
+	return a.converter.GetSchema()
 }
 
 // GetCollections implements Chain.
 func (a *Adapter) GetCollections() []string {
-	return a.collections.AllCollections()
+	return a.converter.GetCollections()
 }
 
 // Collections returns the Collections interface for the configured chain.

@@ -202,7 +202,9 @@ type Converter interface {
 	// a set of DocumentGroups plus the name of the block-signature collection.
 	// The rawBlock parameter is typed as any to keep pkg/chains free of
 	// chain SDK imports; the concrete Converter type-asserts internally.
-	Convert(ctx context.Context, rawBlock any) (groups []DocumentGroup, signatureCollection string, err error)
+	// The vp parameter supplies collection versions for in-memory docID
+	// computation used to set cross-document link fields (_blockID, etc.).
+	Convert(ctx context.Context, rawBlock any, vp CollectionVersionProvider) (groups []DocumentGroup, signatureCollection string, err error)
 
 	// GetSchema returns the GraphQL SDL for the configured chain, with
 	// collection names adapted to the chain's prefix.

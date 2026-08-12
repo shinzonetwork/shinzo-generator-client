@@ -59,7 +59,7 @@ func TestNewAdapter(t *testing.T) {
 			a := newAdapter(cfg, &fakeRPCClient{})
 
 			expected := NewCollectionNames(tc.expectedPrefix)
-			assert.Equal(t, expected, a.collections)
+			assert.Equal(t, expected, a.converter.collections)
 			assert.Equal(t, tc.expectedWorkers, a.receiptWorkers)
 			assert.NotNil(t, a.signingChan)
 		})
