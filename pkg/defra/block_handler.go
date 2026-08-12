@@ -128,8 +128,8 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections chains
 	return h, nil
 }
 
-func extractCollection(c chains.Collections, role string) string {
-	name, err := c.GetCollection(role)
+func extractCollection(collections chains.Collections, role string) string {
+	name, err := collections.GetCollection(role)
 	if err != nil {
 		panic(fmt.Sprintf("programmer error: %v", err))
 	}

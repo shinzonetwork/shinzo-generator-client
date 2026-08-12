@@ -24,7 +24,7 @@ var (
 )
 
 // embeddedPrefix is the literal prefix baked into the embedded .graphql files.
-// The loader swaps this with c.Prefix() at load time.
+// The loader swaps this with collections.Prefix() at load time.
 const embeddedPrefix = "Ethereum__Mainnet"
 
 //go:embed collections/*.graphql
@@ -38,11 +38,11 @@ type CollectionEntry struct {
 
 // ListCollectionFiles returns ordered .graphql filenames from the given
 // chain's SchemaApplyOrder, suitable for per-file AddSchema calls.
-func ListCollectionFiles(c chains.Collections) ([]string, error) {
-	order := c.SchemaApplyOrder()
+func ListCollectionFiles(collections chains.Collections) ([]string, error) {
+	order := collections.SchemaApplyOrder()
 	files := make([]string, len(order))
 	for i, typeName := range order {
-		f := c.CollectionFileForType(typeName)
+		f := collections.CollectionFileForType(typeName)
 		if f == "" {
 			return nil, fmt.Errorf("%w: %s", ErrUnknownCollectionType, typeName)
 		}
@@ -67,21 +67,21 @@ func LoadCollectionSDL(filename string) (string, error) {
 
 // LoadCollectionSDLForChain reads a single collection .graphql file and
 // replaces the embedded prefix with the chain's prefix.
-func LoadCollectionSDLForChain(c chains.Collections, filename string) (string, error) {
+func LoadCollectionSDLForChain(collections chains.Collections, filename string) (string, error) {
 	raw, err := LoadCollectionSDL(filename)
 	if err != nil {
 		return "", err
 	}
-	return strings.ReplaceAll(raw, embeddedPrefix, c.Prefix()), nil
+	return strings.ReplaceAll(raw, embeddedPrefix, collections.Prefix()), nil
 }
 
 // ListCollections returns all collections in schema dependency order,
 // using the chain's own prefix to build fully-qualified type names.
-func ListCollections(c chains.Collections) []CollectionEntry {
-	order := c.SchemaApplyOrder()
+func ListCollections(collections chains.Collections) []CollectionEntry {
+	order := collections.SchemaApplyOrder()
 	entries := make([]CollectionEntry, 0, len(order))
 	for _, typeName := range order {
-		filename := c.CollectionFileForType(typeName)
+		filename := collections.CollectionFileForType(typeName)
 		stem := strings.TrimSuffix(filename, ".graphql")
 		entries = append(entries, CollectionEntry{
 			Name:     stem,
@@ -98,17 +98,17 @@ func ListCollections(c chains.Collections) []CollectionEntry {
 // It returns an error if any collection file cannot be loaded or have its
 // prefix replaced, so callers fail fast at startup instead of silently serving
 // a degraded cache.
-func PrecomputeCollectionSDLs(c chains.Collections) (map[string]string, error) {
+func PrecomputeCollectionSDLs(collections chains.Collections) (map[string]string, error) {
 	cache := make(map[string]string)
-	for _, typeName := range c.SchemaApplyOrder() {
-		filename := c.CollectionFileForType(typeName)
+	for _, typeName := range collections.SchemaApplyOrder() {
+		filename := collections.CollectionFileForType(typeName)
 		if filename == "" {
 			continue
 		}
 		stem := strings.TrimSuffix(filename, ".graphql")
-		sdl, err := LoadCollectionSDLForChain(c, filename)
+		sdl, err := LoadCollectionSDLForChain(collections, filename)
 		if err != nil {
-			return nil, fmt.Errorf("load collection SDL %s for prefix %s: %w", filename, c.Prefix(), err)
+			return nil, fmt.Errorf("load collection SDL %s for prefix %s: %w", filename, collections.Prefix(), err)
 		}
 		cache[stem] = sdl
 	}
@@ -118,8 +118,8 @@ func PrecomputeCollectionSDLs(c chains.Collections) (map[string]string, error) {
 // LoadSchemaSDL reads all collections/*.graphql files in dependency order
 // and concatenates them into a single SDL document (no prefix swap — returns
 // raw embeddedPrefix content).
-func LoadSchemaSDL(c chains.Collections) (string, error) {
-	files, err := ListCollectionFiles(c)
+func LoadSchemaSDL(collections chains.Collections) (string, error) {
+	files, err := ListCollectionFiles(collections)
 	if err != nil {
 		return "", err
 	}
@@ -140,10 +140,10 @@ func LoadSchemaSDL(c chains.Collections) (string, error) {
 // LoadSchemaSDLForChain reads all collection files in dependency order and
 // concatenates them into a single SDL document with the embedded prefix
 // replaced by the chain's prefix.
-func LoadSchemaSDLForChain(c chains.Collections) (string, error) {
-	sdl, err := LoadSchemaSDL(c)
+func LoadSchemaSDLForChain(collections chains.Collections) (string, error) {
+	sdl, err := LoadSchemaSDL(collections)
 	if err != nil {
 		return "", err
 	}
-	return strings.ReplaceAll(sdl, embeddedPrefix, c.Prefix()), nil
+	return strings.ReplaceAll(sdl, embeddedPrefix, collections.Prefix()), nil
 }
