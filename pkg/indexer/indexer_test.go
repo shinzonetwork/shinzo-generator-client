@@ -809,7 +809,7 @@ func TestApplySchemaViaHTTP_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(constants.DefaultCollectionPrefix))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, callCount, "monolithic path should make exactly 1 POST")
 }
@@ -822,14 +822,14 @@ func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(constants.DefaultCollectionPrefix))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
 
 func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
 	t.Parallel()
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), "http://127.0.0.1:1", constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), "http://127.0.0.1:1", evm.NewCollectionNames(constants.DefaultCollectionPrefix))
 	assert.Error(t, err)
 }
 
@@ -853,7 +853,7 @@ func TestApplySchemaViaHTTP_AlreadyExistsFallsBackToPerFile(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(constants.DefaultCollectionPrefix))
 	assert.NoError(t, err)
 	assert.Greater(t, callCount, 1, "should fall back to per-file after monolithic already-exists")
 }
@@ -1085,7 +1085,7 @@ func fakeDocID(seed int) string {
 func TestTrackBlock_Success(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(1),
@@ -1103,7 +1103,7 @@ func TestTrackBlock_Success(t *testing.T) {
 func TestTrackBlock_MultipleBlocks(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	for i := int64(100); i < 105; i++ {
 		result := &defra.BlockCreationResult{
@@ -1119,7 +1119,7 @@ func TestTrackBlock_MultipleBlocks(t *testing.T) {
 func TestTrackBlock_EmptyResult(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID: fakeDocID(1),
@@ -1133,7 +1133,7 @@ func TestTrackBlock_EmptyResult(t *testing.T) {
 func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(1),
@@ -2225,7 +2225,7 @@ func TestGetDefraDBPort_Consistency(t *testing.T) {
 func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(constants.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(100),

@@ -393,6 +393,13 @@ func (a *Adapter) GetCollections() []string {
 	return a.collections.AllCollections()
 }
 
+// Collections returns the Collections interface for the configured chain.
+// This is a concrete (non-interface) method used by the indexer's lifecycleAdapter
+// interface — it provides typed access to collection names, prefix, and schema metadata.
+func (a *Adapter) Collections() chains.Collections {
+	return a.collections
+}
+
 // SetDocIDTracker wires a docID tracker to the underlying BlockHandler. This is
 // a concrete (non-interface) method: the indexer uses it to glue the adapter to
 // the indexing queue.
