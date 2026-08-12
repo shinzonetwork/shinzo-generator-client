@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
@@ -66,7 +67,7 @@ func (tc *testChain) GetCollections() []string {
 // newTestChainFromNode creates a testChain wrapping a fresh BlockHandler for the given node.
 func newTestChainFromNode(t *testing.T, td *testutils.TestDefraDB) *testChain {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
+	handler, err := defra.NewBlockHandler(td.Node, 1000, evm.NewCollectionNames("Ethereum__Mainnet"))
 	require.NoError(t, err)
 	return &testChain{handler: handler}
 }
@@ -1468,7 +1469,7 @@ func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
 // Returns the block handler for further use.
 func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) *defra.BlockHandler {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
+	handler, err := defra.NewBlockHandler(td.Node, 1000, evm.NewCollectionNames("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -3972,7 +3973,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 
 func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) (context.Context, *defra.BlockHandler) {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, nil)
+	handler, err := defra.NewBlockHandler(td.Node, 1000, evm.NewCollectionNames("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
