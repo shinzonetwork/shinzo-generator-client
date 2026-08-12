@@ -6,17 +6,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 )
 
 func TestGetSchema(t *testing.T) {
 	t.Parallel()
-	s, err := GetSchema()
+	s, err := LoadSchemaSDL(chains.NewStubCollections(constants.DefaultCollectionPrefix))
 	if err != nil {
-		t.Fatalf("GetSchema() error: %v", err)
+		t.Fatalf("LoadSchemaSDL() error: %v", err)
 	}
 	if s == "" {
-		t.Fatal("GetSchema() returned empty string")
+		t.Fatal("LoadSchemaSDL() returned empty string")
 	}
 	expectedType := constants.DefaultCollectionPrefix + "__Block"
 	if !strings.Contains(s, expectedType) {
@@ -26,9 +27,9 @@ func TestGetSchema(t *testing.T) {
 
 func TestLoadSchemaContainsAllCollectionTypes(t *testing.T) {
 	t.Parallel()
-	s, err := GetSchema()
+	s, err := LoadSchemaSDL(chains.NewStubCollections(constants.DefaultCollectionPrefix))
 	if err != nil {
-		t.Fatalf("GetSchema() error: %v", err)
+		t.Fatalf("LoadSchemaSDL() error: %v", err)
 	}
 
 	expectedTypes := constants.DefaultCollections()
@@ -41,11 +42,11 @@ func TestLoadSchemaContainsAllCollectionTypes(t *testing.T) {
 
 func TestGetSchemaForChain_ReplacesPrefix(t *testing.T) {
 	t.Parallel()
-	defaultSchema, err := GetSchema()
+	defaultSchema, err := LoadSchemaSDL(chains.NewStubCollections(constants.DefaultCollectionPrefix))
 	if err != nil {
-		t.Fatalf("GetSchema() error: %v", err)
+		t.Fatalf("LoadSchemaSDL() error: %v", err)
 	}
-	arbSchema, err := GetSchemaForChain("Arbitrum__Mainnet")
+	arbSchema, err := GetSchemaForChain(chains.NewStubCollections("Arbitrum__Mainnet"))
 	if err != nil {
 		t.Fatalf("GetSchemaForChain() error: %v", err)
 	}
@@ -65,11 +66,12 @@ func TestGetSchemaForChain_ReplacesPrefix(t *testing.T) {
 
 func TestLoadSchemaDeterministic(t *testing.T) {
 	t.Parallel()
-	s1, err := LoadSchemaSDL()
+	c := chains.NewStubCollections(constants.DefaultCollectionPrefix)
+	s1, err := LoadSchemaSDL(c)
 	if err != nil {
 		t.Fatalf("LoadSchemaSDL() failed: %v", err)
 	}
-	s2, err := LoadSchemaSDL()
+	s2, err := LoadSchemaSDL(c)
 	if err != nil {
 		t.Fatalf("LoadSchemaSDL() failed: %v", err)
 	}
@@ -80,7 +82,7 @@ func TestLoadSchemaDeterministic(t *testing.T) {
 
 func TestLoadSchemaSDL_NotEmpty(t *testing.T) {
 	t.Parallel()
-	s, err := LoadSchemaSDL()
+	s, err := LoadSchemaSDL(chains.NewStubCollections(constants.DefaultCollectionPrefix))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDL() failed: %v", err)
 	}
@@ -96,7 +98,8 @@ func TestAllGraphQLFilesListedInConstants(t *testing.T) {
 		t.Fatalf("failed to read collections directory: %v", err)
 	}
 
-	files, err := ListCollectionFiles()
+	c := chains.NewStubCollections(constants.DefaultCollectionPrefix)
+	files, err := ListCollectionFiles(c)
 	if err != nil {
 		t.Fatalf("ListCollectionFiles() failed: %v", err)
 	}
@@ -110,7 +113,7 @@ func TestAllGraphQLFilesListedInConstants(t *testing.T) {
 			continue
 		}
 		if !manifestSet[e.Name()] {
-			t.Errorf("collections/%s exists on disk but is not listed in ListCollectionFiles() — add it to constants.SchemaApplyOrder()", e.Name())
+			t.Errorf("collections/%s exists on disk but is not listed in ListCollectionFiles()", e.Name())
 		}
 	}
 
@@ -127,7 +130,7 @@ func TestAllGraphQLFilesListedInConstants(t *testing.T) {
 
 func TestLoadSchemaSDLForChain_DefaultPrefix(t *testing.T) {
 	t.Parallel()
-	sdl, err := LoadSchemaSDLForChain(constants.DefaultCollectionPrefix)
+	sdl, err := LoadSchemaSDLForChain(chains.NewStubCollections(constants.DefaultCollectionPrefix))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
 	}
@@ -141,7 +144,7 @@ func TestLoadSchemaSDLForChain_DefaultPrefix(t *testing.T) {
 
 func TestLoadSchemaSDLForChain_CustomPrefix(t *testing.T) {
 	t.Parallel()
-	sdl, err := LoadSchemaSDLForChain("Arbitrum__Mainnet")
+	sdl, err := LoadSchemaSDLForChain(chains.NewStubCollections("Arbitrum__Mainnet"))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
 	}

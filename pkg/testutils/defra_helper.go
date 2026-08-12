@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
@@ -25,7 +26,7 @@ type TestDefraDB struct {
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDB(t *testing.T) *TestDefraDB {
-	sdl, err := schema.GetSchema()
+	sdl, err := schema.LoadSchemaSDL(chains.NewStubCollections("Ethereum__Mainnet"))
 	if err != nil {
 		t.Fatalf("GetSchema: %v", err)
 	}

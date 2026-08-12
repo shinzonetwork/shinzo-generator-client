@@ -82,7 +82,7 @@ func TestAdapter_GetSchema(t *testing.T) {
 	assert.NotEmpty(t, got)
 
 	// For the default prefix the chain-specific schema equals the default schema.
-	def, err := schema.GetSchema()
+	def, err := schema.LoadSchemaSDL(NewCollectionNames("Ethereum__Mainnet"))
 	require.NoError(t, err)
 	assert.Equal(t, def, got)
 }

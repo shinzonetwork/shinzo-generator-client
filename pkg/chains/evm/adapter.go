@@ -385,7 +385,7 @@ func (a *Adapter) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (ma
 
 // GetSchema implements Chain.
 func (a *Adapter) GetSchema() (string, error) {
-	return schema.GetSchemaForChain(chainPrefixFromConfig(a.cfg))
+	return schema.GetSchemaForChain(a.collections)
 }
 
 // GetCollections implements Chain.
