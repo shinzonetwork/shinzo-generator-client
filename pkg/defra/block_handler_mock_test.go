@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
@@ -127,7 +128,7 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 	return &BlockHandler{
 		db:            db,
 		maxDocsPerTxn: 1000,
-		collections:   testutils.NewMockCollections(),
+		collections:   chains.NewStubCollections("Ethereum__Mainnet"),
 		signBatchFn: func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 			return nil, nil // no identity → nil sig
 		},
