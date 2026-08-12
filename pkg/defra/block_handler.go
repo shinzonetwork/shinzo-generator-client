@@ -69,14 +69,14 @@ type DocIDTrackerInterface interface {
 
 // BlockHandler manages the creation and storage of blocks, transactions, and logs in DefraDB.
 type BlockHandler struct {
-	db              blockDB                    // DB interface (from defraNode.DB).
-	maxDocsPerTxn   int                        // Threshold for single-txn vs batched block creation.
-	maxTxBatchSize  int                        // Per-collection batch size for transactions (0 = use maxDocsPerTxn).
-	maxLogBatchSize int                        // Per-collection batch size for logs (0 = use maxDocsPerTxn).
-	maxALEBatchSize int                        // Per-collection batch size for ALEs (0 = use maxDocsPerTxn).
-	docIDTracker    DocIDTrackerInterface      // Optional tracker for docIDs.
-	collections     chains.Collections        // Chain-specific collection names.
-	nodeIdentity    identity.Identity          // Node identity for signing.
+	db              blockDB               // DB interface (from defraNode.DB).
+	maxDocsPerTxn   int                   // Threshold for single-txn vs batched block creation.
+	maxTxBatchSize  int                   // Per-collection batch size for transactions (0 = use maxDocsPerTxn).
+	maxLogBatchSize int                   // Per-collection batch size for logs (0 = use maxDocsPerTxn).
+	maxALEBatchSize int                   // Per-collection batch size for ALEs (0 = use maxDocsPerTxn).
+	docIDTracker    DocIDTrackerInterface // Optional tracker for docIDs.
+	collections     chains.Collections    // Chain-specific collection names.
+	nodeIdentity    identity.Identity     // Node identity for signing.
 
 	// Injectable functions for testability (set to defaults in NewBlockHandler).
 	signBatchFn      func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error)

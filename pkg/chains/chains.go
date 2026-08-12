@@ -147,7 +147,6 @@ type Collections interface {
 
 	// SchemaApplyOrder returns the dependency-safe order for AddSchema.
 	SchemaApplyOrder() []string
-	
 
 	// CollectionFileForType maps a collection type name to its .graphql filename.
 	// e.g. "Ethereum__Mainnet__Block" → "block.graphql"

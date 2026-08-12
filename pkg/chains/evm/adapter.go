@@ -75,7 +75,7 @@ type signingJob struct {
 type Adapter struct {
 	client         rpcClient
 	blockHandler   *defra.BlockHandler
-	collections    *EVMCollectionNames
+	collections    *CollectionNames
 	receiptWorkers int
 	signingChan    chan signingJob
 	node           *node.Node

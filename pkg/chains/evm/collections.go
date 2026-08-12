@@ -20,12 +20,12 @@ const (
 	CollectionSnapshotSignature = DefaultCollectionPrefix + "__SnapshotSignature"
 )
 
-// EVMCollectionNames holds the dynamically generated EVM collection names for a
+// CollectionNames holds the dynamically generated EVM collection names for a
 // chain.
 //
 // It implements chains.Collections for the generic schema loader and future
 // generic BlockHandler.
-type EVMCollectionNames struct {
+type CollectionNames struct {
 	prefix            string
 	Block             string
 	BlockSignature    string
@@ -35,13 +35,13 @@ type EVMCollectionNames struct {
 	Log               string
 }
 
-// Compile-time guarantee that EVMCollectionNames implements chains.Collections.
-var _ chains.Collections = (*EVMCollectionNames)(nil)
+// Compile-time guarantee that CollectionNames implements chains.Collections.
+var _ chains.Collections = (*CollectionNames)(nil)
 
 // NewCollectionNames creates EVM collection names using the given prefix
 // (e.g. "Arbitrum__Mainnet").
-func NewCollectionNames(prefix string) *EVMCollectionNames {
-	return &EVMCollectionNames{
+func NewCollectionNames(prefix string) *CollectionNames {
+	return &CollectionNames{
 		prefix:            prefix,
 		Block:             fmt.Sprintf("%s__Block", prefix),
 		BlockSignature:    fmt.Sprintf("%s__BlockSignature", prefix),
@@ -53,12 +53,12 @@ func NewCollectionNames(prefix string) *EVMCollectionNames {
 }
 
 // Prefix returns the chain prefix (e.g. "Ethereum__Mainnet").
-func (c *EVMCollectionNames) Prefix() string {
+func (c *CollectionNames) Prefix() string {
 	return c.prefix
 }
 
 // AllCollections returns all collection names as a slice in P2P filter order.
-func (c *EVMCollectionNames) AllCollections() []string {
+func (c *CollectionNames) AllCollections() []string {
 	return []string{
 		c.Block,
 		c.BlockSignature,
@@ -71,7 +71,7 @@ func (c *EVMCollectionNames) AllCollections() []string {
 
 // SchemaApplyOrder returns collection type names in dependency-safe order
 // for per-file AddSchema calls.
-func (c *EVMCollectionNames) SchemaApplyOrder() []string {
+func (c *CollectionNames) SchemaApplyOrder() []string {
 	return []string{
 		c.Block,
 		c.BlockSignature,
@@ -85,7 +85,7 @@ func (c *EVMCollectionNames) SchemaApplyOrder() []string {
 // CollectionFileForType maps a collection type name to its .graphql filename.
 // e.g. "Ethereum__Mainnet__Block" → "block.graphql"
 // Returns empty string if the type name does not match this chain's prefix.
-func (c *EVMCollectionNames) CollectionFileForType(typeName string) string {
+func (c *CollectionNames) CollectionFileForType(typeName string) string {
 	prefix := c.prefix + "__"
 	suffix := strings.TrimPrefix(typeName, prefix)
 	if suffix == typeName {
@@ -96,7 +96,7 @@ func (c *EVMCollectionNames) CollectionFileForType(typeName string) string {
 
 // GetCollection returns the collection name for the given role string.
 // Returns chains.ErrUnknownCollection for unknown roles.
-func (c *EVMCollectionNames) GetCollection(role string) (string, error) {
+func (c *CollectionNames) GetCollection(role string) (string, error) {
 	switch role {
 	case "block":
 		return c.Block, nil
