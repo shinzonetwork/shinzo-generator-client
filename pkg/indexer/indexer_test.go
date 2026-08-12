@@ -5139,16 +5139,9 @@ func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
 		cfg:       cfg,
 	}
 
-	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
-		return "0x1", nil
-	})
-	defer rpcServer.Close()
-
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	err := indexer.initServices(ctx, cfg, adapter)
+	err := indexer.initServices(ctx, cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "schema auth configuration")
 	assert.ErrorIs(t, err, ErrMTLSNotImplemented)

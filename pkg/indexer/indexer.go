@@ -181,7 +181,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	i.shouldIndex = true
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
-	if err := i.initServices(ctx, cfg, adapter); err != nil {
+	if err := i.initServices(ctx, cfg); err != nil {
 		return err
 	}
 
@@ -310,7 +310,7 @@ func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
 }
 
 // initServices starts the health server, pruner, and snapshotter if configured.
-func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter chains.Adapter) error {
+func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) error {
 	if cfg.Indexer.HealthServerPort > 0 {
 		if err := i.initHealthServer(cfg); err != nil {
 			return err
@@ -378,7 +378,7 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("load schema for chain %s: %w", prefix, err)
 	}
-	if err := i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth); err != nil {
+	if err := i.healthServer.EnableSchemaEndpoint(sdl, i.adapter.Collections(), auth); err != nil {
 		return fmt.Errorf("enable schema endpoint: %w", err)
 	}
 	go func() {
