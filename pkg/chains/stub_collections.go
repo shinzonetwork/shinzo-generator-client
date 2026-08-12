@@ -73,17 +73,17 @@ func (s *StubCollections) CollectionFileForType(typeName string) string {
 // GetCollection returns the collection name for the given role.
 func (s *StubCollections) GetCollection(role string) (string, error) {
 	switch role {
-	case "block":
+	case TypeBlock:
 		return s.block, nil
-	case "blockSignature":
+	case TypeBlockSignature:
 		return s.blockSignature, nil
-	case "snapshotSignature":
+	case TypeSnapshotSignature:
 		return s.snapshotSignature, nil
-	case "transaction":
+	case TypeTransaction:
 		return s.transaction, nil
-	case "accessListEntry":
+	case TypeAccessListEntry:
 		return s.accessListEntry, nil
-	case "log":
+	case TypeLog:
 		return s.log, nil
 	default:
 		return "", fmt.Errorf("%w: %s", ErrUnknownCollection, role)

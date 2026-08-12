@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/require"
 )
@@ -35,7 +34,7 @@ func TestSchemaApplierFromDir_ProvidesDefaultSchema(t *testing.T) {
 	for _, file := range files {
 		sdl, err := schema.LoadCollectionSDLForChain(applier.Collections, file)
 		require.NoError(t, err)
-		if strings.Contains(sdl, constants.DefaultCollectionPrefix+"__Block") {
+		if strings.Contains(sdl, evm.DefaultCollectionPrefix+"__Block") {
 			found = true
 			break
 		}
@@ -53,7 +52,7 @@ func TestSchemaApplierFromDir_ChainPrefixReplaces(t *testing.T) {
 	for _, file := range files {
 		sdl, err := schema.LoadCollectionSDLForChain(applier.Collections, file)
 		require.NoError(t, err)
-		if strings.Contains(sdl, constants.DefaultCollectionPrefix) {
+		if strings.Contains(sdl, evm.DefaultCollectionPrefix) {
 			t.Errorf("collection file %s should not contain default prefix", file)
 		}
 	}

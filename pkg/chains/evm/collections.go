@@ -98,17 +98,17 @@ func (c *CollectionNames) CollectionFileForType(typeName string) string {
 // Returns chains.ErrUnknownCollection for unknown roles.
 func (c *CollectionNames) GetCollection(role string) (string, error) {
 	switch role {
-	case "block":
+	case chains.TypeBlock:
 		return c.Block, nil
-	case "blockSignature":
+	case chains.TypeBlockSignature:
 		return c.BlockSignature, nil
-	case "snapshotSignature":
+	case chains.TypeSnapshotSignature:
 		return c.SnapshotSignature, nil
-	case "transaction":
+	case chains.TypeTransaction:
 		return c.Transaction, nil
-	case "accessListEntry":
+	case chains.TypeAccessListEntry:
 		return c.AccessListEntry, nil
-	case "log":
+	case chains.TypeLog:
 		return c.Log, nil
 	default:
 		return "", fmt.Errorf("%w: %s", chains.ErrUnknownCollection, role)

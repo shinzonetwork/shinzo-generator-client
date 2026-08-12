@@ -32,6 +32,16 @@ var ErrAdapterNotInitialized = stderrors.New("chain adapter not initialized: Ini
 // role string does not map to a known collection.
 var ErrUnknownCollection = stderrors.New("unknown collection")
 
+// Collection type constants used as arguments to GetCollection.
+const (
+	TypeBlock             = "block"
+	TypeBlockSignature    = "blockSignature"
+	TypeSnapshotSignature = "snapshotSignature"
+	TypeTransaction       = "transaction"
+	TypeAccessListEntry   = "accessListEntry"
+	TypeLog               = "log"
+)
+
 // Chain is the chain-agnostic interface implemented by each chain backend
 // adapter.
 //

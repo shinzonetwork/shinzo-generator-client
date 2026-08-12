@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +24,7 @@ func TestApplyCollectionSchemas_DefaultPrefix(t *testing.T) {
 	err = ApplyCollectionSchemas(context.Background(), defraNode, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := defraNode.DB.ExecRequest(context.Background(),
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s without errors", typeName)
@@ -45,7 +44,7 @@ func TestApplyCollectionSchemas_CustomPrefix(t *testing.T) {
 	err = ApplyCollectionSchemas(context.Background(), defraNode, evm.NewCollectionNames("Arbitrum__Mainnet"))
 	require.NoError(t, err)
 
-	collections := constants.NewCollectionNames("Arbitrum__Mainnet")
+	collections := evm.NewCollectionNames("Arbitrum__Mainnet")
 	for _, typeName := range collections.AllCollections() {
 		result := defraNode.DB.ExecRequest(context.Background(),
 			`query { __type(name: "`+typeName+`") { name } }`)
@@ -68,7 +67,7 @@ func TestApplyCollectionSchemas_FallbackPath_AllCollectionsExist(t *testing.T) {
 	err = ApplyCollectionSchemas(ctx, defraNode, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err, "first call: monolithic path should succeed")
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := defraNode.DB.ExecRequest(ctx,
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s after first apply", typeName)
@@ -77,7 +76,7 @@ func TestApplyCollectionSchemas_FallbackPath_AllCollectionsExist(t *testing.T) {
 	err = ApplyCollectionSchemas(ctx, defraNode, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err, "second call: fallback path should succeed (all collections already exist)")
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := defraNode.DB.ExecRequest(ctx,
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s after second apply", typeName)
@@ -98,7 +97,7 @@ func TestApplyCollectionSchemas_FallbackPath_IndependentCollectionsPreSeed(t *te
 
 	independentFiles := []string{"blockSignature.graphql", "snapshotSignature.graphql"}
 	for _, file := range independentFiles {
-		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(constants.DefaultCollectionPrefix), file)
+		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(evm.DefaultCollectionPrefix), file)
 		require.NoError(t, err, "failed to load %s", file)
 		_, err = defraNode.DB.AddCollection(ctx, sdl)
 		require.NoError(t, err, "failed to pre-seed %s", file)
@@ -128,7 +127,7 @@ func TestApplyCollectionSchemas_FallbackPath_Restart(t *testing.T) {
 	err = ApplyCollectionSchemas(ctx, defraNode, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err, "fresh boot: monolithic path should succeed")
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := defraNode.DB.ExecRequest(ctx,
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s after first boot", typeName)
@@ -149,7 +148,7 @@ func TestApplyCollectionSchemas_FallbackPath_Restart(t *testing.T) {
 	err = ApplyCollectionSchemas(ctx, defraNode2, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err, "restart: fallback path should succeed (all collections already exist)")
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := defraNode2.DB.ExecRequest(ctx,
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s after restart", typeName)
@@ -170,7 +169,7 @@ func TestApplyCollectionSchemas_ViaSchemaApplierFromDir_FullRestart(t *testing.T
 	defraNode, _, err := StartDefraInstance(&testConfig, applier, nil, nil)
 	require.NoError(t, err)
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := defraNode.DB.ExecRequest(ctx,
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s after first boot", typeName)
@@ -189,7 +188,7 @@ func TestApplyCollectionSchemas_ViaSchemaApplierFromDir_FullRestart(t *testing.T
 	require.NoError(t, err)
 	defer func() { _ = defraNode2.Close(ctx) }()
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := defraNode2.DB.ExecRequest(ctx,
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s after restart", typeName)
@@ -207,7 +206,7 @@ func TestSchemaApplierFromDir_DelegatesToApplyCollectionSchemas(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(context.Background()) }()
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := defraNode.DB.ExecRequest(context.Background(),
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s without errors", typeName)
@@ -226,7 +225,7 @@ func TestSchemaApplierFromDir_CustomPrefix(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = defraNode.Close(context.Background()) }()
 
-	collections := constants.NewCollectionNames(prefix)
+	collections := evm.NewCollectionNames(prefix)
 	for _, typeName := range collections.AllCollections() {
 		result := defraNode.DB.ExecRequest(context.Background(),
 			`query { __type(name: "`+typeName+`") { name } }`)
@@ -235,11 +234,11 @@ func TestSchemaApplierFromDir_CustomPrefix(t *testing.T) {
 }
 
 func TestApplyCollectionSchemas_FilesLoadedInOrder(t *testing.T) {
-	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(constants.DefaultCollectionPrefix))
+	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 	require.NotEmpty(t, files, "should have collection files")
 
-	prefix := constants.DefaultCollectionPrefix
+	prefix := evm.DefaultCollectionPrefix
 	for _, file := range files {
 		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(prefix), file)
 		require.NoError(t, err)
@@ -250,32 +249,32 @@ func TestApplyCollectionSchemas_FilesLoadedInOrder(t *testing.T) {
 
 func TestApplyCollectionSchemas_EmptyPrefixUsesDefault(t *testing.T) {
 	t.Parallel()
-	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(constants.DefaultCollectionPrefix))
+	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
 	prefix := ""
 	if prefix == "" {
-		prefix = constants.DefaultCollectionPrefix
+		prefix = evm.DefaultCollectionPrefix
 	}
 
 	for _, file := range files {
 		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(prefix), file)
 		require.NoError(t, err)
-		assert.Contains(t, sdl, constants.DefaultCollectionPrefix,
+		assert.Contains(t, sdl, evm.DefaultCollectionPrefix,
 			"empty chainPrefix should resolve to DefaultCollectionPrefix in %s", file)
 	}
 }
 
 func TestApplyCollectionSchemas_CustomPrefixDoesNotContainDefault(t *testing.T) {
 	t.Parallel()
-	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(constants.DefaultCollectionPrefix))
+	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
 	customPrefix := "Arbitrum__Mainnet"
 	for _, file := range files {
 		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(customPrefix), file)
 		require.NoError(t, err)
-		assert.NotContains(t, sdl, constants.DefaultCollectionPrefix,
+		assert.NotContains(t, sdl, evm.DefaultCollectionPrefix,
 			"SDL for %s with custom prefix should not contain default prefix", file)
 		assert.Contains(t, sdl, customPrefix,
 			"SDL for %s should contain custom prefix", file)
@@ -283,17 +282,17 @@ func TestApplyCollectionSchemas_CustomPrefixDoesNotContainDefault(t *testing.T) 
 }
 
 func TestLoadSchemaSDLForChain_DefaultPrefix(t *testing.T) {
-	sdl, err := schema.LoadSchemaSDLForChain(evm.NewCollectionNames(constants.DefaultCollectionPrefix))
+	sdl, err := schema.LoadSchemaSDLForChain(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 	assert.NotEmpty(t, sdl)
-	assert.Contains(t, sdl, constants.DefaultCollectionPrefix+"__Block")
+	assert.Contains(t, sdl, evm.DefaultCollectionPrefix+"__Block")
 }
 
 func TestLoadSchemaSDLForChain_CustomPrefix(t *testing.T) {
 	sdl, err := schema.LoadSchemaSDLForChain(evm.NewCollectionNames("Arbitrum__Mainnet"))
 	require.NoError(t, err)
 	assert.NotEmpty(t, sdl)
-	assert.NotContains(t, sdl, constants.DefaultCollectionPrefix)
+	assert.NotContains(t, sdl, evm.DefaultCollectionPrefix)
 	assert.Contains(t, sdl, "Arbitrum__Mainnet__Block")
 }
 
@@ -309,7 +308,7 @@ func TestApplyCollectionSchemas_PartialPreSeedAddsRemaining(t *testing.T) {
 
 	ctx := context.Background()
 
-	allFiles, err := schema.ListCollectionFiles(evm.NewCollectionNames(constants.DefaultCollectionPrefix))
+	allFiles, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
 	var parts []string
@@ -326,8 +325,8 @@ func TestApplyCollectionSchemas_PartialPreSeedAddsRemaining(t *testing.T) {
 	_, err = defraNode.DB.AddCollection(ctx, combinedSDL)
 	require.NoError(t, err, "pre-seeding N-1 collections should succeed")
 
-	for _, typeName := range constants.DefaultCollections() {
-		if typeName == constants.DefaultCollectionPrefix+"__SnapshotSignature" {
+	for _, typeName := range evm.DefaultCollections() {
+		if typeName == evm.DefaultCollectionPrefix+"__SnapshotSignature" {
 			continue
 		}
 		result := defraNode.DB.ExecRequest(ctx,
@@ -338,7 +337,7 @@ func TestApplyCollectionSchemas_PartialPreSeedAddsRemaining(t *testing.T) {
 	err = ApplyCollectionSchemas(ctx, defraNode, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err, "should add missing SnapshotSignature via per-file fallback")
 
-	snapshotTypeName := constants.DefaultCollectionPrefix + "__SnapshotSignature"
+	snapshotTypeName := evm.DefaultCollectionPrefix + "__SnapshotSignature"
 	result := defraNode.DB.ExecRequest(ctx,
 		`query { __type(name: "`+snapshotTypeName+`") { name } }`)
 	assert.Empty(t, result.GQL.Errors, "SnapshotSignature should exist after ApplyCollectionSchemas")

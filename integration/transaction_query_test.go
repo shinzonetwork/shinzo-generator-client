@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
 
 var transactionQueryPath string
@@ -22,7 +22,7 @@ func getArbitraryTransaction(t *testing.T) map[string]any {
 	blockNumber := 1000001 // Use our predictable mock block with transactions
 	variables := map[string]any{"blockNumber": blockNumber}
 	result := MakeQuery(t, blockQueryPath, "GetBlockWithTransactions", variables)
-	blockList, ok := result["data"].(map[string]any)[constants.CollectionBlock].([]any)
+	blockList, ok := result["data"].(map[string]any)[evm.CollectionBlock].([]any)
 	if !ok || len(blockList) == 0 {
 		t.Fatalf("No block with number %v found; cannot test transactions.", blockNumber)
 	}
@@ -62,7 +62,7 @@ func getArbitraryTransactionWithLogs(t *testing.T) map[string]any {
 	blockNumber := 1000002 // Use our second mock block with transactions
 	variables := map[string]any{"blockNumber": blockNumber}
 	result := MakeQuery(t, blockQueryPath, "GetBlockWithTransactions", variables)
-	blockList, ok := result["data"].(map[string]any)[constants.CollectionBlock].([]any)
+	blockList, ok := result["data"].(map[string]any)[evm.CollectionBlock].([]any)
 	if !ok || len(blockList) == 0 {
 		t.Fatalf("No block with number %v found; cannot test transactions.", blockNumber)
 	}
@@ -108,7 +108,7 @@ func TestGetTransactionByHash(t *testing.T) {
 	t.Parallel()
 	transactionHash := getArbitraryTransactionHash(t)
 	result := MakeQuery(t, transactionQueryPath, "GetTransactionByHash", map[string]any{"txHash": transactionHash})
-	transactionList, ok := result["data"].(map[string]any)[constants.CollectionTransaction].([]any)
+	transactionList, ok := result["data"].(map[string]any)[evm.CollectionTransaction].([]any)
 	if !ok || len(transactionList) == 0 {
 		t.Errorf("No transactions returned: %v", result)
 		return
@@ -134,7 +134,7 @@ func TestGetTransactionsInvolvingAddress(t *testing.T) {
 	t.Parallel()
 	address := getArbitraryAddress(t)
 	result := MakeQuery(t, transactionQueryPath, "GetTransactionsInvolvingAddress", map[string]any{"address": address})
-	transactionList, ok := result["data"].(map[string]any)[constants.CollectionTransaction].([]any)
+	transactionList, ok := result["data"].(map[string]any)[evm.CollectionTransaction].([]any)
 	if !ok || len(transactionList) == 0 {
 		t.Errorf("No transactions returned for address %v: %v", address, result)
 		return
@@ -161,7 +161,7 @@ func TestGetAllTransactionWithTopic(t *testing.T) {
 	t.Parallel()
 	topic := getArbitraryTopic(t)
 	result := MakeQuery(t, transactionQueryPath, "GetAllTransactionWithTopic", map[string]any{"topic": topic})
-	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
+	logList, ok := result["data"].(map[string]any)[evm.CollectionLog].([]any)
 	if !ok || len(logList) == 0 {
 		t.Errorf("No logs returned for topic %v: %v", topic, result)
 		return

@@ -87,8 +87,8 @@ func NewPruner(cfg *config.PrunerConfig, defraNode *node.Node, chain BlockRangeR
 	}
 	if chain != nil {
 		cols := chain.Collections()
-		p.blockCollection, _ = cols.GetCollection("block")
-		p.blockSigCollection, _ = cols.GetCollection("blockSignature")
+		p.blockCollection, _ = cols.GetCollection(chains.TypeBlock)
+		p.blockSigCollection, _ = cols.GetCollection(chains.TypeBlockSignature)
 	}
 	return p
 }

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
 
 const queryFile = "queries/blocks.graphql"
@@ -42,9 +42,9 @@ func getLatestBlockNumber(t *testing.T) int {
 	}
 
 	// Check if Block field exists.
-	blockField, ok := dataMap[constants.CollectionBlock]
+	blockField, ok := dataMap[evm.CollectionBlock]
 	if !ok {
-		t.Fatalf("No '%s' field in GraphQL data: %v", constants.CollectionBlock, dataMap)
+		t.Fatalf("No '%s' field in GraphQL data: %v", evm.CollectionBlock, dataMap)
 	}
 
 	// Cast Block to array.
@@ -95,9 +95,9 @@ func getLowestBlockNumber(t *testing.T) int {
 		t.Fatalf("GraphQL 'data' field is not a map: %v", data)
 	}
 
-	blockField, ok := dataMap[constants.CollectionBlock]
+	blockField, ok := dataMap[evm.CollectionBlock]
 	if !ok {
-		t.Fatalf("No '%s' field in GraphQL data: %v", constants.CollectionBlock, dataMap)
+		t.Fatalf("No '%s' field in GraphQL data: %v", evm.CollectionBlock, dataMap)
 	}
 
 	blockList, ok := blockField.([]any)
@@ -137,9 +137,9 @@ func TestGetLowestBlockNumber(t *testing.T) {
 func TestGetLatestBlocks(t *testing.T) {
 	t.Parallel()
 	result := MakeQuery(t, blockQueryPath, "GetLatestBlocks", nil)
-	blockList, ok := result["data"].(map[string]any)[constants.CollectionBlock].([]any)
+	blockList, ok := result["data"].(map[string]any)[evm.CollectionBlock].([]any)
 	if !ok {
-		t.Fatalf("No %s field or wrong type in response: %v", constants.CollectionBlock, result)
+		t.Fatalf("No %s field or wrong type in response: %v", evm.CollectionBlock, result)
 	}
 	if len(blockList) == 0 {
 		t.Fatalf("No blocks returned")
@@ -160,7 +160,7 @@ func TestGetBlockWithTransactions(t *testing.T) {
 	blockNumber := getLatestBlockNumber(t)
 	variables := map[string]any{"blockNumber": blockNumber}
 	result := MakeQuery(t, blockQueryPath, "GetBlockWithTransactions", variables)
-	blockList, ok := result["data"].(map[string]any)[constants.CollectionBlock].([]any)
+	blockList, ok := result["data"].(map[string]any)[evm.CollectionBlock].([]any)
 	if !ok || len(blockList) == 0 {
 		t.Fatalf("No block with number %v found; cannot test transactions.", blockNumber)
 	}
