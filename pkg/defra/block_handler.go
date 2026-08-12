@@ -55,8 +55,8 @@ func retryBackoff(attempt int) time.Duration {
 // BlockCreationResult holds the result of creating a block, including all docIDs.
 type BlockCreationResult struct {
 	BlockNumber              int64
-	BlockID               string
-	BlockSignatureID      string
+	BlockID                  string
+	BlockSignatureID         string
 	BlockSignatureCollection string
 	OtherDocIDs              map[string][]string // collection name → docIDs
 }
@@ -656,8 +656,8 @@ func (h *BlockHandler) trackSingleTxnDocIDs(ctx context.Context, blockInt int64,
 
 	result := &BlockCreationResult{
 		BlockNumber:              blockInt,
-		BlockID:               blockID,
-		BlockSignatureID:      blockSigDocID,
+		BlockID:                  blockID,
+		BlockSignatureID:         blockSigDocID,
 		BlockSignatureCollection: extractCollection(h.collections, "blockSignature"),
 		OtherDocIDs: map[string][]string{
 			extractCollection(h.collections, "transaction"):     txIDs,
@@ -1109,8 +1109,8 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 	if h.docIDTracker != nil {
 		result := &BlockCreationResult{
 			BlockNumber:              blockInt,
-			BlockID:               blockID,
-			BlockSignatureID:      blockSigDocID,
+			BlockID:                  blockID,
+			BlockSignatureID:         blockSigDocID,
 			BlockSignatureCollection: extractCollection(h.collections, "blockSignature"),
 			OtherDocIDs: map[string][]string{
 				extractCollection(h.collections, "transaction"):     allTxIDs,

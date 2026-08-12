@@ -5,8 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
+	"os"
+	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
@@ -137,4 +140,9 @@ func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) 
 func (f *fakeRPCClient) Close() error {
 	f.closed = true
 	return nil
+}
+
+func TestMain(m *testing.M) {
+	logger.InitConsoleOnly(true)
+	os.Exit(m.Run())
 }

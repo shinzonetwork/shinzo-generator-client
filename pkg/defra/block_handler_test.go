@@ -454,7 +454,7 @@ func TestNewBlockHandler_ZeroMaxDocs(t *testing.T) {
 func TestBlockCreationResult_Fields(t *testing.T) {
 	t.Parallel()
 	result := &BlockCreationResult{
-		BlockNumber:         42,
+		BlockNumber:      42,
 		BlockID:          "block-123",
 		BlockSignatureID: "sig-abc",
 		OtherDocIDs: map[string][]string{
@@ -489,7 +489,7 @@ func TestMockDocIDTracker_TrackBlock(t *testing.T) {
 	tracker := &mockDocIDTracker{}
 
 	result := &BlockCreationResult{
-		BlockID:  "block-1",
+		BlockID:     "block-1",
 		BlockNumber: 100,
 		OtherDocIDs: map[string][]string{"tx": {"tx-1"}, "log": {"log-1"}},
 	}
@@ -502,7 +502,7 @@ func TestMockDocIDTracker_TrackBlock(t *testing.T) {
 
 	// Track another block
 	result2 := &BlockCreationResult{
-		BlockID:  "block-2",
+		BlockID:     "block-2",
 		BlockNumber: 101,
 	}
 	err = tracker.TrackBlock(context.Background(), 101, result2)
