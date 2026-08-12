@@ -85,7 +85,7 @@ func (c *Converter) Convert(
 	txDocs := c.buildTransactionDocs(bundle)
 	receiptMap := c.buildReceiptMap(bundle.Receipts)
 	logDocs := c.buildLogDocs(bundle.Transactions, receiptMap)
-	aleDocs := c.buildALEDocs(bundle.Transactions, blockInt)
+	aleDocs, aleParentRefs := c.buildALEDocs(bundle.Transactions, blockInt)
 
 	groups := []chains.DocumentGroup{
 		{Collection: c.collections.Block, Docs: []map[string]any{blockData}},
@@ -97,7 +97,11 @@ func (c *Converter) Convert(
 		groups = append(groups, chains.DocumentGroup{Collection: c.collections.Log, Docs: logDocs})
 	}
 	if len(aleDocs) > 0 {
-		groups = append(groups, chains.DocumentGroup{Collection: c.collections.AccessListEntry, Docs: aleDocs})
+		groups = append(groups, chains.DocumentGroup{
+			Collection: c.collections.AccessListEntry,
+			Docs:       aleDocs,
+			ParentRef:  aleParentRefs,
+		})
 	}
 
 	return groups, c.collections.BlockSignature, nil
@@ -145,17 +149,22 @@ func (c *Converter) buildLogDocs(txs []*types.Transaction, receiptMap map[string
 }
 
 // buildALEDocs builds data maps for all access list entries across transactions.
-func (c *Converter) buildALEDocs(txs []*types.Transaction, blockInt int64) []map[string]any {
+// It also returns a parallel slice of parent transaction hashes (one per doc)
+// so BlockHandler.Store can resolve _transactionID links without requiring a
+// transactionHash field on the ALE schema.
+func (c *Converter) buildALEDocs(txs []*types.Transaction, blockInt int64) ([]map[string]any, []string) {
 	var docs []map[string]any
+	var parentRefs []string
 	for _, tx := range txs {
 		if tx == nil {
 			continue
 		}
 		for i := range tx.AccessList {
 			docs = append(docs, c.buildALEData(&tx.AccessList[i], blockInt))
+			parentRefs = append(parentRefs, tx.Hash)
 		}
 	}
-	return docs
+	return docs, parentRefs
 }
 
 // GetSchema implements chains.Converter. It delegates to the schema loader,
@@ -290,7 +299,8 @@ func (c *Converter) buildLogData(logEntry *types.Log) map[string]any {
 
 // buildALEData builds the data map for an access list entry document.
 // Link fields (_transactionID) are NOT set here; BlockHandler.Store resolves
-// them after AddDocument assigns the tx docID.
+// them after AddDocument assigns the tx docID, using the ParentRef parallel
+// array on the DocumentGroup.
 func (c *Converter) buildALEData(ale *types.AccessListEntry, blockNumber int64) map[string]any {
 	return map[string]any{
 		"address":                     ale.Address,

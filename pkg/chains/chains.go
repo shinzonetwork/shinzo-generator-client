@@ -237,6 +237,14 @@ type Converter interface {
 type DocumentGroup struct {
 	Collection string
 	Docs       []map[string]any
+	// ParentRef is a parallel array (one entry per Doc) carrying a parent reference
+	// key (e.g. a transaction hash) used by Store to resolve cross-document link
+	// fields (_transactionID) after AddDocument assigns persistent docIDs. It is
+	// never persisted to DefraDB — it exists solely for link resolution in Store
+	// when the target collection's schema has no natural join field (e.g. ALEs
+	// which have no transactionHash column). When the docs themselves carry a
+	// joinable field (e.g. logs have transactionHash), ParentRef may be left nil.
+	ParentRef []string
 }
 
 // CollectionVersionProvider resolves a collection name to its
