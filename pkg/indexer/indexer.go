@@ -727,19 +727,6 @@ type indexerQueueTracker struct {
 	collections chains.Collections
 }
 
-func extractCollection(c chains.Collections, role string) string {
-	name, err := c.GetCollection(role)
-	if err != nil {
-		panic(fmt.Sprintf("programmer error: %v", err))
-	}
-	return name
-}
-
 func (t *indexerQueueTracker) TrackBlock(_ context.Context, blockNumber int64, result *defra.BlockCreationResult) error {
-	otherDocIDs := map[string][]string{
-		extractCollection(t.collections, "transaction"):     result.TransactionIDs,
-		extractCollection(t.collections, "log"):             result.LogIDs,
-		extractCollection(t.collections, "accessListEntry"): result.AccessListIDs,
-	}
-	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, otherDocIDs, result.BlockSignatureID)
+	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, result.OtherDocIDs, result.BlockSignatureID)
 }

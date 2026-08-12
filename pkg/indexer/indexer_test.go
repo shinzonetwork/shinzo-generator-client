@@ -1088,10 +1088,12 @@ func TestTrackBlock_Success(t *testing.T) {
 	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
-		BlockID:          fakeDocID(1),
-		TransactionIDs:   []string{fakeDocID(2), fakeDocID(3)},
-		LogIDs:           []string{fakeDocID(4)},
-		AccessListIDs:    []string{fakeDocID(5)},
+		BlockID: fakeDocID(1),
+		OtherDocIDs: map[string][]string{
+			evm.CollectionTransaction:     {fakeDocID(2), fakeDocID(3)},
+			evm.CollectionLog:             {fakeDocID(4)},
+			evm.CollectionAccessListEntry: {fakeDocID(5)},
+		},
 		BlockSignatureID: fakeDocID(6),
 	}
 
@@ -1107,8 +1109,10 @@ func TestTrackBlock_MultipleBlocks(t *testing.T) {
 
 	for i := int64(100); i < 105; i++ {
 		result := &defra.BlockCreationResult{
-			BlockID:        fakeDocID(int(i)),
-			TransactionIDs: []string{fakeDocID(int(i) + 1000)},
+			BlockID: fakeDocID(int(i)),
+			OtherDocIDs: map[string][]string{
+				evm.CollectionTransaction: {fakeDocID(int(i) + 1000)},
+			},
 		}
 		err := tracker.TrackBlock(context.Background(), i, result)
 		require.NoError(t, err)
@@ -1136,10 +1140,12 @@ func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
 	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
-		BlockID:          fakeDocID(1),
-		TransactionIDs:   []string{fakeDocID(2)},
-		LogIDs:           []string{fakeDocID(3)},
-		AccessListIDs:    []string{fakeDocID(4)},
+		BlockID: fakeDocID(1),
+		OtherDocIDs: map[string][]string{
+			evm.CollectionTransaction:     {fakeDocID(2)},
+			evm.CollectionLog:             {fakeDocID(3)},
+			evm.CollectionAccessListEntry: {fakeDocID(4)},
+		},
 		BlockSignatureID: fakeDocID(5),
 	}
 
@@ -1147,10 +1153,10 @@ func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
 	err := tracker.TrackBlock(context.Background(), 100, result)
 	require.NoError(t, err)
 
-	// Verify the constants are used (they should match what pruner expects).
-	assert.NotEmpty(t, evm.CollectionTransaction)
-	assert.NotEmpty(t, evm.CollectionLog)
-	assert.NotEmpty(t, evm.CollectionAccessListEntry)
+	// Verify the OtherDocIDs keys match the expected EVM collection constants.
+	assert.Contains(t, result.OtherDocIDs, evm.CollectionTransaction)
+	assert.Contains(t, result.OtherDocIDs, evm.CollectionLog)
+	assert.Contains(t, result.OtherDocIDs, evm.CollectionAccessListEntry)
 }
 
 // ---------------------------------------------------------------------------.
@@ -2228,10 +2234,12 @@ func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
 	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
-		BlockID:          fakeDocID(100),
-		TransactionIDs:   []string{fakeDocID(101), fakeDocID(102)},
-		LogIDs:           []string{fakeDocID(103), fakeDocID(104), fakeDocID(105)},
-		AccessListIDs:    []string{fakeDocID(106)},
+		BlockID: fakeDocID(100),
+		OtherDocIDs: map[string][]string{
+			evm.CollectionTransaction:     {fakeDocID(101), fakeDocID(102)},
+			evm.CollectionLog:             {fakeDocID(103), fakeDocID(104), fakeDocID(105)},
+			evm.CollectionAccessListEntry: {fakeDocID(106)},
+		},
 		BlockSignatureID: fakeDocID(107),
 	}
 
