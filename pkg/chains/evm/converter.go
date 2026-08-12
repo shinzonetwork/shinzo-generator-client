@@ -29,10 +29,10 @@ var errBlockNumberCorrupt = fmt.Errorf("block exists but has invalid or unparsea
 // Converter never stores a *node.Node — it receives one explicitly on each
 // progress-query call, keeping it stateless and testable without a live DB.
 //
-// Coexistence (Phase C): the original build helpers remain in
-// pkg/defra/block_handler.go for the old CreateBlockBatch path. This
-// converter's helpers are the new path that BlockHandler.Store (Phase D)
-// will consume. Phase G removes the duplicates.
+// Coexistence (Phase C): the original build helpers were moved here from
+// pkg/defra/block_handler.go. BlockHandler.Store (Phase D) consumes the
+// DocumentGroups produced by this converter. Phase G removes any
+// remaining duplicates.
 type Converter struct {
 	collections *CollectionNames
 	cfg         *config.Config

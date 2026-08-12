@@ -173,10 +173,6 @@ func TestConvertHexToInt_UnhappyPaths(t *testing.T) {
 	}
 }
 
-// Note: Tests for CreateBlockBatch, GetHighestBlockNumber, and other methods
-// that require an embedded DefraDB node should be placed in integration tests
-// since they require a running DefraDB instance.
-
 // ---------------------------------------------------------------------------
 // retryBackoff tests
 // ---------------------------------------------------------------------------
