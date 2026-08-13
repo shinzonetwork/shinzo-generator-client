@@ -13,6 +13,12 @@ import (
 // ConvertFn override is configured.
 var ErrMockConvertFnNotSet = errors.New("mock: ConvertFn not set")
 
+// BlockRange records a (from, to) block range passed to GetDocIDsByBlockRange.
+type BlockRange struct {
+	From int64
+	To   int64
+}
+
 // MockConverter implements the chains.Converter interface with configurable
 // per-method functions and call recording. It follows the same pattern as
 // MockFetcher and MockChain: each method dispatches to an optional Fn field;

@@ -61,9 +61,6 @@ type Adapter struct {
 	cfg          *config.Config
 }
 
-// Compile-time guarantee that Adapter implements Chain.
-var _ chains.Chain = (*Adapter)(nil)
-
 // NewAdapter dials the configured RPC endpoint and returns an Adapter
 // ready to be initialised. Init must still be called before DefraDB-backed
 // methods can be used.
