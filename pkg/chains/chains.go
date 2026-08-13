@@ -21,13 +21,6 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// ErrAdapterNotInitialized is returned by methods that require a DefraDB-backed
-// BlockHandler when the adapter has not been initialised via Init.
-//
-// Per the lifecycle contract only GetSchema and GetCollections are valid before
-// Init is called; every other method enforces this guard.
-var ErrAdapterNotInitialized = stderrors.New("chain adapter not initialized: Init must be called before use")
-
 // ErrUnknownCollection is returned by Collections.GetCollection when the given
 // role string does not map to a known collection.
 var ErrUnknownCollection = stderrors.New("unknown collection")
@@ -41,60 +34,6 @@ const (
 	TypeAccessListEntry   = "accessListEntry"
 	TypeLog               = "log"
 )
-
-// Adapter extends Chain with the lifecycle methods needed only by the indexer
-// orchestrator. Pruner, snapshotter, and the concurrent block processor depend
-// solely on Chain — their interfaces stay narrow per the Interface Segregation
-// Principle.
-//
-// *EVMAdapter satisfies Adapter via structural typing.
-type Adapter interface {
-	// Init connects to the chain RPC endpoint and prepares the adapter for
-	// block processing. Must be called exactly once after DefraDB is started
-	// and before any fetch/store methods are invoked.
-	Init(ctx context.Context, node *node.Node) error
-
-	// Close releases the adapter's RPC connection and background resources.
-	// Safe to call multiple times.
-	Close() error
-}
-
-// AdapterFactory is the constructor signature each chain family registers
-// under cfg.Chain.Adapter (e.g. "evm", future "cosmos").
-type AdapterFactory func(*config.Config) (Adapter, error)
-
-// adapterRegistry maps adapter names to their factory functions.
-// Populated by each chain package's init() via RegisterAdapter.
-var adapterRegistry = map[string]AdapterFactory{} //nolint:gochecknoglobals
-
-// RegisterAdapter registers a chain-family factory under the given name.
-// Called from each chain package's init(). Safe to call multiple times per
-// name (last wins; tests re-register freely).
-func RegisterAdapter(name string, f AdapterFactory) {
-	adapterRegistry[name] = f
-}
-
-// NewAdapter constructs the chain adapter for the configured chain backend.
-//
-// Dispatch is via the init-time adapter registry: each chain package (e.g.
-// pkg/chains/evm) calls RegisterAdapter in its init(), and the binary
-// blank-imports the package so the registration runs. pkg/chains never
-// imports any chain subpackage, keeping the dependency graph acyclic.
-//
-// pkg/indexer calls this instead of a concrete constructor directly so the
-// indexer names only the chain-agnostic Adapter interface and this factory —
-// never a chain-specific constructor symbol.
-func NewAdapter(cfg *config.Config) (Adapter, error) {
-	name := cfg.Chain.Adapter
-	if name == "" {
-		name = "evm"
-	}
-	f, ok := adapterRegistry[name]
-	if !ok {
-		return nil, fmt.Errorf("%w: unknown chain adapter %q", ErrAdapterNotInitialized, name)
-	}
-	return f(cfg)
-}
 
 // Collections is the chain-agnostic abstraction over a chain family's named
 // collection set. Each chain family (EVM, future Cosmos) implements it so the
@@ -232,4 +171,63 @@ type ConversionResult struct {
 	Groups              []DocumentGroup
 	SignatureCollection string
 	LinkStamper         LinkStamper
+}
+
+// FetcherFactory is the constructor signature for chain-specific Fetcher
+// implementations. Each chain family registers one under
+// cfg.Chain.Adapter (e.g. "evm").
+type FetcherFactory func(cfg *config.Config) (Fetcher, error)
+
+// ConverterFactory is the constructor signature for chain-specific Converter
+// implementations. Each chain family registers one under
+// cfg.Chain.Adapter (e.g. "evm").
+type ConverterFactory func(cfg *config.Config) (Converter, error)
+
+var (
+	fetcherFactoryRegistry   = map[string]FetcherFactory{}   //nolint:gochecknoglobals
+	converterFactoryRegistry = map[string]ConverterFactory{} //nolint:gochecknoglobals
+)
+
+// RegisterFetcherFactory registers a Fetcher factory under the given name.
+// Called from each chain package's init().
+func RegisterFetcherFactory(name string, factory FetcherFactory) {
+	fetcherFactoryRegistry[name] = factory
+}
+
+// RegisterConverterFactory registers a Converter factory under the given name.
+// Called from each chain package's init().
+func RegisterConverterFactory(name string, factory ConverterFactory) {
+	converterFactoryRegistry[name] = factory
+}
+
+// NewFetcher constructs the chain fetcher for the configured chain backend.
+// Dispatch is via the factory registry: each chain package (e.g.
+// pkg/chains/evm) calls RegisterFetcherFactory in its init(), and the
+// binary blank-imports the package so the registration runs.
+func NewFetcher(cfg *config.Config) (Fetcher, error) {
+	name := cfg.Chain.Adapter
+	if name == "" {
+		name = "evm"
+	}
+	factory, ok := fetcherFactoryRegistry[name]
+	if !ok {
+		return nil, fmt.Errorf("fetcher factory %q not registered", name)
+	}
+	return factory(cfg)
+}
+
+// NewConverter constructs the chain converter for the configured chain backend.
+// Dispatch is via the factory registry: each chain package (e.g.
+// pkg/chains/evm) calls RegisterConverterFactory in its init(), and the
+// binary blank-imports the package so the registration runs.
+func NewConverter(cfg *config.Config) (Converter, error) {
+	name := cfg.Chain.Adapter
+	if name == "" {
+		name = "evm"
+	}
+	factory, ok := converterFactoryRegistry[name]
+	if !ok {
+		return nil, fmt.Errorf("converter factory %q not registered", name)
+	}
+	return factory(cfg)
 }

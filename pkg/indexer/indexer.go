@@ -14,7 +14,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -136,13 +135,16 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		logger.Init(cfg.Logger.Development)
 	}
 
-	// 1. Create fetcher (no dial yet) + converter
-	fetcher, err := evm.NewFetcherFromConfig(cfg)
+	// 1. Create fetcher (no dial yet) + converter — via factory dispatch, no evm import
+	fetcher, err := chains.NewFetcher(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create fetcher: %w", err)
 	}
 	i.fetcher = fetcher
-	i.converter = evm.NewConverter(cfg)
+	i.converter, err = chains.NewConverter(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create converter: %w", err)
+	}
 
 	// 2. Log prefix (uses converter only — no RPC needed)
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, i.converter.Collections().Prefix())

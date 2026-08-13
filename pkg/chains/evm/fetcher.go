@@ -243,3 +243,9 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *types
 
 	return transactions, validReceipts
 }
+
+func init() {
+	chains.RegisterFetcherFactory("evm", func(cfg *config.Config) (chains.Fetcher, error) {
+		return NewFetcherFromConfig(cfg)
+	})
+}

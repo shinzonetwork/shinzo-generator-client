@@ -524,3 +524,9 @@ func (c *Converter) queryCollectionDocIDs(ctx context.Context, n *node.Node, col
 
 	return allDocIDs, nil
 }
+
+func init() {
+	chains.RegisterConverterFactory("evm", func(cfg *config.Config) (chains.Converter, error) {
+		return NewConverter(cfg), nil
+	})
+}

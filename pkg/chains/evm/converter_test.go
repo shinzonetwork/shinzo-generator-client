@@ -402,30 +402,3 @@ func TestMockConverter_SignatureCollection(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Verify adapter delegates to converter
-// ---------------------------------------------------------------------------
-
-func TestAdapter_DelegatesGetSchema(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig()
-	client := &fakeRPCClient{}
-	a := newAdapter(cfg, client)
-	t.Cleanup(func() { _ = a.Close() })
-
-	schema, err := a.GetSchema()
-	require.NoError(t, err)
-	assert.Contains(t, schema, "Ethereum__Mainnet__Block")
-}
-
-func TestAdapter_DelegatesGetCollections(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig()
-	client := &fakeRPCClient{}
-	a := newAdapter(cfg, client)
-	t.Cleanup(func() { _ = a.Close() })
-
-	cols := a.GetCollections()
-	assert.Len(t, cols, 6)
-}
