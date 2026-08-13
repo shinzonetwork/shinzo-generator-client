@@ -31,7 +31,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
@@ -198,7 +197,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	// Create a mock geth block.
-	gethBlock := &types.Block{
+	gethBlock := &evm.Block{
 		Number:           "12345",
 		Hash:             "0x1234567890abcdef",
 		ParentHash:       "0xabcdef1234567890",
@@ -217,7 +216,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 
 		Size:      "1000",
 		ExtraData: "0x",
-		Transactions: []types.Transaction{
+		Transactions: []evm.Transaction{
 			{
 				Hash:             "0xabc123",
 				BlockNumber:      "12345",
@@ -255,7 +254,7 @@ func TestConvertGethBlockToDefraBlock(t *testing.T) {
 
 	// Test block structure.
 	transactions := gethBlock.Transactions
-	defraBlock := &types.Block{
+	defraBlock := &evm.Block{
 		Number:           gethBlock.Number,
 		Hash:             gethBlock.Hash,
 		ParentHash:       gethBlock.ParentHash,
@@ -292,7 +291,7 @@ func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	gethBlock := &types.Block{
+	gethBlock := &evm.Block{
 		Number:       "12345",
 		Hash:         "0x1234567890abcdef",
 		ParentHash:   "0xabcdef1234567890",
@@ -300,10 +299,10 @@ func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
 		Miner:        testMinerAddr,
 		GasLimit:     "8000000",
 		GasUsed:      "0",
-		Transactions: []types.Transaction{}, // Empty transactions.
+		Transactions: []evm.Transaction{}, // Empty transactions.
 	}
 
-	defraBlock := &types.Block{
+	defraBlock := &evm.Block{
 		Number:           gethBlock.Number,
 		Hash:             gethBlock.Hash,
 		ParentHash:       gethBlock.ParentHash,
@@ -404,7 +403,7 @@ func TestBlockProcessingLogic(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	// Create test block.
-	testBlock := &types.Block{
+	testBlock := &evm.Block{
 		Number:     "100",
 		Hash:       "0xtest123",
 		ParentHash: "0xparent123",
@@ -412,7 +411,7 @@ func TestBlockProcessingLogic(t *testing.T) {
 		Miner:      testMinerAddr,
 		GasLimit:   "8000000",
 		GasUsed:    "21000",
-		Transactions: []types.Transaction{
+		Transactions: []evm.Transaction{
 			{
 				Hash:             "0xtx123",
 				BlockNumber:      "100",
@@ -428,7 +427,7 @@ func TestBlockProcessingLogic(t *testing.T) {
 	}
 
 	// Test conversion.
-	defraBlock := &types.Block{
+	defraBlock := &evm.Block{
 		Number:           testBlock.Number,
 		Hash:             testBlock.Hash,
 		ParentHash:       testBlock.ParentHash,

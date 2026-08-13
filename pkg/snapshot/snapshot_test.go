@@ -24,7 +24,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
@@ -1364,9 +1363,9 @@ func deterministicHash(seed string) string {
 	return "0x" + hex.EncodeToString(h[:])
 }
 
-// testBlock creates a *types.Block with a hex-encoded block number.
-func testBlock(hexNumber string) *types.Block {
-	return &types.Block{
+// testBlock creates a *evm.Block with a hex-encoded block number.
+func testBlock(hexNumber string) *evm.Block {
+	return &evm.Block{
 		Hash:             deterministicHash("block-" + hexNumber),
 		Number:           hexNumber,
 		Timestamp:        "1640995200",
@@ -1389,9 +1388,9 @@ func testBlock(hexNumber string) *types.Block {
 	}
 }
 
-// testTransaction creates a *types.Transaction with a deterministic hash.
-func testTransaction(seed, blockNumber string) *types.Transaction {
-	return &types.Transaction{
+// testTransaction creates a *evm.Transaction with a deterministic hash.
+func testTransaction(seed, blockNumber string) *evm.Transaction {
+	return &evm.Transaction{
 		Hash:              deterministicHash("tx-" + seed),
 		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 		BlockNumber:       blockNumber,
@@ -1414,10 +1413,10 @@ func testTransaction(seed, blockNumber string) *types.Transaction {
 	}
 }
 
-// testReceipt creates a *types.TransactionReceipt with one log.
-func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
+// testReceipt creates a *evm.TransactionReceipt with one log.
+func testReceipt(txSeed, blockNumberHex string) *evm.TransactionReceipt {
 	txHash := deterministicHash("tx-" + txSeed)
-	return &types.TransactionReceipt{
+	return &evm.TransactionReceipt{
 		TransactionHash:   txHash,
 		TransactionIndex:  "0",
 		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -1427,7 +1426,7 @@ func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
 		CumulativeGasUsed: "21000",
 		GasUsed:           "21000",
 		Status:            "0x1",
-		Logs: []types.Log{
+		Logs: []evm.Log{
 			{
 				Address:          "0x0000000000000000000000000000000000000003",
 				Topics:           []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
@@ -1460,8 +1459,8 @@ func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBl
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
 		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
 			Block:        block,
-			Transactions: []*types.Transaction{tx},
-			Receipts:     []*types.TransactionReceipt{receipt},
+			Transactions: []*evm.Transaction{tx},
+			Receipts:     []*evm.TransactionReceipt{receipt},
 		})
 		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
@@ -3972,8 +3971,8 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
 		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
 			Block:        block,
-			Transactions: []*types.Transaction{tx},
-			Receipts:     []*types.TransactionReceipt{receipt},
+			Transactions: []*evm.Transaction{tx},
+			Receipts:     []*evm.TransactionReceipt{receipt},
 		})
 		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
@@ -4313,7 +4312,7 @@ var (
 	_ = insertTestBlocks
 	_ = defra.NewBlockHandler
 	_ = logger.Sugar
-	_ types.Block
+	_ evm.Block
 )
 
 // ---------------------------------------------------------------------------

@@ -17,7 +17,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/mocks"
 	"github.com/sourcenetwork/defradb/client/options"
@@ -115,19 +114,19 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 	}
 }
 
-func testBlock() *types.Block {
+func testBlock() *evm.Block {
 	return mockBlock("0x64")
 }
 
-func testTx() *types.Transaction {
+func testTx() *evm.Transaction {
 	return mockTransaction("0xabc1000000000000000000000000000000000000000000000000000000000001", "100")
 }
 
-func testReceipt() *types.TransactionReceipt {
+func testReceipt() *evm.TransactionReceipt {
 	return mockReceipt("0xabc1000000000000000000000000000000000000000000000000000000000001", "0x64")
 }
 
-func buildSigGroups(t *testing.T, block *types.Block, txs []*types.Transaction, receipts []*types.TransactionReceipt) chains.ConversionResult {
+func buildSigGroups(t *testing.T, block *evm.Block, txs []*evm.Transaction, receipts []*evm.TransactionReceipt) chains.ConversionResult {
 	t.Helper()
 	result, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
 		Block:        block,
@@ -239,7 +238,7 @@ func TestExistingSig_GetTxCol_Error(t *testing.T) {
 		execReqFn: execReqFnWithErrorForCol(colTransaction),
 	}
 	h := newMockHandler(t, db)
-	result := buildSigGroups(t, testBlock(), []*types.Transaction{testTx()}, nil)
+	result := buildSigGroups(t, testBlock(), []*evm.Transaction{testTx()}, nil)
 
 	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
@@ -252,7 +251,7 @@ func TestExistingSig_GetLogCol_Error(t *testing.T) {
 		execReqFn: execReqFnWithErrorForCol(colLog),
 	}
 	h := newMockHandler(t, db)
-	result := buildSigGroups(t, testBlock(), []*types.Transaction{testTx()}, []*types.TransactionReceipt{testReceipt()})
+	result := buildSigGroups(t, testBlock(), []*evm.Transaction{testTx()}, []*evm.TransactionReceipt{testReceipt()})
 
 	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
@@ -266,8 +265,8 @@ func TestExistingSig_GetALECol_Error(t *testing.T) {
 	}
 	h := newMockHandler(t, db)
 	tx := testTx()
-	tx.AccessList = []types.AccessListEntry{{Address: "0x01", StorageKeys: []string{"0x02"}}}
-	result := buildSigGroups(t, testBlock(), []*types.Transaction{tx}, []*types.TransactionReceipt{testReceipt()})
+	tx.AccessList = []evm.AccessListEntry{{Address: "0x01", StorageKeys: []string{"0x02"}}}
+	result := buildSigGroups(t, testBlock(), []*evm.Transaction{tx}, []*evm.TransactionReceipt{testReceipt()})
 
 	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)

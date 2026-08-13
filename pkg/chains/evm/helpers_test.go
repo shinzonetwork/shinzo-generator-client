@@ -10,7 +10,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 func testConfig() *config.Config {
@@ -35,8 +34,8 @@ func fakeHash(seed string) string {
 	return "0x" + hex.EncodeToString(h[:])
 }
 
-func fakeBlock(num int64) *types.Block {
-	return &types.Block{
+func fakeBlock(num int64) *Block {
+	return &Block{
 		Hash:             fakeHash("block-" + big.NewInt(num).String()),
 		Number:           "0x" + big.NewInt(num).Text(16),
 		Timestamp:        "1640995200",
@@ -58,8 +57,8 @@ func fakeBlock(num int64) *types.Block {
 	}
 }
 
-func fakeTx(hash string) types.Transaction {
-	return types.Transaction{
+func fakeTx(hash string) Transaction {
+	return Transaction{
 		Hash:      hash,
 		BlockHash: "0x0000000000000000000000000000000000000000000000000000000000000001",
 		From:      "0x0000000000000000000000000000000000000001",
@@ -76,14 +75,14 @@ func fakeTx(hash string) types.Transaction {
 	}
 }
 
-func fakeBlockWithTxs(num int64, txs ...types.Transaction) *types.Block {
+func fakeBlockWithTxs(num int64, txs ...Transaction) *Block {
 	b := fakeBlock(num)
 	b.Transactions = txs
 	return b
 }
 
-func fakeReceipt(txHash string, blockNum int64) *types.TransactionReceipt {
-	return &types.TransactionReceipt{
+func fakeReceipt(txHash string, blockNum int64) *TransactionReceipt {
+	return &TransactionReceipt{
 		TransactionHash:   txHash,
 		TransactionIndex:  "0x0",
 		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -99,38 +98,38 @@ func fakeReceipt(txHash string, blockNum int64) *types.TransactionReceipt {
 type fakeRPCClient struct {
 	latestNum     *big.Int
 	latestErr     error
-	block         *types.Block
+	block         *Block
 	blockErr      error
-	batchReceipts []*types.TransactionReceipt
+	batchReceipts []*TransactionReceipt
 	batchErr      error
-	txReceipt     *types.TransactionReceipt
+	txReceipt     *TransactionReceipt
 	txErr         error
 	closed        bool
 
-	blockFn     func(ctx context.Context, n *big.Int) (*types.Block, error)
-	batchFn     func(ctx context.Context, n *big.Int) ([]*types.TransactionReceipt, error)
-	txReceiptFn func(ctx context.Context, hash string) (*types.TransactionReceipt, error)
+	blockFn     func(ctx context.Context, n *big.Int) (*Block, error)
+	batchFn     func(ctx context.Context, n *big.Int) ([]*TransactionReceipt, error)
+	txReceiptFn func(ctx context.Context, hash string) (*TransactionReceipt, error)
 }
 
 func (f *fakeRPCClient) GetLatestBlockNumber(_ context.Context) (*big.Int, error) {
 	return f.latestNum, f.latestErr
 }
 
-func (f *fakeRPCClient) GetBlockByNumber(ctx context.Context, n *big.Int) (*types.Block, error) {
+func (f *fakeRPCClient) GetBlockByNumber(ctx context.Context, n *big.Int) (*Block, error) {
 	if f.blockFn != nil {
 		return f.blockFn(ctx, n)
 	}
 	return f.block, f.blockErr
 }
 
-func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, n *big.Int) ([]*types.TransactionReceipt, error) {
+func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, n *big.Int) ([]*TransactionReceipt, error) {
 	if f.batchFn != nil {
 		return f.batchFn(ctx, n)
 	}
 	return f.batchReceipts, f.batchErr
 }
 
-func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) (*types.TransactionReceipt, error) {
+func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) (*TransactionReceipt, error) {
 	if f.txReceiptFn != nil {
 		return f.txReceiptFn(ctx, hash)
 	}

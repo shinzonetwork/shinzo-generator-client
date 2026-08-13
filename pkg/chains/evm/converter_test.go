@@ -11,7 +11,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 // ---------------------------------------------------------------------------
@@ -193,7 +192,7 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	tx.BlockNumber = "0x2a"
 	block := fakeBlockWithTxs(42, tx)
 	receipt := fakeReceipt(txHash, 42)
-	receipt.Logs = []types.Log{
+	receipt.Logs = []Log{
 		{
 			Address:         "0x0000000000000000000000000000000000000003",
 			Data:            "0x",
@@ -205,8 +204,8 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	}
 	bundle := &BlockBundle{
 		Block:        block,
-		Transactions: []*types.Transaction{&tx},
-		Receipts:     []*types.TransactionReceipt{receipt},
+		Transactions: []*Transaction{&tx},
+		Receipts:     []*TransactionReceipt{receipt},
 	}
 
 	result, err := c.Convert(context.Background(), bundle)
@@ -266,15 +265,15 @@ func TestConvert_WithAccessListEntries(t *testing.T) {
 	txHash := fakeHash("tx-ale")
 	tx := fakeTx(txHash)
 	tx.BlockNumber = "0x10"
-	tx.AccessList = []types.AccessListEntry{
+	tx.AccessList = []AccessListEntry{
 		{Address: "0x0000000000000000000000000000000000000001", StorageKeys: []string{"0x01"}},
 		{Address: "0x0000000000000000000000000000000000000002", StorageKeys: []string{}},
 	}
 	block := fakeBlockWithTxs(16, tx)
 	bundle := &BlockBundle{
 		Block:        block,
-		Transactions: []*types.Transaction{&tx},
-		Receipts:     []*types.TransactionReceipt{fakeReceipt(txHash, 16)},
+		Transactions: []*Transaction{&tx},
+		Receipts:     []*TransactionReceipt{fakeReceipt(txHash, 16)},
 	}
 
 	result, err := c.Convert(context.Background(), bundle)

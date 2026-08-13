@@ -13,7 +13,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 // ---------------------------------------------------------------------------
@@ -212,7 +211,7 @@ func TestFetcher_FetchBlock_BatchSuccess(t *testing.T) {
 
 	client := &fakeRPCClient{
 		block:         block,
-		batchReceipts: []*types.TransactionReceipt{receipt},
+		batchReceipts: []*TransactionReceipt{receipt},
 	}
 	f := NewFetcher(client, 8)
 
@@ -236,7 +235,7 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 
 	client := &fakeRPCClient{
 		block:         block,
-		batchReceipts: []*types.TransactionReceipt{},
+		batchReceipts: []*TransactionReceipt{},
 	}
 	f := NewFetcher(client, 8)
 
@@ -259,7 +258,7 @@ func TestFetcher_FetchBlock_BlockNotFound(t *testing.T) {
 
 	calls := 0
 	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*types.Block, error) {
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
 			return nil, stderrors.New("block not found")
 		},
@@ -281,7 +280,7 @@ func TestFetcher_FetchBlock_RPCRetrySuccess(t *testing.T) {
 
 	calls := 0
 	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*types.Block, error) {
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
 			if calls < 2 {
 				return nil, stderrors.New("connection reset")
@@ -309,7 +308,7 @@ func TestFetcher_FetchBlock_RPCRetryExhausted(t *testing.T) {
 
 	calls := 0
 	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*types.Block, error) {
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
 			return nil, stderrors.New("connection refused")
 		},
@@ -332,7 +331,7 @@ func TestFetcher_FetchBlock_ContextAlreadyCanceled(t *testing.T) {
 
 	calls := 0
 	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*types.Block, error) {
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
 			return fakeBlock(1), nil
 		},
@@ -360,8 +359,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 	cases := []struct {
 		name         string
 		blockNum     int64
-		txs          []types.Transaction
-		txReceiptFn  func(_ context.Context, _ string) (*types.TransactionReceipt, error)
+		txs          []Transaction
+		txReceiptFn  func(_ context.Context, _ string) (*TransactionReceipt, error)
 		wantReceipts int
 	}{
 		{
@@ -371,8 +370,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 		{
 			name:     "IndividualSuccess",
 			blockNum: 100000,
-			txs:      []types.Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 				return fakeReceipt(txHash, 100000), nil
 			},
 			wantReceipts: 1,
@@ -380,8 +379,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 		{
 			name:     "IndividualFail",
 			blockNum: 100001,
-			txs:      []types.Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 				return nil, fmt.Errorf("receipt not available")
 			},
 			wantReceipts: 0,
@@ -389,8 +388,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 		{
 			name:     "IndividualReceiptSuccess",
 			blockNum: 0xccc0,
-			txs:      []types.Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 				return fakeReceipt(txHash, 0xccc0), nil
 			},
 			wantReceipts: 1,
@@ -464,7 +463,7 @@ func TestFetcher_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 			client := &fakeRPCClient{
 				block:    block,
 				batchErr: fmt.Errorf("not supported"),
-				txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+				txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 					time.Sleep(tc.txSleep)
 					if tc.returnError {
 						return nil, fmt.Errorf("timeout")
@@ -486,7 +485,7 @@ func TestFetcher_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 func TestFetcher_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) {
 	t.Parallel()
 
-	txs := make([]types.Transaction, 3)
+	txs := make([]Transaction, 3)
 	for i := range 3 {
 		txs[i] = fakeTx(fmt.Sprintf("0x%064x", i+1))
 	}
@@ -496,7 +495,7 @@ func TestFetcher_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) 
 	client := &fakeRPCClient{
 		block:    block,
 		batchErr: fmt.Errorf("not supported"),
-		txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 			select {
 			case firstReceiptCalled <- struct{}{}:
 			default:
