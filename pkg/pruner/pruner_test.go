@@ -14,6 +14,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,10 +35,11 @@ func TestNewPruner(t *testing.T) {
 	})
 
 	t.Run("with chain resolves collection names", func(t *testing.T) {
-		mock := &testutils.MockChain{
+		mock := &testutils.MockConverter{
 			CollectionsFn: func() chains.Collections {
 				return chains.NewStubCollections("Test")
 			},
+			SignatureCollectionFn: func() string { return "Test__BlockSignature" },
 		}
 		p := NewPruner(cfg, nil, mock)
 		require.NotNil(t, p)
@@ -395,8 +397,8 @@ func TestGetBlockRange(t *testing.T) {
 
 func TestGetBlockRange_CorruptDataReturnsErrNoValidBlocks(t *testing.T) {
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
-	mock := &testutils.MockChain{
-		GetLowestStoredBlockNumberFn: func(_ context.Context) (int64, error) {
+	mock := &testutils.MockConverter{
+		GetLowestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) {
 			return 0, defra.ErrBlockNumberCorrupt
 		},
 	}
@@ -419,7 +421,7 @@ func TestPurgeByDocIDs(t *testing.T) {
 	assert.Equal(t, 2, countDocs(t, n, "TestBlock"))
 
 	// Get docIDs by querying via chain
-	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, 1, 1)
+	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, n, 1, 1)
 	require.NoError(t, err)
 	docIDs := docIDsByCol[testBlockColName]
 	require.Len(t, docIDs, 1)
@@ -449,7 +451,7 @@ func TestPurgeByDocIDs_InvalidDocID(t *testing.T) {
 	insertTestBlock(t, n, 1, 0)
 	insertTestBlock(t, n, 2, 0)
 
-	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, 1, 2)
+	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, n, 1, 2)
 	require.NoError(t, err)
 	validDocIDs := docIDsByCol[testBlockColName]
 	require.Len(t, validDocIDs, 2)
@@ -578,7 +580,7 @@ func TestPurgeFromDrainResult(t *testing.T) {
 	insertTestBlock(t, n, 2, 0)
 
 	// Get docIDs via chain
-	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, 1, 1)
+	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, n, 1, 1)
 	require.NoError(t, err)
 	require.NotNil(t, docIDsByCol[testBlockColName])
 	require.NotNil(t, docIDsByCol[testTxColName])
@@ -620,7 +622,7 @@ func TestPurgeFromDrainResult_PurgeError(t *testing.T) {
 
 		insertTestBlock(t, n, 1, 1)
 
-		docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, 1, 1)
+		docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, n, 1, 1)
 		require.NoError(t, err)
 
 		drainResult := &DrainResult{

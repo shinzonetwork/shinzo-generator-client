@@ -20,6 +20,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
@@ -778,7 +779,7 @@ func TestGetCurrentBlockAndLastProcessedTime_Consistency(t *testing.T) {
 
 func TestNewConcurrentBlockProcessor(t *testing.T) {
 	t.Parallel()
-	p := NewConcurrentBlockProcessor(nil, 4, 60)
+	p := NewConcurrentBlockProcessor(nil, nil, nil, 4, 60)
 	require.NotNil(t, p)
 	assert.Equal(t, 4, p.workers)
 	assert.Equal(t, 60, p.blocksPerMinute)
@@ -788,7 +789,7 @@ func TestNewConcurrentBlockProcessor(t *testing.T) {
 
 func TestNewConcurrentBlockProcessor_DefaultValues(t *testing.T) {
 	t.Parallel()
-	p := NewConcurrentBlockProcessor(nil, 1, 0)
+	p := NewConcurrentBlockProcessor(nil, nil, nil, 1, 0)
 	require.NotNil(t, p)
 	assert.Equal(t, 1, p.workers)
 	assert.Equal(t, 0, p.blocksPerMinute)
@@ -1014,9 +1015,7 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 	}))
 }
 
-// newTestAdapter creates an Adapter wired to the given mock RPC server
-// and test DefraDB node. The adapter's Close is registered for test cleanup.
-func newTestAdapter(t *testing.T, td *testutils.TestDefraDB, rpcServerURL string, receiptWorkers int) *evm.Adapter {
+func newTestProcessor(t *testing.T, td *testutils.TestDefraDB, rpcServerURL string, receiptWorkers int) (chains.Fetcher, chains.Converter, *defra.BlockHandler) {
 	t.Helper()
 	cfg := &config.Config{
 		Chain: config.ChainConfig{
@@ -1035,11 +1034,37 @@ func newTestAdapter(t *testing.T, td *testutils.TestDefraDB, rpcServerURL string
 			MaxALEDocsPerBatch: 100,
 		},
 	}
-	adapter, err := evm.NewAdapter(cfg)
+
+	fetcher, err := evm.NewFetcherFromConfig(cfg)
 	require.NoError(t, err)
-	require.NoError(t, adapter.Init(context.Background(), td.Node))
-	t.Cleanup(func() { _ = adapter.Close() })
-	return adapter
+	require.NoError(t, fetcher.Connect(context.Background()))
+	t.Cleanup(func() { _ = fetcher.Close() })
+
+	converter := evm.NewConverter(cfg)
+
+	blockHandler, err := defra.NewBlockHandler(td.Node, cfg.Indexer.MaxDocsPerTxn)
+	require.NoError(t, err)
+
+	return fetcher, converter, blockHandler
+}
+
+type mockBlockStorer struct {
+	storeFn        func(ctx context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error)
+	signExistingFn func(ctx context.Context, result chains.ConversionResult, blockHash string, blockNumber int64) (string, error)
+}
+
+func (m *mockBlockStorer) Store(ctx context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+	if m.storeFn != nil {
+		return m.storeFn(ctx, result)
+	}
+	return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
+}
+
+func (m *mockBlockStorer) SignExisting(ctx context.Context, result chains.ConversionResult, blockHash string, blockNumber int64) (string, error) {
+	if m.signExistingFn != nil {
+		return m.signExistingFn(ctx, result, blockHash, blockNumber)
+	}
+	return "mock-sig-id", nil
 }
 
 func fullBlockResponse(number string, txs []any) map[string]any {
@@ -1279,9 +1304,9 @@ func TestFetchAndProcessBlock_RPCError(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	result := p.fetchAndProcessBlock(context.Background(), 500)
 	require.NotNil(t, result)
@@ -1301,9 +1326,9 @@ func TestFetchAndProcessBlock_ContextCancelled(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // cancel immediately.
@@ -1339,9 +1364,9 @@ func TestProcessBlocks_ContextCancel(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -1388,10 +1413,10 @@ func TestProcessBlocks_WithRateLimit_ContextCancel(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	// Rate limit to 600 blocks/min = 10/sec.
-	p := NewConcurrentBlockProcessor(adapter, 1, 600)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 600)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -1684,7 +1709,7 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	indexer := &ChainIndexer{
 		cfg: &config.Config{
@@ -1694,7 +1719,10 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 				BlocksPerMinute:  0,
 			},
 		},
-		defraNode: td.Node,
+		fetcher:      fetcher,
+		converter:    converter,
+		blockHandler: blockHandler,
+		defraNode:    td.Node,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1704,7 +1732,7 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 		cancel()
 	}()
 
-	err := indexer.runConcurrentIndexing(ctx, adapter, 5001, indexer.cfg)
+	err := indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg)
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.True(t, indexer.isStarted)
 	assert.True(t, indexer.shouldIndex)
@@ -1780,9 +1808,9 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	// Use a context with timeout so the not-found retry doesn't block forever.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -1818,9 +1846,9 @@ func TestFetchAndProcessBlock_OtherRPCErrorRetry(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	result := p.fetchAndProcessBlock(context.Background(), 30000)
 	require.NotNil(t, result)
@@ -1847,9 +1875,9 @@ func TestFetchAndProcessBlock_TransactionConflict(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	// Insert block first
 	result1 := p.fetchAndProcessBlock(context.Background(), 40000)
@@ -1879,9 +1907,9 @@ func TestFetchAndProcessBlock_ContextCancelledDuringNotFound(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -1910,9 +1938,9 @@ func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -2001,7 +2029,7 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create chain adapter (Adapter) wired to a mock RPC server.
+	// Create fetcher, converter, and block handler wired to a mock RPC server.
 	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
@@ -2013,14 +2041,14 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 		}
 	})
 	defer rpcServer.Close()
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
-	require.NotNil(t, adapter)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
+	require.NotNil(t, fetcher)
 
 	// Create pruner.
 	p := pruner.NewPruner(&config.PrunerConfig{
 		Enabled:   true,
 		MaxBlocks: 1000,
-	}, td.Node, adapter)
+	}, td.Node, converter)
 
 	// Create snapshotter.
 	snapDir := t.TempDir()
@@ -2042,7 +2070,9 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 	indexer := &ChainIndexer{
 		shouldIndex:    true,
 		isStarted:      true,
-		adapter:        adapter,
+		fetcher:        fetcher,
+		converter:      converter,
+		blockHandler:   blockHandler,
 		defraNode:      td.Node,
 		pruner:         p,
 		snapshotter:    s,
@@ -2051,13 +2081,13 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 		cfg:            &config.Config{},
 	}
 
-	require.NotNil(t, indexer.adapter, "adapter should be set before StopIndexing")
+	require.NotNil(t, indexer.fetcher, "fetcher should be set before StopIndexing")
 
 	indexer.StopIndexing()
 
 	assert.False(t, indexer.shouldIndex)
 	assert.False(t, indexer.isStarted)
-	assert.Nil(t, indexer.adapter, "StopIndexing should close and nil the adapter")
+	assert.Nil(t, indexer.fetcher, "StopIndexing should close and nil the fetcher")
 	assert.Nil(t, indexer.defraNode)
 	assert.Nil(t, indexer.pruner)
 	assert.Nil(t, indexer.snapshotter)
@@ -2092,10 +2122,10 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	// Use only 1 worker so the tooFarAhead check (workers*2=2) triggers quickly.
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -2129,9 +2159,9 @@ func TestProcessBlocks_WithNilCallback(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -2169,9 +2199,9 @@ func TestProcessBlocks_FailedBlockInSequence(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var mu sync.Mutex
@@ -2356,10 +2386,10 @@ func TestProcessBlocks_CancelDuringRateLimit(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	// Very low rate limit (1 block/min) so cancellation hits during wait.
-	p := NewConcurrentBlockProcessor(adapter, 1, 1)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -2395,9 +2425,9 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -2418,15 +2448,15 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 // then commit 1002→1005 in a single pass. Blocks ≥1006 are parked on
 // ctx.Done() so collectResults sees exactly five results.
 //
-// This is a pure unit test: only testutils.MockChain is used (no DefraDB, no
+// This is a pure unit test: only mocks are used (no DefraDB, no
 // RPC server). State is snapshotted BEFORE cancel() to avoid races with
 // parked workers waking up after cancellation.
 func TestProcessBlocks_OutOfOrderCompletion(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	mc := &testutils.MockChain{
-		FetchAndStoreBlockFn: func(ctx context.Context, height int64) (string, error) {
+	mc := &testutils.MockFetcher{
+		FetchBlockFn: func(ctx context.Context, height int64) (any, error) {
 			switch {
 			case height == 1002:
 				// Slow 1002 so that workers 3/4/5 finish first, producing
@@ -2436,14 +2466,20 @@ func TestProcessBlocks_OutOfOrderCompletion(t *testing.T) {
 			case height >= 1006:
 				// Park extra blocks so collectResults sees no result beyond 1005.
 				<-ctx.Done()
-				return "", ctx.Err()
+				return nil, ctx.Err()
 			default:
 				return fmt.Sprintf("0x%x", height), nil
 			}
 		},
 	}
 
-	p := NewConcurrentBlockProcessor(mc, 4, 0)
+	mcConv := &testutils.MockConverter{
+		ConvertFn: func(_ context.Context, _ any) (chains.ConversionResult, error) {
+			return chains.ConversionResult{}, nil
+		},
+	}
+
+	p := NewConcurrentBlockProcessor(mc, mcConv, &mockBlockStorer{}, 4, 0)
 
 	var (
 		mu        sync.Mutex
@@ -2612,15 +2648,15 @@ func TestFetchAndProcessBlock_SigningQueueFull(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	// First: insert block.
 	result1 := p.fetchAndProcessBlock(context.Background(), 0xbeef)
 	require.True(t, result1.Success)
 
-	// Second: duplicate block — adapter enqueues signing internally and returns success.
+	// Second: duplicate block — blockHandler enqueues signing internally and returns success.
 	result2 := p.fetchAndProcessBlock(context.Background(), 0xbeef)
 	require.NotNil(t, result2)
 	assert.True(t, result2.Success)
@@ -3003,12 +3039,14 @@ func TestProcessBlocks_ExistingBlockPath(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	processor := NewConcurrentBlockProcessor(
-		adapter, // chain.
-		1,       // workers.
-		0,       // blocksPerMinute.
+		fetcher,      // fetcher.
+		converter,    // converter.
+		blockHandler, // blockStorer.
+		1,            // workers.
+		0,            // blocksPerMinute.
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -3250,12 +3288,14 @@ func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	processor := NewConcurrentBlockProcessor(
-		adapter, // chain.
-		1,       // workers.
-		0,       // blocksPerMinute.
+		fetcher,      // fetcher.
+		converter,    // converter.
+		blockHandler, // blockStorer.
+		1,            // workers.
+		0,            // blocksPerMinute.
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -3288,12 +3328,14 @@ func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	processor := NewConcurrentBlockProcessor(
-		adapter, // chain.
-		2,       // workers.
-		60,      // blocksPerMinute - rate limited to exercise more paths.
+		fetcher,      // fetcher.
+		converter,    // converter.
+		blockHandler, // blockStorer.
+		2,            // workers.
+		60,           // blocksPerMinute - rate limited to exercise more paths.
 	)
 
 	// Cancel immediately to exercise the main dispatch loop's ctx.Done().
@@ -3769,11 +3811,11 @@ func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	// Create two processors that share the same adapter.
-	p1 := NewConcurrentBlockProcessor(adapter, 1, 0)
-	p2 := NewConcurrentBlockProcessor(adapter, 1, 0)
+	// Create two processors that share the same fetcher/converter/blockHandler.
+	p1 := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+	p2 := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	// Run both concurrently to try to trigger a transaction conflict.
 	var wg sync.WaitGroup
@@ -4210,10 +4252,10 @@ func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	// First, insert the block to make subsequent inserts trigger "already exists".
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 	result1 := p.fetchAndProcessBlock(context.Background(), 0xdead1)
 	require.True(t, result1.Success)
 
@@ -4239,9 +4281,9 @@ func TestProcessBlocks_ImmediateCancel(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-	p := NewConcurrentBlockProcessor(adapter, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 
 	// Cancel immediately — should hit ctx.Done() in the dispatch loop.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -4266,10 +4308,10 @@ func TestProcessBlocks_ImmediateCancelWithRateLimit(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	// Rate limited processor
-	p := NewConcurrentBlockProcessor(adapter, 1, 30)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 30)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // immediate cancel
@@ -4861,7 +4903,7 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
+	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	// Run many concurrent processors on the same block to maximize,
 	// the chance of hitting a transaction conflict (not already-exists).
@@ -4875,7 +4917,7 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			p := NewConcurrentBlockProcessor(adapter, 1, 0)
+			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
 			results[idx] = p.fetchAndProcessBlock(ctx, 0xeee0)
 		}(i)
 	}

@@ -77,7 +77,7 @@ type ChainIndexer struct {
 	pruner                    *pruner.Pruner        // Document pruner for removing old blocks.
 	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks.
 	currentBlock              int64
-	lastProcessedTime          time.Time
+	lastProcessedTime         time.Time
 	mutex                     sync.RWMutex
 }
 
