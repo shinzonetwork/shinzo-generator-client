@@ -1,4 +1,4 @@
-package rpc
+package evm
 
 import (
 	"context"
@@ -8,12 +8,10 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -33,12 +31,6 @@ const ethGetTransactionReceipt = "eth_getTransactionReceipt"
 
 // ethGetBlockReceipts is used in multiple tests, so define it as a constant for easy updates if needed.
 const ethGetBlockReceipts = "eth_getBlockReceipts"
-
-func TestMain(m *testing.M) {
-	logger.InitConsoleOnly(true)
-	code := m.Run()
-	os.Exit(code)
-}
 
 // --- mock JSON-RPC server ---
 
