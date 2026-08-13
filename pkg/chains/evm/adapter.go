@@ -102,8 +102,6 @@ func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 	}
 }
 
-
-
 // Init wires the adapter to a running DefraDB node. After Init returns the
 // BlockHandler-backed methods are usable and the background signing goroutine
 // is running.

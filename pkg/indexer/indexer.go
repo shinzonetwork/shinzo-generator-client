@@ -14,6 +14,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -61,29 +62,12 @@ const (
 // defaultListenAddress is the default P2P listen address for the embedded DefraDB node.
 const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 
-// lifecycleAdapter is the narrow consumer-side interface the indexer uses to
-// wire lifecycle-adjacent surfaces into the adapter. It embeds chains.Adapter
-// and adds SetDocIDTracker off the chains.Adapter interface so pkg/chains does not import pkg/defra.
-// *chains.EVMAdapter satisfies this interface via structural typing — no source
-// change on the adapter side. A future Cosmos adapter either implements it
-// (if it wants tracker wiring) or the indexer's initServices gracefully skips
-// the wire when the runtime type assertion fails (see call site).
-type lifecycleAdapter interface {
-	chains.Adapter
-
-	// SetDocIDTracker wires the pruner's DocIDTracker into the adapter's
-	// blockHandler.
-	SetDocIDTracker(tracker defra.DocIDTrackerInterface)
-
-	// Collections returns the Collections interface for the configured
-	// chain, providing access to collection names, prefix, and schema metadata.
-	Collections() chains.Collections
-}
-
 // ChainIndexer is the main indexer that processes blockchain blocks.
 type ChainIndexer struct {
 	cfg                       *config.Config
-	adapter                   lifecycleAdapter // TODO: receive via adapterFactory field instead.
+	fetcher                   chains.Fetcher
+	converter                 chains.Converter
+	blockHandler              *defra.BlockHandler
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
@@ -93,7 +77,7 @@ type ChainIndexer struct {
 	pruner                    *pruner.Pruner        // Document pruner for removing old blocks.
 	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks.
 	currentBlock              int64
-	lastProcessedTime         time.Time
+	lastProcessedTime          time.Time
 	mutex                     sync.RWMutex
 }
 
@@ -151,29 +135,37 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	if logger.Sugar == nil {
 		logger.Init(cfg.Logger.Development)
 	}
-	// TODO: Add logger message here if adapter creation takes too long
-	adapter, err := chains.NewAdapter(cfg)
+
+	// 1. Create fetcher (no dial yet) + converter
+	fetcher, err := evm.NewFetcherFromConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create chain adapter: %w", err)
+		return fmt.Errorf("failed to create fetcher: %w", err)
 	}
-	lifecycleAdpl, ok := adapter.(lifecycleAdapter)
-	if !ok {
-		return fmt.Errorf("chain adapter %T does not expose lifecycle wiring required by the indexer", adapter)
-	}
-	i.adapter = lifecycleAdpl
+	i.fetcher = fetcher
+	i.converter = evm.NewConverter(cfg)
 
-	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, i.adapter.Collections().Prefix())
+	// 2. Log prefix (uses converter only — no RPC needed)
+	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, i.converter.Collections().Prefix())
 
+	// 3. Start DefraDB (uses converter.Collections() + converter.GetCollections())
 	ctx, err = i.initDefra(ctx, cfg, defraStarted)
 	if err != nil {
 		return err
 	}
 
-	if err := adapter.Init(ctx, i.defraNode); err != nil {
-		return fmt.Errorf("failed to initialize chain adapter: %w", err)
+	// 4. Connect fetcher (context-aware dial — was done in NewAdapter at construction)
+	if err := i.fetcher.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect fetcher: %w", err)
 	}
 
-	nextBlockToProcess, err := i.resolveStartHeight(ctx, cfg, adapter)
+	// 5. Create block handler (was done in adapter.Init)
+	i.blockHandler, err = defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
+	if err != nil {
+		return fmt.Errorf("failed to create block handler: %w", err)
+	}
+
+	// 6. Resolve start height (uses converter + fetcher, no chain param)
+	nextBlockToProcess, err := i.resolveStartHeight(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -181,13 +173,15 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	i.shouldIndex = true
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
+	// 7. Init services (pruner/snapshot/health — now take converter)
 	if err := i.initServices(ctx, cfg); err != nil {
 		return err
 	}
 
+	// 8. Run concurrent indexing
 	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers", cfg.Indexer.ConcurrentBlocks)
-		return i.runConcurrentIndexing(ctx, adapter, nextBlockToProcess, cfg)
+		return i.runConcurrentIndexing(ctx, nextBlockToProcess, cfg)
 	}
 	return nil
 }
@@ -205,7 +199,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		}
 
 		defraNode, networkHandler, err := defradb.StartDefraInstance(cfg,
-			defradb.NewSchemaApplierFromDir(i.adapter.Collections()), nil, replicationFilter, i.adapter.GetCollections()...)
+			defradb.NewSchemaApplierFromDir(i.converter.Collections()), nil, replicationFilter, i.converter.GetCollections()...)
 		if err != nil {
 			return ctx, fmt.Errorf("failed to start DefraDB instance: %w", err)
 		}
@@ -228,7 +222,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		if err := defra.WaitForDefraDB(cfg.DefraDB.URL); err != nil {
 			return ctx, err
 		}
-		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, i.adapter.Collections()); err != nil {
+		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, i.converter.Collections()); err != nil {
 			return ctx, fmt.Errorf("failed to apply schema to external DefraDB: %w", err)
 		}
 	}
@@ -241,7 +235,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 }
 
 // resolveStartHeight determines the block number to start indexing from.
-func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config, chain chains.Chain) (int64, error) {
+func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
 	var pruneQueue *pruner.IndexerQueue
@@ -259,7 +253,7 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	}
 
 	if highestExisting == 0 {
-		nBlock, err := chain.GetHighestStoredBlockNumber(ctx)
+		nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraNode)
 		if err != nil {
 			logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
 		} else {
@@ -267,7 +261,7 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 		}
 	}
 
-	latestBlock, err := chain.FetchHighestBlockNumber(ctx)
+	latestBlock, err := i.fetcher.FetchHighestBlockNumber(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block number from RPC: %w", err)
 	}
@@ -318,7 +312,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) err
 	}
 
 	if cfg.Pruner.Enabled && i.defraNode != nil {
-		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, i.adapter)
+		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, i.converter)
 		pruneQueue := pruner.NewIndexerQueue()
 		// Binds the queue to its file before anything tracks into it. Save is a no-op until this
 		// runs, so without it the queue is never written and never survives a restart.
@@ -330,9 +324,9 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) err
 			logger.Sugar.Infof("Restored %d entries from prune queue file", restored)
 		}
 		i.pruner.SetQueue(pruneQueue)
-		i.adapter.SetDocIDTracker(&indexerQueueTracker{
+		i.blockHandler.SetDocIDTracker(&indexerQueueTracker{
 			queue:       pruneQueue,
-			collections: i.adapter.Collections(),
+			collections: i.converter.Collections(),
 		})
 		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 		if err := i.pruner.Start(ctx); err != nil {
@@ -341,7 +335,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) err
 	}
 
 	if cfg.Snapshot.Enabled && i.defraNode != nil {
-		i.snapshotter = snapshot.New(&cfg.Snapshot, i.defraNode, i.adapter)
+		i.snapshotter = snapshot.New(&cfg.Snapshot, i.defraNode, i.converter)
 		if err := i.snapshotter.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start snapshotter: %v", err)
 		}
@@ -373,12 +367,12 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	prefix := i.adapter.Collections().Prefix()
-	sdl, err := i.adapter.GetSchema()
+	prefix := i.converter.Collections().Prefix()
+	sdl, err := i.converter.GetSchema()
 	if err != nil {
 		return fmt.Errorf("load schema for chain %s: %w", prefix, err)
 	}
-	if err := i.healthServer.EnableSchemaEndpoint(sdl, i.adapter.Collections(), auth); err != nil {
+	if err := i.healthServer.EnableSchemaEndpoint(sdl, i.converter.Collections(), auth); err != nil {
 		return fmt.Errorf("enable schema endpoint: %w", err)
 	}
 	go func() {
@@ -399,7 +393,6 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 // runConcurrentIndexing runs the indexer with concurrent block processing.
 func (i *ChainIndexer) runConcurrentIndexing(
 	ctx context.Context,
-	chain chains.Chain,
 	startBlock int64,
 	cfg *config.Config,
 ) error {
@@ -407,7 +400,9 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	i.isStarted = true
 
 	processor := NewConcurrentBlockProcessor(
-		chain,
+		i.fetcher,
+		i.converter,
+		i.blockHandler,
 		cfg.Indexer.ConcurrentBlocks,
 		cfg.Indexer.BlocksPerMinute,
 	)
@@ -442,10 +437,10 @@ func (i *ChainIndexer) StopIndexing() {
 		_ = i.healthServer.Stop(ctx)
 	}
 
-	// Close chain adapter (cancels internal context, drains signing goroutine, closes RPC client)
-	if i.adapter != nil {
-		_ = i.adapter.Close()
-		i.adapter = nil
+	// Close fetcher (closes RPC client)
+	if i.fetcher != nil {
+		_ = i.fetcher.Close()
+		i.fetcher = nil
 	}
 
 	// Stop P2P network handler before closing the node
