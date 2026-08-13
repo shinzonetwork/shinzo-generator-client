@@ -100,14 +100,13 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 	return &BlockHandler{
 		db:            db,
 		maxDocsPerTxn: 1000,
-		collections:   chains.NewStubCollections("Ethereum__Mainnet"),
 		signBatchFn: func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 			return nil, nil
 		},
 		verifyBatchSigFn: func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
 			return true, nil
 		},
-		collectDocCIDsFn: func(_ context.Context, _ []string) ([]cid.Cid, error) {
+		collectDocCIDsFn: func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 			return nil, nil
 		},
 		maxCIDRetries:  1,
@@ -127,11 +126,11 @@ func testReceipt() *types.TransactionReceipt {
 	return mockReceipt("0xabc1000000000000000000000000000000000000000000000000000000000001", "0x64")
 }
 
-func buildSigGroups(t *testing.T, block *types.Block, txs []*types.Transaction, receipts []*types.TransactionReceipt) []chains.DocumentGroup {
+func buildSigGroups(t *testing.T, block *types.Block, txs []*types.Transaction, receipts []*types.TransactionReceipt) chains.ConversionResult {
 	t.Helper()
-	groups, _, err := testutils.BuildEVMGroups(chains.NewStubCollections("Ethereum__Mainnet"), block, txs, receipts)
+	result, err := testutils.BuildEVMGroups(chains.NewStubCollections("Ethereum__Mainnet"), block, txs, receipts)
 	require.NoError(t, err)
-	return groups
+	return result
 }
 
 // =========================================================================
@@ -209,9 +208,9 @@ func TestExistingSig_GQLQuery_Error(t *testing.T) {
 		},
 	}
 	h := newMockHandler(t, db)
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "query docIDs for")
 }
@@ -222,9 +221,9 @@ func TestExistingSig_GetBlockCol_Error(t *testing.T) {
 		execReqFn: execReqFnWithErrorForCol(colBlock),
 	}
 	h := newMockHandler(t, db)
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "query docIDs for")
 }
@@ -235,9 +234,9 @@ func TestExistingSig_GetTxCol_Error(t *testing.T) {
 		execReqFn: execReqFnWithErrorForCol(colTransaction),
 	}
 	h := newMockHandler(t, db)
-	groups := buildSigGroups(t, testBlock(), []*types.Transaction{testTx()}, nil)
+	result := buildSigGroups(t, testBlock(), []*types.Transaction{testTx()}, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "query docIDs for")
 }
@@ -248,9 +247,9 @@ func TestExistingSig_GetLogCol_Error(t *testing.T) {
 		execReqFn: execReqFnWithErrorForCol(colLog),
 	}
 	h := newMockHandler(t, db)
-	groups := buildSigGroups(t, testBlock(), []*types.Transaction{testTx()}, []*types.TransactionReceipt{testReceipt()})
+	result := buildSigGroups(t, testBlock(), []*types.Transaction{testTx()}, []*types.TransactionReceipt{testReceipt()})
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "query docIDs for")
 }
@@ -263,9 +262,9 @@ func TestExistingSig_GetALECol_Error(t *testing.T) {
 	h := newMockHandler(t, db)
 	tx := testTx()
 	tx.AccessList = []types.AccessListEntry{{Address: "0x01", StorageKeys: []string{"0x02"}}}
-	groups := buildSigGroups(t, testBlock(), []*types.Transaction{tx}, []*types.TransactionReceipt{testReceipt()})
+	result := buildSigGroups(t, testBlock(), []*types.Transaction{tx}, []*types.TransactionReceipt{testReceipt()})
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "query docIDs for")
 }
@@ -276,12 +275,12 @@ func TestExistingSig_CIDRetry_CollectError(t *testing.T) {
 		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return nil, fmt.Errorf("collect error") //nolint:err113
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CIDs found")
 }
@@ -293,12 +292,12 @@ func TestExistingSig_CIDRetry_InsufficientCIDs(t *testing.T) {
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return nil, nil
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CIDs found")
 }
@@ -309,9 +308,9 @@ func TestExistingSig_CIDRetry_TxnError(t *testing.T) {
 		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CIDs found")
 }
@@ -323,15 +322,15 @@ func TestExistingSig_SigningTxn_Error(t *testing.T) {
 		newTxnFn:  func(_ bool) (client.Txn, error) { return nil, fmt.Errorf("signing txn error") }, //nolint:err113
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "signing txn error")
 }
@@ -342,15 +341,15 @@ func TestExistingSig_SignBlock_Error(t *testing.T) {
 		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return nil, fmt.Errorf("sign error") //nolint:err113
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "sign error")
 }
@@ -361,12 +360,12 @@ func TestExistingSig_NilBlockSig(t *testing.T) {
 		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "signing returned nil")
 }
@@ -383,15 +382,15 @@ func TestExistingSig_GetSigCol_Error(t *testing.T) {
 		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no sig col")
 }
@@ -410,15 +409,15 @@ func TestExistingSig_BuildSigDoc_Error(t *testing.T) {
 		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "field does not exist")
 }
@@ -439,15 +438,15 @@ func TestExistingSig_CreateSigDoc_Error(t *testing.T) {
 		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create error")
 }
@@ -466,15 +465,15 @@ func TestExistingSig_Commit_Error(t *testing.T) {
 		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "commit error")
 }
@@ -490,7 +489,7 @@ func TestExistingSig_CIDRetry_BackoffPath(t *testing.T) {
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		collectCount++
 		if collectCount == 1 {
 			return nil, nil
@@ -503,9 +502,9 @@ func TestExistingSig_CIDRetry_BackoffPath(t *testing.T) {
 	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return nil, fmt.Errorf("sign error") //nolint:err113
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 }
 
@@ -516,12 +515,12 @@ func TestExistingSig_BuildLogDoc_Continue(t *testing.T) {
 		execReqFn: emptyExecReqFn(),
 	}
 	h := newMockHandler(t, db)
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return nil, fmt.Errorf("no cids") //nolint:err113
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CIDs found")
 }
@@ -534,9 +533,9 @@ func TestExistingSig_CIDRetry_TxnError_Backoff(t *testing.T) {
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CIDs found")
 }
@@ -549,12 +548,12 @@ func TestExistingSig_CIDRetry_CollectError_Backoff(t *testing.T) {
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2
-	h.collectDocCIDsFn = func(_ context.Context, _ []string) ([]cid.Cid, error) {
+	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return nil, fmt.Errorf("collect error") //nolint:err113
 	}
-	groups := buildSigGroups(t, testBlock(), nil, nil)
+	result := buildSigGroups(t, testBlock(), nil, nil)
 
-	_, err := h.SignExisting(context.Background(), groups, colBlockSignature, "0xhash", 100, nil)
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CIDs found")
 }

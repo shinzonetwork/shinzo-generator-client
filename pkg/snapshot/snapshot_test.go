@@ -75,8 +75,7 @@ func (tc *testChain) Collections() chains.Collections {
 // newTestChainFromNode creates a testChain wrapping a fresh BlockHandler for the given node.
 func newTestChainFromNode(t *testing.T, td *testutils.TestDefraDB) *testChain {
 	t.Helper()
-	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	handler, err := defra.NewBlockHandler(td.Node, 1000, cols)
+	handler, err := defra.NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 	return &testChain{handler: handler, node: td.Node, converter: evm.NewConverter(nil)}
 }
@@ -1478,7 +1477,7 @@ func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
 // Returns the block handler for further use.
 func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) *defra.BlockHandler {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, evm.NewCollectionNames("Ethereum__Mainnet"))
+	handler, err := defra.NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -1488,8 +1487,8 @@ func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBl
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		groups, sigCol, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
-		_, err = handler.Store(ctx, groups, sigCol, nil)
+		result, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
 	return handler
@@ -3983,7 +3982,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 
 func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) (context.Context, *defra.BlockHandler) {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, evm.NewCollectionNames("Ethereum__Mainnet"))
+	handler, err := defra.NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
@@ -3996,8 +3995,8 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		groups, sigCol, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
-		_, err = handler.Store(ctx, groups, sigCol, nil)
+		result, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
 	return ctx, handler

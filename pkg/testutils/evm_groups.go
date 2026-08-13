@@ -3,7 +3,7 @@ package testutils
 // TODO: Once pkg/chains/evm/adapter.go is removed, the import cycle
 // (testutils → chains/evm → testutils via evm test files) is broken. At that
 // point this file should be replaced with a thin wrapper calling
-// evm.NewConverter(nil).Convert(ctx, &evm.BlockBundle{...}, nil) to eliminate
+// evm.NewConverter(nil).Convert(ctx, &evm.BlockBundle{...}) to eliminate
 // the data-map duplication with evm/converter.go.
 
 import (
@@ -16,19 +16,41 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 )
 
+// NoopStamper is a chains.LinkStamper that does nothing. Used by test helpers
+// that don't need link resolution.
+type NoopStamper struct{}
+
+// StampLinks implements chains.LinkStamper as a no-op.
+func (NoopStamper) StampLinks(_ []chains.DocumentGroup, _ string, _ []map[string]any, _ []string) {
+}
+
+// WrapResult bundles groups and a signature collection name into a
+// chains.ConversionResult with a NoopStamper. Used by test call sites that
+// need to pass a ConversionResult to BlockHandler.Store or SignExisting.
+func WrapResult(groups []chains.DocumentGroup, sigCol string) chains.ConversionResult {
+	return chains.ConversionResult{
+		Groups:              groups,
+		SignatureCollection: sigCol,
+		LinkStamper:         NoopStamper{},
+	}
+}
+
+// BuildEVMGroups builds a chains.ConversionResult from raw EVM block types,
+// producing document groups for block, transactions, logs, and access list
+// entries with a NoopStamper.
 func BuildEVMGroups(
 	collections chains.Collections,
 	block *types.Block,
 	txs []*types.Transaction,
 	receipts []*types.TransactionReceipt,
-) ([]chains.DocumentGroup, string, error) {
+) (chains.ConversionResult, error) {
 	if block == nil {
-		return nil, "", fmt.Errorf("nil block")
+		return chains.ConversionResult{}, fmt.Errorf("nil block")
 	}
 
 	blockInt, err := utils.HexToInt(block.Number)
 	if err != nil {
-		return nil, "", fmt.Errorf("parse block number: %w", err)
+		return chains.ConversionResult{}, fmt.Errorf("parse block number: %w", err)
 	}
 
 	blockCol, _ := collections.GetCollection(chains.TypeBlock)
@@ -41,31 +63,31 @@ func BuildEVMGroups(
 	txDocs := buildTxDocs(txs)
 	receiptMap := buildReceiptMap(receipts)
 	logDocs := buildLogDocs(txs, receiptMap)
-	aleDocs, aleParentRefs := buildALEDocs(txs, blockInt)
+	aleDocs, _ := buildALEDocs(txs, blockInt)
 
 	groups := []chains.DocumentGroup{
-		{Collection: blockCol, Docs: []map[string]any{blockData}},
+		{Collection: blockCol, Docs: []map[string]any{blockData}, BlockNumField: constants.NumberFieldValue},
 	}
 	if len(txDocs) > 0 {
-		groups = append(groups, chains.DocumentGroup{Collection: txCol, Docs: txDocs})
+		groups = append(groups, chains.DocumentGroup{Collection: txCol, Docs: txDocs, BlockNumField: constants.BlockNumberKeyValue})
 	}
 	if len(logDocs) > 0 {
-		groups = append(groups, chains.DocumentGroup{Collection: logCol, Docs: logDocs})
+		groups = append(groups, chains.DocumentGroup{Collection: logCol, Docs: logDocs, BlockNumField: constants.BlockNumberKeyValue})
 	}
 	if len(aleDocs) > 0 {
-		groups = append(groups, chains.DocumentGroup{
-			Collection: aleCol,
-			Docs:       aleDocs,
-			ParentRef:  aleParentRefs,
-		})
+		groups = append(groups, chains.DocumentGroup{Collection: aleCol, Docs: aleDocs, BlockNumField: constants.BlockNumberKeyValue})
 	}
 
-	return groups, sigCol, nil
+	return chains.ConversionResult{
+		Groups:              groups,
+		SignatureCollection: sigCol,
+		LinkStamper:         NoopStamper{},
+	}, nil
 }
 
 func buildBlockMap(block *types.Block, blockInt int64) map[string]any {
 	return map[string]any{
-		"hash":                     block.Hash,
+		constants.HashKeyValue:     block.Hash,
 		constants.NumberFieldValue: blockInt,
 		"timestamp":                block.Timestamp,
 		"parentHash":               block.ParentHash,
@@ -102,7 +124,7 @@ func buildTxDocs(txs []*types.Transaction) []map[string]any {
 func buildTxMap(tx *types.Transaction) map[string]any {
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	return map[string]any{
-		"hash":                        tx.Hash,
+		constants.HashKeyValue:        tx.Hash,
 		constants.BlockNumberKeyValue: txBlockNum,
 		constants.BlockHashKeyValue:   tx.BlockHash,
 		"transactionIndex":            tx.TransactionIndex,
@@ -156,15 +178,15 @@ func buildLogDocs(txs []*types.Transaction, receiptMap map[string]*types.Transac
 func buildLogMap(logEntry *types.Log) map[string]any {
 	logBlockNum, _ := utils.HexToInt(logEntry.BlockNumber)
 	return map[string]any{
-		"address":                     logEntry.Address,
-		"topics":                      logEntry.Topics,
-		"data":                        logEntry.Data,
-		constants.BlockNumberKeyValue: logBlockNum,
-		"transactionHash":             logEntry.TransactionHash,
-		"transactionIndex":            logEntry.TransactionIndex,
-		constants.BlockHashKeyValue:   logEntry.BlockHash,
-		"logIndex":                    logEntry.LogIndex,
-		"removed":                     fmt.Sprintf("%v", logEntry.Removed),
+		constants.AddressKeyValue:         logEntry.Address,
+		"topics":                          logEntry.Topics,
+		"data":                            logEntry.Data,
+		constants.BlockNumberKeyValue:     logBlockNum,
+		constants.TransactionHashKeyValue: logEntry.TransactionHash,
+		"transactionIndex":                logEntry.TransactionIndex,
+		constants.BlockHashKeyValue:       logEntry.BlockHash,
+		"logIndex":                        logEntry.LogIndex,
+		"removed":                         fmt.Sprintf("%v", logEntry.Removed),
 	}
 }
 
@@ -185,7 +207,7 @@ func buildALEDocs(txs []*types.Transaction, blockInt int64) ([]map[string]any, [
 
 func buildALEMap(ale *types.AccessListEntry, blockNumber int64) map[string]any {
 	return map[string]any{
-		"address":                     ale.Address,
+		constants.AddressKeyValue:     ale.Address,
 		constants.BlockNumberKeyValue: blockNumber,
 		"storageKeys":                 ale.StorageKeys,
 	}

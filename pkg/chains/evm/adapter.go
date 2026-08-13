@@ -8,6 +8,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -37,8 +38,7 @@ const (
 type signingJob struct {
 	blockNum  int64
 	blockHash string
-	groups    []chains.DocumentGroup
-	sigCol    string
+	result    chains.ConversionResult
 }
 
 // Adapter is a Chain implementation backed by an EVM JSON-RPC endpoint and a
@@ -132,15 +132,10 @@ func (a *Adapter) Init(ctx context.Context, defraNode *node.Node) error {
 	if a.cfg == nil {
 		return errors.NewConfigurationError("chain", "Init", "config is nil", "", nil)
 	}
-	blockHandler, err := defra.NewBlockHandler(defraNode, a.cfg.Indexer.MaxDocsPerTxn, a.collections)
+	blockHandler, err := defra.NewBlockHandler(defraNode, a.cfg.Indexer.MaxDocsPerTxn)
 	if err != nil {
 		return fmt.Errorf("create block handler: %w", err)
 	}
-	blockHandler.SetBatchSizes(
-		a.cfg.Indexer.MaxTxDocsPerBatch,
-		a.cfg.Indexer.MaxLogDocsPerBatch,
-		a.cfg.Indexer.MaxALEDocsPerBatch,
-	)
 
 	a.blockHandler = blockHandler
 	a.node = defraNode
@@ -160,7 +155,7 @@ func (a *Adapter) signBlocks(ctx context.Context) {
 			continue
 		}
 		if _, err := a.blockHandler.SignExisting(
-			ctx, job.groups, job.sigCol, job.blockHash, job.blockNum, a.blockHandler,
+			ctx, job.result, job.blockHash, job.blockNum,
 		); err != nil {
 			logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", job.blockNum, err)
 		}
@@ -190,24 +185,24 @@ func (a *Adapter) FetchAndStoreBlock(ctx context.Context, height int64) (string,
 	if err != nil {
 		return "", err
 	}
-	groups, sigCol, err := a.converter.Convert(ctx, raw, a.blockHandler)
+	result, err := a.converter.Convert(ctx, raw)
 	if err != nil {
 		return "", fmt.Errorf("convert block: %w", err)
 	}
-	blockHash := extractBlockHashFromGroups(groups, a.collections)
-	return a.storeBlockWithRetry(ctx, groups, sigCol, blockHash, height)
+	blockHash := extractBlockHashFromGroups(result.Groups, a.collections)
+	return a.storeBlockWithRetry(ctx, result, blockHash, height)
 }
 
 // storeBlockWithRetry persists document groups via BlockHandler.Store. When
 // the block already exists a signing job is enqueued and nil is returned.
 // Transaction conflicts are retried up to maxRPCRetries times.
-func (a *Adapter) storeBlockWithRetry(ctx context.Context, groups []chains.DocumentGroup, sigCol, blockHash string, blockNum int64) (string, error) {
+func (a *Adapter) storeBlockWithRetry(ctx context.Context, result chains.ConversionResult, blockHash string, blockNum int64) (string, error) {
 	for attempt := range maxRPCRetries {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 
-		res, err := a.blockHandler.Store(ctx, groups, sigCol, a.blockHandler)
+		res, err := a.blockHandler.Store(ctx, result)
 		if err == nil {
 			return res.BlockID, nil
 		}
@@ -217,8 +212,7 @@ func (a *Adapter) storeBlockWithRetry(ctx context.Context, groups []chains.Docum
 			case a.signingChan <- signingJob{
 				blockNum:  blockNum,
 				blockHash: blockHash,
-				groups:    groups,
-				sigCol:    sigCol,
+				result:    result,
 			}:
 			default:
 				logger.Sugar.Warnf("Block %d: signing queue full, skipping block signature", blockNum)
@@ -245,7 +239,7 @@ func (a *Adapter) storeBlockWithRetry(ctx context.Context, groups []chains.Docum
 func extractBlockHashFromGroups(groups []chains.DocumentGroup, cols *CollectionNames) string {
 	for _, g := range groups {
 		if g.Collection == cols.Block && len(g.Docs) > 0 {
-			if hash, ok := g.Docs[0]["hash"].(string); ok {
+			if hash, ok := g.Docs[0][constants.HashKeyValue].(string); ok {
 				return hash
 			}
 		}

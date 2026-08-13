@@ -5,10 +5,8 @@ import (
 	"encoding/hex"
 	stderrors "errors"
 	"fmt"
-	"maps"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	cid "github.com/ipfs/go-cid"
@@ -64,36 +62,24 @@ type DocIDTrackerInterface interface {
 	TrackBlock(ctx context.Context, blockNumber int64, result *BlockCreationResult) error
 }
 
-// Compile-time guarantee that BlockHandler implements chains.CollectionVersionProvider.
-var _ chains.CollectionVersionProvider = (*BlockHandler)(nil)
-
 // BlockHandler manages the creation and storage of blocks, transactions, and logs in DefraDB.
 type BlockHandler struct {
-	db              blockDB               // DB interface (from defraNode.DB).
-	maxDocsPerTxn   int                   // Threshold for single-txn vs batched block creation.
-	maxTxBatchSize  int                   // Per-collection batch size for transactions (0 = use maxDocsPerTxn).
-	maxLogBatchSize int                   // Per-collection batch size for logs (0 = use maxDocsPerTxn).
-	maxALEBatchSize int                   // Per-collection batch size for ALEs (0 = use maxDocsPerTxn).
-	docIDTracker    DocIDTrackerInterface // Optional tracker for docIDs.
-	collections     chains.Collections    // Chain-specific collection names.
-	nodeIdentity    identity.Identity     // Node identity for signing.
-
-	// colVersionCache caches collection versions (immutable per schema version)
-	// so CollectionVersion avoids opening a read txn on every call.
-	colVersionCache map[string]client.CollectionVersion
-	colVerMu        sync.Mutex
+	db            blockDB               // DB interface (from defraNode.DB).
+	maxDocsPerTxn int                   // Default per-group batch size when group BatchSize is 0.
+	docIDTracker  DocIDTrackerInterface // Optional tracker for docIDs.
+	nodeIdentity  identity.Identity     // Node identity for signing.
 
 	// Injectable functions for testability (set to defaults in NewBlockHandler).
 	signBatchFn      func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error)
 	verifyBatchSigFn func(sig *node.BatchSignature, cids []cid.Cid) (bool, error)
-	collectDocCIDsFn func(ctx context.Context, docIDs []string) ([]cid.Cid, error)
+	collectDocCIDsFn func(ctx context.Context, docIDs []string, collectionNames []string) ([]cid.Cid, error)
 	maxCIDRetries    int
 	retryBackoffFn   func(int) time.Duration
 }
 
 // NewBlockHandler creates a BlockHandler that uses direct DB calls.
 // maxDocsPerTxn is the default per-group batch size.
-func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections chains.Collections) (*BlockHandler, error) {
+func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int) (*BlockHandler, error) {
 	if defraNode == nil {
 		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
 			"defraNode is nil", "", nil)
@@ -101,89 +87,16 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections chains
 	if maxDocsPerTxn <= 0 {
 		maxDocsPerTxn = 1000 //nolint:mnd
 	}
-	if collections == nil {
-		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
-			"collections is nil", "", nil)
-	}
 	h := &BlockHandler{
-		db:              defraNode.DB,
-		maxDocsPerTxn:   maxDocsPerTxn,
-		collections:     collections,
-		maxCIDRetries:   15, //nolint:mnd
-		retryBackoffFn:  retryBackoff,
-		colVersionCache: make(map[string]client.CollectionVersion),
+		db:             defraNode.DB,
+		maxDocsPerTxn:  maxDocsPerTxn,
+		maxCIDRetries:  15, //nolint:mnd
+		retryBackoffFn: retryBackoff,
 	}
 	h.signBatchFn = h.defaultSignBatch
 	h.verifyBatchSigFn = node.VerifyBatchSignature
 	h.collectDocCIDsFn = h.defaultCollectDocCIDs
 	return h, nil
-}
-
-// CollectionVersion implements chains.CollectionVersionProvider. It opens a
-// read-only txn, looks up the collection by name, and returns its version.
-// The result is cached for the handler's lifetime (versions are immutable per
-// schema version).
-func (h *BlockHandler) CollectionVersion(ctx context.Context, name string) (client.CollectionVersion, error) {
-	h.colVerMu.Lock()
-	if v, ok := h.colVersionCache[name]; ok {
-		h.colVerMu.Unlock()
-		return v, nil
-	}
-	h.colVerMu.Unlock()
-
-	txn, err := h.db.NewTxn(true)
-	if err != nil {
-		return client.CollectionVersion{}, fmt.Errorf("create read txn for CollectionVersion: %w", err) //nolint:err113
-	}
-	defer txn.Discard()
-
-	col, err := txn.GetCollectionByName(ctx, name)
-	if err != nil {
-		return client.CollectionVersion{}, fmt.Errorf("get collection %s: %w", name, err) //nolint:err113
-	}
-
-	v := col.Version()
-	h.colVerMu.Lock()
-	h.colVersionCache[name] = v
-	h.colVerMu.Unlock()
-	return v, nil
-}
-
-func extractCollection(collections chains.Collections, role string) string {
-	name, err := collections.GetCollection(role)
-	if err != nil {
-		panic(fmt.Sprintf("programmer error: %v", err))
-	}
-	return name
-}
-
-// SetBatchSizes sets per-collection batch sizes for transactions, logs, and ALEs.
-// A value of 0 means "use maxDocsPerTxn" for that collection.
-func (h *BlockHandler) SetBatchSizes(txDocs, logDocs, aleDocs int) {
-	h.maxTxBatchSize = txDocs
-	h.maxLogBatchSize = logDocs
-	h.maxALEBatchSize = aleDocs
-}
-
-func (h *BlockHandler) txBatchSize() int {
-	if h.maxTxBatchSize > 0 {
-		return h.maxTxBatchSize
-	}
-	return h.maxDocsPerTxn
-}
-
-func (h *BlockHandler) logBatchSize() int {
-	if h.maxLogBatchSize > 0 {
-		return h.maxLogBatchSize
-	}
-	return h.maxDocsPerTxn
-}
-
-func (h *BlockHandler) aleBatchSize() int {
-	if h.maxALEBatchSize > 0 {
-		return h.maxALEBatchSize
-	}
-	return h.maxDocsPerTxn
 }
 
 // SetNodeIdentity sets the node identity used for block signing.
@@ -297,21 +210,15 @@ func (h *BlockHandler) extractCIDsFromCollection(ctx context.Context, colName, i
 }
 
 // defaultCollectDocCIDs queries each collection via GQL to retrieve CIDs for the given docIDs.
-func (h *BlockHandler) defaultCollectDocCIDs(ctx context.Context, docIDs []string) ([]cid.Cid, error) {
+func (h *BlockHandler) defaultCollectDocCIDs(ctx context.Context, docIDs []string, collectionNames []string) ([]cid.Cid, error) {
 	if len(docIDs) == 0 {
 		return nil, nil
 	}
 
 	idsJSON := buildDocIDJSONArray(docIDs)
 
-	sigCol, _ := h.collections.GetCollection(chains.TypeBlockSignature)
-	snapCol, _ := h.collections.GetCollection(chains.TypeSnapshotSignature)
-
 	var allCIDs []cid.Cid
-	for _, colName := range h.collections.AllCollections() {
-		if colName == sigCol || colName == snapCol {
-			continue
-		}
+	for _, colName := range collectionNames {
 		allCIDs = append(allCIDs, h.extractCIDsFromCollection(ctx, colName, idsJSON)...)
 	}
 	return allCIDs, nil
@@ -347,161 +254,99 @@ func toInt64(v any) (int64, error) {
 }
 
 // Store persists a block and all its constituent documents (transactions, logs,
-// access-list entries, etc.) from the given DocumentGroups. It writes the
-// block document first, then writes the remaining groups in role order
-// (transactions → logs → access-list entries → other), resolving
-// cross-document link fields (_blockID, _transactionID) after AddDocument
-// assigns persistent docIDs. The block signature is created over the collected
-// CIDs when signing identity is available.
-//
-// The signatureCollection parameter names the collection where the block
-// signature document will be stored. The vp parameter is retained in the
-// interface signature for future use but is not needed by the current
-// implementation.
+// access-list entries, etc.) from the ConversionResult. It writes the block
+// document first, then writes the remaining groups in order, resolving
+// cross-document link fields (_blockID, _transactionID) via the
+// chain-provided LinkStamper. The block signature is created over the
+// collected CIDs when signing identity is available.
 func (h *BlockHandler) Store(
 	ctx context.Context,
-	groups []chains.DocumentGroup,
-	signatureCollection string,
-	_ chains.CollectionVersionProvider,
+	result chains.ConversionResult,
 ) (*BlockCreationResult, error) {
 	if h.db == nil {
 		return nil, errors.NewConfigurationError("defra", "Store",
 			"store requires embedded DefraDB node", "", nil)
 	}
-	if len(groups) == 0 {
+	if len(result.Groups) == 0 {
 		return nil, fmt.Errorf("no document groups to store") //nolint:err113
 	}
 
-	cols := h.roleCollectionNames()
-	blockInt, blockHash, blockData, err := h.findBlockGroup(groups, cols.block)
-	if err != nil {
-		return nil, err
+	blockGroup := result.Groups[0]
+	if len(blockGroup.Docs) == 0 {
+		return nil, fmt.Errorf("no block document in groups") //nolint:err113
 	}
+	blockData := blockGroup.Docs[0]
+	blockInt, err := toInt64(blockData[blockGroup.BlockNumField])
+	if err != nil {
+		return nil, fmt.Errorf("invalid block number: %w", err) //nolint:err113
+	}
+	blockHash, _ := blockData[constants.HashKeyValue].(string)
 
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
 
-	blockID, err := h.storeBlockDoc(ctx, blockData, cols.block)
+	blockID, err := h.storeBlockDoc(ctx, blockData, blockGroup.Collection)
 	if err != nil {
 		return nil, err
 	}
 
-	allDocIDs, otherDocIDs, batchErrors := h.storeGroups(ctx, groups, cols, blockInt, blockID)
+	if result.LinkStamper != nil {
+		result.LinkStamper.StampLinks(result.Groups, blockGroup.Collection, blockGroup.Docs, []string{blockID})
+	}
 
-	blockSigDocID := h.signStoredBlock(ctx, blockInt, blockHash, allDocIDs, batchErrors, signatureCollection, collector)
+	allDocIDs := []string{blockID}
+	otherDocIDs := map[string][]string{}
+	var batchErrors []error
 
-	result := &BlockCreationResult{
+	for _, g := range result.Groups[1:] {
+		if result.LinkStamper != nil {
+			result.LinkStamper.StampLinks(result.Groups, g.Collection, g.Docs, nil)
+		}
+
+		ids, err := h.writeGroup(ctx, blockInt, g)
+		if err != nil {
+			batchErrors = append(batchErrors, err)
+		}
+
+		if result.LinkStamper != nil {
+			result.LinkStamper.StampLinks(result.Groups, g.Collection, g.Docs, ids)
+		}
+
+		otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
+		allDocIDs = append(allDocIDs, ids...)
+	}
+
+	blockSigDocID := h.signStoredBlock(ctx, blockInt, blockHash, allDocIDs, batchErrors, result.SignatureCollection, collector)
+
+	creationResult := &BlockCreationResult{
 		BlockNumber:              blockInt,
 		BlockID:                  blockID,
 		BlockSignatureID:         blockSigDocID,
-		BlockSignatureCollection: signatureCollection,
+		BlockSignatureCollection: result.SignatureCollection,
 		OtherDocIDs:              otherDocIDs,
 	}
 
 	if h.docIDTracker != nil {
-		if err := h.docIDTracker.TrackBlock(ctx, blockInt, result); err != nil {
+		if err := h.docIDTracker.TrackBlock(ctx, blockInt, creationResult); err != nil {
 			logger.Sugar.Warnf("Failed to track docIDs for block %d: %v", blockInt, err)
 		}
 	}
 
 	if len(batchErrors) > 0 {
-		return result, fmt.Errorf("block %d partially indexed with %d batch errors (first: %w)", //nolint:err113
+		return creationResult, fmt.Errorf("block %d partially indexed with %d batch errors (first: %w)", //nolint:err113
 			blockInt, len(batchErrors), batchErrors[0])
 	}
 
-	return result, nil
+	return creationResult, nil
 }
 
-type roleCollectionNames struct {
-	block string
-	tx    string
-	log   string
-	ale   string
-}
-
-func (h *BlockHandler) roleCollectionNames() roleCollectionNames {
-	return roleCollectionNames{
-		block: extractCollection(h.collections, chains.TypeBlock),
-		tx:    extractCollection(h.collections, chains.TypeTransaction),
-		log:   extractCollection(h.collections, chains.TypeLog),
-		ale:   extractCollection(h.collections, chains.TypeAccessListEntry),
+// writeGroup writes a DocumentGroup's docs in batches, returning all docIDs.
+func (h *BlockHandler) writeGroup(ctx context.Context, blockInt int64, g chains.DocumentGroup) ([]string, error) {
+	batchSize := g.BatchSize
+	if batchSize <= 0 {
+		batchSize = h.maxDocsPerTxn
 	}
-}
-
-func (h *BlockHandler) findBlockGroup(groups []chains.DocumentGroup, blockColName string) (int64, string, map[string]any, error) {
-	var blockGroup *chains.DocumentGroup
-	for i := range groups {
-		if groups[i].Collection == blockColName {
-			blockGroup = &groups[i]
-			break
-		}
-	}
-	if blockGroup == nil || len(blockGroup.Docs) == 0 {
-		return 0, "", nil, fmt.Errorf("no block document in groups") //nolint:err113
-	}
-	blockData := blockGroup.Docs[0]
-	blockInt, err := toInt64(blockData[constants.NumberFieldValue])
-	if err != nil {
-		return 0, "", nil, fmt.Errorf("invalid block number: %w", err)
-	}
-	blockHash, _ := blockData["hash"].(string)
-	return blockInt, blockHash, blockData, nil
-}
-
-func (h *BlockHandler) storeGroups(
-	ctx context.Context,
-	groups []chains.DocumentGroup,
-	cols roleCollectionNames,
-	blockInt int64,
-	blockID string,
-) ([]string, map[string][]string, []error) {
-	allDocIDs := []string{blockID}
-	otherDocIDs := map[string][]string{}
-	var batchErrors []error
-	txHashToID := make(map[string]string)
-
-	for _, g := range groups {
-		if g.Collection != cols.tx {
-			continue
-		}
-		ids, hashToID, err := h.storeTxGroup(ctx, blockInt, g, blockID)
-		if err != nil {
-			batchErrors = append(batchErrors, err)
-		}
-		maps.Copy(txHashToID, hashToID)
-		otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
-		allDocIDs = append(allDocIDs, ids...)
-	}
-
-	for _, g := range groups {
-		switch g.Collection {
-		case cols.block, cols.tx:
-			continue
-		case cols.log:
-			ids, err := h.storeLogGroup(ctx, blockInt, g, blockID, txHashToID)
-			if err != nil {
-				batchErrors = append(batchErrors, err)
-			}
-			otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
-			allDocIDs = append(allDocIDs, ids...)
-		case cols.ale:
-			ids, err := h.storeALEGroup(ctx, blockInt, g, txHashToID)
-			if err != nil {
-				batchErrors = append(batchErrors, err)
-			}
-			otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
-			allDocIDs = append(allDocIDs, ids...)
-		default:
-			ids, err := h.createDocBatch(ctx, blockInt, g.Collection, g.Docs, h.maxDocsPerTxn)
-			if err != nil {
-				batchErrors = append(batchErrors, err)
-			}
-			otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
-			allDocIDs = append(allDocIDs, ids...)
-		}
-	}
-
-	return allDocIDs, otherDocIDs, batchErrors
+	return h.createDocBatch(ctx, blockInt, g.Collection, g.Docs, batchSize)
 }
 
 func (h *BlockHandler) signStoredBlock(
@@ -572,81 +417,6 @@ func (h *BlockHandler) storeBlockDoc(ctx context.Context, blockData map[string]a
 	}
 
 	return blockID, nil
-}
-
-// storeTxGroup writes transaction documents in batches, setting _blockID on each
-// and recording the hash→docID mapping for downstream link resolution.
-func (h *BlockHandler) storeTxGroup(
-	ctx context.Context,
-	blockInt int64,
-	group chains.DocumentGroup,
-	blockID string,
-) (ids []string, hashToID map[string]string, err error) {
-	hashToID = make(map[string]string)
-	batchSize := h.txBatchSize()
-
-	for i := 0; i < len(group.Docs); i += batchSize {
-		end := min(i+batchSize, len(group.Docs))
-		batch := group.Docs[i:end]
-		if len(batch) == 0 {
-			continue
-		}
-		for j := range batch {
-			batch[j]["_blockID"] = blockID
-		}
-		var batchIDs []string
-		batchErr := h.writeBatchWithRetry(ctx, blockInt, "transaction", func() error {
-			var e error
-			batchIDs, e = h.createDocsInTxn(ctx, group.Collection, batch)
-			return e
-		})
-		if batchErr != nil {
-			return ids, hashToID, batchErr
-		}
-		for j, id := range batchIDs {
-			txHash, _ := batch[j]["hash"].(string)
-			hashToID[txHash] = id
-		}
-		ids = append(ids, batchIDs...)
-	}
-	return ids, hashToID, nil
-}
-
-// storeLogGroup writes log documents in batches, setting _blockID and
-// _transactionID (resolved by matching transactionHash↔hash).
-func (h *BlockHandler) storeLogGroup(
-	ctx context.Context,
-	blockInt int64,
-	group chains.DocumentGroup,
-	blockID string,
-	txHashToID map[string]string,
-) ([]string, error) {
-	for i := range group.Docs {
-		group.Docs[i]["_blockID"] = blockID
-		txHash, _ := group.Docs[i]["transactionHash"].(string)
-		if txID, ok := txHashToID[txHash]; ok {
-			group.Docs[i]["_transactionID"] = txID
-		}
-	}
-	return h.createDocBatch(ctx, blockInt, group.Collection, group.Docs, h.logBatchSize())
-}
-
-// storeALEGroup writes access-list entry documents in batches, setting
-// _transactionID resolved from the group's ParentRef parallel array.
-func (h *BlockHandler) storeALEGroup(
-	ctx context.Context,
-	blockInt int64,
-	group chains.DocumentGroup,
-	txHashToID map[string]string,
-) ([]string, error) {
-	for i := range group.Docs {
-		if i < len(group.ParentRef) {
-			if txID, ok := txHashToID[group.ParentRef[i]]; ok {
-				group.Docs[i]["_transactionID"] = txID
-			}
-		}
-	}
-	return h.createDocBatch(ctx, blockInt, group.Collection, group.Docs, h.aleBatchSize())
 }
 
 // createDocBatch writes documents in batches of batchSize, returning all docIDs.
@@ -733,44 +503,41 @@ func (h *BlockHandler) createDocsInTxn(
 // stored. It collects the stored docIDs by querying each group's collection
 // for the given block number, waits for CIDs, then signs over them.
 //
-// The groups parameter identifies which collections to query (typically the
-// same groups produced by Convert, minus the signature group). The
-// signatureCollection parameter names the collection where the block signature
-// document will be stored. The vp parameter is retained in the interface
-// signature for future use but is not needed by the current implementation.
+// The result.Groups identify which collections to query (typically the same
+// groups produced by Convert, minus the signature group).
+// result.SignatureCollection names the collection where the block signature
+// document will be stored.
 func (h *BlockHandler) SignExisting(
 	ctx context.Context,
-	groups []chains.DocumentGroup,
-	signatureCollection string,
+	result chains.ConversionResult,
 	blockHash string,
 	blockNumber int64,
-	_ chains.CollectionVersionProvider,
 ) (string, error) {
 	if h.db == nil {
 		return "", fmt.Errorf("defraNode is nil") //nolint:err113
 	}
 
-	blockColName := extractCollection(h.collections, chains.TypeBlock)
-
 	var allDocIDs []string
-	for _, g := range groups {
-		field := constants.BlockNumberKeyValue
-		if g.Collection == blockColName {
-			field = constants.NumberFieldValue
+	var collectionNames []string
+	for _, g := range result.Groups {
+		field := g.BlockNumField
+		if field == "" {
+			field = constants.BlockNumberKeyValue
 		}
 		docIDs, err := h.queryCollectionDocIDs(ctx, g.Collection, field, blockNumber, blockNumber)
 		if err != nil {
 			return "", fmt.Errorf("query docIDs for %s: %w", g.Collection, err) //nolint:err113
 		}
 		allDocIDs = append(allDocIDs, docIDs...)
+		collectionNames = append(collectionNames, g.Collection)
 	}
 
-	cids, err := h.waitForCIDs(ctx, blockNumber, allDocIDs)
+	cids, err := h.waitForCIDs(ctx, blockNumber, allDocIDs, collectionNames)
 	if err != nil {
 		return "", err
 	}
 
-	return h.signBlockOverCIDs(ctx, blockNumber, blockHash, len(allDocIDs), cids, signatureCollection)
+	return h.signBlockOverCIDs(ctx, blockNumber, blockHash, len(allDocIDs), cids, result.SignatureCollection)
 }
 
 // buildBlockSignatureDocument creates a client.Document for a block signature.
@@ -792,13 +559,13 @@ func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig
 // waitForCIDs collects the CIDs for allDocIDs, retrying while they are still arriving (P2P data
 // can lag). It returns the CIDs only once every document has one; partial coverage is an error so
 // a signature is never made over a subset of the block.
-func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDocIDs []string) ([]cid.Cid, error) {
+func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDocIDs []string, collectionNames []string) ([]cid.Cid, error) {
 	maxRetries := h.maxCIDRetries
 	var lastCIDCount int
 	var lastErr error
 
 	for attempt := range maxRetries {
-		cids, err := h.collectDocCIDsFn(ctx, allDocIDs)
+		cids, err := h.collectDocCIDsFn(ctx, allDocIDs, collectionNames)
 		if err != nil {
 			lastErr = err
 			logger.Sugar.Warnf("Block %d: CID query failed (attempt %d/%d): %v", blockNumber, attempt+1, maxRetries, err)

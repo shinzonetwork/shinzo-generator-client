@@ -103,10 +103,10 @@ func TestConvert_TypeMismatch(t *testing.T) {
 	cfg := testConfig()
 	c := NewConverter(cfg)
 
-	groups, sigCol, err := c.Convert(context.Background(), "not a bundle", nil)
+	result, err := c.Convert(context.Background(), "not a bundle")
 	assert.Error(t, err)
-	assert.Nil(t, groups)
-	assert.Empty(t, sigCol)
+	assert.Nil(t, result.Groups)
+	assert.Empty(t, result.SignatureCollection)
 }
 
 func TestConvert_NilVP(t *testing.T) {
@@ -117,10 +117,10 @@ func TestConvert_NilVP(t *testing.T) {
 	// Convert no longer uses vp (link-ID pre-computation removed); nil vp
 	// should succeed for a block-only bundle.
 	bundle := &BlockBundle{Block: fakeBlock(1)}
-	groups, sigCol, err := c.Convert(context.Background(), bundle, nil)
+	result, err := c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
-	require.Len(t, groups, 1)
-	assert.Equal(t, c.collections.BlockSignature, sigCol)
+	require.Len(t, result.Groups, 1)
+	assert.Equal(t, c.collections.BlockSignature, result.SignatureCollection)
 }
 
 func TestConvert_NilBlockInBundle(t *testing.T) {
@@ -128,9 +128,9 @@ func TestConvert_NilBlockInBundle(t *testing.T) {
 	cfg := testConfig()
 	c := NewConverter(cfg)
 
-	groups, _, err := c.Convert(context.Background(), &BlockBundle{}, nil)
+	result, err := c.Convert(context.Background(), &BlockBundle{})
 	assert.Error(t, err)
-	assert.Nil(t, groups)
+	assert.Nil(t, result.Groups)
 }
 
 func TestConvert_EmptyBlock(t *testing.T) {
@@ -141,13 +141,13 @@ func TestConvert_EmptyBlock(t *testing.T) {
 	block := fakeBlock(42)
 	bundle := &BlockBundle{Block: block, Transactions: nil, Receipts: nil}
 
-	groups, sigCol, err := c.Convert(context.Background(), bundle, nil)
+	result, err := c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
-	require.Len(t, groups, 1) // only block group
-	assert.Equal(t, c.collections.Block, groups[0].Collection)
-	require.Len(t, groups[0].Docs, 1)
-	assert.Equal(t, int64(42), groups[0].Docs[0][constants.NumberFieldValue])
-	assert.Equal(t, c.collections.BlockSignature, sigCol)
+	require.Len(t, result.Groups, 1) // only block group
+	assert.Equal(t, c.collections.Block, result.Groups[0].Collection)
+	require.Len(t, result.Groups[0].Docs, 1)
+	assert.Equal(t, int64(42), result.Groups[0].Docs[0][constants.NumberFieldValue])
+	assert.Equal(t, c.collections.BlockSignature, result.SignatureCollection)
 }
 
 func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
@@ -176,21 +176,21 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 		Receipts:     []*types.TransactionReceipt{receipt},
 	}
 
-	groups, sigCol, err := c.Convert(context.Background(), bundle, nil)
+	result, err := c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
-	assert.Equal(t, c.collections.BlockSignature, sigCol)
+	assert.Equal(t, c.collections.BlockSignature, result.SignatureCollection)
 
 	// Block group
-	require.GreaterOrEqual(t, len(groups), 2)
-	assert.Equal(t, c.collections.Block, groups[0].Collection)
-	require.Len(t, groups[0].Docs, 1)
-	assert.Equal(t, block.Hash, groups[0].Docs[0]["hash"])
+	require.GreaterOrEqual(t, len(result.Groups), 2)
+	assert.Equal(t, c.collections.Block, result.Groups[0].Collection)
+	require.Len(t, result.Groups[0].Docs, 1)
+	assert.Equal(t, block.Hash, result.Groups[0].Docs[0][constants.HashKeyValue])
 
 	// Transaction group
-	assert.Equal(t, c.collections.Transaction, groups[1].Collection)
-	require.Len(t, groups[1].Docs, 1)
-	txData := groups[1].Docs[0]
-	assert.Equal(t, txHash, txData["hash"])
+	assert.Equal(t, c.collections.Transaction, result.Groups[1].Collection)
+	require.Len(t, result.Groups[1].Docs, 1)
+	txData := result.Groups[1].Docs[0]
+	assert.Equal(t, txHash, txData[constants.HashKeyValue])
 
 	// _blockID and _transactionID are NOT set by Convert; they are resolved
 	// by BlockHandler.Store (Phase D) after AddDocument assigns persistent docIDs.
@@ -198,10 +198,10 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	assert.False(t, hasBlockID, "_blockID should not be set by Convert")
 
 	// Log group (if present)
-	if len(groups) >= 3 {
-		assert.Equal(t, c.collections.Log, groups[2].Collection)
-		require.Len(t, groups[2].Docs, 1)
-		logData := groups[2].Docs[0]
+	if len(result.Groups) >= 3 {
+		assert.Equal(t, c.collections.Log, result.Groups[2].Collection)
+		require.Len(t, result.Groups[2].Docs, 1)
+		logData := result.Groups[2].Docs[0]
 		_, hasLogBlockID := logData["_blockID"]
 		assert.False(t, hasLogBlockID, "_blockID should not be set by Convert")
 		_, hasTxID := logData["_transactionID"]
@@ -218,9 +218,9 @@ func TestConvert_SignatureCollectionName(t *testing.T) {
 	block := fakeBlock(1)
 	bundle := &BlockBundle{Block: block}
 
-	_, sigCol, err := c.Convert(context.Background(), bundle, nil)
+	result, err := c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
-	assert.Equal(t, "Optimism__Mainnet__BlockSignature", sigCol)
+	assert.Equal(t, "Optimism__Mainnet__BlockSignature", result.SignatureCollection)
 }
 
 func TestConvert_WithAccessListEntries(t *testing.T) {
@@ -242,19 +242,19 @@ func TestConvert_WithAccessListEntries(t *testing.T) {
 		Receipts:     []*types.TransactionReceipt{fakeReceipt(txHash, 16)},
 	}
 
-	groups, _, err := c.Convert(context.Background(), bundle, nil)
+	result, err := c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
 
 	var aleGroup *chains.DocumentGroup
-	for i := range groups {
-		if groups[i].Collection == c.collections.AccessListEntry {
-			aleGroup = &groups[i]
+	for i := range result.Groups {
+		if result.Groups[i].Collection == c.collections.AccessListEntry {
+			aleGroup = &result.Groups[i]
 			break
 		}
 	}
 	require.NotNil(t, aleGroup, "should have an ALE group")
 	assert.Len(t, aleGroup.Docs, 2)
-	assert.Equal(t, "0x0000000000000000000000000000000000000001", aleGroup.Docs[0]["address"])
+	assert.Equal(t, "0x0000000000000000000000000000000000000001", aleGroup.Docs[0][constants.AddressKeyValue])
 }
 
 // ---------------------------------------------------------------------------
@@ -311,7 +311,7 @@ func TestMockConverter_SatisfiesInterface(t *testing.T) {
 func TestMockConverter_ConvertNotSet(t *testing.T) {
 	t.Parallel()
 	m := &testutils.MockConverter{}
-	_, _, err := m.Convert(context.Background(), nil, nil)
+	_, err := m.Convert(context.Background(), nil)
 	assert.ErrorIs(t, err, testutils.ErrMockConvertFnNotSet)
 	assert.Len(t, m.ConvertCalls, 1)
 }
@@ -321,13 +321,16 @@ func TestMockConverter_ConvertFn(t *testing.T) {
 	m := &testutils.MockConverter{}
 	expectedGroups := []chains.DocumentGroup{{Collection: "test", Docs: []map[string]any{{"foo": "bar"}}}}
 	expectedSigCol := "sigCol"
-	m.ConvertFn = func(_ context.Context, _ any, _ chains.CollectionVersionProvider) ([]chains.DocumentGroup, string, error) {
-		return expectedGroups, expectedSigCol, nil
+	m.ConvertFn = func(_ context.Context, _ any) (chains.ConversionResult, error) {
+		return chains.ConversionResult{
+			Groups:              expectedGroups,
+			SignatureCollection: expectedSigCol,
+		}, nil
 	}
-	groups, sigCol, err := m.Convert(context.Background(), &BlockBundle{}, nil)
+	result, err := m.Convert(context.Background(), &BlockBundle{})
 	require.NoError(t, err)
-	assert.Equal(t, expectedGroups, groups)
-	assert.Equal(t, expectedSigCol, sigCol)
+	assert.Equal(t, expectedGroups, result.Groups)
+	assert.Equal(t, expectedSigCol, result.SignatureCollection)
 	assert.Len(t, m.ConvertCalls, 1)
 }
 

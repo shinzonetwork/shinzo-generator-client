@@ -56,29 +56,28 @@ func NewConverter(cfg *config.Config) *Converter {
 // and builds DocumentGroups for block, transactions, logs, and access list
 // entries. The data maps contain only field values — cross-document link fields
 // (_blockID, _transactionID) are NOT set here; they are resolved by
-// BlockHandler.Store (Phase D) after AddDocument assigns persistent docIDs.
+// BlockHandler.Store via the returned LinkStamper after AddDocument assigns
+// persistent docIDs.
 //
-// The vp (CollectionVersionProvider) parameter is retained in the interface
-// signature for future use but is not needed by the current implementation.
-//
-// The signature collection name is returned as the second value; the signature
-// document itself is built later by BlockHandler during signing (Phase D).
+// Each group is tagged with BatchSize (from config) and BlockNumField (the
+// field name holding the block number in each doc map). The signature
+// collection name is returned inside the ConversionResult; the signature
+// document itself is built later by BlockHandler during signing.
 func (c *Converter) Convert(
 	_ context.Context,
 	rawBlock any,
-	_ chains.CollectionVersionProvider,
-) ([]chains.DocumentGroup, string, error) {
+) (chains.ConversionResult, error) {
 	bundle, ok := rawBlock.(*BlockBundle)
 	if !ok {
-		return nil, "", fmt.Errorf("converter: expected *BlockBundle, got %T", rawBlock)
+		return chains.ConversionResult{}, fmt.Errorf("converter: expected *BlockBundle, got %T", rawBlock)
 	}
 	if bundle == nil || bundle.Block == nil {
-		return nil, "", fmt.Errorf("converter: nil block in bundle")
+		return chains.ConversionResult{}, fmt.Errorf("converter: nil block in bundle")
 	}
 
 	blockInt, err := utils.HexToInt(bundle.Block.Number)
 	if err != nil {
-		return nil, "", fmt.Errorf("converter: parse block number: %w", err)
+		return chains.ConversionResult{}, fmt.Errorf("converter: parse block number: %w", err)
 	}
 
 	blockData := c.buildBlockData(bundle.Block, blockInt)
@@ -87,24 +86,77 @@ func (c *Converter) Convert(
 	logDocs := c.buildLogDocs(bundle.Transactions, receiptMap)
 	aleDocs, aleParentRefs := c.buildALEDocs(bundle.Transactions, blockInt)
 
+	defaultBatch := c.maxDocsPerTxn()
+
 	groups := []chains.DocumentGroup{
-		{Collection: c.collections.Block, Docs: []map[string]any{blockData}},
+		{
+			Collection:    c.collections.Block,
+			Docs:          []map[string]any{blockData},
+			BatchSize:     defaultBatch,
+			BlockNumField: constants.NumberFieldValue,
+		},
 	}
 	if len(txDocs) > 0 {
-		groups = append(groups, chains.DocumentGroup{Collection: c.collections.Transaction, Docs: txDocs})
+		groups = append(groups, chains.DocumentGroup{
+			Collection:    c.collections.Transaction,
+			Docs:          txDocs,
+			BatchSize:     c.txBatchSize(defaultBatch),
+			BlockNumField: constants.BlockNumberKeyValue,
+		})
 	}
 	if len(logDocs) > 0 {
-		groups = append(groups, chains.DocumentGroup{Collection: c.collections.Log, Docs: logDocs})
+		groups = append(groups, chains.DocumentGroup{
+			Collection:    c.collections.Log,
+			Docs:          logDocs,
+			BatchSize:     c.logBatchSize(defaultBatch),
+			BlockNumField: constants.BlockNumberKeyValue,
+		})
 	}
 	if len(aleDocs) > 0 {
 		groups = append(groups, chains.DocumentGroup{
-			Collection: c.collections.AccessListEntry,
-			Docs:       aleDocs,
-			ParentRef:  aleParentRefs,
+			Collection:    c.collections.AccessListEntry,
+			Docs:          aleDocs,
+			BatchSize:     c.aleBatchSize(defaultBatch),
+			BlockNumField: constants.BlockNumberKeyValue,
 		})
 	}
 
-	return groups, c.collections.BlockSignature, nil
+	stamper := newEvmLinkStamper(c.collections, aleParentRefs)
+
+	return chains.ConversionResult{
+		Groups:              groups,
+		SignatureCollection: c.collections.BlockSignature,
+		LinkStamper:         stamper,
+	}, nil
+}
+
+// maxDocsPerTxn returns the configured default batch size for BlockHandler.
+func (c *Converter) maxDocsPerTxn() int {
+	if c.cfg != nil && c.cfg.Indexer.MaxDocsPerTxn > 0 {
+		return c.cfg.Indexer.MaxDocsPerTxn
+	}
+	return 1000 //nolint:mnd
+}
+
+func (c *Converter) txBatchSize(defaultBatch int) int {
+	if c.cfg != nil && c.cfg.Indexer.MaxTxDocsPerBatch > 0 {
+		return c.cfg.Indexer.MaxTxDocsPerBatch
+	}
+	return defaultBatch
+}
+
+func (c *Converter) logBatchSize(defaultBatch int) int {
+	if c.cfg != nil && c.cfg.Indexer.MaxLogDocsPerBatch > 0 {
+		return c.cfg.Indexer.MaxLogDocsPerBatch
+	}
+	return defaultBatch
+}
+
+func (c *Converter) aleBatchSize(defaultBatch int) int {
+	if c.cfg != nil && c.cfg.Indexer.MaxALEDocsPerBatch > 0 {
+		return c.cfg.Indexer.MaxALEDocsPerBatch
+	}
+	return defaultBatch
 }
 
 // buildTransactionDocs builds data maps for all non-nil transactions in the bundle.
@@ -150,7 +202,7 @@ func (c *Converter) buildLogDocs(txs []*types.Transaction, receiptMap map[string
 
 // buildALEDocs builds data maps for all access list entries across transactions.
 // It also returns a parallel slice of parent transaction hashes (one per doc)
-// so BlockHandler.Store can resolve _transactionID links without requiring a
+// used by the LinkStamper to resolve _transactionID links without requiring a
 // transactionHash field on the ALE schema.
 func (c *Converter) buildALEDocs(txs []*types.Transaction, blockInt int64) ([]map[string]any, []string) {
 	var docs []map[string]any
@@ -226,7 +278,7 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 // buildBlockData builds the data map for a block document.
 func (c *Converter) buildBlockData(block *types.Block, blockInt int64) map[string]any {
 	return map[string]any{
-		"hash":                     block.Hash,
+		constants.HashKeyValue:     block.Hash,
 		constants.NumberFieldValue: blockInt,
 		"timestamp":                block.Timestamp,
 		"parentHash":               block.ParentHash,
@@ -255,7 +307,7 @@ func (c *Converter) buildBlockData(block *types.Block, blockInt int64) map[strin
 func (c *Converter) buildTransactionData(tx *types.Transaction) map[string]any {
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	return map[string]any{
-		"hash":                        tx.Hash,
+		constants.HashKeyValue:        tx.Hash,
 		constants.BlockNumberKeyValue: txBlockNum,
 		constants.BlockHashKeyValue:   tx.BlockHash,
 		"transactionIndex":            tx.TransactionIndex,
@@ -285,25 +337,25 @@ func (c *Converter) buildTransactionData(tx *types.Transaction) map[string]any {
 func (c *Converter) buildLogData(logEntry *types.Log) map[string]any {
 	logBlockNum, _ := utils.HexToInt(logEntry.BlockNumber)
 	return map[string]any{
-		"address":                     logEntry.Address,
-		"topics":                      logEntry.Topics,
-		"data":                        logEntry.Data,
-		constants.BlockNumberKeyValue: logBlockNum,
-		"transactionHash":             logEntry.TransactionHash,
-		"transactionIndex":            logEntry.TransactionIndex,
-		constants.BlockHashKeyValue:   logEntry.BlockHash,
-		"logIndex":                    logEntry.LogIndex,
-		"removed":                     fmt.Sprintf("%v", logEntry.Removed),
+		constants.AddressKeyValue:         logEntry.Address,
+		"topics":                          logEntry.Topics,
+		"data":                            logEntry.Data,
+		constants.BlockNumberKeyValue:     logBlockNum,
+		constants.TransactionHashKeyValue: logEntry.TransactionHash,
+		"transactionIndex":                logEntry.TransactionIndex,
+		constants.BlockHashKeyValue:       logEntry.BlockHash,
+		"logIndex":                        logEntry.LogIndex,
+		"removed":                         fmt.Sprintf("%v", logEntry.Removed),
 	}
 }
 
 // buildALEData builds the data map for an access list entry document.
-// Link fields (_transactionID) are NOT set here; BlockHandler.Store resolves
-// them after AddDocument assigns the tx docID, using the ParentRef parallel
-// array on the DocumentGroup.
+// Link fields (_transactionID) are NOT set here; the LinkStamper resolves
+// them after AddDocument assigns the tx docID, using the parent refs
+// parallel array passed to newEvmLinkStamper.
 func (c *Converter) buildALEData(ale *types.AccessListEntry, blockNumber int64) map[string]any {
 	return map[string]any{
-		"address":                     ale.Address,
+		constants.AddressKeyValue:     ale.Address,
 		constants.BlockNumberKeyValue: blockNumber,
 		"storageKeys":                 ale.StorageKeys,
 	}
