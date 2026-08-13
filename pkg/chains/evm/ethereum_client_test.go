@@ -928,7 +928,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 				constants.LogsBloomKeyValue:         "0x" + fmt.Sprintf("%0512x", 0),
 				constants.StatusKeyValue:            "0x1",
 				constants.EffectiveGasPriceKeyValue: "0x4a817c800",
-				constants.TypeKeyValue:                              "0x0",
+				constants.TypeKeyValue:              "0x0",
 			}, nil
 		default:
 			return "0x1", nil
@@ -985,7 +985,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 					constants.LogsBloomKeyValue:         "0x" + fmt.Sprintf("%0512x", 0),
 					constants.StatusKeyValue:            "0x1",
 					constants.EffectiveGasPriceKeyValue: "0x4a817c800",
-					constants.TypeKeyValue:                              "0x0",
+					constants.TypeKeyValue:              "0x0",
 				},
 			}, nil
 		default:
