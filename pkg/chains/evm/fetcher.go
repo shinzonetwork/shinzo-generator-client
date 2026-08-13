@@ -7,9 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
@@ -57,6 +59,15 @@ type BlockBundle struct {
 type Fetcher struct {
 	client         rpcClient
 	receiptWorkers int
+
+	// Connection-config fields populated by NewFetcherFromConfig. When
+	// non-empty, Connect(ctx) dials the RPC endpoint using these values.
+	// The low-level NewFetcher constructor sets client directly and leaves
+	// these blank, making Connect a no-op.
+	nodeURL    string
+	wsURL      string
+	apiKey     string
+	apiKeyType string
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -72,10 +83,47 @@ func NewFetcher(client rpcClient, receiptWorkers int) *Fetcher {
 	}
 }
 
+// NewFetcherFromConfig creates a Fetcher from the given config without dialing
+// the RPC endpoint. Call Connect(ctx) to establish the connection before using
+// FetchBlock/FetchHighestBlockNumber.
+func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
+	if cfg == nil {
+		return nil, errors.NewConfigurationError("chain", "NewFetcherFromConfig", "config is nil", "", nil)
+	}
+	receiptWorkers := cfg.Indexer.ReceiptWorkers
+	if receiptWorkers <= 0 {
+		receiptWorkers = 16 //nolint:mnd
+	}
+	return &Fetcher{
+		nodeURL:        cfg.Geth.NodeURL,
+		wsURL:          cfg.Geth.WsURL,
+		apiKey:         cfg.Geth.APIKey,
+		apiKeyType:     cfg.Geth.APIKeyType,
+		receiptWorkers: receiptWorkers,
+	}, nil
+}
+
+// Connect dials the RPC endpoint using the connection-config fields. If the
+// fetcher was built via NewFetcher (pre-connected client), Connect is a no-op.
+func (f *Fetcher) Connect(_ context.Context) error {
+	if f.client != nil {
+		return nil
+	}
+	client, err := rpc.NewEthereumClient(f.nodeURL, f.wsURL, f.apiKey, f.apiKeyType) //nolint:contextcheck // rpc.NewEthereumClient does not accept a context yet
+	if err != nil {
+		return fmt.Errorf("create ethereum client: %w", err)
+	}
+	f.client = client
+	return nil
+}
+
 // FetchBlock implements chains.Fetcher. It retrieves the block at the given
 // height along with its transactions and receipts, returning them bundled in a
 // *BlockBundle (typed as any per the interface).
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
+	if f.client == nil {
+		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
+	}
 	block, err := f.fetchBlockWithRetry(ctx, height)
 	if err != nil {
 		return nil, err
@@ -91,6 +139,9 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 // FetchHighestBlockNumber implements chains.Fetcher. It queries the RPC
 // endpoint for the latest block number.
 func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
+	if f.client == nil {
+		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchHighestBlockNumber")
+	}
 	n, err := f.client.GetLatestBlockNumber(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block number: %w", err)

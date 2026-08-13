@@ -94,6 +94,37 @@ func TestConverter_Collections(t *testing.T) {
 	assert.Equal(t, "Ethereum__Mainnet__Block", name)
 }
 
+func TestConverter_SignatureCollection(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		chain   config.ChainConfig
+		wantCol string
+	}{
+		{
+			name:    "DefaultPrefix",
+			chain:   config.ChainConfig{Name: "Ethereum", Network: "Mainnet"},
+			wantCol: "Ethereum__Mainnet__BlockSignature",
+		},
+		{
+			name:    "CustomPrefix",
+			chain:   config.ChainConfig{Name: "Optimism", Network: "Mainnet"},
+			wantCol: "Optimism__Mainnet__BlockSignature",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := testConfig()
+			cfg.Chain = tc.chain
+			c := NewConverter(cfg)
+			assert.Equal(t, tc.wantCol, c.SignatureCollection())
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Convert
 // ---------------------------------------------------------------------------
@@ -148,6 +179,8 @@ func TestConvert_EmptyBlock(t *testing.T) {
 	require.Len(t, result.Groups[0].Docs, 1)
 	assert.Equal(t, int64(42), result.Groups[0].Docs[0][constants.NumberFieldValue])
 	assert.Equal(t, c.collections.BlockSignature, result.SignatureCollection)
+	assert.Equal(t, constants.HashKeyValue, result.Groups[0].BlockHashField,
+		"block group should have BlockHashField set to constants.HashKeyValue")
 }
 
 func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
@@ -191,6 +224,8 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	require.Len(t, result.Groups[1].Docs, 1)
 	txData := result.Groups[1].Docs[0]
 	assert.Equal(t, txHash, txData[constants.HashKeyValue])
+	assert.Empty(t, result.Groups[1].BlockHashField,
+		"non-block groups should have empty BlockHashField")
 
 	// _blockID and _transactionID are NOT set by Convert; they are resolved
 	// by BlockHandler.Store (Phase D) after AddDocument assigns persistent docIDs.
@@ -332,6 +367,40 @@ func TestMockConverter_ConvertFn(t *testing.T) {
 	assert.Equal(t, expectedGroups, result.Groups)
 	assert.Equal(t, expectedSigCol, result.SignatureCollection)
 	assert.Len(t, m.ConvertCalls, 1)
+}
+
+func TestMockConverter_SignatureCollection(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		setupFn func(m *testutils.MockConverter)
+		wantCol string
+	}{
+		{
+			name:    "Default",
+			setupFn: func(_ *testutils.MockConverter) {},
+			wantCol: "Ethereum__Mainnet__BlockSignature",
+		},
+		{
+			name: "CustomFn",
+			setupFn: func(m *testutils.MockConverter) {
+				m.SignatureCollectionFn = func() string { return "Custom__Chain__BlockSignature" }
+			},
+			wantCol: "Custom__Chain__BlockSignature",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := &testutils.MockConverter{}
+			tc.setupFn(m)
+			result := m.SignatureCollection()
+			assert.Equal(t, tc.wantCol, result)
+			assert.Equal(t, 1, m.SignatureCollectionCalls)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

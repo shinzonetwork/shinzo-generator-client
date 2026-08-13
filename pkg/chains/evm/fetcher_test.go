@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
@@ -24,6 +26,130 @@ func TestNewFetcher(t *testing.T) {
 	f := NewFetcher(client, 8)
 	assert.NotNil(t, f.client)
 	assert.Equal(t, 8, f.receiptWorkers)
+}
+
+// ---------------------------------------------------------------------------
+// NewFetcherFromConfig
+// ---------------------------------------------------------------------------
+
+func TestNewFetcherFromConfig(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name           string
+		cfg            *config.Config
+		wantErr        bool
+		wantReceipt    int
+		wantNodeURL    string
+		wantAPIKey     string
+		wantAPIKeyType string
+	}{
+		{
+			name:    "NilConfig",
+			cfg:     nil,
+			wantErr: true,
+		},
+		{
+			name: "DefaultReceiptWorkers",
+			cfg: &config.Config{
+				Chain:   config.ChainConfig{Name: "Ethereum", Network: "Mainnet"},
+				Geth:    config.GethConfig{NodeURL: "http://localhost:8545"},
+				Indexer: config.IndexerConfig{},
+			},
+			wantReceipt: 16,
+			wantNodeURL: "http://localhost:8545",
+		},
+		{
+			name: "CustomReceiptWorkers",
+			cfg: &config.Config{
+				Chain:   config.ChainConfig{Name: "Ethereum", Network: "Mainnet"},
+				Geth:    config.GethConfig{NodeURL: "http://localhost:8545", APIKey: "secret", APIKeyType: "X-Api-Key"},
+				Indexer: config.IndexerConfig{ReceiptWorkers: 4},
+			},
+			wantReceipt:    4,
+			wantNodeURL:    "http://localhost:8545",
+			wantAPIKey:     "secret",
+			wantAPIKeyType: "X-Api-Key",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f, err := NewFetcherFromConfig(tc.cfg)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, f)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotNil(t, f)
+			assert.Equal(t, tc.wantReceipt, f.receiptWorkers)
+			assert.Equal(t, tc.wantNodeURL, f.nodeURL)
+			assert.Equal(t, tc.wantAPIKey, f.apiKey)
+			assert.Equal(t, tc.wantAPIKeyType, f.apiKeyType)
+			assert.Nil(t, f.client, "should not have a connected client")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Connect
+// ---------------------------------------------------------------------------
+
+func TestFetcher_Connect(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		setup func() *Fetcher
+	}{
+		{
+			name:  "NoOpWhenClientAlreadySet",
+			setup: func() *Fetcher { return NewFetcher(&fakeRPCClient{}, 8) },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := tc.setup()
+			err := f.Connect(context.Background())
+			require.NoError(t, err)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Nil-client guards
+// ---------------------------------------------------------------------------
+
+func TestFetcher_NotConnectedGuards(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		fn   func(f *Fetcher) error
+	}{
+		{
+			name: "FetchBlock",
+			fn:   func(f *Fetcher) error { _, err := f.FetchBlock(context.Background(), 1); return err },
+		},
+		{
+			name: "FetchHighestBlockNumber",
+			fn:   func(f *Fetcher) error { _, err := f.FetchHighestBlockNumber(context.Background()); return err },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := &Fetcher{}
+			err := tc.fn(f)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Connect")
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -426,4 +552,48 @@ func TestFetcher_Close_NilClient(t *testing.T) {
 
 	f := &Fetcher{}
 	require.NoError(t, f.Close())
+}
+
+// ---------------------------------------------------------------------------
+// MockFetcher Connect
+// ---------------------------------------------------------------------------
+
+func TestMockFetcher_Connect(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		setupFn func(m *testutils.MockFetcher)
+		wantErr bool
+		errSub  string
+	}{
+		{
+			name:    "Default",
+			setupFn: func(_ *testutils.MockFetcher) {},
+		},
+		{
+			name: "CustomFn",
+			setupFn: func(m *testutils.MockFetcher) {
+				m.ConnectFn = func(_ context.Context) error { return stderrors.New("dial failed") }
+			},
+			wantErr: true,
+			errSub:  "dial failed",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := &testutils.MockFetcher{}
+			tc.setupFn(m)
+			err := m.Connect(context.Background())
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSub)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, 1, m.ConnectCalls)
+		})
+	}
 }

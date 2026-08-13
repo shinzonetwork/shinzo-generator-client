@@ -178,6 +178,13 @@ type Collections interface {
 // FetchBlock is safe to call concurrently across different heights; the
 // orchestration layer is responsible for parallel fan-out.
 type Fetcher interface {
+	// Connect dials the chain RPC endpoint using the provided context for
+	// timeout/cancellation. Called after construction (NewFetcherFromConfig)
+	// and before any FetchBlock/FetchHighestBlockNumber calls. If the fetcher
+	// was built with a pre-connected client (e.g. via NewFetcher for tests),
+	// Connect is a no-op.
+	Connect(ctx context.Context) error
+
 	// FetchBlock retrieves the raw block data at the given height from the
 	// chain RPC endpoint. The concrete return type is chain-specific (e.g.
 	// an EVM block bundle); callers type-assert or pass it to a Converter.
@@ -227,6 +234,13 @@ type Converter interface {
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
 	GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
+
+	// SignatureCollection returns the collection name used for block
+	// signatures (e.g. "Ethereum__Mainnet__BlockSignature") without requiring
+	// a ConversionResult. Used by pruner/snapshot to resolve the block
+	// signature collection and by the processor's storeWithRetry when
+	// calling SignExisting.
+	SignatureCollection() string
 }
 
 // DocumentGroup is a batch of documents destined for a single collection.
@@ -242,6 +256,12 @@ type DocumentGroup struct {
 	// (e.g. "number" for block docs, "blockNumber" for tx/log/ale docs).
 	// Used by BlockHandler.SignExisting to query stored docIDs by block number.
 	BlockNumField string
+
+	// BlockHashField is the field name in each doc that holds the block hash
+	// (e.g. "hash" for block docs). Empty for groups that don't carry a block
+	// hash (tx/log/ale). Used by generic extractBlockHash to find the block
+	// hash without chain-specific collection-name knowledge.
+	BlockHashField string
 }
 
 // LinkStamper resolves cross-document link fields (_blockID, _transactionID)

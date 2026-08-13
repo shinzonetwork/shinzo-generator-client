@@ -90,10 +90,11 @@ func (c *Converter) Convert(
 
 	groups := []chains.DocumentGroup{
 		{
-			Collection:    c.collections.Block,
-			Docs:          []map[string]any{blockData},
-			BatchSize:     defaultBatch,
-			BlockNumField: constants.NumberFieldValue,
+			Collection:     c.collections.Block,
+			Docs:           []map[string]any{blockData},
+			BatchSize:      defaultBatch,
+			BlockNumField:  constants.NumberFieldValue,
+			BlockHashField: constants.HashKeyValue,
 		},
 	}
 	if len(txDocs) > 0 {
@@ -233,6 +234,15 @@ func (c *Converter) GetCollections() []string {
 // Collections implements chains.Converter.
 func (c *Converter) Collections() chains.Collections {
 	return c.collections
+}
+
+// SignatureCollection implements chains.Converter. It returns the collection
+// name used for block signatures (e.g. "Ethereum__Mainnet__BlockSignature")
+// without requiring a ConversionResult. Used by pruner/snapshot to resolve
+// the block signature collection and by the processor's storeWithRetry when
+// calling SignExisting.
+func (c *Converter) SignatureCollection() string {
+	return c.collections.BlockSignature
 }
 
 // GetHighestStoredBlockNumber implements chains.Converter.

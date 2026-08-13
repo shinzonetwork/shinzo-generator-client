@@ -27,6 +27,7 @@ type MockConverter struct {
 	GetSchemaFn                   func() (string, error)
 	GetCollectionsFn              func() []string
 	CollectionsFn                 func() chains.Collections
+	SignatureCollectionFn         func() string
 	GetHighestStoredBlockNumberFn func(ctx context.Context, n *node.Node) (int64, error)
 	GetLowestStoredBlockNumberFn  func(ctx context.Context, n *node.Node) (int64, error)
 	GetDocIDsByBlockRangeFn       func(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
@@ -36,6 +37,7 @@ type MockConverter struct {
 	GetSchemaCalls                   int
 	GetCollectionsCalls              int
 	CollectionsCalls                 int
+	SignatureCollectionCalls         int
 	GetHighestStoredBlockNumberCalls int
 	GetLowestStoredBlockNumberCalls  int
 	GetDocIDsByBlockRangeCalls       []BlockRange
@@ -86,6 +88,17 @@ func (m *MockConverter) Collections() chains.Collections {
 		return m.CollectionsFn()
 	}
 	return chains.NewStubCollections("Ethereum__Mainnet")
+}
+
+// SignatureCollection records the call and delegates to SignatureCollectionFn.
+func (m *MockConverter) SignatureCollection() string {
+	m.mu.Lock()
+	m.SignatureCollectionCalls++
+	m.mu.Unlock()
+	if m.SignatureCollectionFn != nil {
+		return m.SignatureCollectionFn()
+	}
+	return "Ethereum__Mainnet__BlockSignature"
 }
 
 // GetHighestStoredBlockNumber records the call and delegates to GetHighestStoredBlockNumberFn.
