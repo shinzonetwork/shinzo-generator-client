@@ -4379,7 +4379,7 @@ func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
 func TestNew_ResolvesSignatureCollectionsViaSuffixMatch(t *testing.T) {
 	mc := &testutils.MockConverter{
 		CollectionsFn: func() chains.Collections {
-			return chains.NewStubCollections("CustomChain__Testnet")
+			return evm.NewCollectionNames("CustomChain__Testnet")
 		},
 		SignatureCollectionFn: func() string { return "CustomChain__Testnet__BlockSignature" },
 	}

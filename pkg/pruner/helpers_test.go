@@ -8,6 +8,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -122,7 +123,7 @@ func (tc *testChain) GetCollections() []string {
 // Collections returns a StubCollections with the "Test" prefix so the pruner
 // can resolve collection names via the chains.Collections interface.
 func (tc *testChain) Collections() chains.Collections {
-	return chains.NewStubCollections("Test")
+	return evm.NewCollectionNames("Test")
 }
 
 func (tc *testChain) queryBlockNumber(ctx context.Context, query string) (int64, error) {

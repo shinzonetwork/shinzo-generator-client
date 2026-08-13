@@ -6,14 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
 func TestGetSchema(t *testing.T) {
 	t.Parallel()
-	s, err := schema.LoadSchemaSDL(chains.NewStubCollections(evm.DefaultCollectionPrefix))
+	s, err := schema.LoadSchemaSDL(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDL() error: %v", err)
 	}
@@ -28,7 +27,7 @@ func TestGetSchema(t *testing.T) {
 
 func TestLoadSchemaContainsAllCollectionTypes(t *testing.T) {
 	t.Parallel()
-	s, err := schema.LoadSchemaSDL(chains.NewStubCollections(evm.DefaultCollectionPrefix))
+	s, err := schema.LoadSchemaSDL(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDL() error: %v", err)
 	}
@@ -43,11 +42,11 @@ func TestLoadSchemaContainsAllCollectionTypes(t *testing.T) {
 
 func TestGetSchemaForChain_ReplacesPrefix(t *testing.T) {
 	t.Parallel()
-	defaultSchema, err := schema.LoadSchemaSDL(chains.NewStubCollections(evm.DefaultCollectionPrefix))
+	defaultSchema, err := schema.LoadSchemaSDL(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDL() error: %v", err)
 	}
-	arbSchema, err := schema.GetSchemaForChain(chains.NewStubCollections("Arbitrum__Mainnet"))
+	arbSchema, err := schema.GetSchemaForChain(evm.NewCollectionNames("Arbitrum__Mainnet"))
 	if err != nil {
 		t.Fatalf("GetSchemaForChain() error: %v", err)
 	}
@@ -67,7 +66,7 @@ func TestGetSchemaForChain_ReplacesPrefix(t *testing.T) {
 
 func TestLoadSchemaDeterministic(t *testing.T) {
 	t.Parallel()
-	c := chains.NewStubCollections(evm.DefaultCollectionPrefix)
+	c := evm.NewCollectionNames(evm.DefaultCollectionPrefix)
 	s1, err := schema.LoadSchemaSDL(c)
 	if err != nil {
 		t.Fatalf("LoadSchemaSDL() failed: %v", err)
@@ -83,7 +82,7 @@ func TestLoadSchemaDeterministic(t *testing.T) {
 
 func TestLoadSchemaSDL_NotEmpty(t *testing.T) {
 	t.Parallel()
-	s, err := schema.LoadSchemaSDL(chains.NewStubCollections(evm.DefaultCollectionPrefix))
+	s, err := schema.LoadSchemaSDL(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDL() failed: %v", err)
 	}
@@ -94,7 +93,7 @@ func TestLoadSchemaSDL_NotEmpty(t *testing.T) {
 
 func TestLoadSchemaSDLForChain_DefaultPrefix(t *testing.T) {
 	t.Parallel()
-	sdl, err := schema.LoadSchemaSDLForChain(chains.NewStubCollections(evm.DefaultCollectionPrefix))
+	sdl, err := schema.LoadSchemaSDLForChain(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
 	}
@@ -108,7 +107,7 @@ func TestLoadSchemaSDLForChain_DefaultPrefix(t *testing.T) {
 
 func TestLoadSchemaSDLForChain_CustomPrefix(t *testing.T) {
 	t.Parallel()
-	sdl, err := schema.LoadSchemaSDLForChain(chains.NewStubCollections("Arbitrum__Mainnet"))
+	sdl, err := schema.LoadSchemaSDLForChain(evm.NewCollectionNames("Arbitrum__Mainnet"))
 	if err != nil {
 		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
 	}

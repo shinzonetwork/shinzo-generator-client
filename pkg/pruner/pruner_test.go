@@ -11,6 +11,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -37,7 +38,7 @@ func TestNewPruner(t *testing.T) {
 	t.Run("with chain resolves collection names", func(t *testing.T) {
 		mock := &testutils.MockConverter{
 			CollectionsFn: func() chains.Collections {
-				return chains.NewStubCollections("Test")
+				return evm.NewCollectionNames("Test")
 			},
 			SignatureCollectionFn: func() string { return "Test__BlockSignature" },
 		}
