@@ -26,12 +26,6 @@ const (
 	// signingQueueSize is the buffer size for the background block signing
 	// channel.
 	signingQueueSize = 64
-
-	// defaultChainName is the fallback chain name when config is empty.
-	defaultChainName = "Ethereum"
-
-	// defaultNetwork is the fallback network name when config is empty.
-	defaultNetwork = "Mainnet"
 )
 
 // signingJob holds the data needed to sign an existing block in the background.
@@ -108,22 +102,7 @@ func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 	}
 }
 
-// chainPrefixFromConfig derives the collection prefix (e.g. "Ethereum__Mainnet")
-// from the chain config, applying the same defaults as the existing indexer.
-func chainPrefixFromConfig(cfg *config.Config) string {
-	if cfg == nil {
-		return DefaultCollectionPrefix
-	}
-	name := cfg.Chain.Name
-	network := cfg.Chain.Network
-	if name == "" {
-		name = defaultChainName
-	}
-	if network == "" {
-		network = defaultNetwork
-	}
-	return fmt.Sprintf("%s__%s", name, network)
-}
+
 
 // Init wires the adapter to a running DefraDB node. After Init returns the
 // BlockHandler-backed methods are usable and the background signing goroutine

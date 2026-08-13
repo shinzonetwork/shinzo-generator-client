@@ -21,6 +21,31 @@ import (
 // but its "number" field is missing or has an unparseable type.
 var errBlockNumberCorrupt = fmt.Errorf("block exists but has invalid or unparseable number field")
 
+const (
+	// defaultChainName is the fallback chain name when config is empty.
+	defaultChainName = "Ethereum"
+
+	// defaultNetwork is the fallback network name when config is empty.
+	defaultNetwork = "Mainnet"
+)
+
+// chainPrefixFromConfig derives the collection prefix (e.g. "Ethereum__Mainnet")
+// from the chain config, applying the same defaults as the existing indexer.
+func chainPrefixFromConfig(cfg *config.Config) string {
+	if cfg == nil {
+		return DefaultCollectionPrefix
+	}
+	name := cfg.Chain.Name
+	network := cfg.Chain.Network
+	if name == "" {
+		name = defaultChainName
+	}
+	if network == "" {
+		network = defaultNetwork
+	}
+	return fmt.Sprintf("%s__%s", name, network)
+}
+
 // Converter is the EVM chain-specific knowledge layer. It implements
 // chains.Converter by transforming raw block data (BlockBundle) into
 // []DocumentGroup, generating the chain schema, and answering progress
