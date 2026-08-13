@@ -268,7 +268,7 @@ func TestStore_NilDefraNode(t *testing.T) {
 func TestStore_WithDocIDTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -351,7 +351,7 @@ func TestStore_BatchedMode(t *testing.T) {
 func TestStore_BatchedMode_WithTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -573,7 +573,7 @@ func TestStore_BatchedMode_WithSigningIdentity(t *testing.T) {
 func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -610,7 +610,7 @@ func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
