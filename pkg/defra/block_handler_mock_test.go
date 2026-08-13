@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/client"
@@ -128,7 +129,11 @@ func testReceipt() *types.TransactionReceipt {
 
 func buildSigGroups(t *testing.T, block *types.Block, txs []*types.Transaction, receipts []*types.TransactionReceipt) chains.ConversionResult {
 	t.Helper()
-	result, err := testutils.BuildEVMGroups(chains.NewStubCollections("Ethereum__Mainnet"), block, txs, receipts)
+	result, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+		Block:        block,
+		Transactions: txs,
+		Receipts:     receipts,
+	})
 	require.NoError(t, err)
 	return result
 }

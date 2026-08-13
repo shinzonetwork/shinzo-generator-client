@@ -1458,7 +1458,11 @@ func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBl
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		result, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+			Block:        block,
+			Transactions: []*types.Transaction{tx},
+			Receipts:     []*types.TransactionReceipt{receipt},
+		})
 		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
@@ -3966,7 +3970,11 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		result, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+			Block:        block,
+			Transactions: []*types.Transaction{tx},
+			Receipts:     []*types.TransactionReceipt{receipt},
+		})
 		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
