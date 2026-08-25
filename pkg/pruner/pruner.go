@@ -277,10 +277,12 @@ func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) erro
 func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) error {
 	totalPurged, err := p.purgeByDocIDsByCollection(ctx, result.DocIDsByCollection)
 
-	elapsed := time.Since(time.Now())
-	logger.Sugar.Infof("Prune complete: removed %d docs for %d blocks in %v",
-		totalPurged, result.BlockCount, elapsed)
-
+	logger.Sugar.Infof("Prune complete: removed %d docs for %d blocks",
+		totalPurged, result.BlockCount)
+	if errors.Is(err, ErrNoValidBlocks) {
+		logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping cleanup")
+		return nil
+	}
 	p.mu.Lock()
 	p.totalBlocksPruned += int64(result.BlockCount)
 	p.totalDocsPruned += totalPurged
@@ -321,6 +323,11 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	}
 
 	logger.Sugar.Infof("Startup cleanup complete: purged %d documents", totalPurged)
+
+	if errors.Is(err, ErrNoValidBlocks) {
+		logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping cleanup")
+		return nil
+	}
 
 	p.mu.Lock()
 	p.totalBlocksPruned += toPrune
