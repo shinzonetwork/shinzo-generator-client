@@ -142,6 +142,9 @@ func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writ
 // Collection names and docIDs are resolved via chain.GetDocIDsByBlockRange,
 // producing a deterministic iteration order (sorted by collection name).
 func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, startBlock, endBlock int64) (int, error) {
+	if s.chain == nil {
+		return 0, fmt.Errorf("chain not initialized")
+	}
 	docIDsByCollection, err := s.chain.GetDocIDsByBlockRange(ctx, startBlock, endBlock)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get docIDs for blocks in range %d-%d: %w", startBlock, endBlock, err)

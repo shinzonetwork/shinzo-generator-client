@@ -780,10 +780,8 @@ func TestSetDefraNode(t *testing.T) {
 
 func TestSnapshotsListHandler_WithDefraNode_QueryError(t *testing.T) {
 	t.Parallel()
-	// When defraNode is set but DB is nil, QuerySnapshotSignatures will panic.
-	// We set defraNode to nil (no signatures branch) and verify the non-signature path.
-	// This test covers the path where defraNode is set but query fails.
-	// Since node.DB is nil, QuerySnapshotSignatures panics, so we test via recovery.
+	// When defraNode is set but the signature query fails, the handler should
+	// log the error and still return the snapshot list without signatures.
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
 	_ = os.WriteFile(testFile, []byte("data"), 0o600)
@@ -791,17 +789,20 @@ func TestSnapshotsListHandler_WithDefraNode_QueryError(t *testing.T) {
 	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
-	// Set defraNode with nil DB — QuerySnapshotSignatures will panic.
-	// We use recover to verify the handler at least enters the branch.
 	hs.defraNode = &node.Node{}
+	hs.querySnapshotSigsFn = func(_ context.Context, _ *node.Node, _ string) (map[string]*snapshot.SnapshotSignatureData, error) {
+		return nil, errors.New("simulated query error")
+	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/snapshots", nil)
+	hs.snapshotsListHandler(rec, req)
 
-	// The handler panics when defraNode.DB is nil — we verify this path is entered
-	assert.Panics(t, func() {
-		hs.snapshotsListHandler(rec, req)
-	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, float64(1), resp["count"])
 }
 
 // --- snapshotDownloadHandler edge cases ---

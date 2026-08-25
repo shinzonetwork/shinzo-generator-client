@@ -108,6 +108,10 @@ func New(cfg *Config, defraNode *node.Node, chain BlockRangeReader) *Snapshotter
 	}
 	if chain != nil {
 		s.blockSigCollection, s.snapshotSigCollection = resolveSignatureCollections(chain.GetCollections())
+		if s.blockSigCollection == "" || s.snapshotSigCollection == "" {
+			logger.Sugar.Warnf("Snapshot: could not resolve signature collections from chain (blockSig=%q, snapshotSig=%q); signing will be skipped",
+				s.blockSigCollection, s.snapshotSigCollection)
+		}
 	}
 	return s
 }

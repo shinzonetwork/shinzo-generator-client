@@ -224,6 +224,10 @@ func (s *Snapshotter) createSnapshotSignatureDoc(ctx context.Context, sig *Snaps
 // QuerySnapshotSignatures queries DefraDB for all SnapshotSignature documents,
 // and returns them keyed by snapshot filename for easy lookup.
 func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node, snapshotSigCollection string) (map[string]*SnapshotSignatureData, error) {
+	if snapshotSigCollection == "" {
+		return nil, nil // nolint:nilnil // This is a legitimate empty result, not an error.
+	}
+
 	docs, err := fetchSnapshotSignatureDocs(ctx, defraNode, snapshotSigCollection)
 	if err != nil {
 		return nil, err
