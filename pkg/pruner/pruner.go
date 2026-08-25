@@ -477,6 +477,9 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 // Returns (0, 0, ErrNoBlocks) if the database has no blocks (chain returns
 // errors.IsErrNotFound on an empty DB).
 func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err error) {
+	if p.chain == nil {
+		return 0, 0, ErrNoBlocks
+	}
 	lowest, err = p.chain.GetLowestStoredBlockNumber(ctx)
 	if err != nil {
 		if pkgerrors.IsErrNotFound(err) {
