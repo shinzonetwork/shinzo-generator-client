@@ -15,12 +15,6 @@ const (
 	// BlockNotFoundRetryDelay is the delay before retrying when a block is not yet available on chain.
 	BlockNotFoundRetryDelay = 3 * time.Second
 
-	// RPCErrorRetryBaseDelay is the base delay for retrying RPC errors (multiplied by attempt number).
-	RPCErrorRetryBaseDelay = 500 * time.Millisecond
-
-	// MaxRPCRetries is the maximum number of retries for non-"not found" RPC errors.
-	MaxRPCRetries = 3
-
 	// DispatchThrottleDelay is the delay when the processor is too far ahead of committed blocks.
 	DispatchThrottleDelay = 100 * time.Millisecond
 )
@@ -185,13 +179,14 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 	}
 }
 
-// fetchAndProcessBlock calls chain.FetchAndStoreBlock with retry classification:
-//   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
-//   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
+// fetchAndProcessBlock calls chain.FetchAndStoreBlock. The adapter retries
+// non-not-found RPC errors internally (up to maxRPCRetries with linear
+// backoff); the processor only handles not-found with infinite retry
+// (block may not be mined yet). This avoids double-retry (previously
+// 3×3=9 attempts).
 func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blockNum int64) *BlockResult {
 	result := &BlockResult{BlockNum: blockNum}
 
-	otherErrors := 0
 	for {
 		if ctx.Err() != nil {
 			result.Error = ctx.Err()
@@ -216,16 +211,7 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 			continue
 		}
 
-		otherErrors++
-		if otherErrors >= MaxRPCRetries {
-			result.Error = fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
-			return result
-		}
-		select {
-		case <-ctx.Done():
-			result.Error = ctx.Err()
-			return result
-		case <-time.After(time.Duration(otherErrors) * RPCErrorRetryBaseDelay):
-		}
+		result.Error = fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
+		return result
 	}
 }
