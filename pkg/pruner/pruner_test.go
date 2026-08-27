@@ -752,7 +752,7 @@ func TestGetLowestAndHighestBlockNumber_SkipsRowsWithNoNumber(t *testing.T) {
 
 	// More rows without a number than the query's limit, so an ordering that does not
 	// exclude them returns nulls only.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		res := n.DB.ExecRequest(ctx, fmt.Sprintf(`mutation { add_TestBlock(input: [{hash: "no-number-%d"}]) { _docID } }`, i))
 		require.Empty(t, res.GQL.Errors, "insert failed: %v", res.GQL.Errors)
 	}
@@ -776,7 +776,7 @@ func TestGetLowestAndHighestBlockNumber_NoRowsWithNumber(t *testing.T) {
 	p := NewPruner(&Config{Enabled: true, MaxBlocks: 100}, n, testCollections())
 	ctx := context.Background()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		res := n.DB.ExecRequest(ctx, fmt.Sprintf(`mutation { add_TestBlock(input: [{hash: "no-number-%d"}]) { _docID } }`, i))
 		require.Empty(t, res.GQL.Errors, "insert failed: %v", res.GQL.Errors)
 	}
@@ -987,7 +987,7 @@ func TestFilterBasedPrune_WithRowsWithNoNumber(t *testing.T) {
 	p := NewPruner(&Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}, n, testCollections())
 	ctx := context.Background()
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		res := n.DB.ExecRequest(ctx, fmt.Sprintf(`mutation { add_TestBlock(input: [{hash: "no-number-%d"}]) { _docID } }`, i))
 		require.Empty(t, res.GQL.Errors, "insert failed: %v", res.GQL.Errors)
 	}
