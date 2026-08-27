@@ -111,7 +111,10 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	transactions, receipts := f.fetchTransactionsAndReceipts(ctx, block, height)
+	transactions, receipts, err := f.fetchTransactionsAndReceipts(ctx, block, height)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch block %d receipts: %w", height, err)
+	}
 	return &BlockBundle{
 		Block:        block,
 		Transactions: transactions,
@@ -151,7 +154,7 @@ func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error
 
 // fetchTransactionsAndReceipts builds the transaction pointer slice and fetches
 // receipts, falling back to individual fetches when the batch call fails.
-func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt) {
+func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt, error) {
 	transactions := make([]*Transaction, len(block.Transactions))
 	for i := range block.Transactions {
 		transactions[i] = &block.Transactions[i]
@@ -159,7 +162,7 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 
 	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, big.NewInt(blockNum))
 	if batchErr == nil {
-		return transactions, batchReceipts
+		return transactions, batchReceipts, nil
 	}
 
 	if ctx.Err() == nil {
@@ -192,14 +195,17 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 	}
 	wg.Wait()
 
-	validReceipts := make([]*TransactionReceipt, 0, len(receipts))
+	var failed int
 	for _, r := range receipts {
-		if r != nil {
-			validReceipts = append(validReceipts, r)
+		if r == nil {
+			failed++
 		}
 	}
+	if failed > 0 {
+		return transactions, receipts, fmt.Errorf("block %d: %d/%d transaction receipts could not be fetched", blockNum, failed, len(receipts))
+	}
 
-	return transactions, validReceipts
+	return transactions, receipts, nil
 }
 
 func init() {

@@ -328,13 +328,18 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 	t.Parallel()
 
 	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	hashA := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	hashB := "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	hashC := "0xccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
 	cases := []struct {
-		name         string
-		blockNum     int64
-		txs          []Transaction
-		txReceiptFn  func(_ context.Context, _ string) (*TransactionReceipt, error)
-		wantReceipts int
+		name           string
+		blockNum       int64
+		txs            []Transaction
+		txReceiptFn    func(_ context.Context, _ string) (*TransactionReceipt, error)
+		wantErr        bool
+		wantErrContain string
+		wantReceipts   int
 	}{
 		{
 			name:     "NoTxns",
@@ -356,7 +361,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 				return nil, fmt.Errorf("receipt not available")
 			},
-			wantReceipts: 0,
+			wantErr:        true,
+			wantErrContain: "1/1 transaction receipts could not be fetched",
 		},
 		{
 			name:     "IndividualReceiptSuccess",
@@ -366,6 +372,29 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 				return fakeReceipt(txHash, 0xccc0), nil
 			},
 			wantReceipts: 1,
+		},
+		{
+			name:     "PartialFailure",
+			blockNum: 100003,
+			txs:      []Transaction{fakeTx(hashA), fakeTx(hashB), fakeTx(hashC)},
+			txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
+				if hash == hashB {
+					return nil, fmt.Errorf("receipt not available")
+				}
+				return fakeReceipt(hash, 100003), nil
+			},
+			wantErr:        true,
+			wantErrContain: "1/3 transaction receipts could not be fetched",
+		},
+		{
+			name:     "FullFailure",
+			blockNum: 100004,
+			txs:      []Transaction{fakeTx(hashA), fakeTx(hashB)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+				return nil, fmt.Errorf("rpc error")
+			},
+			wantErr:        true,
+			wantErrContain: "2/2 transaction receipts could not be fetched",
 		},
 	}
 
@@ -386,6 +415,12 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 			f := NewFetcher(client, 8)
 
 			raw, err := f.FetchBlock(context.Background(), tc.blockNum)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContain)
+				assert.Nil(t, raw)
+				return
+			}
 			require.NoError(t, err)
 
 			bundle, ok := raw.(*BlockBundle)
@@ -394,6 +429,42 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 			assert.Len(t, bundle.Receipts, tc.wantReceipts)
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Receipt fallback: positional nil preservation
+// ---------------------------------------------------------------------------
+
+func TestFetcher_ReceiptFallback_PreservesPositionalNils(t *testing.T) {
+	t.Parallel()
+
+	hashA := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	hashB := "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	hashC := "0xccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	block := fakeBlockWithTxs(100003, fakeTx(hashA), fakeTx(hashB), fakeTx(hashC))
+
+	client := &fakeRPCClient{
+		block:    block,
+		batchErr: fmt.Errorf("eth_getBlockReceipts not supported"),
+		txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
+			if hash == hashB {
+				return nil, fmt.Errorf("receipt not available")
+			}
+			return fakeReceipt(hash, 100003), nil
+		},
+	}
+	f := NewFetcher(client, 8)
+
+	txs, receipts, err := f.fetchTransactionsAndReceipts(context.Background(), block, 100003)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "1/3 transaction receipts could not be fetched")
+
+	assert.Len(t, txs, 3)
+	assert.Len(t, receipts, 3, "positional slice must not be collapsed")
+	assert.NotNil(t, receipts[0])
+	assert.Nil(t, receipts[1], "failed receipt must remain as nil in position")
+	assert.NotNil(t, receipts[2])
 }
 
 // ---------------------------------------------------------------------------
