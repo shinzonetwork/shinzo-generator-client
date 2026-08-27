@@ -4832,7 +4832,6 @@ func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
-			// Check if it's the defaultBlockParamLatest query.
 			var rawParams []json.RawMessage
 			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
 				var blockParam string
@@ -4871,17 +4870,116 @@ func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
 	indexer, err := CreateIndexer(cfg)
 	require.NoError(t, err)
 
-	// StartIndexing should return error because GetLatestBlockNumber fails.
 	err = indexer.StartIndexing(false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get latest block number")
 	t.Logf("StartIndexing error (expected): %v", err)
+
+	assert.Nil(t, indexer.fetcher, "fetcher should be nil after error-path cleanup")
+	assert.Nil(t, indexer.defraNode, "defraNode should be nil after error-path cleanup")
+	assert.Nil(t, indexer.networkHandler, "networkHandler should be nil after error-path cleanup")
 }
 
 // ---------------------------------------------------------------------------.
-// fetchAndProcessBlock — transaction conflict with ctx cancel during retry wait,
+// StartIndexing — init-stage errors (Issue 1: ERROR_PATH_RESOURCE_CLEANUP).
+// Asserts that when NewBlockHandler or WaitForDefraDB fails, the deferred
+// guard calls StopIndexing() and nil-safes fetcher, defraNode, networkHandler.
+// ---------------------------------------------------------------------------.
+
+func TestStartIndexing_InitStageError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	logger.InitConsoleOnly(true)
+
+	validRPCHandler := func(method string, _ json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			return fullBlockResponse("0x100", nil), nil
+		case ethBlockNumber:
+			return "0x100", nil
+		default:
+			return "0x1", nil
+		}
+	}
+
+	cases := []struct {
+		name            string
+		setupSeam       func() func()
+		wantErrContains string
+	}{
+		{
+			name: "BlockHandler creation error",
+			setupSeam: func() func() {
+				original := newBlockHandlerFn
+				newBlockHandlerFn = func(_ *node.Node, _ int) (*defra.BlockHandler, error) {
+					return nil, errors.New("forced block handler failure")
+				}
+				return func() { newBlockHandlerFn = original }
+			},
+			wantErrContains: "forced block handler failure",
+		},
+		{
+			name: "WaitForDefraDB error",
+			setupSeam: func() func() {
+				original := waitForDefraDBFn
+				waitForDefraDBFn = func(_ string) error {
+					return errors.New("forced WaitForDefraDB failure")
+				}
+				return func() { waitForDefraDBFn = original }
+			},
+			wantErrContains: "forced WaitForDefraDB failure",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+
+			rpcServer := newMockRPCServer(validRPCHandler)
+			defer rpcServer.Close()
+
+			cfg := &config.Config{
+				DefraDB: config.DefraDBConfig{
+					URL:           testDefraRandomURL,
+					KeyringSecret: "test-secret-for-keyring-12345678",
+					P2P:           testDefraP2PDisabled,
+					Store:         config.DefraDBStoreConfig{Path: tmpDir},
+				},
+				Geth: config.GethConfig{NodeURL: rpcServer.URL},
+				Indexer: config.IndexerConfig{
+					StartHeight:      100,
+					ConcurrentBlocks: 1,
+					ReceiptWorkers:   2,
+					MaxDocsPerTxn:    100,
+					HealthServerPort: 0,
+					StartBuffer:      10,
+				},
+				Logger: config.LoggerConfig{Development: true},
+			}
+
+			indexer, err := CreateIndexer(cfg)
+			require.NoError(t, err)
+
+			cleanup := tc.setupSeam()
+			defer cleanup()
+
+			err = indexer.StartIndexing(false)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErrContains)
+			t.Logf("StartIndexing error (expected): %v", err)
+
+			assert.Nil(t, indexer.fetcher, "fetcher should be nil after error-path cleanup")
+			assert.Nil(t, indexer.defraNode, "defraNode should be nil after error-path cleanup")
+			assert.Nil(t, indexer.networkHandler, "networkHandler should be nil after error-path cleanup")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// fetchAndProcessBlock — conflict retry with context cancel
 // (covers concurrent_processor.go lines 332-334).
-// Strategy: Use two processors writing the same block concurrently to trigger,
+// Strategy: Use two processors writing the same block concurrently to trigger
 // conflict, with one having a context that will be canceled during retry.
 // ---------------------------------------------------------------------------.
 

@@ -119,7 +119,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 }
 
 // StartIndexing initializes dependencies and starts concurrent block indexing.
-func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
+func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	ctx := context.Background()
 	cfg := i.cfg
 
@@ -134,6 +134,12 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	if logger.Sugar == nil {
 		logger.Init(cfg.Logger.Development)
 	}
+
+	defer func() {
+		if err != nil {
+			i.StopIndexing()
+		}
+	}()
 
 	// 1. Create fetcher (no dial yet) + converter — via factory dispatch, no evm import
 	fetcher, err := chains.NewFetcher(cfg)
@@ -161,7 +167,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	}
 
 	// 5. Create block handler (was done in adapter.Init)
-	i.blockHandler, err = defra.NewBlockHandler(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
+	i.blockHandler, err = newBlockHandlerFn(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
 	if err != nil {
 		return fmt.Errorf("failed to create block handler: %w", err)
 	}
@@ -208,7 +214,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler
 
-		if err := defra.WaitForDefraDB(defraNode.APIURL); err != nil {
+		if err := waitForDefraDBFn(defraNode.APIURL); err != nil {
 			return ctx, err
 		}
 
@@ -221,7 +227,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 			logger.Sugar.Info("Identity context initialized for block signing")
 		}
 	} else {
-		if err := defra.WaitForDefraDB(cfg.DefraDB.URL); err != nil {
+		if err := waitForDefraDBFn(cfg.DefraDB.URL); err != nil {
 			return ctx, err
 		}
 		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, i.converter.Collections()); err != nil {
@@ -598,6 +604,12 @@ func (i *ChainIndexer) updateBlockInfo(blockNum int64) {
 
 // execCommand is a variable to allow mocking exec.Command in tests. It is used by openBrowser to launch the default web browser.
 var execCommand = exec.Command //nolint:gochecknoglobals // test seam for mocking exec.Command in unit tests
+
+// newBlockHandlerFn is a test seam for mocking defra.NewBlockHandler in StartIndexing error-path tests.
+var newBlockHandlerFn = defra.NewBlockHandler //nolint:gochecknoglobals // test seam for mocking defra.NewBlockHandler in unit tests
+
+// waitForDefraDBFn is a test seam for mocking defra.WaitForDefraDB in StartIndexing error-path tests.
+var waitForDefraDBFn = defra.WaitForDefraDB //nolint:gochecknoglobals // test seam for mocking defra.WaitForDefraDB in unit tests
 
 // openBrowser opens the specified URL in the default browser.
 func openBrowser(url string) {
