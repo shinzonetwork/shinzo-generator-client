@@ -5,25 +5,11 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
-	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
-)
-
-// Fetch-related retry constants. maxRPCRetries is also referenced by
-// adapter.go (createBlockBatchWithRetry) since it lives in the same package.
-const (
-	// rpcErrorRetryBaseDelay is the base delay for retrying RPC errors
-	// (multiplied by attempt number).
-	rpcErrorRetryBaseDelay = 500 * time.Millisecond
-
-	// maxRPCRetries is the maximum number of retries for non-"not found" RPC
-	// errors. Also used by adapter.createBlockBatchWithRetry for transaction
-	// conflict retries.
-	maxRPCRetries = 3
 )
 
 // rpcClient abstracts the subset of *rpc.EthereumClient methods used by the
@@ -39,9 +25,8 @@ type rpcClient interface {
 
 // BlockBundle is the concrete return type of Fetcher.FetchBlock. It bundles
 // the raw block data with its transactions and receipts. The type is
-// unexported because it is only referenced within the evm package: the adapter
-// type-asserts it now, the converter will type-assert it in Phase C, and the
-// indexer always works with the `any` return value.
+// unexported because it is only referenced within the evm package: the converter
+// type-asserts it, and the indexer always works with the `any` return value.
 type BlockBundle struct {
 	Block        *Block
 	Transactions []*Transaction
@@ -122,7 +107,7 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
 	}
-	block, err := f.fetchBlockWithRetry(ctx, height)
+	block, err := f.fetchBlock(ctx, height)
 	if err != nil {
 		return nil, err
 	}
@@ -155,38 +140,13 @@ func (f *Fetcher) Close() error {
 	return nil
 }
 
-// fetchBlockWithRetry fetches a block by number. When the block is not yet
-// available on chain the error is returned as-is (it matches
-// errors.IsErrNotFound) so the caller can decide to retry. Other RPC errors
-// are retried up to maxRPCRetries times with linear backoff.
-func (f *Fetcher) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*Block, error) {
-	otherErrors := 0
-	for {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		block, err := f.client.GetBlockByNumber(ctx, big.NewInt(blockNum))
-		if err == nil {
-			return block, nil
-		}
-
-		if errors.IsErrNotFound(err) {
-			// Block not yet available; surface the not-found error so the
-			// caller (block processor) can apply its own retry policy.
-			return nil, err
-		}
-
-		otherErrors++
-		if otherErrors >= maxRPCRetries {
-			return nil, fmt.Errorf("failed to fetch block: %w", err)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Duration(otherErrors) * rpcErrorRetryBaseDelay):
-		}
+// fetchBlock fetches a block by number, returning not-found errors as-is
+// so the caller (block processor) can apply its own retry policy.
+func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
+	return f.client.GetBlockByNumber(ctx, big.NewInt(blockNum))
 }
 
 // fetchTransactionsAndReceipts builds the transaction pointer slice and fetches

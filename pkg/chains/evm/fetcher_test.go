@@ -250,60 +250,33 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// FetchBlock: block not found (no retry)
+// FetchBlock: block not found (no retry, error passed through unwrapped)
 // ---------------------------------------------------------------------------
 
 func TestFetcher_FetchBlock_BlockNotFound(t *testing.T) {
 	t.Parallel()
 
+	errNotFound := stderrors.New("block not found")
 	calls := 0
 	client := &fakeRPCClient{
 		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
-			return nil, stderrors.New("block not found")
+			return nil, errNotFound
 		},
 	}
 	f := NewFetcher(client, 8)
 
 	_, err := f.FetchBlock(context.Background(), 42)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	assert.Equal(t, errNotFound, err, "not-found error should pass through unwrapped")
 	assert.Equal(t, 1, calls, "should not retry on not-found errors")
 }
 
 // ---------------------------------------------------------------------------
-// FetchBlock: RPC retry (success on 2nd attempt)
+// FetchBlock: RPC error — no retry at fetcher level
 // ---------------------------------------------------------------------------
 
-func TestFetcher_FetchBlock_RPCRetrySuccess(t *testing.T) {
-	t.Parallel()
-
-	calls := 0
-	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
-			calls++
-			if calls < 2 {
-				return nil, stderrors.New("connection reset")
-			}
-			return fakeBlock(999), nil
-		},
-	}
-	f := NewFetcher(client, 8)
-
-	raw, err := f.FetchBlock(context.Background(), 999)
-	require.NoError(t, err)
-
-	bundle, ok := raw.(*BlockBundle)
-	require.True(t, ok)
-	assert.NotNil(t, bundle.Block)
-	assert.Equal(t, 2, calls, "should succeed on 2nd attempt")
-}
-
-// ---------------------------------------------------------------------------
-// FetchBlock: RPC retry exhausted
-// ---------------------------------------------------------------------------
-
-func TestFetcher_FetchBlock_RPCRetryExhausted(t *testing.T) {
+func TestFetcher_FetchBlock_RPCErrorNoRetry(t *testing.T) {
 	t.Parallel()
 
 	calls := 0
@@ -317,9 +290,9 @@ func TestFetcher_FetchBlock_RPCRetryExhausted(t *testing.T) {
 
 	_, err := f.FetchBlock(context.Background(), 1)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to fetch block")
 	assert.Contains(t, err.Error(), "connection refused")
-	assert.Equal(t, maxRPCRetries, calls, "should exhaust all retries")
+	assert.NotContains(t, err.Error(), "failed to fetch block")
+	assert.Equal(t, 1, calls, "should make exactly 1 call — no retry at fetcher level")
 }
 
 // ---------------------------------------------------------------------------
