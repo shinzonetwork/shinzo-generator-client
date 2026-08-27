@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"github.com/sourcenetwork/defradb/node"
@@ -465,6 +466,20 @@ func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Req
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":  err.Error(),
+			"result": result, //nolint:goconst
+		})
+		return
+	}
+
+	// Rebuild secondary indexes after bulk KV import.
+	// ImportRawKVs writes raw KV pairs directly to the rootstore, bypassing
+	// the document layer. Index entries are not included in the export, so
+	// we must rebuild them from the imported document data.
+	if rebuildErr := snapshot.RebuildAllIndexes(r.Context(), hs.defraNode, constants.DefaultCollections()); rebuildErr != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":  rebuildErr.Error(),
 			"result": result,
 		})
 		return
