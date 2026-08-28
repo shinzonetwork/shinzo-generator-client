@@ -243,6 +243,9 @@ func NewFetcher(cfg *config.Config) (Fetcher, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
 	}
+	// Defensive: RegisterChain panics on nil fields, so this should never
+	// trigger for a registered adapter. Kept as defense-in-depth in case the
+	// registry is bypassed (e.g. direct map mutation in tests).
 	if factories.Fetcher == nil {
 		return nil, fmt.Errorf("%w: %q has no fetcher", ErrChainFactoryIncomplete, name)
 	}
@@ -259,6 +262,9 @@ func NewConverter(cfg *config.Config) (Converter, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
 	}
+	// Defensive: RegisterChain panics on nil fields, so this should never
+	// trigger for a registered adapter. Kept as defense-in-depth in case the
+	// registry is bypassed (e.g. direct map mutation in tests).
 	if factories.Converter == nil {
 		return nil, fmt.Errorf("%w: %q has no converter", ErrChainFactoryIncomplete, name)
 	}
@@ -275,6 +281,9 @@ func NewCollections(cfg *config.Config) (Collections, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
 	}
+	// Defensive: RegisterChain panics on nil fields, so this should never
+	// trigger for a registered adapter. Kept as defense-in-depth in case the
+	// registry is bypassed (e.g. direct map mutation in tests).
 	if factories.Collections == nil {
 		return nil, fmt.Errorf("%w: %q has no collections", ErrChainFactoryIncomplete, name)
 	}
