@@ -259,7 +259,7 @@ func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) erro
 	if p.cfg.MaxBlocksPerCycle > 0 && blockCount-keep > p.cfg.MaxBlocksPerCycle {
 		keep = blockCount - p.cfg.MaxBlocksPerCycle
 	}
-	result := q.Drain(int(p.cfg.MaxBlocks), p.blockCollection, p.blockSigCollection)
+	result := q.Drain(int(keep), p.blockCollection, p.blockSigCollection)
 	if result == nil {
 		return nil
 	}

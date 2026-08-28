@@ -141,7 +141,7 @@ func queueBlocks(t *testing.T, q *IndexerQueue, n int64) {
 	for i := int64(1); i <= n; i++ {
 		err := q.TrackBlockDocIDs(i,
 			docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
-			map[string][]string{constants.CollectionTransaction: {
+			map[string][]string{testTxColName: {
 				docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001",
 				docIDPrefix + "-770e8400-e29b-41d4-a716-446655440002",
 			}},
@@ -156,7 +156,7 @@ func queueBlocks(t *testing.T, q *IndexerQueue, n int64) {
 func TestRunIndexerQueuePrune_BoundsWorkPerCycle(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
-	p := NewPruner(cfg, n, testCollections())
+	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 
@@ -175,7 +175,7 @@ func TestRunIndexerQueuePrune_CheckpointsBelowRetentionTarget(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
 	cfg := &Config{Enabled: true, MaxBlocks: 100, MaxBlocksPerCycle: 2}
-	p := NewPruner(cfg, n, testCollections())
+	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	_, err := q.LoadFromFile(path)
 	require.NoError(t, err)
@@ -201,7 +201,7 @@ func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
 	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
-	p := NewPruner(cfg, n, testCollections())
+	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	// LoadFromFile binds the queue to the path Save writes to.
 	_, err := q.LoadFromFile(path)
