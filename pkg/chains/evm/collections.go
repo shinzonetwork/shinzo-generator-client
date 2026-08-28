@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
@@ -139,10 +138,4 @@ func SchemaApplyOrder() []string {
 		CollectionAccessListEntry,
 		CollectionLog,
 	}
-}
-
-func init() {
-	chains.RegisterCollectionsFactory("evm", func(cfg *config.Config) (chains.Collections, error) {
-		return NewCollectionNames(chainPrefixFromConfig(cfg)), nil
-	})
 }

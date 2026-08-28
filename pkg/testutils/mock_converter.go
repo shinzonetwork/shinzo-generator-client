@@ -3,6 +3,7 @@ package testutils
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -95,7 +96,7 @@ func (m *MockConverter) Collections() chains.Collections {
 	}
 	c, err := chains.NewCollections(nil)
 	if err != nil {
-		return nil
+		panic(fmt.Sprintf("MockConverter.Collections: chains.NewCollections failed: %v", err))
 	}
 	return c
 }
@@ -108,7 +109,15 @@ func (m *MockConverter) SignatureCollection() string {
 	if m.SignatureCollectionFn != nil {
 		return m.SignatureCollectionFn()
 	}
-	return "Ethereum__Mainnet__BlockSignature"
+	c, err := chains.NewCollections(nil)
+	if err != nil {
+		panic(fmt.Sprintf("MockConverter.SignatureCollection: chains.NewCollections failed: %v", err))
+	}
+	name, err := c.GetCollection(chains.TypeBlockSignature)
+	if err != nil {
+		panic(fmt.Sprintf("MockConverter.SignatureCollection: GetCollection failed: %v", err))
+	}
+	return name
 }
 
 // GetHighestStoredBlockNumber records the call and delegates to GetHighestStoredBlockNumberFn.
