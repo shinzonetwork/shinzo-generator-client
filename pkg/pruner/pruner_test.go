@@ -156,7 +156,7 @@ func queueBlocks(t *testing.T, q *IndexerQueue, n int64) {
 // backlog grows instead of scaling with it.
 func TestRunIndexerQueuePrune_BoundsWorkPerCycle(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
 	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
@@ -175,7 +175,7 @@ func TestRunIndexerQueuePrune_BoundsWorkPerCycle(t *testing.T) {
 func TestRunIndexerQueuePrune_CheckpointsBelowRetentionTarget(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
-	cfg := &Config{Enabled: true, MaxBlocks: 100, MaxBlocksPerCycle: 2}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, MaxBlocksPerCycle: 2}
 	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	_, err := q.LoadFromFile(path)
@@ -201,7 +201,7 @@ func TestRunIndexerQueuePrune_CheckpointsBelowRetentionTarget(t *testing.T) {
 func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
-	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
 	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	// LoadFromFile binds the queue to the path Save writes to.
