@@ -93,7 +93,11 @@ func (m *MockConverter) Collections() chains.Collections {
 	if m.CollectionsFn != nil {
 		return m.CollectionsFn()
 	}
-	return chains.NewStubCollections("Ethereum__Mainnet")
+	c, err := chains.NewCollections(nil)
+	if err != nil {
+		return nil
+	}
+	return c
 }
 
 // SignatureCollection records the call and delegates to SignatureCollectionFn.

@@ -14,7 +14,7 @@ package chains
 //
 import (
 	"context"
-	stderrors "errors"
+	"errors"
 	"fmt"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -23,7 +23,7 @@ import (
 
 // ErrUnknownCollection is returned by Collections.GetCollection when the given
 // role string does not map to a known collection.
-var ErrUnknownCollection = stderrors.New("unknown collection")
+var ErrUnknownCollection = errors.New("unknown collection")
 
 // Collection type constants used as arguments to GetCollection.
 const (
@@ -34,6 +34,9 @@ const (
 	TypeAccessListEntry   = "accessListEntry"
 	TypeLog               = "log"
 )
+
+// DefaultAdapter value to be used in FetcherFactory, ConverterFactory, and CollectionsFactory.
+const DefaultAdapter = "evm"
 
 // Collections is the chain-agnostic abstraction over a chain family's named
 // collection set. Each chain family (EVM, future Cosmos) implements it so the
@@ -183,9 +186,15 @@ type FetcherFactory func(cfg *config.Config) (Fetcher, error)
 // cfg.Chain.Adapter (e.g. "evm").
 type ConverterFactory func(cfg *config.Config) (Converter, error)
 
+// CollectionsFactory is the constructor signature for chain-specific Collections
+// implementations. Each chain family registers one under
+// cfg.Chain.Adapter (e.g. "evm").
+type CollectionsFactory func(cfg *config.Config) (Collections, error)
+
 var (
-	fetcherFactoryRegistry   = map[string]FetcherFactory{}   //nolint:gochecknoglobals
-	converterFactoryRegistry = map[string]ConverterFactory{} //nolint:gochecknoglobals
+	fetcherFactoryRegistry     = map[string]FetcherFactory{}     //nolint:gochecknoglobals
+	converterFactoryRegistry   = map[string]ConverterFactory{}   //nolint:gochecknoglobals
+	collectionsFactoryRegistry = map[string]CollectionsFactory{} //nolint:gochecknoglobals
 )
 
 // RegisterFetcherFactory registers a Fetcher factory under the given name.
@@ -200,6 +209,12 @@ func RegisterConverterFactory(name string, factory ConverterFactory) {
 	converterFactoryRegistry[name] = factory
 }
 
+// RegisterCollectionsFactory registers a Collections factory under the given name.
+// Called from each chain package's init().
+func RegisterCollectionsFactory(name string, factory CollectionsFactory) {
+	collectionsFactoryRegistry[name] = factory
+}
+
 // NewFetcher constructs the chain fetcher for the configured chain backend.
 // Dispatch is via the factory registry: each chain package (e.g.
 // pkg/chains/evm) calls RegisterFetcherFactory in its init(), and the
@@ -207,7 +222,7 @@ func RegisterConverterFactory(name string, factory ConverterFactory) {
 func NewFetcher(cfg *config.Config) (Fetcher, error) {
 	name := cfg.Chain.Adapter
 	if name == "" {
-		name = "evm"
+		name = DefaultAdapter
 	}
 	factory, ok := fetcherFactoryRegistry[name]
 	if !ok {
@@ -223,11 +238,28 @@ func NewFetcher(cfg *config.Config) (Fetcher, error) {
 func NewConverter(cfg *config.Config) (Converter, error) {
 	name := cfg.Chain.Adapter
 	if name == "" {
-		name = "evm"
+		name = DefaultAdapter
 	}
 	factory, ok := converterFactoryRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("converter factory %q not registered", name)
+	}
+	return factory(cfg)
+}
+
+// NewCollections constructs the chain Collections for the configured chain backend.
+// Dispatch is via the factory registry: each chain package (e.g.
+// pkg/chains/evm) calls RegisterCollectionsFactory in its init(), and the
+// binary blank-imports the package so the registration runs.
+// A nil cfg defaults to the "evm" adapter.
+func NewCollections(cfg *config.Config) (Collections, error) {
+	name := DefaultAdapter
+	if cfg != nil && cfg.Chain.Adapter != "" {
+		name = cfg.Chain.Adapter
+	}
+	factory, ok := collectionsFactoryRegistry[name]
+	if !ok {
+		return nil, fmt.Errorf("collections factory %q not registered", name)
 	}
 	return factory(cfg)
 }
