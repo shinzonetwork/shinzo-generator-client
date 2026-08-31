@@ -2171,6 +2171,14 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 			indexer, err := CreateIndexer(cfg)
 			require.NoError(t, err)
 
+			stopped := false
+			t.Cleanup(func() {
+				if !stopped {
+					indexer.shouldIndex = false
+					indexer.StopIndexing()
+				}
+			})
+
 			errCh := startIndexingBackground(t, indexer)
 			tc.wait(t, &count, blockCh, errCh)
 
@@ -2182,6 +2190,7 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				indexer.shouldIndex = false
 			}
 			indexer.StopIndexing()
+			stopped = true
 
 			if tc.assertPost != nil {
 				tc.assertPost(t, indexer)
@@ -2735,8 +2744,8 @@ func TestSignMessagesVariants(t *testing.T) {
 			setup: func(t *testing.T) *ChainIndexer {
 				return startSignMessagesIndexer(t,
 					"test-secret-for-sign-p2p-err-1",
-					"",
-					config.DefraDBP2PConfig{Enabled: false},
+					testDefraRandomURL,
+					testDefraP2PDisabled,
 					func() *httptest.Server {
 						return newMockRPCServerForIntegration(make(chan struct{}, 100))
 					})
@@ -2760,8 +2769,8 @@ func TestSignMessagesVariants(t *testing.T) {
 			setup: func(t *testing.T) *ChainIndexer {
 				return startSignMessagesIndexer(t,
 					"test-secret-for-sign-determ",
-					"",
-					config.DefraDBP2PConfig{Enabled: false},
+					testDefraRandomURL,
+					testDefraP2PDisabled,
 					func() *httptest.Server {
 						return newMockRPCServerForIntegration(make(chan struct{}, 100))
 					})
@@ -3240,6 +3249,14 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	indexer1, err := CreateIndexer(cfg1)
 	require.NoError(t, err)
 
+	stopped1 := false
+	t.Cleanup(func() {
+		if !stopped1 {
+			indexer1.shouldIndex = false
+			indexer1.StopIndexing()
+		}
+	})
+
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- indexer1.StartIndexing(false)
@@ -3263,6 +3280,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	// Stop the first indexer.
 	indexer1.shouldIndex = false
 	indexer1.StopIndexing()
+	stopped1 = true
 
 	// Phase 2: Create a NEW indexer pointing to the same DB directory.
 	// When it calls GetHighestBlockNumber (line 226), it should find existing blocks,
@@ -3291,6 +3309,14 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	indexer2, err := CreateIndexer(cfg2)
 	require.NoError(t, err)
 
+	stopped2 := false
+	t.Cleanup(func() {
+		if !stopped2 {
+			indexer2.shouldIndex = false
+			indexer2.StopIndexing()
+		}
+	})
+
 	errCh2 := make(chan error, 1)
 	go func() {
 		errCh2 <- indexer2.StartIndexing(false)
@@ -3313,6 +3339,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	// The second indexer should have resumed from the existing blocks.
 	indexer2.shouldIndex = false
 	indexer2.StopIndexing()
+	stopped2 = true
 	t.Log("Phase 2 indexer resumed successfully from existing blocks")
 }
 
