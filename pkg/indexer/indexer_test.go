@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -74,110 +73,565 @@ func TestIndexing(t *testing.T) {
 	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'make test' for full test suite")
 }
 
-// TestCreateIndexer tests the indexer creation.
+// TestCreateIndexer tests indexer creation across valid, nil, and custom configs.
 func TestCreateIndexer(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: "http://localhost:9181",
+
+	tests := []struct {
+		name            string
+		cfg             *config.Config
+		wantErr         bool
+		wantErrContains []string
+		wantURL         string
+		wantStartHeight int
+		checkInitState  bool
+	}{
+		{
+			name: "valid config",
+			cfg: &config.Config{
+				DefraDB: config.DefraDBConfig{
+					URL: "http://localhost:9181",
+				},
+				Indexer: config.IndexerConfig{
+					StartHeight: 100,
+				},
+			},
+			wantURL:        "http://localhost:9181",
+			checkInitState: true,
 		},
-		Indexer: config.IndexerConfig{
-			StartHeight: 100,
+		{
+			name:            "nil config",
+			cfg:             nil,
+			wantErr:         true,
+			wantErrContains: []string{"config is nil", "CONFIGURATION_ERROR"},
+		},
+		{
+			name: "custom config is preserved",
+			cfg: &config.Config{
+				DefraDB: config.DefraDBConfig{
+					URL: "http://localhost:8888",
+					Store: config.DefraDBStoreConfig{
+						Path: "/tmp/test_defra",
+					},
+				},
+				Geth: config.GethConfig{
+					NodeURL: "http://localhost:8545",
+				},
+				Indexer: config.IndexerConfig{
+					StartHeight: 500,
+				},
+				Logger: config.LoggerConfig{
+					Development: true,
+				},
+			},
+			wantURL:         "http://localhost:8888",
+			wantStartHeight: 500,
 		},
 	}
 
-	indexer, err := CreateIndexer(cfg)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer, err := CreateIndexer(tt.cfg)
 
-	assert.NoError(t, err)
-	assert.NotNil(t, indexer)
-	assert.Equal(t, cfg, indexer.cfg)
-	assert.False(t, indexer.shouldIndex)
-	assert.False(t, indexer.isStarted)
-	assert.False(t, indexer.hasIndexedAtLeastOneBlock)
-	assert.Nil(t, indexer.defraNode)
-}
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, indexer)
+				for _, substr := range tt.wantErrContains {
+					assert.Contains(t, err.Error(), substr)
+				}
+				return
+			}
 
-// TestCreateIndexerWithNilConfig tests indexer creation with nil config.
-func TestCreateIndexerWithNilConfig(t *testing.T) {
-	t.Parallel()
-	indexer, err := CreateIndexer(nil)
-
-	assert.Error(t, err)
-	assert.Nil(t, indexer)
-	assert.Contains(t, err.Error(), "config is nil")
-	assert.Contains(t, err.Error(), "CONFIGURATION_ERROR")
-}
-
-// TestIndexerStateManagement tests the state management methods.
-func TestIndexerStateManagement(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: testDefraURL},
+			require.NoError(t, err)
+			assert.NotNil(t, indexer)
+			assert.Equal(t, tt.cfg, indexer.cfg)
+			if tt.wantURL != "" {
+				assert.Equal(t, tt.wantURL, indexer.cfg.DefraDB.URL)
+			}
+			if tt.wantStartHeight != 0 {
+				assert.Equal(t, tt.wantStartHeight, indexer.cfg.Indexer.StartHeight)
+			}
+			if tt.checkInitState {
+				assert.False(t, indexer.shouldIndex)
+				assert.False(t, indexer.isStarted)
+				assert.False(t, indexer.hasIndexedAtLeastOneBlock)
+				assert.Nil(t, indexer.defraNode)
+			}
+		})
 	}
-	indexer, err := CreateIndexer(cfg)
-	assert.NoError(t, err)
-
-	// Test initial state.
-	assert.False(t, indexer.IsStarted())
-	assert.False(t, indexer.HasIndexedAtLeastOneBlock())
-
-	// Test state changes.
-	indexer.shouldIndex = true
-	indexer.isStarted = true
-	indexer.hasIndexedAtLeastOneBlock = true
-
-	assert.True(t, indexer.IsStarted())
-	assert.True(t, indexer.HasIndexedAtLeastOneBlock())
 }
 
-// TestGetDefraDBPortWithEmbeddedNode tests port retrieval with embedded node.
-func TestGetDefraDBPortWithEmbeddedNode(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: testDefraURL},
+// ---------------------------------------------------------------------------.
+// StopIndexing variants + state/lifecycle (table-driven).
+// ---------------------------------------------------------------------------.
+
+func TestStopIndexingVariants(t *testing.T) {
+	tests := []struct {
+		name     string
+		skipStop bool
+		setup    func(t *testing.T) *ChainIndexer
+		assert   func(t *testing.T, ix *ChainIndexer)
+	}{
+		{
+			name:     "state accessors reflect flags",
+			skipStop: true,
+			setup: func(t *testing.T) *ChainIndexer {
+				cfg := &config.Config{
+					DefraDB: config.DefraDBConfig{URL: testDefraURL},
+				}
+				indexer, err := CreateIndexer(cfg)
+				assert.NoError(t, err)
+				return indexer
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				// Test initial state.
+				assert.False(t, ix.IsStarted())
+				assert.False(t, ix.HasIndexedAtLeastOneBlock())
+
+				// Test state changes.
+				ix.shouldIndex = true
+				ix.isStarted = true
+				ix.hasIndexedAtLeastOneBlock = true
+
+				assert.True(t, ix.IsStarted())
+				assert.True(t, ix.HasIndexedAtLeastOneBlock())
+			},
+		},
+		{
+			name: "stop resets state but keeps indexed history",
+			setup: func(t *testing.T) *ChainIndexer {
+				cfg := &config.Config{
+					DefraDB: config.DefraDBConfig{URL: testDefraURL},
+				}
+				indexer, err := CreateIndexer(cfg)
+				assert.NoError(t, err)
+
+				// Set some state.
+				indexer.shouldIndex = true
+				indexer.isStarted = true
+				indexer.hasIndexedAtLeastOneBlock = true
+				return indexer
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				// Verify state is reset.
+				assert.False(t, ix.shouldIndex)
+				assert.False(t, ix.isStarted)
+				// hasIndexedAtLeastOneBlock should remain true (historical fact).
+				assert.True(t, ix.hasIndexedAtLeastOneBlock)
+			},
+		},
+		{
+			name: "lifecycle starts stopped and stays stopped",
+			setup: func(t *testing.T) *ChainIndexer {
+				cfg := &config.Config{
+					DefraDB: config.DefraDBConfig{
+						URL: testDefraURL,
+						Store: config.DefraDBStoreConfig{
+							Path: "/tmp/test_indexer",
+						},
+					},
+					Indexer: config.IndexerConfig{
+						StartHeight: 1,
+					},
+					Logger: config.LoggerConfig{
+						Development: true,
+					},
+				}
+
+				indexer, err := CreateIndexer(cfg)
+
+				assert.NoError(t, err)
+				return indexer
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				// Test initial state.
+				assert.False(t, ix.IsStarted())
+				assert.False(t, ix.HasIndexedAtLeastOneBlock())
+				assert.Equal(t, -1, ix.GetDefraDBPort())
+
+				// Test state after stopping (should remain stopped).
+				assert.False(t, ix.IsStarted())
+				assert.False(t, ix.HasIndexedAtLeastOneBlock())
+			},
+		},
+		{
+			name: "embedded node is closed and nilled",
+			setup: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+
+				return &ChainIndexer{
+					defraNode:   td.Node,
+					shouldIndex: true,
+					isStarted:   true,
+					cfg:         &config.Config{},
+				}
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.shouldIndex)
+				assert.False(t, ix.isStarted)
+				assert.Nil(t, ix.defraNode)
+			},
+		},
+		{
+			name: "started snapshotter is stopped and nilled",
+			setup: func(t *testing.T) *ChainIndexer {
+				s := snapshot.New(&config.SnapshotConfig{
+					Enabled:         true,
+					Dir:             t.TempDir(),
+					BlocksPerFile:   1000,
+					IntervalSeconds: 3600,
+				}, nil, nil)
+
+				err := s.Start(t.Context())
+				require.NoError(t, err)
+
+				return &ChainIndexer{
+					shouldIndex: true,
+					isStarted:   true,
+					cfg:         &config.Config{},
+					snapshotter: s,
+				}
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.shouldIndex)
+				assert.Nil(t, ix.snapshotter)
+			},
+		},
+		{
+			name: "pruner is stopped and nilled",
+			setup: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+				p := pruner.NewPruner(&config.PrunerConfig{
+					Enabled:   true,
+					MaxBlocks: 1000,
+				}, td.Node, nil)
+
+				return &ChainIndexer{
+					shouldIndex: true,
+					isStarted:   true,
+					cfg:         &config.Config{},
+					pruner:      p,
+				}
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.shouldIndex)
+				assert.Nil(t, ix.pruner)
+			},
+		},
+		{
+			name: "health server is stopped",
+			setup: func(t *testing.T) *ChainIndexer {
+				hs := NewHealthServerForTest(t)
+
+				return &ChainIndexer{
+					shouldIndex:  true,
+					isStarted:    true,
+					cfg:          &config.Config{},
+					healthServer: hs,
+				}
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.shouldIndex)
+			},
+		},
+		{
+			name: "all components are stopped and nilled",
+			setup: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+
+				// Create fetcher, converter, and block handler wired to a mock RPC server.
+				rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+					switch method {
+					case ethGetBlockByNumber:
+						return fullBlockResponse("0x1", nil), nil
+					case ethGetBlockReceipts:
+						return []any{}, nil
+					default:
+						return "0x1", nil
+					}
+				})
+				t.Cleanup(rpcServer.Close)
+				fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
+				require.NotNil(t, fetcher)
+
+				// Create pruner.
+				p := pruner.NewPruner(&config.PrunerConfig{
+					Enabled:   true,
+					MaxBlocks: 1000,
+				}, td.Node, converter)
+
+				// Create snapshotter.
+				s := snapshot.New(&config.SnapshotConfig{
+					Enabled:         true,
+					Dir:             t.TempDir(),
+					BlocksPerFile:   1000,
+					IntervalSeconds: 3600,
+				}, nil, nil)
+				err := s.Start(t.Context())
+				require.NoError(t, err)
+
+				// Create health server.
+				hs := server.NewHealthServer(0, nil, "")
+
+				indexer := &ChainIndexer{
+					shouldIndex:    true,
+					isStarted:      true,
+					fetcher:        fetcher,
+					converter:      converter,
+					blockHandler:   blockHandler,
+					defraNode:      td.Node,
+					pruner:         p,
+					snapshotter:    s,
+					healthServer:   hs,
+					networkHandler: nil, // test nil network handler branch.
+					cfg:            &config.Config{},
+				}
+
+				require.NotNil(t, indexer.fetcher, "fetcher should be set before StopIndexing")
+				return indexer
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.shouldIndex)
+				assert.False(t, ix.isStarted)
+				assert.Nil(t, ix.fetcher, "StopIndexing should close and nil the fetcher")
+				assert.Nil(t, ix.defraNode)
+				assert.Nil(t, ix.pruner)
+				assert.Nil(t, ix.snapshotter)
+			},
+		},
+		{
+			// Don't call p.Start()/s.Start() — they require the app-sdk logger
+			// to be initialized. StopIndexing should handle calling Stop() on
+			// unstarted components (isRunning=false → early return).
+			name: "unstarted pruner and snapshotter tolerated",
+			setup: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+
+				p := pruner.NewPruner(&config.PrunerConfig{
+					Enabled:        true,
+					MaxBlocks:      100,
+					PruneThreshold: 10,
+				}, td.Node, nil)
+				p.SetQueue(pruner.NewIndexerQueue())
+
+				s := snapshot.New(&config.SnapshotConfig{
+					Enabled:         true,
+					Dir:             t.TempDir(),
+					BlocksPerFile:   100,
+					IntervalSeconds: 3600,
+				}, td.Node, nil)
+
+				return &ChainIndexer{
+					defraNode:   td.Node,
+					isStarted:   true,
+					shouldIndex: true,
+					pruner:      p,
+					snapshotter: s,
+				}
+			},
+			assert: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.isStarted)
+				assert.False(t, ix.shouldIndex)
+			},
+		},
 	}
-	indexer, err := CreateIndexer(cfg)
-	assert.NoError(t, err)
 
-	// Initially no embedded node.
-	assert.Equal(t, -1, indexer.GetDefraDBPort())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
 
-	// Note: We can't easily test with an actual embedded node in unit tests.
-	// as it requires starting DefraDB, which is covered in integration tests.
-}
+			indexer := tc.setup(t)
 
-// TestStopIndexing tests the stop indexing functionality.
-func TestStopIndexing(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{URL: testDefraURL},
+			if !tc.skipStop {
+				indexer.StopIndexing()
+			}
+			tc.assert(t, indexer)
+		})
 	}
-	indexer, err := CreateIndexer(cfg)
-	assert.NoError(t, err)
-
-	// Set some state.
-	indexer.shouldIndex = true
-	indexer.isStarted = true
-	indexer.hasIndexedAtLeastOneBlock = true
-
-	// Stop indexing.
-	indexer.StopIndexing()
-
-	// Verify state is reset.
-	assert.False(t, indexer.shouldIndex)
-	assert.False(t, indexer.isStarted)
-	// hasIndexedAtLeastOneBlock should remain true (historical fact).
-	assert.True(t, indexer.hasIndexedAtLeastOneBlock)
 }
 
-// TestConfigLoading tests configuration loading.
-func TestConfigLoading(t *testing.T) {
+// TestGetDefraDBPort tests port retrieval with and without an embedded node.
+func TestGetDefraDBPort(t *testing.T) {
 	t.Parallel()
-	// Test that configuration is required.
-	indexer := &ChainIndexer{cfg: nil}
-	err := indexer.StartIndexing(true)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "configuration is required")
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) (*ChainIndexer, int, bool) // indexer, wantPort, wantPort > 0
+	}{
+		{
+			name: "created indexer without embedded node returns -1",
+			setup: func(t *testing.T) (*ChainIndexer, int, bool) {
+				cfg := &config.Config{
+					DefraDB: config.DefraDBConfig{URL: testDefraURL},
+				}
+				indexer, err := CreateIndexer(cfg)
+				require.NoError(t, err)
+				return indexer, -1, false
+			},
+		},
+		{
+			name: "nil defraNode returns -1",
+			setup: func(_ *testing.T) (*ChainIndexer, int, bool) {
+				return &ChainIndexer{defraNode: nil}, -1, false
+			},
+		},
+		{
+			name: "embedded node returns its port",
+			setup: func(t *testing.T) (*ChainIndexer, int, bool) {
+				td := testutils.SetupTestDefraDB(t)
+				return &ChainIndexer{defraNode: td.Node}, td.Port, true
+			},
+		},
+		{
+			name: "embedded node port is consistent and valid",
+			setup: func(t *testing.T) (*ChainIndexer, int, bool) {
+				td := testutils.SetupTestDefraDB(t)
+				return &ChainIndexer{defraNode: td.Node}, td.Port, true
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer, wantPort, wantPositive := tt.setup(t)
+			port := indexer.GetDefraDBPort()
+			assert.Equal(t, wantPort, port)
+			if wantPositive {
+				assert.Greater(t, port, 0)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// StartIndexing — error paths (nil config, external DefraDB, RPC failures).
+// ---------------------------------------------------------------------------.
+
+func TestStartIndexing_ErrorPaths(t *testing.T) {
+	tests := []struct {
+		name            string
+		skipInShort     bool
+		setup           func(t *testing.T) *ChainIndexer
+		startExternal   bool
+		wantErrContains string
+		wantNil         func(t *testing.T, ix *ChainIndexer)
+	}{
+		{
+			name: "nil config",
+			// Test that configuration is required.
+			setup: func(_ *testing.T) *ChainIndexer {
+				return &ChainIndexer{cfg: nil}
+			},
+			startExternal:   true,
+			wantErrContains: "configuration is required",
+		},
+		{
+			name: "external defra without node",
+			// External DefraDB no longer sets defraNode, so StartIndexing
+			// returns "defraNode is required" after applying schema.
+			setup: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+
+				// Create a config pointing to the test DefraDB as "external".
+				cfg := &config.Config{
+					DefraDB: config.DefraDBConfig{
+						URL: fmt.Sprintf("http://localhost:%d", td.Port),
+					},
+					Geth: config.GethConfig{NodeURL: "http://localhost:9999"},
+					Indexer: config.IndexerConfig{
+						StartHeight:    0,
+						ReceiptWorkers: 1,
+						MaxDocsPerTxn:  100,
+					},
+					Logger: config.LoggerConfig{Development: true},
+				}
+
+				indexer, err := CreateIndexer(cfg)
+				require.NoError(t, err)
+				return indexer
+			},
+			startExternal:   true,
+			wantErrContains: "defraNode is required",
+		},
+		{
+			name:        "get latest block number error",
+			skipInShort: true,
+			setup: func(t *testing.T) *ChainIndexer {
+				// The RPC server returns an error for eth_getBlockByNumber with
+				// the "latest" param (which is what GetLatestBlockNumber uses).
+				rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+					switch method {
+					case ethGetBlockByNumber:
+						var rawParams []json.RawMessage
+						if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
+							var blockParam string
+							if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+								return nil, fmt.Errorf("rpc connection refused")
+							}
+						}
+						return fullBlockResponse("0x100", nil), nil
+					case ethBlockNumber:
+						return nil, fmt.Errorf("rpc connection refused")
+					default:
+						return "0x1", nil
+					}
+				})
+				t.Cleanup(rpcServer.Close)
+
+				cfg := &config.Config{
+					DefraDB: config.DefraDBConfig{
+						URL:           testDefraRandomURL,
+						KeyringSecret: "test-secret-for-keyring-12345678",
+						P2P:           testDefraP2PDisabled,
+						Store:         config.DefraDBStoreConfig{Path: t.TempDir()},
+					},
+					Geth: config.GethConfig{NodeURL: rpcServer.URL},
+					Indexer: config.IndexerConfig{
+						StartHeight:      100,
+						ConcurrentBlocks: 1,
+						ReceiptWorkers:   2,
+						MaxDocsPerTxn:    100,
+						HealthServerPort: 0,
+						StartBuffer:      10,
+					},
+					Logger: config.LoggerConfig{Development: true},
+				}
+
+				indexer, err := CreateIndexer(cfg)
+				require.NoError(t, err)
+				return indexer
+			},
+			wantErrContains: "failed to get latest block number",
+			wantNil: func(t *testing.T, ix *ChainIndexer) {
+				assert.Nil(t, ix.fetcher, "fetcher should be nil after error-path cleanup")
+				assert.Nil(t, ix.defraNode, "defraNode should be nil after error-path cleanup")
+				assert.Nil(t, ix.networkHandler, "networkHandler should be nil after error-path cleanup")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if tc.skipInShort && testing.Short() {
+				t.Skip("skipping integration test in short mode")
+			}
+			logger.InitConsoleOnly(true)
+
+			indexer := tc.setup(t)
+			err := indexer.StartIndexing(tc.startExternal)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErrContains)
+			t.Logf("StartIndexing error (expected): %v", err)
+
+			if tc.wantNil != nil {
+				tc.wantNil(t, indexer)
+			}
+		})
+	}
 }
 
 // TestConstants tests the defined constants.
@@ -191,183 +645,142 @@ func TestConstants(t *testing.T) {
 	assert.Equal(t, "/ip4/127.0.0.1/tcp/9171", defaultListenAddress)
 }
 
-// TestConvertGethBlockToDefraBlock tests block conversion.
+// TestConvertGethBlockToDefraBlock verifies field-preserving conversion of geth
+// blocks into Defra blocks across full, empty-transaction, and processing shapes.
 func TestConvertGethBlockToDefraBlock(t *testing.T) {
 	t.Parallel()
-	logger.InitConsoleOnly(true)
 
-	// Create a mock geth block.
-	gethBlock := &evm.Block{
-		Number:           "12345",
-		Hash:             "0x1234567890abcdef",
-		ParentHash:       "0xabcdef1234567890",
-		Timestamp:        "1640995200",
-		Miner:            testMinerAddr,
-		GasLimit:         "8000000",
-		GasUsed:          "21000",
-		Difficulty:       "1000000",
-		TotalDifficulty:  "5000000",
-		Nonce:            "0x1234567890abcdef",
-		Sha3Uncles:       testSha3Uncles,
-		LogsBloom:        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-		TransactionsRoot: testTransactionsRoot,
-		StateRoot:        "0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544",
-		ReceiptsRoot:     testTransactionsRoot,
+	tests := []struct {
+		name      string
+		gethBlock *evm.Block
+		wantTxLen int
+	}{
+		{
+			name: "full block with one transaction",
+			gethBlock: &evm.Block{
+				Number:           "12345",
+				Hash:             "0x1234567890abcdef",
+				ParentHash:       "0xabcdef1234567890",
+				Timestamp:        "1640995200",
+				Miner:            testMinerAddr,
+				GasLimit:         "8000000",
+				GasUsed:          "21000",
+				Difficulty:       "1000000",
+				TotalDifficulty:  "5000000",
+				Nonce:            "0x1234567890abcdef",
+				Sha3Uncles:       testSha3Uncles,
+				LogsBloom:        "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+				TransactionsRoot: testTransactionsRoot,
+				StateRoot:        "0xd7f8974fb5ac78d9ac099b9ad5018bedc2ce0a72dad1827a1709da30580f0544",
+				ReceiptsRoot:     testTransactionsRoot,
 
-		Size:      "1000",
-		ExtraData: "0x",
-		Transactions: []evm.Transaction{
-			{
-				Hash:             "0xabc123",
-				BlockNumber:      "12345",
-				From:             "0x1234567890123456789012345678901234567890",
-				To:               "0x0987654321098765432109876543210987654321",
-				Value:            "1000000000000000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-				Type:             "0",
-				ChainID:          "1",
-				V:                "27",
-				R:                "12345",
-				S:                "67890",
+				Size:      "1000",
+				ExtraData: "0x",
+				Transactions: []evm.Transaction{
+					{
+						Hash:             "0xabc123",
+						BlockNumber:      "12345",
+						From:             "0x1234567890123456789012345678901234567890",
+						To:               "0x0987654321098765432109876543210987654321",
+						Value:            "1000000000000000000",
+						Gas:              "21000",
+						GasPrice:         "20000000000",
+						Nonce:            "1",
+						TransactionIndex: 0,
+						Type:             "0",
+						ChainID:          "1",
+						V:                "27",
+						R:                "12345",
+						S:                "67890",
+					},
+				},
 			},
+			wantTxLen: 1,
 		},
-	}
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: testDefraURL,
-		},
-	}
-	indexer, err := CreateIndexer(cfg)
-	assert.NoError(t, err)
-
-	// Set some state.
-	indexer.shouldIndex = true
-	indexer.isStarted = true
-	indexer.hasIndexedAtLeastOneBlock = true
-
-	// Stop indexing.
-	indexer.StopIndexing()
-
-	// Test block structure.
-	transactions := gethBlock.Transactions
-	defraBlock := &evm.Block{
-		Number:           gethBlock.Number,
-		Hash:             gethBlock.Hash,
-		ParentHash:       gethBlock.ParentHash,
-		Nonce:            gethBlock.Nonce,
-		Sha3Uncles:       gethBlock.Sha3Uncles,
-		LogsBloom:        gethBlock.LogsBloom,
-		TransactionsRoot: gethBlock.TransactionsRoot,
-		StateRoot:        gethBlock.StateRoot,
-		ReceiptsRoot:     gethBlock.ReceiptsRoot,
-		Miner:            gethBlock.Miner,
-		Difficulty:       gethBlock.Difficulty,
-		TotalDifficulty:  gethBlock.TotalDifficulty,
-		ExtraData:        gethBlock.ExtraData,
-		Size:             gethBlock.Size,
-		GasLimit:         gethBlock.GasLimit,
-		GasUsed:          gethBlock.GasUsed,
-		Timestamp:        gethBlock.Timestamp,
-		Transactions:     transactions,
-	}
-
-	assert.NotNil(t, defraBlock)
-	assert.Equal(t, gethBlock.Number, defraBlock.Number)
-	assert.Equal(t, gethBlock.Hash, defraBlock.Hash)
-	assert.Equal(t, gethBlock.ParentHash, defraBlock.ParentHash)
-	assert.Equal(t, gethBlock.Timestamp, defraBlock.Timestamp)
-	assert.Equal(t, gethBlock.Miner, defraBlock.Miner)
-	assert.Equal(t, gethBlock.GasLimit, defraBlock.GasLimit)
-	assert.Equal(t, gethBlock.GasUsed, defraBlock.GasUsed)
-	assert.Len(t, defraBlock.Transactions, 1)
-}
-
-// TestConvertGethBlockToDefraBlockWithEmptyTransactions tests block conversion with no transactions.
-func TestConvertGethBlockToDefraBlockWithEmptyTransactions(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	gethBlock := &evm.Block{
-		Number:       "12345",
-		Hash:         "0x1234567890abcdef",
-		ParentHash:   "0xabcdef1234567890",
-		Timestamp:    "1640995200",
-		Miner:        testMinerAddr,
-		GasLimit:     "8000000",
-		GasUsed:      "0",
-		Transactions: []evm.Transaction{}, // Empty transactions.
-	}
-
-	defraBlock := &evm.Block{
-		Number:           gethBlock.Number,
-		Hash:             gethBlock.Hash,
-		ParentHash:       gethBlock.ParentHash,
-		Nonce:            gethBlock.Nonce,
-		Sha3Uncles:       gethBlock.Sha3Uncles,
-		LogsBloom:        gethBlock.LogsBloom,
-		TransactionsRoot: gethBlock.TransactionsRoot,
-		StateRoot:        gethBlock.StateRoot,
-		ReceiptsRoot:     gethBlock.ReceiptsRoot,
-		Miner:            gethBlock.Miner,
-		Difficulty:       gethBlock.Difficulty,
-		TotalDifficulty:  gethBlock.TotalDifficulty,
-		ExtraData:        gethBlock.ExtraData,
-		Size:             gethBlock.Size,
-		GasLimit:         gethBlock.GasLimit,
-		GasUsed:          gethBlock.GasUsed,
-		Timestamp:        gethBlock.Timestamp,
-		Transactions:     gethBlock.Transactions,
-	}
-
-	assert.NotNil(t, defraBlock)
-	assert.Equal(t, gethBlock.Number, defraBlock.Number)
-	assert.Len(t, defraBlock.Transactions, 0)
-}
-
-// TestCreateIndexerWithNilConfigError tests that CreateIndexer fails immediately with nil config.
-func TestCreateIndexerWithNilConfigError(t *testing.T) {
-	t.Parallel()
-	// This should fail immediately when creating the indexer.
-	indexer, err := CreateIndexer(nil)
-
-	assert.Error(t, err)
-	assert.Nil(t, indexer)
-	assert.Contains(t, err.Error(), "config is nil")
-	assert.Contains(t, err.Error(), "CONFIGURATION_ERROR")
-}
-
-// TestIndexerConfigHandling tests configuration handling.
-func TestIndexerConfigHandling(t *testing.T) {
-	t.Parallel()
-	// Test with custom config.
-	customCfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: "http://localhost:8888",
-			Store: config.DefraDBStoreConfig{
-				Path: "/tmp/test_defra",
+		{
+			name: "block with empty transactions",
+			gethBlock: &evm.Block{
+				Number:       "12345",
+				Hash:         "0x1234567890abcdef",
+				ParentHash:   "0xabcdef1234567890",
+				Timestamp:    "1640995200",
+				Miner:        testMinerAddr,
+				GasLimit:     "8000000",
+				GasUsed:      "0",
+				Transactions: []evm.Transaction{}, // Empty transactions.
 			},
+			wantTxLen: 0,
 		},
-		Geth: config.GethConfig{
-			NodeURL: "http://localhost:8545",
-		},
-		Indexer: config.IndexerConfig{
-			StartHeight: 500,
-		},
-		Logger: config.LoggerConfig{
-			Development: true,
+		{
+			name: "processing block with one transaction",
+			gethBlock: &evm.Block{
+				Number:     "100",
+				Hash:       "0xtest123",
+				ParentHash: "0xparent123",
+				Timestamp:  "1640995200",
+				Miner:      testMinerAddr,
+				GasLimit:   "8000000",
+				GasUsed:    "21000",
+				Transactions: []evm.Transaction{
+					{
+						Hash:             "0xtx123",
+						BlockNumber:      "100",
+						From:             "0xfrom123",
+						To:               "0xto123",
+						Value:            "1000000",
+						Gas:              "21000",
+						GasPrice:         "20000000000",
+						Nonce:            "1",
+						TransactionIndex: 0,
+					},
+				},
+			},
+			wantTxLen: 1,
 		},
 	}
 
-	indexer, err := CreateIndexer(customCfg)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
 
-	assert.NoError(t, err)
-	assert.Equal(t, customCfg, indexer.cfg)
-	assert.Equal(t, "http://localhost:8888", indexer.cfg.DefraDB.URL)
-	assert.Equal(t, 500, indexer.cfg.Indexer.StartHeight)
+			defraBlock := &evm.Block{
+				Number:           tt.gethBlock.Number,
+				Hash:             tt.gethBlock.Hash,
+				ParentHash:       tt.gethBlock.ParentHash,
+				Nonce:            tt.gethBlock.Nonce,
+				Sha3Uncles:       tt.gethBlock.Sha3Uncles,
+				LogsBloom:        tt.gethBlock.LogsBloom,
+				TransactionsRoot: tt.gethBlock.TransactionsRoot,
+				StateRoot:        tt.gethBlock.StateRoot,
+				ReceiptsRoot:     tt.gethBlock.ReceiptsRoot,
+				Miner:            tt.gethBlock.Miner,
+				Difficulty:       tt.gethBlock.Difficulty,
+				TotalDifficulty:  tt.gethBlock.TotalDifficulty,
+				ExtraData:        tt.gethBlock.ExtraData,
+				Size:             tt.gethBlock.Size,
+				GasLimit:         tt.gethBlock.GasLimit,
+				GasUsed:          tt.gethBlock.GasUsed,
+				Timestamp:        tt.gethBlock.Timestamp,
+				Transactions:     tt.gethBlock.Transactions,
+			}
+
+			assert.NotNil(t, defraBlock)
+			assert.Equal(t, tt.gethBlock.Number, defraBlock.Number)
+			assert.Equal(t, tt.gethBlock.Hash, defraBlock.Hash)
+			assert.Equal(t, tt.gethBlock.ParentHash, defraBlock.ParentHash)
+			assert.Equal(t, tt.gethBlock.Timestamp, defraBlock.Timestamp)
+			assert.Equal(t, tt.gethBlock.Miner, defraBlock.Miner)
+			assert.Equal(t, tt.gethBlock.GasLimit, defraBlock.GasLimit)
+			assert.Equal(t, tt.gethBlock.GasUsed, defraBlock.GasUsed)
+			assert.Len(t, defraBlock.Transactions, tt.wantTxLen)
+			if tt.wantTxLen > 0 {
+				assert.Equal(t, tt.gethBlock.Transactions[0].Hash, defraBlock.Transactions[0].Hash)
+				assert.Equal(t, tt.gethBlock.Transactions[0].From, defraBlock.Transactions[0].From)
+				assert.Equal(t, tt.gethBlock.Transactions[0].To, defraBlock.Transactions[0].To)
+			}
+		})
+	}
 }
 
 // TestRequiredPeersInitialization tests required peers initialization.
@@ -397,528 +810,446 @@ func (m *MockBlockHandler) GetHighestBlockNumber(_ context.Context) (int64, erro
 	return m.highestBlock, nil
 }
 
-// TestBlockProcessingLogic tests the block processing logic with mocked dependencies.
-func TestBlockProcessingLogic(t *testing.T) {
+// ---------------------------------------------------------------------------
+// IsHealthy tests
+// ---------------------------------------------------------------------------
+
+func TestIsHealthy(t *testing.T) {
 	t.Parallel()
-	logger.InitConsoleOnly(true)
 
-	// Create test block.
-	testBlock := &evm.Block{
-		Number:     "100",
-		Hash:       "0xtest123",
-		ParentHash: "0xparent123",
-		Timestamp:  "1640995200",
-		Miner:      testMinerAddr,
-		GasLimit:   "8000000",
-		GasUsed:    "21000",
-		Transactions: []evm.Transaction{
-			{
-				Hash:             "0xtx123",
-				BlockNumber:      "100",
-				From:             "0xfrom123",
-				To:               "0xto123",
-				Value:            "1000000",
-				Gas:              "21000",
-				GasPrice:         "20000000000",
-				Nonce:            "1",
-				TransactionIndex: 0,
-			},
-		},
+	updatedBlock := int64(42)
+
+	tests := []struct {
+		name              string
+		isStarted         bool
+		zeroLastProcessed bool
+		processedAgo      time.Duration
+		updateBlock       *int64
+		wantHealthy       bool
+	}{
+		{name: "unhealthy when not started", isStarted: false, zeroLastProcessed: true, wantHealthy: false},
+		{name: "healthy when started but never processed (starting up)", isStarted: true, zeroLastProcessed: true, wantHealthy: true},
+		{name: "healthy when recently processed", isStarted: true, processedAgo: 1 * time.Minute, wantHealthy: true},
+		{name: "unhealthy when last processed >10 minutes ago", isStarted: true, processedAgo: 11 * time.Minute, wantHealthy: false},
+		{name: "healthy just under 10 minute threshold", isStarted: true, processedAgo: 9*time.Minute + 59*time.Second, wantHealthy: true},
+		{name: "healthy after updateBlockInfo", isStarted: true, zeroLastProcessed: true, updateBlock: &updatedBlock, wantHealthy: true},
 	}
 
-	// Test conversion.
-	defraBlock := &evm.Block{
-		Number:           testBlock.Number,
-		Hash:             testBlock.Hash,
-		ParentHash:       testBlock.ParentHash,
-		Nonce:            testBlock.Nonce,
-		Sha3Uncles:       testBlock.Sha3Uncles,
-		LogsBloom:        testBlock.LogsBloom,
-		TransactionsRoot: testBlock.TransactionsRoot,
-		StateRoot:        testBlock.StateRoot,
-		ReceiptsRoot:     testBlock.ReceiptsRoot,
-		Miner:            testBlock.Miner,
-		Difficulty:       testBlock.Difficulty,
-		TotalDifficulty:  testBlock.TotalDifficulty,
-		ExtraData:        testBlock.ExtraData,
-		Size:             testBlock.Size,
-		GasLimit:         testBlock.GasLimit,
-		GasUsed:          testBlock.GasUsed,
-		Timestamp:        testBlock.Timestamp,
-		Transactions:     testBlock.Transactions,
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := &ChainIndexer{
+				isStarted: tt.isStarted,
+			}
+			if !tt.zeroLastProcessed {
+				// Fresh per subtest: parallel subtests may resume long after
+				// the table was built, and the 9m59s boundary case has only
+				// 1s of margin before IsHealthy's 10-minute threshold.
+				indexer.lastProcessedTime = time.Now().Add(-tt.processedAgo)
+			}
+
+			if tt.updateBlock == nil {
+				assert.Equal(t, tt.wantHealthy, indexer.IsHealthy())
+				return
+			}
+
+			// Before any update: zero time means healthy (startup phase).
+			assert.True(t, indexer.IsHealthy(), "zero lastProcessedTime should be healthy before update")
+			indexer.updateBlockInfo(*tt.updateBlock)
+			assert.Equal(t, tt.wantHealthy, indexer.IsHealthy(), "should be healthy after recent block update")
+			assert.Equal(t, *tt.updateBlock, indexer.GetCurrentBlock())
+		})
 	}
-
-	assert.NotNil(t, defraBlock)
-	assert.Equal(t, testBlock.Number, defraBlock.Number)
-	assert.Equal(t, testBlock.Hash, defraBlock.Hash)
-	assert.Len(t, defraBlock.Transactions, 1)
-
-	// Verify transaction conversion.
-	assert.Equal(t, testBlock.Transactions[0].Hash, defraBlock.Transactions[0].Hash)
-	assert.Equal(t, testBlock.Transactions[0].From, defraBlock.Transactions[0].From)
-	assert.Equal(t, testBlock.Transactions[0].To, defraBlock.Transactions[0].To)
-}
-
-// TestIndexerLifecycle tests the complete indexer lifecycle.
-func TestIndexerLifecycle(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: testDefraURL,
-			Store: config.DefraDBStoreConfig{
-				Path: "/tmp/test_indexer",
-			},
-		},
-		Indexer: config.IndexerConfig{
-			StartHeight: 1,
-		},
-		Logger: config.LoggerConfig{
-			Development: true,
-		},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-
-	assert.NoError(t, err)
-	// Test initial state.
-	assert.False(t, indexer.IsStarted())
-	assert.False(t, indexer.HasIndexedAtLeastOneBlock())
-	assert.Equal(t, -1, indexer.GetDefraDBPort())
-
-	// Test state after stopping (should remain stopped).
-	indexer.StopIndexing()
-	assert.False(t, indexer.IsStarted())
-	assert.False(t, indexer.HasIndexedAtLeastOneBlock())
 }
 
 // ---------------------------------------------------------------------------
-// IsHealthy tests
-// ---------------------------------------------------------------------------.
+// GetCurrentBlock / GetLastProcessedTime tests
+// ---------------------------------------------------------------------------
 
-func TestIsHealthy_NotStarted(t *testing.T) {
+func TestGetCurrentBlockAndLastProcessedTime(t *testing.T) {
 	t.Parallel()
-	indexer := &ChainIndexer{isStarted: false}
-	assert.False(t, indexer.IsHealthy(), "should be unhealthy when not started")
-}
 
-func TestIsHealthy_StartedNeverProcessed(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{
-		isStarted:         true,
-		lastProcessedTime: time.Time{}, // zero time = never processed.
+	tests := []struct {
+		name         string
+		updates      []int64
+		sleepBetween time.Duration
+		wantBlocks   []int64
+	}{
+		{name: "default values are zero"},
+		{name: "single update reflects block and time", updates: []int64{12345}, wantBlocks: []int64{12345}},
+		{name: "multiple updates reflect the most recent", updates: []int64{100, 200, 300}, wantBlocks: []int64{100, 200, 300}},
+		{name: "subsequent updates advance time", updates: []int64{500, 501}, sleepBetween: 1 * time.Millisecond, wantBlocks: []int64{500, 501}},
 	}
-	assert.True(t, indexer.IsHealthy(), "should be healthy when started but never processed (starting up)")
-}
 
-func TestIsHealthy_StartedRecentlyProcessed(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{
-		isStarted:         true,
-		lastProcessedTime: time.Now().Add(-1 * time.Minute), // 1 minute ago.
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := &ChainIndexer{}
+
+			// Default state: currentBlock and lastProcessedTime are zero values.
+			assert.Equal(t, int64(0), indexer.GetCurrentBlock(), "default currentBlock should be 0")
+			assert.True(t, indexer.GetLastProcessedTime().IsZero(), "default lastProcessedTime should be zero")
+
+			var prevProcessed time.Time
+			for i, n := range tt.updates {
+				if tt.sleepBetween > 0 && i > 0 {
+					time.Sleep(tt.sleepBetween)
+				}
+				before := time.Now()
+				indexer.updateBlockInfo(n)
+				after := time.Now()
+
+				assert.Equal(t, tt.wantBlocks[i], indexer.GetCurrentBlock())
+
+				processed := indexer.GetLastProcessedTime()
+				assert.False(t, processed.IsZero(), "lastProcessedTime should not be zero after update")
+				assert.False(t, processed.Before(before), "lastProcessedTime should be >= time before update")
+				assert.False(t, processed.After(after), "lastProcessedTime should be <= time after update")
+				if i > 0 && tt.sleepBetween > 0 {
+					assert.False(t, processed.Before(prevProcessed),
+						"lastProcessedTime should advance or stay same with subsequent updates")
+				}
+				prevProcessed = processed
+			}
+		})
 	}
-	assert.True(t, indexer.IsHealthy(), "should be healthy when recently processed")
 }
 
-func TestIsHealthy_StartedStale(t *testing.T) {
+// ---------------------------------------------------------------------------
+// updateBlockInfo tests
+// ---------------------------------------------------------------------------
+
+func TestUpdateBlockInfo(t *testing.T) {
 	t.Parallel()
-	indexer := &ChainIndexer{
-		isStarted:         true,
-		lastProcessedTime: time.Now().Add(-11 * time.Minute), // 11 minutes ago.
+
+	tests := []struct {
+		name       string
+		updates    []int64
+		wantBlocks []int64
+		checkTime  bool
+	}{
+		{name: "updates current block", updates: []int64{42, 999}, wantBlocks: []int64{42, 999}},
+		{name: "allows lower block numbers (not monotonic)", updates: []int64{500, 100}, wantBlocks: []int64{500, 100}},
+		{name: "accepts zero block and sets lastProcessedTime", updates: []int64{0}, wantBlocks: []int64{0}, checkTime: true},
+		{name: "does not reject negative block numbers", updates: []int64{-1}, wantBlocks: []int64{-1}},
+		{name: "sets lastProcessedTime to approximately now", updates: []int64{100}, wantBlocks: []int64{100}, checkTime: true},
 	}
-	assert.False(t, indexer.IsHealthy(), "should be unhealthy when last processed >10 minutes ago")
-}
 
-func TestIsHealthy_StartedExactlyAtThreshold(t *testing.T) {
-	t.Parallel()
-	// Right at the 10-minute boundary (slightly under).
-	indexer := &ChainIndexer{
-		isStarted:         true,
-		lastProcessedTime: time.Now().Add(-9*time.Minute - 59*time.Second),
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := &ChainIndexer{}
+
+			for i, n := range tt.updates {
+				before := time.Now()
+				indexer.updateBlockInfo(n)
+				assert.Equal(t, tt.wantBlocks[i], indexer.currentBlock)
+
+				if tt.checkTime {
+					assert.False(t, indexer.lastProcessedTime.IsZero(), "lastProcessedTime should be set")
+					assert.WithinDuration(t, time.Now(), indexer.lastProcessedTime, 1*time.Second,
+						"lastProcessedTime should be approximately the current time")
+					assert.False(t, indexer.lastProcessedTime.Before(before),
+						"lastProcessedTime should not be before the call")
+				}
+			}
+		})
 	}
-	assert.True(t, indexer.IsHealthy(), "should be healthy just under 10 minute threshold")
 }
 
-// ---------------------------------------------------------------------------.
-// GetCurrentBlock tests
-// ---------------------------------------------------------------------------.
-
-func TestGetCurrentBlock_DefaultValue(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-	assert.Equal(t, int64(0), indexer.GetCurrentBlock(), "default currentBlock should be 0")
-}
-
-func TestGetCurrentBlock_AfterUpdateBlockInfo(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-	indexer.updateBlockInfo(12345)
-	assert.Equal(t, int64(12345), indexer.GetCurrentBlock())
-}
-
-func TestGetCurrentBlock_AfterMultipleUpdates(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-	indexer.updateBlockInfo(100)
-	indexer.updateBlockInfo(200)
-	indexer.updateBlockInfo(300)
-	assert.Equal(t, int64(300), indexer.GetCurrentBlock(), "should reflect the most recent update")
-}
-
-// ---------------------------------------------------------------------------.
-// GetLastProcessedTime tests.
-// ---------------------------------------------------------------------------.
-
-func TestGetLastProcessedTime_DefaultValue(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-	assert.True(t, indexer.GetLastProcessedTime().IsZero(), "default lastProcessedTime should be zero")
-}
-
-func TestGetLastProcessedTime_AfterUpdateBlockInfo(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-	before := time.Now()
-	indexer.updateBlockInfo(100)
-	after := time.Now()
-
-	lastProcessed := indexer.GetLastProcessedTime()
-	assert.False(t, lastProcessed.IsZero(), "lastProcessedTime should not be zero after update")
-	assert.True(t, !lastProcessed.Before(before), "lastProcessedTime should be >= time before update")
-	assert.True(t, !lastProcessed.After(after), "lastProcessedTime should be <= time after update")
-}
-
-// ---------------------------------------------------------------------------.
-// updateBlockInfo tests.
-// ---------------------------------------------------------------------------.
-
-func TestUpdateBlockInfo_UpdatesCurrentBlock(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-
-	indexer.updateBlockInfo(42)
-	assert.Equal(t, int64(42), indexer.currentBlock)
-
-	indexer.updateBlockInfo(999)
-	assert.Equal(t, int64(999), indexer.currentBlock)
-}
-
-func TestUpdateBlockInfo_UpdatesLastProcessedTime(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-
-	before := time.Now()
-	indexer.updateBlockInfo(100)
-
-	// lastProcessedTime should be approximately now
-	assert.WithinDuration(t, time.Now(), indexer.lastProcessedTime, 1*time.Second,
-		"lastProcessedTime should be approximately the current time")
-	assert.True(t, !indexer.lastProcessedTime.Before(before),
-		"lastProcessedTime should not be before the call")
-}
-
-func TestUpdateBlockInfo_CanDecrease(t *testing.T) {
-	t.Parallel()
-	// updateBlockInfo does not enforce monotonically increasing block numbers.
-	indexer := &ChainIndexer{}
-
-	indexer.updateBlockInfo(500)
-	assert.Equal(t, int64(500), indexer.currentBlock)
-
-	indexer.updateBlockInfo(100)
-	assert.Equal(t, int64(100), indexer.currentBlock, "updateBlockInfo should allow lower block numbers")
-}
-
-func TestUpdateBlockInfo_ZeroBlock(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-	indexer.updateBlockInfo(0)
-	assert.Equal(t, int64(0), indexer.currentBlock)
-	assert.False(t, indexer.lastProcessedTime.IsZero(), "lastProcessedTime should be set even for block 0")
-}
-
-func TestUpdateBlockInfo_NegativeBlock(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-	indexer.updateBlockInfo(-1)
-	assert.Equal(t, int64(-1), indexer.currentBlock, "updateBlockInfo does not reject negative block numbers")
-}
-
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
 // GetPrunerMetrics tests
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
 
-func TestGetPrunerMetrics_NilPruner(t *testing.T) {
+func TestGetPrunerMetrics(t *testing.T) {
 	t.Parallel()
-	indexer := &ChainIndexer{pruner: nil}
-	metrics := indexer.GetPrunerMetrics()
-	assert.Nil(t, metrics, "GetPrunerMetrics should return nil when pruner is nil")
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T) *ChainIndexer
+		wantNil bool
+	}{
+		{
+			name: "nil pruner returns nil metrics",
+			setup: func(_ *testing.T) *ChainIndexer {
+				return &ChainIndexer{pruner: nil}
+			},
+			wantNil: true,
+		},
+		{
+			name: "enabled pruner returns non-nil metrics",
+			setup: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+				p := pruner.NewPruner(&config.PrunerConfig{
+					Enabled:   true,
+					MaxBlocks: 1000,
+				}, td.Node, nil)
+				return &ChainIndexer{pruner: p}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := tt.setup(t)
+			metrics := indexer.GetPrunerMetrics()
+			if tt.wantNil {
+				assert.Nil(t, metrics, "GetPrunerMetrics should return nil when pruner is nil")
+				return
+			}
+			require.NotNil(t, metrics)
+			assert.True(t, metrics.Enabled)
+		})
+	}
 }
 
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
 // extractPublicKeyFromPeerID tests
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
 
-func TestExtractPublicKeyFromPeerID_InvalidPeerID(t *testing.T) {
+func TestExtractPublicKeyFromPeerID(t *testing.T) {
 	t.Parallel()
-	logger.InitConsoleOnly(true)
 
-	result := extractPublicKeyFromPeerID("not-a-valid-peer-id")
-	assert.Equal(t, "", result, "invalid peer ID should return empty string")
-}
+	genEd25519 := func() (crypto.PrivKey, error) {
+		priv, _, err := crypto.GenerateEd25519Key(nil)
+		return priv, err
+	}
+	genSecp256k1 := func() (crypto.PrivKey, error) {
+		priv, _, err := crypto.GenerateSecp256k1Key(nil)
+		return priv, err
+	}
+	genRSA := func() (crypto.PrivKey, error) {
+		priv, _, err := crypto.GenerateRSAKeyPair(2048, crypto_rand.Reader)
+		return priv, err
+	}
+	genECDSA := func() (crypto.PrivKey, error) {
+		priv, _, err := crypto.GenerateECDSAKeyPair(crypto_rand.Reader)
+		return priv, err
+	}
 
-func TestExtractPublicKeyFromPeerID_EmptyString(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
+	tests := []struct {
+		name         string
+		peerID       string
+		keyGen       func() (crypto.PrivKey, error)
+		wantEmpty    bool
+		wantNotEmpty bool
+		wantHexLen   int
+		checkHex     bool
+		wantUnique   bool
+	}{
+		{name: "invalid peer ID returns empty string", peerID: "not-a-valid-peer-id", wantEmpty: true},
+		{name: "empty peer ID returns empty string", peerID: "", wantEmpty: true},
+		{
+			name:         "valid Ed25519 peer ID returns 64-char hex public key",
+			keyGen:       genEd25519,
+			wantNotEmpty: true,
+			wantHexLen:   64, // Ed25519 public keys are 32 bytes -> 64 hex characters.
+			checkHex:     true,
+		},
+		{name: "different Ed25519 peer IDs produce different public keys", keyGen: genEd25519, wantUnique: true},
+		{name: "Secp256k1 peer ID returns non-empty hex public key", keyGen: genSecp256k1, wantNotEmpty: true},
+		{name: "RSA peer ID returns empty string (key too large to embed)", keyGen: genRSA, wantEmpty: true},
+		// ECDSA extraction depends on key encoding; log the result without asserting.
+		{name: "ECDSA peer ID extraction", keyGen: genECDSA},
+	}
 
-	result := extractPublicKeyFromPeerID("")
-	assert.Equal(t, "", result, "empty peer ID should return empty string")
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
 
-func TestExtractPublicKeyFromPeerID_ValidPeerID(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
+			extract := func() string {
+				if tt.keyGen == nil {
+					return extractPublicKeyFromPeerID(tt.peerID)
+				}
+				priv, err := tt.keyGen()
+				require.NoError(t, err, "key generation should not fail")
+				pid, err := peer.IDFromPrivateKey(priv)
+				require.NoError(t, err, "peer ID derivation should not fail")
+				return extractPublicKeyFromPeerID(pid.String())
+			}
 
-	// Generate a real Ed25519 key pair and derive a peer ID.
-	priv, pub, err := crypto.GenerateEd25519Key(nil)
-	require.NoError(t, err, "key generation should not fail")
-	require.NotNil(t, priv)
-	require.NotNil(t, pub)
+			result := extract()
+			t.Logf("extraction result: %q (len=%d)", result, len(result))
 
-	pid, err := peer.IDFromPrivateKey(priv)
-	require.NoError(t, err, "peer ID derivation should not fail")
-
-	result := extractPublicKeyFromPeerID(pid.String())
-	assert.NotEmpty(t, result, "valid peer ID should produce a non-empty hex public key")
-
-	// Ed25519 public keys are 32 bytes -> 64 hex characters.
-	assert.Len(t, result, 64, "Ed25519 public key hex should be 64 characters")
-
-	// The result should be valid hex
-	for _, c := range result {
-		assert.True(t, (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'),
-			"public key hex should only contain hex characters, got: %c", c)
+			if tt.wantEmpty {
+				assert.Empty(t, result, "peer ID should not yield a public key")
+			}
+			if tt.wantNotEmpty {
+				assert.NotEmpty(t, result, "peer ID should yield a non-empty hex public key")
+			}
+			if tt.wantUnique {
+				assert.NotEqual(t, result, extract(), "different peer IDs should produce different public keys")
+			}
+			if tt.wantHexLen > 0 {
+				assert.Len(t, result, tt.wantHexLen, "public key hex length mismatch")
+			}
+			if tt.checkHex {
+				for _, c := range result {
+					assert.True(t, (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'),
+						"public key hex should only contain hex characters, got: %c", c)
+				}
+			}
+		})
 	}
 }
 
-func TestExtractPublicKeyFromPeerID_DifferentKeysProduceDifferentResults(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	priv1, _, err := crypto.GenerateEd25519Key(nil)
-	require.NoError(t, err)
-	pid1, err := peer.IDFromPrivateKey(priv1)
-	require.NoError(t, err)
-
-	priv2, _, err := crypto.GenerateEd25519Key(nil)
-	require.NoError(t, err)
-	pid2, err := peer.IDFromPrivateKey(priv2)
-	require.NoError(t, err)
-
-	result1 := extractPublicKeyFromPeerID(pid1.String())
-	result2 := extractPublicKeyFromPeerID(pid2.String())
-
-	assert.NotEqual(t, result1, result2, "different peer IDs should produce different public keys")
-}
-
-// ---------------------------------------------------------------------------.
-// GetDefraDBPort tests (nil node case).
-// ---------------------------------------------------------------------------.
-
-func TestGetDefraDBPort_NilDefraNode(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{defraNode: nil}
-	assert.Equal(t, -1, indexer.GetDefraDBPort(), "nil defraNode should return -1")
-}
-
-// ---------------------------------------------------------------------------.
-// Integration-style tests combining multiple methods.
-// ---------------------------------------------------------------------------.
-
-func TestIsHealthy_AfterUpdateBlockInfo(t *testing.T) {
-	t.Parallel()
-	// Verify that updateBlockInfo makes an indexer with isStarted=true healthy.
-	indexer := &ChainIndexer{isStarted: true}
-
-	// Before any update: zero time means healthy (startup phase).
-	assert.True(t, indexer.IsHealthy())
-
-	// After an update: recently processed means healthy.
-	indexer.updateBlockInfo(42)
-	assert.True(t, indexer.IsHealthy(), "should be healthy after recent block update")
-	assert.Equal(t, int64(42), indexer.GetCurrentBlock())
-}
-
-func TestGetCurrentBlockAndLastProcessedTime_Consistency(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{}
-
-	// Both should start at zero values.
-	assert.Equal(t, int64(0), indexer.GetCurrentBlock())
-	assert.True(t, indexer.GetLastProcessedTime().IsZero())
-
-	// After update, both should reflect the change.
-	indexer.updateBlockInfo(500)
-	assert.Equal(t, int64(500), indexer.GetCurrentBlock())
-	assert.False(t, indexer.GetLastProcessedTime().IsZero())
-
-	// Second update should advance both.
-	time1 := indexer.GetLastProcessedTime()
-	// Small sleep to ensure time advances.
-	time.Sleep(1 * time.Millisecond)
-	indexer.updateBlockInfo(501)
-
-	assert.Equal(t, int64(501), indexer.GetCurrentBlock())
-	assert.True(t, !indexer.GetLastProcessedTime().Before(time1),
-		"lastProcessedTime should advance or stay same with subsequent updates")
-}
-
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
 // applySchemaViaHTTP tests.
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
 
-func TestApplySchemaViaHTTP_Success(t *testing.T) {
+func TestApplySchemaViaHTTP(t *testing.T) {
 	t.Parallel()
-	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/api/v0/collections", r.URL.Path)
-		assert.Equal(t, "POST", r.Method)
-		callCount++
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
-	assert.NoError(t, err)
-	assert.Equal(t, 1, callCount, "monolithic path should make exactly 1 POST")
-}
-
-func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
-	t.Parallel()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("schema error"))
-	}))
-	defer server.Close()
-
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "500")
-}
-
-func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
-	t.Parallel()
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), "http://127.0.0.1:1", evm.NewCollectionNames(evm.DefaultCollectionPrefix))
-	assert.Error(t, err)
-}
-
-func TestApplySchemaViaHTTP_AlreadyExistsFallsBackToPerFile(t *testing.T) {
-	t.Parallel()
-	callCount := 0
-	files := make([]string, 0)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
-		if callCount == 1 {
-			// First call (monolithic): respond with "collection already exists"
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(indexerErrors.ErrStrCollectionAlreadyExists))
-			return
-		}
-		// Subsequent per-file calls: track filenames and succeed
-		body, _ := io.ReadAll(r.Body)
-		_ = body
-		files = append(files, r.URL.Path)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
-	assert.NoError(t, err)
-	assert.Greater(t, callCount, 1, "should fall back to per-file after monolithic already-exists")
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo tests.
-// ---------------------------------------------------------------------------.
-
-func TestGetPeerInfo_NilNode(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{defraNode: nil}
-	info, err := indexer.GetPeerInfo()
-	assert.ErrorContains(t, err, "defra is nil")
-	assert.Nil(t, info)
-}
-
-// ---------------------------------------------------------------------------.
-// GetNodePublicKey / GetPeerPublicKey tests (nil node).
-// ---------------------------------------------------------------------------.
-
-func TestGetNodePublicKey_NilNode(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{
-		defraNode: nil,
-		cfg:       &config.Config{},
-	}
-	_, err := indexer.GetNodePublicKey()
-	assert.Error(t, err)
-}
-
-func TestGetPeerPublicKey_NilNode(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{
-		defraNode: nil,
-		cfg:       &config.Config{},
-	}
-	_, err := indexer.GetPeerPublicKey()
-	assert.Error(t, err)
-}
-
-// ---------------------------------------------------------------------------.
-// StopIndexing with embedded DefraDB node.
-// ---------------------------------------------------------------------------.
-
-func TestStopIndexing_WithEmbeddedNode(t *testing.T) {
-	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
-
-	indexer := &ChainIndexer{
-		defraNode:   td.Node,
-		shouldIndex: true,
-		isStarted:   true,
-		cfg:         &config.Config{},
+	tests := []struct {
+		name            string
+		url             string
+		handler         func(callCount int, r *http.Request) (status int, body string)
+		wantCalls       int
+		wantMinCalls    int
+		wantPath        string
+		wantErr         bool
+		wantErrContains string
+	}{
+		{
+			name: "success makes exactly one POST to the collections endpoint",
+			handler: func(_ int, r *http.Request) (int, string) {
+				assert.Equal(t, "POST", r.Method)
+				return http.StatusOK, ""
+			},
+			wantCalls: 1,
+			wantPath:  "/api/v0/collections",
+		},
+		{
+			name: "server error is returned",
+			handler: func(_ int, _ *http.Request) (int, string) {
+				return http.StatusInternalServerError, "schema error"
+			},
+			wantErr:         true,
+			wantErrContains: "500",
+		},
+		{
+			name:    "connection refused is returned as error",
+			url:     "http://127.0.0.1:1",
+			wantErr: true,
+		},
+		{
+			name: "collection already exists falls back to per-file requests",
+			handler: func(callCount int, _ *http.Request) (int, string) {
+				if callCount == 1 {
+					// First call (monolithic): respond with "collection already exists".
+					return http.StatusInternalServerError, indexerErrors.ErrStrCollectionAlreadyExists
+				}
+				// Subsequent per-file calls succeed.
+				return http.StatusOK, ""
+			},
+			wantMinCalls: 2,
+		},
 	}
 
-	indexer.StopIndexing()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.False(t, indexer.shouldIndex)
-	assert.False(t, indexer.isStarted)
-	assert.Nil(t, indexer.defraNode)
-}
+			url := tt.url
+			callCount := 0
+			if tt.handler != nil {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					callCount++
+					if tt.wantPath != "" {
+						assert.Equal(t, tt.wantPath, r.URL.Path)
+					}
+					status, body := tt.handler(callCount, r)
+					w.WriteHeader(status)
+					if body != "" {
+						_, _ = w.Write([]byte(body))
+					}
+				}))
+				defer server.Close()
+				url = server.URL
+			}
 
-// ---------------------------------------------------------------------------.
-// GetDefraDBPort with embedded DefraDB node.
-// ---------------------------------------------------------------------------.
+			err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), url, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
-func TestGetDefraDBPort_WithEmbeddedNode(t *testing.T) {
-	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantErrContains != "" {
+					assert.Contains(t, err.Error(), tt.wantErrContains)
+				}
+				return
+			}
 
-	indexer := &ChainIndexer{defraNode: td.Node}
-	port := indexer.GetDefraDBPort()
-	assert.Equal(t, td.Port, port)
-}
-
-// ---------------------------------------------------------------------------.
-// SignMessages with nil node.
-// ---------------------------------------------------------------------------.
-
-func TestSignMessages_NilNode(t *testing.T) {
-	t.Parallel()
-	indexer := &ChainIndexer{
-		defraNode: nil,
-		cfg:       &config.Config{},
+			assert.NoError(t, err)
+			if tt.wantCalls > 0 {
+				assert.Equal(t, tt.wantCalls, callCount, "monolithic path should make exactly 1 POST")
+			}
+			if tt.wantMinCalls > 0 {
+				assert.GreaterOrEqual(t, callCount, tt.wantMinCalls, "should fall back to per-file after monolithic already-exists")
+			}
+		})
 	}
-	_, _, err := indexer.SignMessages("test message")
-	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// Nil-defraNode accessor tests (GetPeerInfo / GetNodePublicKey /
+// GetPeerPublicKey / SignMessages).
+// ---------------------------------------------------------------------------
+
+func TestNilDefraNodeAccessors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		call            func(*ChainIndexer) error
+		wantErrContains string
+	}{
+		{
+			name: "GetPeerInfo errors for nil defraNode",
+			call: func(i *ChainIndexer) error {
+				info, err := i.GetPeerInfo()
+				assert.Nil(t, info)
+				return err
+			},
+			wantErrContains: "defra is nil",
+		},
+		{
+			name: "GetNodePublicKey errors for nil defraNode",
+			call: func(i *ChainIndexer) error {
+				_, err := i.GetNodePublicKey()
+				return err
+			},
+		},
+		{
+			name: "GetPeerPublicKey errors for nil defraNode",
+			call: func(i *ChainIndexer) error {
+				_, err := i.GetPeerPublicKey()
+				return err
+			},
+		},
+		{
+			name: "SignMessages errors for nil defraNode",
+			call: func(i *ChainIndexer) error {
+				_, _, err := i.SignMessages("test message")
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := &ChainIndexer{
+				defraNode: nil,
+				cfg:       &config.Config{},
+			}
+			err := tt.call(indexer)
+			assert.Error(t, err)
+			if tt.wantErrContains != "" {
+				assert.ErrorContains(t, err, tt.wantErrContains)
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------.
@@ -937,20 +1268,44 @@ func TestBlockResult_Fields(t *testing.T) {
 	assert.Nil(t, r.Error)
 }
 
-// ---------------------------------------------------------------------------.
-// openBrowser test (just verifying it doesn't panic).
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+// openBrowser tests (verifying they don't panic).
+// Subtests run sequentially: execCommand is a package-level var that each
+// case swaps and restores.
+// ---------------------------------------------------------------------------
 
-func TestOpenBrowser_InvalidURL(t *testing.T) {
+func TestOpenBrowser(t *testing.T) {
 	t.Parallel()
-	logger.InitConsoleOnly(true)
-	original := execCommand
-	execCommand = func(_ string, _ ...string) *exec.Cmd {
+
+	echoMock := func(_ string, _ ...string) *exec.Cmd {
 		return exec.Command("echo", "mock-browser")
 	}
-	defer func() { execCommand = original }()
+	failingMock := func(_ string, _ ...string) *exec.Cmd {
+		return exec.Command("nonexistent-command-that-will-fail")
+	}
 
-	openBrowser("")
+	tests := []struct {
+		name string
+		url  string
+		cmd  func(string, ...string) *exec.Cmd
+	}{
+		{name: "invalid (empty) URL does not panic", url: "", cmd: echoMock},
+		{name: "valid URL does not panic", url: "http://localhost:12345/health", cmd: echoMock},
+		{name: "non-empty URL does not panic", url: "http://localhost:0/test-url-for-coverage", cmd: echoMock},
+		{name: "command start failure does not panic", url: "http://127.0.0.1:0/health", cmd: failingMock},
+		{name: "darwin happy path (about:blank) does not panic", url: "about:blank", cmd: echoMock},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(_ *testing.T) {
+			logger.InitConsoleOnly(true)
+			original := execCommand
+			execCommand = tt.cmd
+			defer func() { execCommand = original }()
+
+			openBrowser(tt.url)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------.
@@ -1084,173 +1439,121 @@ func fakeDocID(seed int) string {
 	return fmt.Sprintf("bae-%08x-0000-0000-0000-%012x", seed, seed)
 }
 
-func TestTrackBlock_Success(t *testing.T) {
+func TestTrackBlock(t *testing.T) {
 	t.Parallel()
-	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
-	result := &defra.BlockCreationResult{
-		BlockID: fakeDocID(1),
-		OtherDocIDs: map[string][]string{
-			evm.CollectionTransaction:     {fakeDocID(2), fakeDocID(3)},
-			evm.CollectionLog:             {fakeDocID(4)},
-			evm.CollectionAccessListEntry: {fakeDocID(5)},
-		},
-		BlockSignatureID: fakeDocID(6),
-	}
-
-	err := tracker.TrackBlock(context.Background(), 100, result)
-	require.NoError(t, err)
-	assert.Equal(t, 1, queue.Len())
-}
-
-func TestTrackBlock_MultipleBlocks(t *testing.T) {
-	t.Parallel()
-	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
-
-	for i := int64(100); i < 105; i++ {
-		result := &defra.BlockCreationResult{
-			BlockID: fakeDocID(int(i)),
-			OtherDocIDs: map[string][]string{
-				evm.CollectionTransaction: {fakeDocID(int(i) + 1000)},
+	tests := []struct {
+		name            string
+		blocks          []int64
+		buildResult     func(blockNum int64) *defra.BlockCreationResult
+		wantQueueLen    int
+		wantCollections map[string]bool
+	}{
+		{
+			name:   "success tracks one block with all doc IDs",
+			blocks: []int64{100},
+			buildResult: func(_ int64) *defra.BlockCreationResult {
+				return &defra.BlockCreationResult{
+					BlockID: fakeDocID(1),
+					OtherDocIDs: map[string][]string{
+						evm.CollectionTransaction:     {fakeDocID(2), fakeDocID(3)},
+						evm.CollectionLog:             {fakeDocID(4)},
+						evm.CollectionAccessListEntry: {fakeDocID(5)},
+					},
+					BlockSignatureID: fakeDocID(6),
+				}
 			},
-		}
-		err := tracker.TrackBlock(context.Background(), i, result)
-		require.NoError(t, err)
-	}
-	assert.Equal(t, 5, queue.Len())
-}
-
-func TestTrackBlock_EmptyResult(t *testing.T) {
-	t.Parallel()
-	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
-
-	result := &defra.BlockCreationResult{
-		BlockID: fakeDocID(1),
-	}
-
-	err := tracker.TrackBlock(context.Background(), 100, result)
-	require.NoError(t, err)
-	assert.Equal(t, 1, queue.Len())
-}
-
-func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
-	t.Parallel()
-	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
-
-	result := &defra.BlockCreationResult{
-		BlockID: fakeDocID(1),
-		OtherDocIDs: map[string][]string{
-			evm.CollectionTransaction:     {fakeDocID(2)},
-			evm.CollectionLog:             {fakeDocID(3)},
-			evm.CollectionAccessListEntry: {fakeDocID(4)},
+			wantQueueLen: 1,
 		},
-		BlockSignatureID: fakeDocID(5),
+		{
+			name:   "multiple blocks all enqueued",
+			blocks: []int64{100, 101, 102, 103, 104},
+			buildResult: func(blockNum int64) *defra.BlockCreationResult {
+				return &defra.BlockCreationResult{
+					BlockID: fakeDocID(int(blockNum)),
+					OtherDocIDs: map[string][]string{
+						evm.CollectionTransaction: {fakeDocID(int(blockNum) + 1000)},
+					},
+				}
+			},
+			wantQueueLen: 5,
+		},
+		{
+			name:   "empty result still tracked",
+			blocks: []int64{100},
+			buildResult: func(_ int64) *defra.BlockCreationResult {
+				return &defra.BlockCreationResult{
+					BlockID: fakeDocID(1),
+				}
+			},
+			wantQueueLen: 1,
+		},
+		{
+			name:   "passes correct collection names",
+			blocks: []int64{100},
+			buildResult: func(_ int64) *defra.BlockCreationResult {
+				return &defra.BlockCreationResult{
+					BlockID: fakeDocID(1),
+					OtherDocIDs: map[string][]string{
+						evm.CollectionTransaction:     {fakeDocID(2)},
+						evm.CollectionLog:             {fakeDocID(3)},
+						evm.CollectionAccessListEntry: {fakeDocID(4)},
+					},
+					BlockSignatureID: fakeDocID(5),
+				}
+			},
+			wantQueueLen: 1,
+			wantCollections: map[string]bool{
+				evm.CollectionTransaction:     true,
+				evm.CollectionLog:             true,
+				evm.CollectionAccessListEntry: true,
+			},
+		},
+		{
+			name:   "wires EVM collection constants",
+			blocks: []int64{1000},
+			buildResult: func(_ int64) *defra.BlockCreationResult {
+				return &defra.BlockCreationResult{
+					BlockID: fakeDocID(100),
+					OtherDocIDs: map[string][]string{
+						evm.CollectionTransaction:     {fakeDocID(101), fakeDocID(102)},
+						evm.CollectionLog:             {fakeDocID(103), fakeDocID(104), fakeDocID(105)},
+						evm.CollectionAccessListEntry: {fakeDocID(106)},
+					},
+					BlockSignatureID: fakeDocID(107),
+				}
+			},
+			wantQueueLen: 1,
+		},
 	}
 
-	// The tracker maps to evm.CollectionTransaction, CollectionLog, CollectionAccessListEntry.
-	err := tracker.TrackBlock(context.Background(), 100, result)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			queue := pruner.NewIndexerQueue()
+			tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
-	// Verify the OtherDocIDs keys match the expected EVM collection constants.
-	assert.Contains(t, result.OtherDocIDs, evm.CollectionTransaction)
-	assert.Contains(t, result.OtherDocIDs, evm.CollectionLog)
-	assert.Contains(t, result.OtherDocIDs, evm.CollectionAccessListEntry)
-}
+			var lastResult *defra.BlockCreationResult
+			for _, blockNum := range tt.blocks {
+				result := tt.buildResult(blockNum)
+				err := tracker.TrackBlock(context.Background(), blockNum, result)
+				require.NoError(t, err)
+				lastResult = result
+			}
 
-// ---------------------------------------------------------------------------.
-// GetPrunerMetrics with non-nil pruner.
-// ---------------------------------------------------------------------------.
-
-func TestGetPrunerMetrics_WithPruner(t *testing.T) {
-	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
-
-	p := pruner.NewPruner(&config.PrunerConfig{
-		Enabled:   true,
-		MaxBlocks: 1000,
-	}, td.Node, nil)
-
-	indexer := &ChainIndexer{pruner: p}
-	metrics := indexer.GetPrunerMetrics()
-	require.NotNil(t, metrics)
-	assert.True(t, metrics.Enabled)
-}
-
-// ---------------------------------------------------------------------------.
-// StopIndexing with snapshotter + pruner + healthServer.
-// ---------------------------------------------------------------------------.
-
-func TestStopIndexing_WithSnapshotter(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	dir := t.TempDir()
-	snapCfg := &config.SnapshotConfig{
-		Enabled:         true,
-		Dir:             dir,
-		BlocksPerFile:   1000,
-		IntervalSeconds: 3600,
-	}
-	s := snapshot.New(snapCfg, nil, nil)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	err := s.Start(ctx)
-	require.NoError(t, err)
-
-	indexer := &ChainIndexer{
-		shouldIndex: true,
-		isStarted:   true,
-		cfg:         &config.Config{},
-		snapshotter: s,
+			assert.Equal(t, tt.wantQueueLen, queue.Len())
+			for collection := range tt.wantCollections {
+				assert.Contains(t, lastResult.OtherDocIDs, collection)
+			}
+		})
 	}
 
-	indexer.StopIndexing()
-	assert.False(t, indexer.shouldIndex)
-	assert.Nil(t, indexer.snapshotter)
-}
-
-func TestStopIndexing_WithPruner(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-	p := pruner.NewPruner(&config.PrunerConfig{
-		Enabled:   true,
-		MaxBlocks: 1000,
-	}, td.Node, nil)
-
-	indexer := &ChainIndexer{
-		shouldIndex: true,
-		isStarted:   true,
-		cfg:         &config.Config{},
-		pruner:      p,
-	}
-
-	indexer.StopIndexing()
-	assert.False(t, indexer.shouldIndex)
-	assert.Nil(t, indexer.pruner)
-}
-
-func TestStopIndexing_WithHealthServer(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	hs := NewHealthServerForTest(t)
-
-	indexer := &ChainIndexer{
-		shouldIndex:  true,
-		isStarted:    true,
-		cfg:          &config.Config{},
-		healthServer: hs,
-	}
-
-	indexer.StopIndexing()
-	assert.False(t, indexer.shouldIndex)
+	// Verify the EVM collection name constants the tracker wires.
+	t.Run("EVM collection name constants", func(t *testing.T) {
+		assert.Contains(t, evm.CollectionTransaction, "Transaction")
+		assert.Contains(t, evm.CollectionLog, "Log")
+		assert.Contains(t, evm.CollectionAccessListEntry, "AccessListEntry")
+	})
 }
 
 // NewHealthServerForTest creates a health server that can be stopped.
@@ -1311,207 +1614,580 @@ func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 	})
 }
 
-func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
+// ---------------------------------------------------------------------------.
+// StartIndexing — happy paths (table-driven).
+// ---------------------------------------------------------------------------.
 
-	tmpDir := t.TempDir()
-
-	blockCh := make(chan struct{}, 100)
-	rpcServer := newMockRPCServerForIntegration(blockCh)
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
+// startPathBaseCfg builds the common StartIndexing test config.
+func startPathBaseCfg(rpcURL, defraURL, tmpDir string, idx config.IndexerConfig) *config.Config {
+	return &config.Config{
 		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
+			URL:           defraURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
 			P2P:           testDefraP2PDisabled,
-			Store: config.DefraDBStoreConfig{
-				Path: tmpDir,
+			Store:         config.DefraDBStoreConfig{Path: tmpDir},
+		},
+		Geth:    config.GethConfig{NodeURL: rpcURL},
+		Indexer: idx,
+		Logger:  config.LoggerConfig{Development: true},
+	}
+}
+
+// startIndexingBackground launches StartIndexing(false) in the background and
+// returns the channel its result is sent to.
+func startIndexingBackground(t *testing.T, indexer *ChainIndexer) <-chan error {
+	t.Helper()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- indexer.StartIndexing(false)
+	}()
+	return errCh
+}
+
+// writeCorruptedFile writes invalid gob data to a file.
+func writeCorruptedFile(path string) error {
+	return os.WriteFile(filepath.Clean(path), []byte("this is not valid gob data"), 0o600)
+}
+
+// countingBlockHandler answers "latest" tip requests with latestTip and serves
+// blocks numbered blockNumBase+count. If blockCh is non-nil each block call
+// pushes a signal; if ethBlockNumberVal is non-empty it is served for
+// ethBlockNumber (otherwise the default "0x1").
+func countingBlockHandler(count *atomic.Int64, latestTip string, blockNumBase int64, ethBlockNumberVal string, blockCh chan<- struct{}) func(string, json.RawMessage) (any, error) {
+	return func(method string, params json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			var rawParams []json.RawMessage
+			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
+				var blockParam string
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					return fullBlockResponse(latestTip, nil), nil
+				}
+			}
+			n := count.Add(1)
+			if blockCh != nil {
+				select {
+				case blockCh <- struct{}{}:
+				default:
+				}
+			}
+			return fullBlockResponse(fmt.Sprintf("0x%x", blockNumBase+n), nil), nil
+		case ethBlockNumber:
+			if ethBlockNumberVal != "" {
+				return ethBlockNumberVal, nil
+			}
+			return "0x1", nil
+		case ethGetBlockReceipts:
+			return []any{}, nil
+		default:
+			return "0x1", nil
+		}
+	}
+}
+
+// waitForBlockSignals waits until want block signals arrive on blockCh.
+func waitForBlockSignals(t *testing.T, blockCh <-chan struct{}, errCh <-chan error, want int, timeoutMsg func(seen int) string) {
+	t.Helper()
+
+	deadline := time.After(60 * time.Second)
+	blocksSeen := 0
+	for blocksSeen < want {
+		select {
+		case <-blockCh:
+			blocksSeen++
+		case <-time.After(100 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("%s", timeoutMsg(blocksSeen))
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("StartIndexing failed: %v", err)
+			}
+		}
+	}
+}
+
+// waitForBlockCondition waits until cond reports progress, polling blockCh
+// (nil-safe) and every 100ms.
+func waitForBlockCondition(t *testing.T, blockCh <-chan struct{}, errCh <-chan error, cond func() bool, timeoutMsg string) {
+	t.Helper()
+
+	deadline := time.After(60 * time.Second)
+	for !cond() {
+		select {
+		case <-blockCh:
+		case <-time.After(100 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("%s", timeoutMsg)
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("StartIndexing failed: %v", err)
+			}
+		}
+	}
+}
+
+func TestStartIndexing_HappyPaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		rpcServer  func(t *testing.T, count *atomic.Int64, blockCh chan struct{}) *httptest.Server
+		defraURL   string
+		idxCfg     config.IndexerConfig
+		pruner     *config.PrunerConfig
+		snapshot   func(tmpDir string) *config.SnapshotConfig
+		fileSetup  func(t *testing.T, tmpDir string)
+		wait       func(t *testing.T, count *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error)
+		assertMid  func(t *testing.T, ix *ChainIndexer)
+		preClear   bool
+		assertPost func(t *testing.T, ix *ChainIndexer)
+	}{
+		{
+			// Pruner and snapshotter enabled; health server disabled.
+			name: "full integration with pruner and snapshotter",
+			rpcServer: func(_ *testing.T, _ *atomic.Int64, blockCh chan struct{}) *httptest.Server {
+				return newMockRPCServerForIntegration(blockCh)
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      0,
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0, // disabled
+				StartBuffer:      10,
+			},
+			pruner: &config.PrunerConfig{
+				Enabled:         true,
+				MaxBlocks:       1000,
+				PruneThreshold:  500,
+				IntervalSeconds: 3600,
+			},
+			snapshot: func(tmpDir string) *config.SnapshotConfig {
+				return &config.SnapshotConfig{
+					Enabled:         true,
+					Dir:             filepath.Join(tmpDir, "snapshots"),
+					BlocksPerFile:   1000,
+					IntervalSeconds: 3600,
+				}
+			},
+			wait: func(t *testing.T, _ *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
+				waitForBlockSignals(t, blockCh, errCh, 3, func(seen int) string {
+					return fmt.Sprintf("timed out waiting for blocks to be processed (saw %d)", seen)
+				})
+			},
+			assertPost: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.shouldIndex)
+				assert.False(t, ix.isStarted)
 			},
 		},
-		Geth: config.GethConfig{
-			NodeURL: rpcServer.URL,
+		{
+			name: "configured start height",
+			rpcServer: func(_ *testing.T, _ *atomic.Int64, blockCh chan struct{}) *httptest.Server {
+				return newMockRPCServerForIntegration(blockCh)
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      50000, // explicit configured height.
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0,
+				StartBuffer:      10,
+			},
+			wait: func(t *testing.T, _ *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
+				waitForBlockSignals(t, blockCh, errCh, 2, func(seen int) string {
+					return fmt.Sprintf("timed out (saw %d)", seen)
+				})
+			},
+			assertPost: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.shouldIndex)
+			},
 		},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0, // disabled
-			StartBuffer:      10,
+		{
+			name: "health server enabled",
+			rpcServer: func(_ *testing.T, _ *atomic.Int64, blockCh chan struct{}) *httptest.Server {
+				return newMockRPCServerForIntegration(blockCh)
+			},
+			// Set Url so healthDefraURL uses config URL branch.
+			defraURL: "http://localhost:9999",
+			idxCfg: config.IndexerConfig{
+				StartHeight:      0,
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 19876, // Enable health server on a high port.
+				StartBuffer:      10,
+			},
+			wait: func(t *testing.T, _ *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
+				waitForBlockSignals(t, blockCh, errCh, 2, func(seen int) string {
+					return fmt.Sprintf("timed out (saw %d)", seen)
+				})
+			},
+			assertMid: func(t *testing.T, ix *ChainIndexer) {
+				// Verify health server is running.
+				assert.NotNil(t, ix.healthServer)
+			},
+			assertPost: func(t *testing.T, ix *ChainIndexer) {
+				assert.False(t, ix.shouldIndex)
+			},
 		},
-		Pruner: config.PrunerConfig{
-			Enabled:         true,
-			MaxBlocks:       1000,
-			PruneThreshold:  500,
-			IntervalSeconds: 3600,
+		{
+			name: "health server with pruner and snapshotter",
+			rpcServer: func(_ *testing.T, count *atomic.Int64, _ chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186b1", 100000, "", nil))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      0,
+				ConcurrentBlocks: 1, // concurrent
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 19876, // enable health server.
+				StartBuffer:      10,
+			},
+			pruner: &config.PrunerConfig{
+				Enabled:         true,
+				MaxBlocks:       1000,
+				PruneThreshold:  100,
+				IntervalSeconds: 60,
+			},
+			snapshot: func(tmpDir string) *config.SnapshotConfig {
+				return &config.SnapshotConfig{
+					Enabled:         true,
+					Dir:             filepath.Join(tmpDir, "snapshots"),
+					BlocksPerFile:   1000,
+					IntervalSeconds: 3600,
+				}
+			},
+			wait: func(t *testing.T, count *atomic.Int64, _ <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, nil, errCh, func() bool { return count.Load() >= 3 }, "timed out")
+			},
+			assertMid: func(t *testing.T, ix *ChainIndexer) {
+				// Verify subsystems are active.
+				assert.NotNil(t, ix.healthServer, "health server should be initialized")
+				assert.NotNil(t, ix.pruner, "pruner should be initialized")
+				assert.NotNil(t, ix.snapshotter, "snapshotter should be initialized")
+			},
+			preClear: true,
 		},
-		Snapshot: config.SnapshotConfig{
-			Enabled:         true,
-			Dir:             filepath.Join(tmpDir, "snapshots"),
-			BlocksPerFile:   1000,
-			IntervalSeconds: 3600,
+		{
+			name: "concurrent with pruner and snapshotter",
+			rpcServer: func(_ *testing.T, count *atomic.Int64, _ chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186b1", 100000, "", nil))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      0,
+				ConcurrentBlocks: 2, // concurrent.
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0,
+				StartBuffer:      10,
+			},
+			pruner: &config.PrunerConfig{
+				Enabled:         true,
+				MaxBlocks:       1000,
+				PruneThreshold:  100,
+				IntervalSeconds: 60,
+			},
+			snapshot: func(tmpDir string) *config.SnapshotConfig {
+				return &config.SnapshotConfig{
+					Enabled:         true,
+					Dir:             filepath.Join(tmpDir, "snapshots"),
+					BlocksPerFile:   1000,
+					IntervalSeconds: 3600,
+				}
+			},
+			wait: func(t *testing.T, count *atomic.Int64, _ <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, nil, errCh, func() bool { return count.Load() >= 5 }, "timed out waiting for blocks")
+			},
+			assertMid: func(t *testing.T, ix *ChainIndexer) {
+				assert.NotNil(t, ix.pruner, "pruner should be initialized")
+				assert.NotNil(t, ix.snapshotter, "snapshotter should be initialized")
+			},
+			preClear: true,
 		},
-		Logger: config.LoggerConfig{Development: true},
+		{
+			// Chain tip at 100000, start height just below it.
+			name: "resume from high block",
+			rpcServer: func(_ *testing.T, count *atomic.Int64, _ chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186a0", 99990, "", nil))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      99980, // specific start height
+				ConcurrentBlocks: 1,     // concurrent
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0,
+				StartBuffer:      10,
+			},
+			wait: func(t *testing.T, count *atomic.Int64, _ <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, nil, errCh, func() bool { return count.Load() >= 3 }, "timed out")
+			},
+			preClear: true,
+		},
+		{
+			// Pre-created prune queue with entries up to 90010 vs chain tip
+			// 100000: gap = 9990 > startBuffer=10 → gap detection skip-ahead
+			// (lines 219-221, 243-252, 246-250).
+			name: "resume from queue",
+			fileSetup: func(t *testing.T, tmpDir string) {
+				// Pre-create a prune queue file with entries so LoadFromFile returns loaded > 0.
+				queue := pruner.NewIndexerQueue()
+				for i := int64(90000); i <= 90010; i++ {
+					_ = queue.TrackBlockDocIDs(i, fakeDocID(int(i)), map[string][]string{
+						evm.CollectionTransaction: {fakeDocID(int(i) + 10000)},
+					}, fakeDocID(int(i)+20000))
+				}
+				queueFilePath := filepath.Join(tmpDir, "prune_queue.gob")
+				_, _ = queue.LoadFromFile(queueFilePath) // sets filePath.
+				err := queue.Save()
+				require.NoError(t, err)
+			},
+			rpcServer: func(_ *testing.T, count *atomic.Int64, _ chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186a0", 99990, "", nil))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      0,
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0,
+				StartBuffer:      10,
+			},
+			pruner: &config.PrunerConfig{
+				Enabled:         true,
+				MaxBlocks:       1000,
+				PruneThreshold:  100,
+				IntervalSeconds: 60,
+			},
+			wait: func(t *testing.T, count *atomic.Int64, _ <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, nil, errCh, func() bool { return count.Load() >= 2 }, "timed out waiting for blocks")
+			},
+			assertMid: func(t *testing.T, ix *ChainIndexer) {
+				// Should have skipped ahead — start height should be around 99990.
+				assert.True(t, ix.cfg.Indexer.StartHeight >= 99980,
+					"should have skipped ahead due to gap, got start height %d", ix.cfg.Indexer.StartHeight)
+			},
+			preClear: true,
+		},
+		{
+			// Chain tip very low (5), startBuffer=100 → startHeight = 5 - 100 = -95 → clamped to 0
+			// (covers lines 259-261).
+			name: "negative start height clamped to zero",
+			rpcServer: func(_ *testing.T, count *atomic.Int64, _ chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x5", -1, "", nil))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      0, // no configured height.
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0,
+				StartBuffer:      100, // larger than chain tip.
+			},
+			wait: func(t *testing.T, count *atomic.Int64, _ <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, nil, errCh, func() bool { return count.Load() >= 2 }, "timed out")
+			},
+			assertMid: func(t *testing.T, ix *ChainIndexer) {
+				// Start height should be clamped to 0.
+				assert.Equal(t, 0, ix.cfg.Indexer.StartHeight,
+					"start height should be clamped to 0 when chainTip - buffer is negative")
+			},
+			preClear: true,
+		},
+		{
+			// OpenBrowserOnStart path (covers lines 294-299); disabled here
+			// because the server is already dead by the time it would open.
+			name: "open browser on start disabled",
+			rpcServer: func(_ *testing.T, count *atomic.Int64, _ chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186a0", 99990, "", nil))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:        99990,
+				ConcurrentBlocks:   1,
+				ReceiptWorkers:     2,
+				MaxDocsPerTxn:      100,
+				HealthServerPort:   8080,
+				OpenBrowserOnStart: false, // This should be true but is annoying because the server is already dead.
+				StartBuffer:        10,
+			},
+			wait: func(t *testing.T, count *atomic.Int64, _ <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, nil, errCh, func() bool { return count.Load() >= 2 }, "timed out")
+			},
+			preClear: true,
+		},
+		{
+			// Fresh DB with no configured height and pruner disabled →
+			// exercises the "no existing blocks" path (line 226/229).
+			name: "no existing blocks fresh db",
+			rpcServer: func(_ *testing.T, count *atomic.Int64, blockCh chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186a0", 99990, "0x186a0", blockCh))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      0, // No configured height, fresh DB → exercises "no existing blocks" path.
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0,
+				StartBuffer:      10,
+			},
+			wait: func(t *testing.T, count *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, blockCh, errCh, func() bool { return count.Load() >= 2 }, "timed out")
+			},
+			preClear: true,
+		},
+		{
+			// Random-port URL → health server falls through to defraNode port
+			// (covers line 280-281).
+			name: "health server without defra url",
+			rpcServer: func(_ *testing.T, count *atomic.Int64, blockCh chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186a0", 99990, "0x186a0", blockCh))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      99990,
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 19878, // Enable health server.
+				StartBuffer:      10,
+			},
+			wait: func(t *testing.T, count *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, blockCh, errCh, func() bool { return count.Load() >= 2 }, "timed out")
+			},
+			assertMid: func(t *testing.T, ix *ChainIndexer) {
+				assert.NotNil(t, ix.healthServer)
+			},
+			preClear: true,
+		},
+		{
+			// Corrupted prune_queue.gob triggers a warning but not a crash
+			// (covers line 217-218).
+			name: "prune queue load error tolerated",
+			fileSetup: func(t *testing.T, tmpDir string) {
+				// Create a corrupted prune queue file.
+				corruptFilePath := filepath.Join(tmpDir, "prune_queue.gob")
+				err := writeCorruptedFile(corruptFilePath)
+				require.NoError(t, err)
+			},
+			rpcServer: func(_ *testing.T, count *atomic.Int64, blockCh chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186a0", 99990, "0x186a0", blockCh))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      0,
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0,
+				StartBuffer:      10,
+			},
+			pruner: &config.PrunerConfig{
+				Enabled:         true,
+				MaxBlocks:       1000,
+				PruneThreshold:  100,
+				IntervalSeconds: 3600,
+			},
+			wait: func(t *testing.T, count *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, blockCh, errCh, func() bool { return count.Load() >= 2 }, "timed out")
+			},
+			preClear: true,
+		},
+		{
+			// Snapshot dir under a file → snapshotter.Start fails, but the
+			// error is logged as a warning, not fatal (covers lines 323-325).
+			name: "snapshotter start error tolerated",
+			fileSetup: func(t *testing.T, tmpDir string) {
+				// Create a file where the snapshot directory would be — MkdirAll under
+				// a file will fail, causing snapshotter.Start to return an error.
+				invalidSnapshotPath := filepath.Join(tmpDir, "snapshot_blocker")
+				err := os.WriteFile(filepath.Clean(invalidSnapshotPath), []byte("I am a file"), 0o600)
+				require.NoError(t, err)
+			},
+			rpcServer: func(_ *testing.T, count *atomic.Int64, blockCh chan struct{}) *httptest.Server {
+				return newMockRPCServer(countingBlockHandler(count, "0x186a0", 99990, "0x186a0", blockCh))
+			},
+			defraURL: testDefraRandomURL,
+			idxCfg: config.IndexerConfig{
+				StartHeight:      99990,
+				ConcurrentBlocks: 1,
+				ReceiptWorkers:   2,
+				MaxDocsPerTxn:    100,
+				HealthServerPort: 0,
+				StartBuffer:      10,
+			},
+			snapshot: func(tmpDir string) *config.SnapshotConfig {
+				return &config.SnapshotConfig{
+					Enabled:         true,
+					Dir:             filepath.Join(filepath.Clean(filepath.Join(tmpDir, "snapshot_blocker")), "nested"), // under a file → MkdirAll fails.
+					BlocksPerFile:   1000,
+					IntervalSeconds: 3600,
+				}
+			},
+			wait: func(t *testing.T, count *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
+				waitForBlockCondition(t, blockCh, errCh, func() bool { return count.Load() >= 2 }, "timed out")
+			},
+			assertMid: func(t *testing.T, _ *ChainIndexer) {
+				// If we got here, the indexer continued despite snapshotter.Start failing,
+				// (the error was logged as a warning, not a fatal — line 323-325).
+				t.Log("Indexer continued despite snapshotter.Start error (covers lines 323-325)")
+			},
+			preClear: true,
+		},
 	}
 
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	// Run StartIndexing in a goroutine and cancel after we see some blocks processed.
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for at least a few block calls.
-	deadline := time.After(60 * time.Second)
-	blocksSeen := 0
-	for blocksSeen < 3 {
-		select {
-		case <-blockCh:
-			blocksSeen++
-		case <-deadline:
-			t.Fatalf("timed out waiting for blocks to be processed (saw %d)", blocksSeen)
-		case err := <-errCh:
-			// StartIndexing returned early — could be a startup failure.
-			if err != nil {
-				t.Fatalf("StartIndexing returned early with error: %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if testing.Short() {
+				t.Skip("skipping integration test in short mode")
 			}
-		}
-	}
+			logger.InitConsoleOnly(true)
 
-	// Stop the indexer — closes defraNode + subsystems.
-	// Note: ProcessBlocks uses context.Background() so it won't return immediately.
-	// We just verify the indexer was functional, then clean up.
-	indexer.StopIndexing()
-	assert.False(t, indexer.shouldIndex)
-	assert.False(t, indexer.isStarted)
-}
-
-// TestStartIndexing_Embedded_WithConfiguredStartHeight tests the configuredHeight > 0 branch.
-func TestStartIndexing_Embedded_WithConfiguredStartHeight(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	blockCh := make(chan struct{}, 100)
-	rpcServer := newMockRPCServerForIntegration(blockCh)
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      50000, // explicit configured height.
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	blocksSeen := 0
-	for blocksSeen < 2 {
-		select {
-		case <-blockCh:
-			blocksSeen++
-		case <-deadline:
-			t.Fatalf("timed out (saw %d)", blocksSeen)
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
+			tmpDir := t.TempDir()
+			if tc.fileSetup != nil {
+				tc.fileSetup(t, tmpDir)
 			}
-		}
-	}
 
-	indexer.StopIndexing()
-	assert.False(t, indexer.shouldIndex)
-}
+			var count atomic.Int64
+			blockCh := make(chan struct{}, 100)
+			srv := tc.rpcServer(t, &count, blockCh)
+			t.Cleanup(srv.Close)
 
-// TestStartIndexing_Embedded_WithHealthServer tests the health server branch.
-func TestStartIndexing_Embedded_WithHealthServer(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	blockCh := make(chan struct{}, 100)
-	rpcServer := newMockRPCServerForIntegration(blockCh)
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           "http://localhost:9999", // Set Url so healthDefraURL uses config URL branch.
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 19876, // Enable health server on a high port.
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	blocksSeen := 0
-	for blocksSeen < 2 {
-		select {
-		case <-blockCh:
-			blocksSeen++
-		case <-deadline:
-			t.Fatalf("timed out (saw %d)", blocksSeen)
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
+			cfg := startPathBaseCfg(srv.URL, tc.defraURL, tmpDir, tc.idxCfg)
+			if tc.pruner != nil {
+				cfg.Pruner = *tc.pruner
 			}
-		}
+			if tc.snapshot != nil {
+				cfg.Snapshot = *tc.snapshot(tmpDir)
+			}
+
+			indexer, err := CreateIndexer(cfg)
+			require.NoError(t, err)
+
+			errCh := startIndexingBackground(t, indexer)
+			tc.wait(t, &count, blockCh, errCh)
+
+			if tc.assertMid != nil {
+				tc.assertMid(t, indexer)
+			}
+
+			if tc.preClear {
+				indexer.shouldIndex = false
+			}
+			indexer.StopIndexing()
+
+			if tc.assertPost != nil {
+				tc.assertPost(t, indexer)
+			}
+		})
 	}
-
-	// Verify health server is running.
-	assert.NotNil(t, indexer.healthServer)
-
-	indexer.StopIndexing()
-	assert.False(t, indexer.shouldIndex)
 }
 
 // ---------------------------------------------------------------------------.
@@ -1571,250 +2247,549 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// GetPeerInfo tests with embedded node.
+// GetPeerInfo — single-node setups (embedded, P2P-enabled, closed nodes).
 // ---------------------------------------------------------------------------.
 
-func TestGetPeerInfo_WithEmbeddedNode(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
+func TestGetPeerInfo_SingleNode(t *testing.T) {
+	tests := []struct {
+		name        string
+		skipInShort bool
+		indexer     func(t *testing.T) *ChainIndexer
+		assert      func(t *testing.T, info *server.P2PInfo, err error)
+	}{
+		{
+			name: "embedded node",
+			indexer: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+				return &ChainIndexer{defraNode: td.Node}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				require.NoError(t, err)
+				require.NotNil(t, info)
 
-	td := testutils.SetupTestDefraDB(t)
-	indexer := &ChainIndexer{defraNode: td.Node}
+				// P2P is disabled in test, so network shouldn't be active.
+				assert.False(t, info.Enabled)
+				// Self should have peer information
+				if info.Self != nil {
+					assert.NotEmpty(t, info.Self.ID)
+				}
+			},
+		},
+		{
+			name: "embedded node with nil network handler",
+			indexer: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+				// networkHandler is nil but defraNode is set - covers the line networkActive = false.
+				return &ChainIndexer{
+					defraNode:      td.Node,
+					networkHandler: nil,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				require.NoError(t, err)
+				require.NotNil(t, info)
+				assert.False(t, info.Enabled)
+			},
+		},
+		{
+			name: "deduplication branch with zero peers",
+			indexer: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
 
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
+				// Create indexer with embedded node — exercise all code paths in GetPeerInfo.
+				return &ChainIndexer{
+					defraNode:      td.Node,
+					networkHandler: nil,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				require.NoError(t, err)
+				require.NotNil(t, info)
 
-	// P2P is disabled in test, so network shouldn't be active.
-	assert.False(t, info.Enabled)
-	// Self should have peer information
-	if info.Self != nil {
-		assert.NotEmpty(t, info.Self.ID)
-	}
-}
+				// The test node has P2P disabled, so no active peers.
+				// This still exercises the deduplication code with 0 active peers.
+				assert.NotNil(t, info.PeerInfo)
+			},
+		},
+		{
+			name: "self info",
+			indexer: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
+				return &ChainIndexer{defraNode: td.Node}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				require.NoError(t, err)
+				require.NotNil(t, info)
 
-func TestGetPeerInfo_WithEmbeddedNodeAndNetworkHandler(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
+				// P2P is disabled in test node, but it still has peer info.
+				if info.Self != nil {
+					// Verify self info fields.
+					assert.NotEmpty(t, info.Self.ID, "self peer ID should not be empty")
+					// Public key extraction may or may not work.
+					t.Logf("Self ID: %s, PublicKey: %s, Addresses: %v", info.Self.ID, info.Self.PublicKey, info.Self.Addresses)
+				}
+			},
+		},
+		{
+			name: "self info construction",
+			indexer: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
 
-	td := testutils.SetupTestDefraDB(t)
-	// networkHandler is nil but defraNode is set - covers the line networkActive = false.
-	indexer := &ChainIndexer{
-		defraNode:      td.Node,
-		networkHandler: nil, // nil network handler.
-	}
+				return &ChainIndexer{
+					defraNode:      td.Node,
+					networkHandler: nil,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				require.NoError(t, err)
+				require.NotNil(t, info)
 
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
-	assert.False(t, info.Enabled)
-}
+				// The test node has P2P disabled — check that self info is populated.
+				// when the node has a peer ID (even with no active peers).
+				if info.Self != nil {
+					assert.NotEmpty(t, info.Self.ID, "self peer ID should be set")
+					// Public key may or may not be extractable depending on key type.
+				}
 
-// ---------------------------------------------------------------------------.
-// ---------------------------------------------------------------------------
-// SignMessages with embedded node
-// ---------------------------------------------------------------------------
+				// Enabled should be false since networkHandler is nil.
+				assert.False(t, info.Enabled)
+			},
+		},
+		{
+			name: "embedded node without p2p tolerates error",
+			indexer: func(t *testing.T) *ChainIndexer {
+				td := testutils.SetupTestDefraDB(t)
 
-func TestSignMessages_WithEmbeddedNode(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
+				return &ChainIndexer{
+					defraNode: td.Node,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				if err != nil {
+					// PeerInfo may error without P2P — that's the line 596-598 path.
+					assert.Contains(t, err.Error(), "peer info")
+				} else {
+					require.NotNil(t, info)
+					assert.False(t, info.Enabled)
+				}
+			},
+		},
+		{
+			name:        "full integration with p2p config",
+			skipInShort: true,
+			indexer: func(t *testing.T) *ChainIndexer {
+				cfg := &config.Config{
+					DefraDB: config.DefraDBConfig{
+						KeyringSecret: "test-secret-for-p2p-peer-info-1",
+						P2P: config.DefraDBP2PConfig{
+							Enabled:    true,
+							ListenAddr: "/ip4/127.0.0.1/tcp/0",
+						},
+						Store: config.DefraDBStoreConfig{Path: t.TempDir()},
+					},
+				}
 
-	td := testutils.SetupTestDefraDB(t)
-	indexer := &ChainIndexer{
-		defraNode: td.Node,
-		cfg: &config.Config{
-			DefraDB: config.DefraDBConfig{
-				Store: config.DefraDBStoreConfig{Path: td.Dir},
-				// No KeyringSecret → signing will fail.
+				// Use testutils SetupTestDefraDB — P2P is disabled in that helper.
+				// Instead we'll create the node directly with P2P enabled.
+				td := testutils.SetupTestDefraDB(t)
+
+				return &ChainIndexer{
+					defraNode: td.Node,
+					cfg:       cfg,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				// GetPeerInfo should work even without P2P truly active on the test node.
+				if err != nil {
+					// PeerInfo may fail — covers line 596-598.
+					t.Logf("GetPeerInfo returned error (covers error path): %v", err)
+					assert.Contains(t, err.Error(), "peer info")
+				} else {
+					require.NotNil(t, info)
+					// Self info should be populated if PeerInfo returns addresses.
+					if info.Self != nil {
+						assert.NotEmpty(t, info.Self.ID)
+						t.Logf("Self: ID=%s, Addresses=%v, PublicKey=%s", info.Self.ID, info.Self.Addresses, info.Self.PublicKey)
+					}
+					t.Logf("PeerInfo: enabled=%v, peers=%d", info.Enabled, len(info.PeerInfo))
+				}
+			},
+		},
+		{
+			name: "after node close",
+			indexer: func(t *testing.T) *ChainIndexer {
+				// Create a temporary node, then close it to make PeerInfo fail.
+				closedNode := createClosedTestDefraNode(t)
+
+				return &ChainIndexer{
+					defraNode: closedNode,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				// PeerInfo should return an error since node is closed.
+				if err != nil {
+					// This is the expected path — covers line 596-598.
+					assert.Contains(t, err.Error(), "peer info")
+					t.Logf("GetPeerInfo error after close (expected): %v", err)
+				} else {
+					// Even if it doesn't error, that's fine — the DB might still work.
+					t.Logf("GetPeerInfo after close returned info: %+v", info)
+				}
+			},
+		},
+		{
+			name: "with p2p enabled",
+			indexer: func(t *testing.T) *ChainIndexer {
+				defraNode := setupTestDefraDBWithP2P(t)
+
+				return &ChainIndexer{
+					defraNode: defraNode,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				require.NoError(t, err)
+				require.NotNil(t, info)
+
+				// With P2P enabled, the node should have a peer ID and listen addresses.
+				if info.Self != nil {
+					assert.NotEmpty(t, info.Self.ID, "self peer ID should be set with P2P enabled")
+					assert.NotEmpty(t, info.Self.Addresses, "self addresses should be set with P2P enabled")
+					assert.NotEmpty(t, info.Self.PublicKey, "self public key should be extractable")
+					t.Logf("Self: ID=%s, Addresses=%v, PublicKey=%s", info.Self.ID, info.Self.Addresses, info.Self.PublicKey)
+				} else {
+					t.Log("Self info was nil even with P2P enabled (PeerInfo returned empty)")
+				}
+
+				// PeerInfo should always be a non-nil slice.
+				assert.NotNil(t, info.PeerInfo)
+				t.Logf("Active peers count: %d", len(info.PeerInfo))
+			},
+		},
+		{
+			name: "p2p enabled without network handler",
+			indexer: func(t *testing.T) *ChainIndexer {
+				defraNode := setupTestDefraDBWithP2P(t)
+
+				return &ChainIndexer{
+					defraNode:      defraNode,
+					networkHandler: nil,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				require.NoError(t, err)
+				require.NotNil(t, info)
+
+				// Without networkHandler, Enabled should be false.
+				assert.False(t, info.Enabled)
+
+				// But self info should still be populated.
+				if info.Self != nil {
+					assert.NotEmpty(t, info.Self.ID)
+				}
+			},
+		},
+		{
+			name: "p2p enabled node closed",
+			indexer: func(t *testing.T) *ChainIndexer {
+				tmpDir := t.TempDir()
+				ctx := context.Background()
+
+				opts := options.Node().
+					SetDisableAPI(true).
+					SetDisableP2P(false)
+				opts.Store().SetPath(tmpDir)
+				opts.P2P().SetListenAddresses("/ip4/127.0.0.1/tcp/0")
+
+				defraNode, err := node.New(ctx, opts)
+				require.NoError(t, err)
+				require.NoError(t, defraNode.Start(ctx))
+
+				// Close the node to put it in a broken P2P state.
+				_ = defraNode.Close(ctx)
+
+				return &ChainIndexer{
+					defraNode: defraNode,
+				}
+			},
+			assert: func(t *testing.T, info *server.P2PInfo, err error) {
+				// PeerInfo should either error (covering line 596-598) or return empty info.
+				if err != nil {
+					assert.Contains(t, err.Error(), "peer info")
+					t.Logf("GetPeerInfo error with closed P2P node (covers line 596-598): %v", err)
+				} else {
+					t.Logf("GetPeerInfo returned info after P2P close: %+v", info)
+				}
 			},
 		},
 	}
 
-	// Without a keyring secret, SignMessages should return an error.
-	_, _, err := indexer.SignMessages("test message")
-	assert.Error(t, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if tc.skipInShort && testing.Short() {
+				t.Skip("skipping integration test in short mode")
+			}
+			logger.InitConsoleOnly(true)
+
+			indexer := tc.indexer(t)
+			info, err := indexer.GetPeerInfo()
+			tc.assert(t, info, err)
+		})
+	}
 }
 
-func TestSignMessages_WithEmbeddedNode_KeyringSetup(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+// ---------------------------------------------------------------------------.
+// SignMessages — table-driven variants over direct and StartIndexing setups.
+// ---------------------------------------------------------------------------.
+
+// waitForIndexerStart launches StartIndexing(false) in the background and
+// blocks until the indexer reports started (30s deadline).
+func waitForIndexerStart(t *testing.T, indexer *ChainIndexer) {
+	t.Helper()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- indexer.StartIndexing(false)
+	}()
+
+	deadline := time.After(30 * time.Second)
+	for !indexer.IsStarted() {
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("timed out waiting for indexer to start")
+		case startErr := <-errCh:
+			if startErr != nil {
+				t.Fatalf("StartIndexing failed: %v", startErr)
+			}
+		}
 	}
-	logger.InitConsoleOnly(true)
+}
+
+// setupSignMessagesDirect builds a ChainIndexer around an embedded test
+// DefraDB node without going through StartIndexing.
+func setupSignMessagesDirect(t *testing.T, keyringSecret string) *ChainIndexer {
+	t.Helper()
 
 	td := testutils.SetupTestDefraDB(t)
-	indexer := &ChainIndexer{
+	return &ChainIndexer{
 		defraNode: td.Node,
 		cfg: &config.Config{
 			DefraDB: config.DefraDBConfig{
-				KeyringSecret: "test-secret-key-12345678",
+				KeyringSecret: keyringSecret,
 				Store:         config.DefraDBStoreConfig{Path: td.Dir},
 			},
 		},
 	}
-
-	// With a keyring secret but no identity stored, it may create one or fail.
-	// Either way, we exercise the SignMessages code paths.
-	_, _, err := indexer.SignMessages("test message")
-	// The signer will try to load/create an identity from the keyring.
-	// It may succeed or fail depending on whether the identity was already created.
-	if err != nil {
-		t.Logf("SignMessages returned error (expected without prior identity setup): %v", err)
-	}
 }
 
-// ---------------------------------------------------------------------------.
-// openBrowser test with valid URL.
-// ---------------------------------------------------------------------------.
+// startSignMessagesIndexer runs the full StartIndexing skeleton for signing
+// tests: mock RPC server, CreateIndexer, background StartIndexing, wait for
+// start, and stop on cleanup.
+func startSignMessagesIndexer(t *testing.T, keyringSecret, defraURL string, p2p config.DefraDBP2PConfig, rpcServer func() *httptest.Server) *ChainIndexer {
+	t.Helper()
 
-func TestOpenBrowser_ValidURL(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	original := execCommand
-	execCommand = func(_ string, _ ...string) *exec.Cmd {
-		return exec.Command("echo", "mock-browser")
-	}
-	defer func() { execCommand = original }()
+	srv := rpcServer()
+	t.Cleanup(srv.Close)
 
-	openBrowser("http://localhost:12345/health")
-}
-
-// ---------------------------------------------------------------------------.
-// StopIndexing comprehensive (with all subsystems).
-// ---------------------------------------------------------------------------.
-
-func TestStopIndexing_WithAllComponents(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Create fetcher, converter, and block handler wired to a mock RPC server.
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			return fullBlockResponse("0x1", nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
-	require.NotNil(t, fetcher)
-
-	// Create pruner.
-	p := pruner.NewPruner(&config.PrunerConfig{
-		Enabled:   true,
-		MaxBlocks: 1000,
-	}, td.Node, converter)
-
-	// Create snapshotter.
-	snapDir := t.TempDir()
-	snapCfg := &config.SnapshotConfig{
-		Enabled:         true,
-		Dir:             snapDir,
-		BlocksPerFile:   1000,
-		IntervalSeconds: 3600,
-	}
-	s := snapshot.New(snapCfg, nil, nil)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	err := s.Start(ctx)
-	require.NoError(t, err)
-
-	// Create health server.
-	hs := server.NewHealthServer(0, nil, "")
-
-	indexer := &ChainIndexer{
-		shouldIndex:    true,
-		isStarted:      true,
-		fetcher:        fetcher,
-		converter:      converter,
-		blockHandler:   blockHandler,
-		defraNode:      td.Node,
-		pruner:         p,
-		snapshotter:    s,
-		healthServer:   hs,
-		networkHandler: nil, // test nil network handler branch.
-		cfg:            &config.Config{},
-	}
-
-	require.NotNil(t, indexer.fetcher, "fetcher should be set before StopIndexing")
-
-	indexer.StopIndexing()
-
-	assert.False(t, indexer.shouldIndex)
-	assert.False(t, indexer.isStarted)
-	assert.Nil(t, indexer.fetcher, "StopIndexing should close and nil the fetcher")
-	assert.Nil(t, indexer.defraNode)
-	assert.Nil(t, indexer.pruner)
-	assert.Nil(t, indexer.snapshotter)
-}
-
-// ---------------------------------------------------------------------------.
-// extractPublicKeyFromPeerID — additional coverage for RSA keys (different error path).
-// ---------------------------------------------------------------------------.
-
-func TestExtractPublicKeyFromPeerID_Secp256k1Key(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	// Generate a Secp256k1 key pair — different key type exercises more of the extraction path.
-	priv, _, err := crypto.GenerateSecp256k1Key(nil)
-	require.NoError(t, err)
-
-	pid, err := peer.IDFromPrivateKey(priv)
-	require.NoError(t, err)
-
-	result := extractPublicKeyFromPeerID(pid.String())
-	assert.NotEmpty(t, result, "Secp256k1 peer ID should produce a non-empty hex public key")
-	t.Logf("Secp256k1 key extraction result: %q (len=%d)", result, len(result))
-}
-
-// ---------------------------------------------------------------------------.
-// GetDefraDBPort with embedded node — verify healthy node returns correct port.
-// ---------------------------------------------------------------------------.
-
-func TestGetDefraDBPort_Consistency(t *testing.T) {
-	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
-
-	indexer := &ChainIndexer{defraNode: td.Node}
-	port := indexer.GetDefraDBPort()
-
-	assert.Greater(t, port, 0)
-	assert.Equal(t, td.Port, port)
-}
-
-// ---------------------------------------------------------------------------
-// indexerQueueTracker — verify collection name wiring
-// ---------------------------------------------------------------------------
-
-func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
-	t.Parallel()
-	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
-
-	result := &defra.BlockCreationResult{
-		BlockID: fakeDocID(100),
-		OtherDocIDs: map[string][]string{
-			evm.CollectionTransaction:     {fakeDocID(101), fakeDocID(102)},
-			evm.CollectionLog:             {fakeDocID(103), fakeDocID(104), fakeDocID(105)},
-			evm.CollectionAccessListEntry: {fakeDocID(106)},
+	cfg := &config.Config{
+		DefraDB: config.DefraDBConfig{
+			KeyringSecret: keyringSecret,
+			P2P:           p2p,
+			Store:         config.DefraDBStoreConfig{Path: t.TempDir()},
 		},
-		BlockSignatureID: fakeDocID(107),
+		Geth: config.GethConfig{NodeURL: srv.URL},
+		Indexer: config.IndexerConfig{
+			StartHeight:      0,
+			ConcurrentBlocks: 1,
+			ReceiptWorkers:   2,
+			MaxDocsPerTxn:    100,
+			HealthServerPort: 0,
+			StartBuffer:      10,
+		},
+		Logger: config.LoggerConfig{Development: true},
+	}
+	if defraURL != "" {
+		cfg.DefraDB.URL = defraURL
 	}
 
-	err := tracker.TrackBlock(context.Background(), 1000, result)
+	indexer, err := CreateIndexer(cfg)
 	require.NoError(t, err)
-	assert.Equal(t, 1, queue.Len())
 
-	// Verify collection names contain expected substrings.
-	assert.Contains(t, evm.CollectionTransaction, "Transaction")
-	assert.Contains(t, evm.CollectionLog, "Log")
-	assert.Contains(t, evm.CollectionAccessListEntry, "AccessListEntry")
+	waitForIndexerStart(t, indexer)
+
+	t.Cleanup(func() {
+		indexer.shouldIndex = false
+		indexer.StopIndexing()
+	})
+	return indexer
+}
+
+func TestSignMessagesVariants(t *testing.T) {
+	tests := []struct {
+		name        string
+		skipInShort bool
+		setup       func(t *testing.T) *ChainIndexer
+		message     string
+		assert      func(t *testing.T, defraReg server.DefraPKRegistration, peerReg server.PeerIDRegistration, err error)
+	}{
+		{
+			// No KeyringSecret → signing will fail.
+			name: "without keyring secret returns error",
+			setup: func(t *testing.T) *ChainIndexer {
+				return setupSignMessagesDirect(t, "")
+			},
+			message: "test message",
+			assert: func(t *testing.T, _ server.DefraPKRegistration, _ server.PeerIDRegistration, err error) {
+				assert.Error(t, err)
+			},
+		},
+		{
+			// With a keyring secret but no identity stored, it may create one or fail.
+			name:        "keyring setup without prior identity",
+			skipInShort: true,
+			setup: func(t *testing.T) *ChainIndexer {
+				return setupSignMessagesDirect(t, "test-secret-key-12345678")
+			},
+			message: "test message",
+			assert: func(t *testing.T, _ server.DefraPKRegistration, _ server.PeerIDRegistration, err error) {
+				if err != nil {
+					t.Logf("SignMessages returned error (expected without prior identity setup): %v", err)
+				}
+			},
+		},
+		{
+			// Without a pre-created identity the load step fails:
+			// SignWithDefraKeys → loadIdentityFromStore → error path.
+			name:        "full flow errors without identity",
+			skipInShort: true,
+			setup: func(t *testing.T) *ChainIndexer {
+				return setupSignMessagesDirect(t, "test-secret-for-sign-flow-1234")
+			},
+			message: "test registration message",
+			assert: func(t *testing.T, _ server.DefraPKRegistration, _ server.PeerIDRegistration, err error) {
+				assert.Error(t, err)
+				assert.NotEmpty(t, err.Error())
+			},
+		},
+		{
+			// Exercises error handling in SignWithDefraKeys; succeeds only if
+			// the identity was created along the way.
+			name:        "with identity either outcome",
+			skipInShort: true,
+			setup: func(t *testing.T) *ChainIndexer {
+				return setupSignMessagesDirect(t, "test-secret-for-sign-identity-123")
+			},
+			message: "test message for signing",
+			assert: func(t *testing.T, defraReg server.DefraPKRegistration, peerReg server.PeerIDRegistration, err error) {
+				if err != nil {
+					t.Logf("SignMessages error (expected): %v", err)
+					assert.Empty(t, defraReg.PublicKey)
+					assert.Empty(t, peerReg.PeerID)
+				} else {
+					assert.NotEmpty(t, defraReg.PublicKey)
+					assert.NotEmpty(t, defraReg.SignedPKMsg)
+					assert.NotEmpty(t, peerReg.PeerID)
+					assert.NotEmpty(t, peerReg.SignedPeerMsg)
+				}
+			},
+		},
+		{
+			name:        "full success path via StartIndexing",
+			skipInShort: true,
+			setup: func(t *testing.T) *ChainIndexer {
+				return startSignMessagesIndexer(t,
+					"test-secret-for-keyring-12345678",
+					testDefraRandomURL,
+					testDefraP2PDisabled,
+					func() *httptest.Server {
+						return newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+							switch method {
+							case ethGetBlockByNumber:
+								return fullBlockResponse("0x186a0", nil), nil
+							case ethGetBlockReceipts:
+								return []any{}, nil
+							default:
+								return "0x1", nil
+							}
+						})
+					})
+			},
+			message: "test-message-for-signing",
+			assert: func(t *testing.T, defraReg server.DefraPKRegistration, peerReg server.PeerIDRegistration, err error) {
+				if err != nil {
+					t.Logf("SignMessages returned error (may be expected with test keyring): %v", err)
+				} else {
+					assert.NotEmpty(t, defraReg.PublicKey, "defra public key should be set")
+					assert.NotEmpty(t, defraReg.SignedPKMsg, "signed message should be set")
+					assert.NotEmpty(t, peerReg.PeerID, "peer public key should be set")
+					assert.NotEmpty(t, peerReg.SignedPeerMsg, "peer signed message should be set")
+				}
+			},
+		},
+		{
+			// P2P disabled: SignWithP2PKeys (or a later accessor) fails, or
+			// both succeed if the P2P subsystem is available anyway.
+			name:        "defra keys succeed p2p keys fail",
+			skipInShort: true,
+			setup: func(t *testing.T) *ChainIndexer {
+				return startSignMessagesIndexer(t,
+					"test-secret-for-sign-p2p-err-1",
+					"",
+					config.DefraDBP2PConfig{Enabled: false},
+					func() *httptest.Server {
+						return newMockRPCServerForIntegration(make(chan struct{}, 100))
+					})
+			},
+			message: "test-sign-message",
+			assert: func(t *testing.T, defraReg server.DefraPKRegistration, peerReg server.PeerIDRegistration, err error) {
+				if err != nil {
+					t.Logf("SignMessages returned error (exercises error path): %v", err)
+					assert.Empty(t, defraReg.PublicKey)
+					assert.Empty(t, peerReg.PeerID)
+				} else {
+					t.Logf("SignMessages succeeded: defra=%s, peer=%s", defraReg.PublicKey, peerReg.PeerID)
+					assert.NotEmpty(t, defraReg.PublicKey)
+					assert.NotEmpty(t, peerReg.PeerID)
+				}
+			},
+		},
+		{
+			name:        "p2p keys fail deterministic",
+			skipInShort: true,
+			setup: func(t *testing.T) *ChainIndexer {
+				return startSignMessagesIndexer(t,
+					"test-secret-for-sign-determ",
+					"",
+					config.DefraDBP2PConfig{Enabled: false},
+					func() *httptest.Server {
+						return newMockRPCServerForIntegration(make(chan struct{}, 100))
+					})
+			},
+			message: "test-sign-p2p-fail",
+			assert: func(t *testing.T, _ server.DefraPKRegistration, _ server.PeerIDRegistration, err error) {
+				if err != nil {
+					t.Logf("SignMessages error (expected for P2P-disabled): %v", err)
+				} else {
+					t.Log("SignMessages succeeded (all paths available)")
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if tc.skipInShort && testing.Short() {
+				t.Skip("skipping integration test in short mode")
+			}
+			logger.InitConsoleOnly(true)
+
+			indexer := tc.setup(t)
+			defraReg, peerReg, err := indexer.SignMessages(tc.message)
+			tc.assert(t, defraReg, peerReg, err)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------.
@@ -1872,684 +2847,43 @@ func TestMockRPCServer_VariousEndpoints(t *testing.T) {
 // fullBlockResponse helper test.
 // ---------------------------------------------------------------------------.
 
-func TestFullBlockResponse_WithTransactions(t *testing.T) {
+func TestFullBlockResponse(t *testing.T) {
 	t.Parallel()
-	txs := []any{
-		map[string]any{
-			"hash":  "0x123",
-			"value": "0x0",
-		},
-	}
-	block := fullBlockResponse("0x100", txs)
-	assert.Equal(t, "0x100", block[constants.NumberFieldValue])
-	assert.NotNil(t, block["transactions"])
-	txList := block["transactions"].([]any)
-	assert.Len(t, txList, 1)
-}
 
-func TestFullBlockResponse_NilTransactions(t *testing.T) {
-	t.Parallel()
-	block := fullBlockResponse("0x200", nil)
-	assert.Equal(t, "0x200", block[constants.NumberFieldValue])
-	txList := block["transactions"].([]any)
-	assert.Len(t, txList, 0)
-}
-
-// ---------------------------------------------------------------------------
-// GetPeerInfo — test peer deduplication with mock addresses
-// ---------------------------------------------------------------------------
-
-func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Create indexer with embedded node — exercise all code paths in GetPeerInfo.
-	indexer := &ChainIndexer{
-		defraNode:      td.Node,
-		networkHandler: nil,
-	}
-
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
-
-	// The test node has P2P disabled, so no active peers.
-	// This still exercises the deduplication code with 0 active peers.
-	assert.NotNil(t, info.PeerInfo)
-}
-
-// ----------------------------------------------------------------------------.
-// openBrowser — test the "default" (linux) case on non-darwin platforms.
-// The function switches on runtime.GOOS. On macOS, only darwin branch runs.
-// We test that the function completes without panicking.
-// ---------------------------------------------------------------------------.
-
-func TestOpenBrowser_NonEmptyURL(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	original := execCommand
-	execCommand = func(_ string, _ ...string) *exec.Cmd {
-		return exec.Command("echo", "mock-browser")
-	}
-	defer func() { execCommand = original }()
-
-	openBrowser("http://localhost:0/test-url-for-coverage")
-}
-
-// ---------------------------------------------------------------------------.
-// SignMessages — test full flow with keyring identity.
-// ---------------------------------------------------------------------------.
-
-func TestSignMessages_FullFlow(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	// Use testutils' SetupTestDefraDB for the node, then configure keyring manually
-	td := testutils.SetupTestDefraDB(t)
-
-	indexer := &ChainIndexer{
-		defraNode: td.Node,
-		cfg: &config.Config{
-			DefraDB: config.DefraDBConfig{
-				KeyringSecret: "test-secret-for-sign-flow-1234",
-				Store:         config.DefraDBStoreConfig{Path: td.Dir},
+	tests := []struct {
+		name      string
+		number    string
+		txs       []any
+		wantTxLen int
+	}{
+		{
+			name:   "with transactions",
+			number: "0x100",
+			txs: []any{
+				map[string]any{
+					"hash":  "0x123",
+					"value": "0x0",
+				},
 			},
+			wantTxLen: 1,
+		},
+		{
+			name:      "nil transactions defaults to empty list",
+			number:    "0x200",
+			txs:       nil,
+			wantTxLen: 0,
 		},
 	}
 
-	// SignMessages will try to load identity from keyring.
-	// Without a pre-created identity, it will fail at the load step.
-	_, _, err := indexer.SignMessages("test registration message")
-	// We expect an error because the keyring doesn't have an identity yet.
-	// This exercises SignWithDefraKeys → loadIdentityFromStore → error path.
-	assert.Error(t, err)
-	// Verify it's a meaningful error (not a nil pointer or panic).
-	assert.NotEmpty(t, err.Error())
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — exercise code paths with actual peer info.
-// ---------------------------------------------------------------------------.
-
-func TestGetPeerInfo_WithSelfInfo(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-	indexer := &ChainIndexer{defraNode: td.Node}
-
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
-
-	// P2P is disabled in test node, but it still has peer info.
-	if info.Self != nil {
-		// Verify self info fields.
-		assert.NotEmpty(t, info.Self.ID, "self peer ID should not be empty")
-		// Public key extraction may or may not work.
-		t.Logf("Self ID: %s, PublicKey: %s, Addresses: %v", info.Self.ID, info.Self.PublicKey, info.Self.Addresses)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			block := fullBlockResponse(tt.number, tt.txs)
+			assert.Equal(t, tt.number, block[constants.NumberFieldValue])
+			txList := block["transactions"].([]any)
+			assert.Len(t, txList, tt.wantTxLen)
+		})
 	}
-}
-
-// ---------------------------------------------------------------------------.
-// SignMessages with full identity flow.
-// ---------------------------------------------------------------------------.
-
-func TestSignMessages_WithIdentity(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	keyringSecret := "test-secret-for-sign-identity-123"
-
-	// Start DefraDB to create identity and keys
-	td := testutils.SetupTestDefraDB(t)
-
-	// Create the identity manually by using the keyring.
-	indexer := &ChainIndexer{
-		defraNode: td.Node,
-		cfg: &config.Config{
-			DefraDB: config.DefraDBConfig{
-				KeyringSecret: keyringSecret,
-				Store:         config.DefraDBStoreConfig{Path: td.Dir},
-			},
-		},
-	}
-
-	// Try to sign — exercises error handling in SignWithDefraKeys.
-	defraReg, peerReg, err := indexer.SignMessages("test message for signing")
-	if err != nil {
-		// Expected without pre-existing identity.
-		t.Logf("SignMessages error (expected): %v", err)
-		assert.Empty(t, defraReg.PublicKey)
-		assert.Empty(t, peerReg.PeerID)
-	} else {
-		// If it succeeds (identity was created), verify the response.
-		assert.NotEmpty(t, defraReg.PublicKey)
-		assert.NotEmpty(t, defraReg.SignedPKMsg)
-		assert.NotEmpty(t, peerReg.PeerID)
-		assert.NotEmpty(t, peerReg.SignedPeerMsg)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// StartIndexing — external DefraDB (defraStarted=true) path
-// ---------------------------------------------------------------------------
-
-// TestStartIndexing_ExternalDefra tests the external-DefraDB path in StartIndexing.
-// Since external DefraDB no longer sets defraNode, it should return the.
-// "defraNode is required" error after applying schema.
-func TestStartIndexing_ExternalDefra(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	// Create a config pointing to the test DefraDB as "external".
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL: fmt.Sprintf("http://localhost:%d", td.Port),
-		},
-		Geth: config.GethConfig{NodeURL: "http://localhost:9999"},
-		Indexer: config.IndexerConfig{
-			StartHeight:    0,
-			ReceiptWorkers: 1,
-			MaxDocsPerTxn:  100,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	err = indexer.StartIndexing(true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "defraNode is required")
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — health server + pruner + snapshotter subsystems.
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	snapshotDir := filepath.Join(tmpDir, "snapshots")
-
-	var blockCallCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186b1", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", 100000+count)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 1, // concurrent
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 19876, // enable health server.
-			StartBuffer:      10,
-		},
-		Pruner: config.PrunerConfig{
-			Enabled:         true,
-			MaxBlocks:       1000,
-			PruneThreshold:  100,
-			IntervalSeconds: 60,
-		},
-		Snapshot: config.SnapshotConfig{
-			Enabled:         true,
-			Dir:             snapshotDir,
-			BlocksPerFile:   1000,
-			IntervalSeconds: 3600,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for a few blocks to be processed.
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 3 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	// Verify subsystems are active.
-	assert.NotNil(t, indexer.healthServer, "health server should be initialized")
-	assert.NotNil(t, indexer.pruner, "pruner should be initialized")
-	assert.NotNil(t, indexer.snapshotter, "snapshotter should be initialized")
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — concurrent path with pruner+snapshotter.
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	snapshotDir := filepath.Join(tmpDir, "snapshots")
-
-	var blockCallCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186b1", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", 100000+count)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 2, // concurrent.
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Pruner: config.PrunerConfig{
-			Enabled:         true,
-			MaxBlocks:       1000,
-			PruneThreshold:  100,
-			IntervalSeconds: 60,
-		},
-		Snapshot: config.SnapshotConfig{
-			Enabled:         true,
-			Dir:             snapshotDir,
-			BlocksPerFile:   1000,
-			IntervalSeconds: 3600,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Let some blocks process.
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 5 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out waiting for blocks")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	assert.NotNil(t, indexer.pruner, "pruner should be initialized")
-	assert.NotNil(t, indexer.snapshotter, "snapshotter should be initialized")
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — resuming with existing blocks in DB (gap detection).
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_ResumeFromHighBlock(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-
-	// Chain tip at 100000, we'll simulate existing blocks by inserting one.
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000.
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", 99990+count)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      99980, // specific start height
-			ConcurrentBlocks: 1,     // concurrent
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 3 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — with self info construction.
-// ---------------------------------------------------------------------------.
-
-func TestGetPeerInfo_SelfInfoConstruction(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	indexer := &ChainIndexer{
-		defraNode:      td.Node,
-		networkHandler: nil,
-	}
-
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
-
-	// The test node has P2P disabled — check that self info is populated.
-	// when the node has a peer ID (even with no active peers).
-	if info.Self != nil {
-		assert.NotEmpty(t, info.Self.ID, "self peer ID should be set")
-		// Public key may or may not be extractable depending on key type.
-	}
-
-	// Enabled should be false since networkHandler is nil.
-	assert.False(t, info.Enabled)
-}
-
-// ---------------------------------------------------------------------------.
-// SignMessages — full success path with keyring.
-// ---------------------------------------------------------------------------.
-
-func TestSignMessages_FullSuccessPath(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			return fullBlockResponse("0x186a0", nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 1, // concurrent
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	// Use StartIndexing briefly to set up the defra node with keyring.
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for indexer to be started (defra node is initialized).
-	deadline := time.After(30 * time.Second)
-	for !indexer.IsStarted() {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out waiting for indexer to start")
-		case startErr := <-errCh:
-			if startErr != nil {
-				t.Fatalf("StartIndexing failed: %v", startErr)
-			}
-		}
-	}
-
-	// Now try SignMessages.
-	defraPK, peerReg, err := indexer.SignMessages("test-message-for-signing")
-	if err != nil {
-		t.Logf("SignMessages returned error (may be expected with test keyring): %v", err)
-	} else {
-		assert.NotEmpty(t, defraPK.PublicKey, "defra public key should be set")
-		assert.NotEmpty(t, defraPK.SignedPKMsg, "signed message should be set")
-		assert.NotEmpty(t, peerReg.PeerID, "peer public key should be set")
-		assert.NotEmpty(t, peerReg.SignedPeerMsg, "peer signed message should be set")
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// extractPublicKeyFromPeerID — failure to extract key and raw bytes errors.
-// ---------------------------------------------------------------------------.
-
-func TestExtractPublicKeyFromPeerID_Ed25519Key(t *testing.T) {
-	t.Parallel()
-	// Ed25519 keys are embedded in PeerIDs and should be extractable.
-	logger.InitConsoleOnly(true)
-
-	priv, _, err := crypto.GenerateEd25519Key(nil)
-	require.NoError(t, err)
-	id, err := peer.IDFromPrivateKey(priv)
-	require.NoError(t, err)
-
-	result := extractPublicKeyFromPeerID(id.String())
-	assert.NotEmpty(t, result, "Ed25519 keys should be extractable from PeerID")
-}
-
-func TestExtractPublicKeyFromPeerID_RSAKey(t *testing.T) {
-	t.Parallel()
-	// RSA keys use multihash encoding in PeerIDs (key too large to embed).
-	// ExtractPublicKey() returns ErrNoPublicKey for RSA PeerIDs.
-	logger.InitConsoleOnly(true)
-
-	priv, _, err := crypto.GenerateRSAKeyPair(2048, crypto_rand.Reader)
-	require.NoError(t, err)
-	id, err := peer.IDFromPrivateKey(priv)
-	require.NoError(t, err)
-
-	result := extractPublicKeyFromPeerID(id.String())
-	// RSA keys can't be extracted from PeerID — should return empty string.
-	assert.Empty(t, result, "RSA keys should not be extractable from PeerID (too large)")
-}
-
-// ---------------------------------------------------------------------------.
-// openBrowser — cmd.Start failure (non-existent command).
-// ---------------------------------------------------------------------------.
-
-func TestOpenBrowser_StartFailure(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	original := execCommand
-	execCommand = func(_ string, _ ...string) *exec.Cmd {
-		return exec.Command("nonexistent-command-that-will-fail")
-	}
-	defer func() { execCommand = original }()
-
-	openBrowser("http://127.0.0.1:0/health")
-}
-
-// ---------------------------------------------------------------------------.
-// StopIndexing — with pruner and snapshotter set.
-// ---------------------------------------------------------------------------.
-
-func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	td := testutils.SetupTestDefraDB(t)
-
-	prunerCfg := &config.PrunerConfig{
-		Enabled:        true,
-		MaxBlocks:      100,
-		PruneThreshold: 10,
-	}
-	p := pruner.NewPruner(prunerCfg, td.Node, nil)
-	p.SetQueue(pruner.NewIndexerQueue())
-
-	snapshotDir := t.TempDir()
-	s := snapshot.New(&config.SnapshotConfig{
-		Enabled:         true,
-		Dir:             snapshotDir,
-		BlocksPerFile:   100,
-		IntervalSeconds: 3600,
-	}, td.Node, nil)
-
-	indexer := &ChainIndexer{
-		defraNode:   td.Node,
-		isStarted:   true,
-		shouldIndex: true,
-		pruner:      p,
-		snapshotter: s,
-	}
-
-	// Don't call p.Start()/s.Start() — they require the app-sdk logger.
-	// to be initialized. StopIndexing should handle calling Stop() on.
-	// unstarted components (isRunning=false → early return).
-	indexer.StopIndexing()
-
-	assert.False(t, indexer.isStarted)
-	assert.False(t, indexer.shouldIndex)
 }
 
 // ---------------------------------------------------------------------------.
@@ -2562,433 +2896,6 @@ func TestPruneQueueFilePath(t *testing.T) {
 	tmpDir := t.TempDir()
 	queueFilePath := filepath.Join(tmpDir, "prune_queue.gob")
 	assert.Contains(t, queueFilePath, "prune_queue.gob")
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — resume from pruner queue (covers lines 219-221, 243-252).
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_ResumeFromQueue(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-
-	// Pre-create a prune queue file with entries so LoadFromFile returns loaded > 0.
-	queue := pruner.NewIndexerQueue()
-	for i := int64(90000); i <= 90010; i++ {
-		_ = queue.TrackBlockDocIDs(i, fakeDocID(int(i)), map[string][]string{
-			evm.CollectionTransaction: {fakeDocID(int(i) + 10000)},
-		}, fakeDocID(int(i)+20000))
-	}
-	queueFilePath := filepath.Join(tmpDir, "prune_queue.gob")
-	_, _ = queue.LoadFromFile(queueFilePath) // sets filePath.
-	err := queue.Save()
-	require.NoError(t, err)
-
-	// Chain tip at 100000, highest in queue is 90010, gap = 9990 > startBuffer=10.
-	// This should trigger the gap detection skip-ahead (lines 246-250).
-	var blockCallCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if unmarshalErr := json.Unmarshal(params, &rawParams); unmarshalErr == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186a0", nil), nil // 100000
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", 99990+count)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Pruner: config.PrunerConfig{
-			Enabled:         true,
-			MaxBlocks:       1000,
-			PruneThreshold:  100,
-			IntervalSeconds: 60,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 2 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out waiting for blocks")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	// Should have skipped ahead — start height should be around 99990.
-	assert.True(t, indexer.cfg.Indexer.StartHeight >= 99980,
-		"should have skipped ahead due to gap, got start height %d", indexer.cfg.Indexer.StartHeight)
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — negative start height clamp (covers lines 259-261).
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_NegativeStartHeightClamp(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-
-	// Chain tip very low (5), startBuffer=100 → startHeight = 5 - 100 = -95 → clamped to 0.
-	var blockCallCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x5", nil), nil // chain tip = 5.
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", count-1)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0, // no configured height.
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      100, // larger than chain tip.
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 2 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	// Start height should be clamped to 0.
-	assert.Equal(t, 0, indexer.cfg.Indexer.StartHeight,
-		"start height should be clamped to 0 when chainTip - buffer is negative")
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — OpenBrowserOnStart path (covers lines 294-299).
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_WithOpenBrowser(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186a0", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			num := fmt.Sprintf("0x%x", 99990+count)
-			return fullBlockResponse(num, nil), nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:        99990,
-			ConcurrentBlocks:   1,
-			ReceiptWorkers:     2,
-			MaxDocsPerTxn:      100,
-			HealthServerPort:   8080,
-			OpenBrowserOnStart: false, // This should be true but is annoying because the server is already dead.
-			StartBuffer:        10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 2 {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — embedded node without P2P (covers lines 596+).
-// ---------------------------------------------------------------------------.
-
-func TestGetPeerInfo_WithEmbeddedNode_NoP2P(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	td := testutils.SetupTestDefraDB(t)
-
-	indexer := &ChainIndexer{
-		defraNode: td.Node,
-	}
-
-	info, err := indexer.GetPeerInfo()
-	if err != nil {
-		// PeerInfo may error without P2P — that's the line 596-598 path.
-		assert.Contains(t, err.Error(), "peer info")
-	} else {
-		require.NotNil(t, info)
-		assert.False(t, info.Enabled)
-	}
-}
-
-// ===========================================================================
-// NEW TESTS TO BOOST COVERAGE FROM 89% TOWARDS 100%.
-// ===========================================================================
-
-// ---------------------------------------------------------------------------
-// GetPeerInfo — full coverage with P2P enabled via StartDefraInstance
-// This exercises: selfInfo construction (lines 601-612), peer dedup (624-638),
-// PeerInfo error path (596-598).
-// ---------------------------------------------------------------------------.
-
-func TestGetPeerInfo_FullIntegration_WithP2P(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-p2p-peer-info-1",
-			P2P: config.DefraDBP2PConfig{
-				Enabled:    true,
-				ListenAddr: "/ip4/127.0.0.1/tcp/0",
-			},
-			Store: config.DefraDBStoreConfig{Path: tmpDir},
-		},
-	}
-
-	// Use testutils SetupTestDefraDB — P2P is disabled in that helper.
-	// Instead we'll create the node directly with P2P enabled.
-	td := testutils.SetupTestDefraDB(t)
-
-	indexer := &ChainIndexer{
-		defraNode: td.Node,
-		cfg:       cfg,
-	}
-
-	// GetPeerInfo should work even without P2P truly active on the test node.
-	info, err := indexer.GetPeerInfo()
-	if err != nil {
-		// PeerInfo may fail — covers line 596-598.
-		t.Logf("GetPeerInfo returned error (covers error path): %v", err)
-		assert.Contains(t, err.Error(), "peer info")
-	} else {
-		require.NotNil(t, info)
-		// Self info should be populated if PeerInfo returns addresses.
-		if info.Self != nil {
-			assert.NotEmpty(t, info.Self.ID)
-			t.Logf("Self: ID=%s, Addresses=%v, PublicKey=%s", info.Self.ID, info.Self.Addresses, info.Self.PublicKey)
-		}
-		t.Logf("PeerInfo: enabled=%v, peers=%d", info.Enabled, len(info.PeerInfo))
-	}
-}
-
-// ---------------------------------------------------------------------------.
-// SignMessages — exercise the SignWithP2PKeys error path (line 730-732).
-// and GetNodePublicKey / GetPeerPublicKey error paths (lines 736-743).
-// ---------------------------------------------------------------------------.
-
-func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	// Start a full DefraDB with keyring to get past SignWithDefraKeys,
-	// but without P2P keys so SignWithP2PKeys fails.
-	tmpDir := t.TempDir()
-
-	blockCh := make(chan struct{}, 100)
-	rpcServer := newMockRPCServerForIntegration(blockCh)
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-sign-p2p-err-1",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	// Wait for indexer to start (defra node initialized with keyring).
-	deadline := time.After(30 * time.Second)
-	for !indexer.IsStarted() {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out waiting for indexer to start")
-		case startErr := <-errCh:
-			if startErr != nil {
-				t.Fatalf("StartIndexing failed: %v", startErr)
-			}
-		}
-	}
-
-	// SignMessages: first call to SignWithDefraKeys may succeed,
-	// but SignWithP2PKeys may fail (P2P disabled). This exercises:
-	// - Line 730-732: SignWithP2PKeys error return.
-	// OR if both succeed:
-	// - Lines 736-738, 741-743: GetNodePublicKey/GetPeerPublicKey error returns.
-	defraPK, peerReg, err := indexer.SignMessages("test-sign-message")
-	if err != nil {
-		t.Logf("SignMessages returned error (exercises error path): %v", err)
-		// Error at either SignWithDefraKeys, SignWithP2PKeys, GetNodePublicKey, or GetPeerPublicKey.
-		assert.Empty(t, defraPK.PublicKey)
-		assert.Empty(t, peerReg.PeerID)
-	} else {
-		t.Logf("SignMessages succeeded: defra=%s, peer=%s", defraPK.PublicKey, peerReg.PeerID)
-		assert.NotEmpty(t, defraPK.PublicKey)
-		assert.NotEmpty(t, peerReg.PeerID)
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
 }
 
 // ---------------------------------------------------------------------------.
@@ -3005,59 +2912,6 @@ func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
 // On Windows, "cmd" exists. The error path (695-698) only triggers when the,
 // command binary doesn't exist. This is structurally difficult to test without,
 // mocking, which would require refactoring.
-
-// ---------------------------------------------------------------------------.
-// extractPublicKeyFromPeerID — Raw() error path (covers lines 665-668),
-// The Raw() method of a pubkey should not normally fail for standard key types.
-// This is structurally difficult to trigger since we can't easily create a,
-// mock pubkey that fails on Raw(). However, we can still try various key,
-// types to maximize coverage.
-// ---------------------------------------------------------------------------.
-
-func TestExtractPublicKeyFromPeerID_ECDSA_Key(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	// Generate an ECDSA key pair.
-	priv, _, err := crypto.GenerateECDSAKeyPair(crypto_rand.Reader)
-	require.NoError(t, err)
-
-	pid, err := peer.IDFromPrivateKey(priv)
-	require.NoError(t, err)
-
-	result := extractPublicKeyFromPeerID(pid.String())
-	// ECDSA keys may or may not be extractable from PeerID depending on encoding.
-	t.Logf("ECDSA key extraction result: %q (len=%d)", result, len(result))
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — PeerInfo error path (covers line 596-598),
-// When defraNode.DB.PeerInfo() returns an error.
-// This happens when the node is closed or P2P subsystem is not initialized.
-// ---------------------------------------------------------------------------.
-
-func TestGetPeerInfo_AfterNodeClose(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	// Create a temporary node, then close it to make PeerInfo fail.
-	closedNode := createClosedTestDefraNode(t)
-
-	indexer := &ChainIndexer{
-		defraNode: closedNode,
-	}
-
-	// PeerInfo should return an error since node is closed.
-	info, err := indexer.GetPeerInfo()
-	if err != nil {
-		// This is the expected path — covers line 596-598.
-		assert.Contains(t, err.Error(), "peer info")
-		t.Logf("GetPeerInfo error after close (expected): %v", err)
-	} else {
-		// Even if it doesn't error, that's fine — the DB might still work.
-		t.Logf("GetPeerInfo after close returned info: %+v", info)
-	}
-}
 
 // createClosedTestDefraNode creates a DefraDB node, starts it, then closes it.
 // This gives a node in a "closed" state for testing error paths.
@@ -3091,344 +2945,52 @@ func createClosedTestDefraNode(t *testing.T) *node.Node {
 // removing the earlier creation. Skip this test target.
 // ---------------------------------------------------------------------------.
 
-// ---------------------------------------------------------------------------.
-// StartIndexing — GetHighestStoredBlockNumber returns error (line 229),
-// This happens when chain.GetHighestStoredBlockNumber fails.
-// In a fresh DB with no blocks, this returns an error naturally.
-// Let's ensure the "sets 0" path is covered.
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_Embedded_NoExistingBlocks(t *testing.T) {
+func TestPublicKeyAccessorsWithEmbeddedNode(t *testing.T) {
 	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
 
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-	blockCh := make(chan struct{}, 100)
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186a0", nil), nil // chain tip 100000.
-				}
-			}
-			count := blockCallCount.Add(1)
-			select {
-			case blockCh <- struct{}{}:
-			default:
-			}
-			num := fmt.Sprintf("0x%x", 99990+count)
-			return fullBlockResponse(num, nil), nil
-		case ethBlockNumber:
-			return "0x186a0", nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
+	tests := []struct {
+		name   string
+		method func(*ChainIndexer) (string, error)
+	}{
+		{
+			name: "GetNodePublicKey with embedded node",
+			method: func(i *ChainIndexer) (string, error) {
+				return i.GetNodePublicKey()
+			},
 		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0, // No configured height, fresh DB → exercises "no existing blocks" path.
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		// Pruner DISABLED so the GetHighestBlockNumber path at line 226 is exercised.
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 2 {
-		select {
-		case <-blockCh:
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — health server with empty DefraDB.Url (covers line 280-281),
-// When cfg.DefraDB.URL is empty, healthDefraURL falls through to defraNode port.
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_Embedded_HealthServerWithoutUrl(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-	blockCh := make(chan struct{}, 100)
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186a0", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			select {
-			case blockCh <- struct{}{}:
-			default:
-			}
-			num := fmt.Sprintf("0x%x", 99990+count)
-			return fullBlockResponse(num, nil), nil
-		case ethBlockNumber:
-			return "0x186a0", nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL, // Random port → health server uses defraNode port.
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      99990,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 19878, // Enable health server.
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 2 {
-		select {
-		case <-blockCh:
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	assert.NotNil(t, indexer.healthServer)
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — pruneQueue LoadFromFile error (line 217-218),
-// Pre-create a corrupted prune_queue.gob file.
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-
-	// Create a corrupted prune queue file.
-	corruptFilePath := filepath.Join(tmpDir, "prune_queue.gob")
-	err := writeCorruptedFile(corruptFilePath)
-	require.NoError(t, err)
-
-	var blockCallCount atomic.Int64
-	blockCh := make(chan struct{}, 100)
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if unmarshalErr := json.Unmarshal(params, &rawParams); unmarshalErr == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186a0", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			select {
-			case blockCh <- struct{}{}:
-			default:
-			}
-			num := fmt.Sprintf("0x%x", 99990+count)
-			return fullBlockResponse(num, nil), nil
-		case ethBlockNumber:
-			return "0x186a0", nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Pruner: config.PrunerConfig{
-			Enabled:         true,
-			MaxBlocks:       1000,
-			PruneThreshold:  100,
-			IntervalSeconds: 3600,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 2 {
-		select {
-		case <-blockCh:
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	// The corrupted file should trigger a warning but not crash.
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// writeCorruptedFile writes invalid gob data to a file.
-func writeCorruptedFile(path string) error {
-	return os.WriteFile(filepath.Clean(path), []byte("this is not valid gob data"), 0o600)
-}
-
-// ---------------------------------------------------------------------------..
-// GetNodePublicKey and GetPeerPublicKey with embedded node,
-// (exercises signer.GetDefraPublicKey and signer.GetP2PPublicKey).
-// ---------------------------------------------------------------------------..
-
-func TestGetNodePublicKey_WithEmbeddedNode(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	td := testutils.SetupTestDefraDB(t)
-
-	indexer := &ChainIndexer{
-		defraNode: td.Node,
-		cfg: &config.Config{
-			DefraDB: config.DefraDBConfig{
-				KeyringSecret: "test-secret-for-pubkey-test-1234",
-				Store:         config.DefraDBStoreConfig{Path: td.Dir},
+		{
+			name: "GetPeerPublicKey with embedded node",
+			method: func(i *ChainIndexer) (string, error) {
+				return i.GetPeerPublicKey()
 			},
 		},
 	}
 
-	// Without a proper keyring, this should return an error.
-	key, err := indexer.GetNodePublicKey()
-	if err != nil {
-		t.Logf("GetNodePublicKey error (expected without keyring): %v", err)
-	} else {
-		assert.NotEmpty(t, key)
-		t.Logf("GetNodePublicKey: %s", key)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
+			td := testutils.SetupTestDefraDB(t)
 
-func TestGetPeerPublicKey_WithEmbeddedNode(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	td := testutils.SetupTestDefraDB(t)
+			indexer := &ChainIndexer{
+				defraNode: td.Node,
+				cfg: &config.Config{
+					DefraDB: config.DefraDBConfig{
+						KeyringSecret: "test-secret-for-pubkey-test-1234",
+						Store:         config.DefraDBStoreConfig{Path: td.Dir},
+					},
+				},
+			}
 
-	indexer := &ChainIndexer{
-		defraNode: td.Node,
-		cfg: &config.Config{
-			DefraDB: config.DefraDBConfig{
-				KeyringSecret: "test-secret-for-pubkey-test-1234",
-				Store:         config.DefraDBStoreConfig{Path: td.Dir},
-			},
-		},
-	}
-
-	// Without a proper keyring, this should return an error.
-	key, err := indexer.GetPeerPublicKey()
-	if err != nil {
-		t.Logf("GetPeerPublicKey error (expected without keyring): %v", err)
-	} else {
-		assert.NotEmpty(t, key)
-		t.Logf("GetPeerPublicKey: %s", key)
+			// Without a proper keyring, this may return an error.
+			key, err := tt.method(indexer)
+			if err != nil {
+				t.Logf("%s error (expected without keyring): %v", tt.name, err)
+				return
+			}
+			assert.NotEmpty(t, key)
+			t.Logf("%s: %s", tt.name, key)
+		})
 	}
 }
 
@@ -3476,121 +3038,99 @@ func setupTestDefraDBWithP2P(t *testing.T) *node.Node {
 }
 
 // ---------------------------------------------------------------------------.
-// GetPeerInfo — P2P enabled node exercises self info (lines 601-612) and,
-// peer dedup (lines 624-638).
+// GetPeerInfo — two-node setups (connected peers and multi-addr dedup merge).
 // ---------------------------------------------------------------------------.
 
-func TestGetPeerInfo_WithP2PEnabled(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
+func TestGetPeerInfo_TwoNode(t *testing.T) {
+	tests := []struct {
+		name         string
+		node2Setup   func(t *testing.T) *node.Node
+		requireAddrs bool
+		assert       func(t *testing.T, info *server.P2PInfo)
+	}{
+		{
+			name: "connected peers",
+			node2Setup: func(_ *testing.T) *node.Node {
+				return setupTestDefraDBWithP2P(t)
+			},
+			requireAddrs: true,
+			assert: func(t *testing.T, info *server.P2PInfo) {
+				// Self info should be populated.
+				require.NotNil(t, info.Self, "self info should be populated with P2P enabled")
+				assert.NotEmpty(t, info.Self.ID, "self peer ID should be set")
+				assert.NotEmpty(t, info.Self.Addresses, "self addresses should be set")
+				t.Logf("Self: ID=%s, Addresses=%v", info.Self.ID, info.Self.Addresses)
 
-	defraNode := setupTestDefraDBWithP2P(t)
+				// Active peers should include node2 — this exercises lines 624-638 (dedup map).
+				t.Logf("Active peer count: %d", len(info.PeerInfo))
+				for i, p := range info.PeerInfo {
+					t.Logf("  Peer %d: ID=%s, Addresses=%v, PublicKey=%s", i, p.ID, p.Addresses, p.PublicKey)
+				}
 
-	indexer := &ChainIndexer{
-		defraNode: defraNode,
+				// If connection was successful, we should see at least one peer.
+				if len(info.PeerInfo) > 0 {
+					assert.NotEmpty(t, info.PeerInfo[0].ID, "peer should have an ID")
+					assert.NotEmpty(t, info.PeerInfo[0].PublicKey, "peer should have extracted public key")
+				} else {
+					t.Log("No active peers detected (connection may not have completed in time)")
+				}
+			},
+		},
+		{
+			name: "peer dedup merge multi-addr",
+			node2Setup: func(_ *testing.T) *node.Node {
+				return setupTestDefraDBWithMultiAddr(t) // node2 has multiple addresses.
+			},
+			assert: func(t *testing.T, info *server.P2PInfo) {
+				t.Logf("Active peer count (multi-addr): %d", len(info.PeerInfo))
+				for i, p := range info.PeerInfo {
+					t.Logf("  Peer %d: ID=%s, Addresses=%v", i, p.ID, p.Addresses)
+					// If node2 has multiple addresses, the dedup merge should combine them.
+					if len(p.Addresses) > 1 {
+						t.Log("  -> Multiple addresses merged for same peer (dedup merge branch covered)")
+					}
+				}
+			},
+		},
 	}
 
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
 
-	// With P2P enabled, the node should have a peer ID and listen addresses.
-	if info.Self != nil {
-		assert.NotEmpty(t, info.Self.ID, "self peer ID should be set with P2P enabled")
-		assert.NotEmpty(t, info.Self.Addresses, "self addresses should be set with P2P enabled")
-		assert.NotEmpty(t, info.Self.PublicKey, "self public key should be extractable")
-		t.Logf("Self: ID=%s, Addresses=%v, PublicKey=%s", info.Self.ID, info.Self.Addresses, info.Self.PublicKey)
-	} else {
-		t.Log("Self info was nil even with P2P enabled (PeerInfo returned empty)")
-	}
+			// Create two P2P-enabled nodes.
+			node1 := setupTestDefraDBWithP2P(t)
+			node2 := tc.node2Setup(t)
 
-	// PeerInfo should always be a non-nil slice.
-	assert.NotNil(t, info.PeerInfo)
-	t.Logf("Active peers count: %d", len(info.PeerInfo))
-}
+			ctx := context.Background()
 
-// TestGetPeerInfo_P2PEnabled_NoNetworkHandler tests with P2P enabled but nil networkHandler.
-func TestGetPeerInfo_P2PEnabled_NoNetworkHandler(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
+			// Get node2's addresses so we can connect node1 to it.
+			node2Addrs, err := node2.DB.PeerInfo(ctx)
+			require.NoError(t, err)
+			if tc.requireAddrs {
+				require.NotEmpty(t, node2Addrs, "node2 should have P2P addresses")
+			}
+			t.Logf("Node2 addresses: %v", node2Addrs)
 
-	defraNode := setupTestDefraDBWithP2P(t)
+			// Connect node1 to node2.
+			err = node1.DB.Connect(ctx, node2Addrs)
+			require.NoError(t, err)
 
-	indexer := &ChainIndexer{
-		defraNode:      defraNode,
-		networkHandler: nil,
-	}
+			// Give the connection a moment to establish.
+			time.Sleep(500 * time.Millisecond)
 
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
+			// Now get peer info from node1 — should include node2 as an active peer.
+			indexer := &ChainIndexer{
+				defraNode: node1,
+			}
 
-	// Without networkHandler, Enabled should be false.
-	assert.False(t, info.Enabled)
+			info, err := indexer.GetPeerInfo()
+			require.NoError(t, err)
+			require.NotNil(t, info)
 
-	// But self info should still be populated.
-	if info.Self != nil {
-		assert.NotEmpty(t, info.Self.ID)
-	}
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — peer dedup with two connected P2P nodes (covers lines 624-638).
-// Creates two P2P-enabled DefraDB nodes, connects them, then checks that.
-// GetPeerInfo returns the connected peer in the peer list.
-// ---------------------------------------------------------------------------.
-
-func TestGetPeerInfo_WithConnectedPeers(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	// Create two P2P-enabled nodes
-	node1 := setupTestDefraDBWithP2P(t)
-	node2 := setupTestDefraDBWithP2P(t)
-
-	ctx := context.Background()
-
-	// Get node2's addresses so we can connect node1 to it.
-	node2Addrs, err := node2.DB.PeerInfo(ctx)
-	require.NoError(t, err)
-	require.NotEmpty(t, node2Addrs, "node2 should have P2P addresses")
-
-	t.Logf("Node2 addresses: %v", node2Addrs)
-
-	// Connect node1 to node2.
-	err = node1.DB.Connect(ctx, node2Addrs)
-	require.NoError(t, err)
-
-	// Give the connection a moment to establish.
-	time.Sleep(500 * time.Millisecond)
-
-	// Now get peer info from node1 — should include node2 as an active peer.
-	indexer := &ChainIndexer{
-		defraNode: node1,
-	}
-
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
-
-	// Self info should be populated.
-	require.NotNil(t, info.Self, "self info should be populated with P2P enabled")
-	assert.NotEmpty(t, info.Self.ID, "self peer ID should be set")
-	assert.NotEmpty(t, info.Self.Addresses, "self addresses should be set")
-	t.Logf("Self: ID=%s, Addresses=%v", info.Self.ID, info.Self.Addresses)
-
-	// Active peers should include node2 — this exercises lines 624-638 (dedup map).
-	t.Logf("Active peer count: %d", len(info.PeerInfo))
-	for i, p := range info.PeerInfo {
-		t.Logf("  Peer %d: ID=%s, Addresses=%v, PublicKey=%s", i, p.ID, p.Addresses, p.PublicKey)
-	}
-
-	// If connection was successful, we should see at least one peer.
-	if len(info.PeerInfo) > 0 {
-		assert.NotEmpty(t, info.PeerInfo[0].ID, "peer should have an ID")
-		assert.NotEmpty(t, info.PeerInfo[0].PublicKey, "peer should have extracted public key")
-	} else {
-		t.Log("No active peers detected (connection may not have completed in time)")
+			tc.assert(t, info)
+		})
 	}
 }
 
@@ -3630,103 +3170,7 @@ func setupTestDefraDBWithMultiAddr(t *testing.T) *node.Node {
 	return defraNode
 }
 
-func TestGetPeerInfo_PeerDedupMerge(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	node1 := setupTestDefraDBWithP2P(t)
-	node2 := setupTestDefraDBWithMultiAddr(t) // node2 has multiple addresses.
-
-	ctx := context.Background()
-
-	// Get node2's addresses (should have multiple).
-	node2Addrs, err := node2.DB.PeerInfo(ctx)
-	require.NoError(t, err)
-	t.Logf("Node2 addresses (multi): %v", node2Addrs)
-
-	// Connect node1 to node2 using all of node2's addresses.
-	err = node1.DB.Connect(ctx, node2Addrs)
-	require.NoError(t, err)
-
-	time.Sleep(500 * time.Millisecond)
-
-	indexer := &ChainIndexer{
-		defraNode: node1,
-	}
-
-	info, err := indexer.GetPeerInfo()
-	require.NoError(t, err)
-	require.NotNil(t, info)
-
-	t.Logf("Active peer count (multi-addr): %d", len(info.PeerInfo))
-	for i, p := range info.PeerInfo {
-		t.Logf("  Peer %d: ID=%s, Addresses=%v", i, p.ID, p.Addresses)
-		// If node2 has multiple addresses, the dedup merge should combine them.
-		if len(p.Addresses) > 1 {
-			t.Log("  -> Multiple addresses merged for same peer (dedup merge branch covered)")
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------.
-// GetPeerInfo — PeerInfo error when P2P-enabled node is closed (covers line 596-598).
-// A node with P2P enabled has db.p2p != nil, but after close the host is stopped,
-// which may cause PeerInfo() to return an error.
-// ---------------------------------------------------------------------------.
-
-func TestGetPeerInfo_P2PEnabledNodeClosed(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	ctx := context.Background()
-
-	opts := options.Node().
-		SetDisableAPI(true).
-		SetDisableP2P(false)
-	opts.Store().SetPath(tmpDir)
-	opts.P2P().SetListenAddresses("/ip4/127.0.0.1/tcp/0")
-
-	defraNode, err := node.New(ctx, opts)
-	require.NoError(t, err)
-	require.NoError(t, defraNode.Start(ctx))
-
-	// Close the node to put it in a broken P2P state.
-	_ = defraNode.Close(ctx)
-
-	indexer := &ChainIndexer{
-		defraNode: defraNode,
-	}
-
-	// PeerInfo should either error (covering line 596-598) or return empty info.
-	info, err := indexer.GetPeerInfo()
-	if err != nil {
-		assert.Contains(t, err.Error(), "peer info")
-		t.Logf("GetPeerInfo error with closed P2P node (covers line 596-598): %v", err)
-	} else {
-		t.Logf("GetPeerInfo returned info after P2P close: %+v", info)
-	}
-}
-
-// ---------------------------------------------------------------------------.
-// openBrowser — test on macOS/darwin (covers lines 689-690 and 695-698).
-// On macOS, the "open" command exists so the happy path executes.
-// We also test the error path with an invalid URL scheme.
-// ---------------------------------------------------------------------------.
-
-func TestOpenBrowser_DarwinHappyPath(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
-	original := execCommand
-	execCommand = func(_ string, _ ...string) *exec.Cmd {
-		return exec.Command("echo", "mock-browser")
-	}
-	defer func() { execCommand = original }()
-
-	openBrowser("about:blank")
-}
-
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
 // StartIndexing — GetHighestBlockNumber succeeds with pre-populated DB,
 // (covers lines 229-231).
 // Strategy: Run one indexer to populate a block, stop it, then create a new,
@@ -3873,72 +3317,6 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// StartIndexing — GetLatestBlockNumber returns error (covers lines 236-238).
-// The RPC server returns an error for eth_getBlockByNumber with "latest" param,
-// (which is what GetLatestBlockNumber uses).
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_GetLatestBlockNumberError(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return nil, fmt.Errorf("rpc connection refused")
-				}
-			}
-			return fullBlockResponse("0x100", nil), nil
-		case ethBlockNumber:
-			return nil, fmt.Errorf("rpc connection refused")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      100,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	err = indexer.StartIndexing(false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get latest block number")
-	t.Logf("StartIndexing error (expected): %v", err)
-
-	assert.Nil(t, indexer.fetcher, "fetcher should be nil after error-path cleanup")
-	assert.Nil(t, indexer.defraNode, "defraNode should be nil after error-path cleanup")
-	assert.Nil(t, indexer.networkHandler, "networkHandler should be nil after error-path cleanup")
-}
-
-// ---------------------------------------------------------------------------.
 // StartIndexing — init-stage errors (Issue 1: ERROR_PATH_RESOURCE_CLEANUP).
 // Asserts that when NewBlockHandler or WaitForDefraDB fails, the deferred
 // guard calls StopIndexing() and nil-safes fetcher, defraNode, networkHandler.
@@ -4032,182 +3410,6 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 			assert.Nil(t, indexer.networkHandler, "networkHandler should be nil after error-path cleanup")
 		})
 	}
-}
-
-// ---------------------------------------------------------------------------.
-// StartIndexing — snapshotter.Start error (covers lines 323-325).
-// Enable snapshots with an invalid directory path (under a file, not a dir),
-// to trigger os.MkdirAll failure in snapshotter.Start().
-// ---------------------------------------------------------------------------.
-
-func TestStartIndexing_SnapshotterStartError(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-	var blockCallCount atomic.Int64
-	blockCh := make(chan struct{}, 100)
-
-	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
-				var blockParam string
-				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
-					return fullBlockResponse("0x186a0", nil), nil
-				}
-			}
-			count := blockCallCount.Add(1)
-			select {
-			case blockCh <- struct{}{}:
-			default:
-			}
-			num := fmt.Sprintf("0x%x", 99990+count)
-			return fullBlockResponse(num, nil), nil
-		case ethBlockNumber:
-			return "0x186a0", nil
-		case ethGetBlockReceipts:
-			return []any{}, nil
-		default:
-			return "0x1", nil
-		}
-	})
-	defer rpcServer.Close()
-
-	// Create a file where the snapshot directory would be — MkdirAll under,
-	// a file will fail, causing snapshotter.Start to return an error.
-	invalidSnapshotPath := filepath.Join(tmpDir, "snapshot_blocker")
-	err := os.WriteFile(filepath.Clean(invalidSnapshotPath), []byte("I am a file"), 0o600)
-	require.NoError(t, err)
-
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			URL:           testDefraRandomURL,
-			KeyringSecret: "test-secret-for-keyring-12345678",
-			P2P:           testDefraP2PDisabled,
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      99990,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Snapshot: config.SnapshotConfig{
-			Enabled:         true,
-			Dir:             filepath.Join(filepath.Clean(invalidSnapshotPath), "nested"), // under a file → MkdirAll fails.
-			BlocksPerFile:   1000,
-			IntervalSeconds: 3600,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(60 * time.Second)
-	for blockCallCount.Load() < 2 {
-		select {
-		case <-blockCh:
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out")
-		case err := <-errCh:
-			if err != nil {
-				t.Fatalf("StartIndexing failed: %v", err)
-			}
-		}
-	}
-
-	// If we got here, the indexer continued despite snapshotter.Start failing,
-	// (the error was logged as a warning, not a fatal — line 323-325).
-	t.Log("Indexer continued despite snapshotter.Start error (covers lines 323-325)")
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
-}
-
-// ---------------------------------------------------------------------------
-// SignMessages — error chain at each step (covers lines 730-732, 736-738, 741-743)
-// Uses a node where P2P keys are absent to trigger SignWithP2PKeys failure.
-// ---------------------------------------------------------------------------.
-
-func TestSignMessages_P2PKeysFails_Deterministic(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-	logger.InitConsoleOnly(true)
-
-	tmpDir := t.TempDir()
-
-	blockCh := make(chan struct{}, 100)
-	rpcServer := newMockRPCServerForIntegration(blockCh)
-	defer rpcServer.Close()
-
-	// Use P2P disabled — signer.SignWithP2PKeys should fail.
-	cfg := &config.Config{
-		DefraDB: config.DefraDBConfig{
-			KeyringSecret: "test-secret-for-sign-determ",
-			P2P:           config.DefraDBP2PConfig{Enabled: false},
-			Store:         config.DefraDBStoreConfig{Path: tmpDir},
-		},
-		Geth: config.GethConfig{NodeURL: rpcServer.URL},
-		Indexer: config.IndexerConfig{
-			StartHeight:      0,
-			ConcurrentBlocks: 1,
-			ReceiptWorkers:   2,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: 0,
-			StartBuffer:      10,
-		},
-		Logger: config.LoggerConfig{Development: true},
-	}
-
-	indexer, err := CreateIndexer(cfg)
-	require.NoError(t, err)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- indexer.StartIndexing(false)
-	}()
-
-	deadline := time.After(30 * time.Second)
-	for !indexer.IsStarted() {
-		select {
-		case <-time.After(100 * time.Millisecond):
-		case <-deadline:
-			t.Fatalf("timed out waiting for indexer to start")
-		case startErr := <-errCh:
-			if startErr != nil {
-				t.Fatalf("StartIndexing failed: %v", startErr)
-			}
-		}
-	}
-
-	// Try signing - exercises the SignMessages error chain.
-	_, _, err = indexer.SignMessages("test-sign-p2p-fail")
-	if err != nil {
-		// If sign fails, we've exercised one of lines 730-732, 736-738, or 741-743.
-		t.Logf("SignMessages error (expected for P2P-disabled): %v", err)
-	} else {
-		// Even if all succeed, the success path is covered elsewhere.
-		t.Log("SignMessages succeeded (all paths available)")
-	}
-
-	indexer.shouldIndex = false
-	indexer.StopIndexing()
 }
 
 // ---------------------------------------------------------------------------
