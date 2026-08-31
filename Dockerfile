@@ -1,168 +1,50 @@
-# Multi-stage build for Shinzo Network Ethereum Generator.
-# Stage 1: Builder stage
-FROM golang:1.26 AS builder
+# Multi-stage build for the Shinzo Network generator client.
+#
+# CGO must stay enabled: the binary pulls in lens/host-go's wasmtime runtime,
+# which is cgo-only. wasmtime-go vendors its own prebuilt static libraries, so
+# nothing WASM-related needs installing here — no wasmer, no wasmtime CLI, no
+# headers. Verified with `go list -deps ./cmd/block_poster`: wasmtime-go and
+# wazero are in the graph, wasmer is not in go.mod at all.
 
-# Build arguments
-ARG BUILD_DATE
-ARG VCS_REF
-ARG VERSION=dev
-ARG BUILD_TAGS
+# Stage 1: build
+FROM golang:1.26-bookworm AS builder
 
-# Install build dependencies including WASM runtimes
-RUN apt-get update && apt-get install -y \
-    git \
-    ca-certificates \
-    tzdata \
-    make \
-    build-essential \
-    pkg-config \
-    wget \
-    tar \
-    xz-utils \
-    bash \
-    coreutils \
-    libgcc-s1 \
-    libstdc++6 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
 WORKDIR /app
 
-# Copy go mod files first for better caching
+# Cache module downloads separately from the source tree.
 COPY go.mod go.sum ./
+RUN go mod download
 
-# Download dependencies (this should be cached if go.mod/go.sum don't change)
-RUN go mod download && go mod verify
-
-# Install WASM runtimes in builder stage (where commands work properly)
-RUN set -ex && \
-    echo "Installing WASM runtimes in builder stage" && \
-    # Create directories
-    mkdir -p /usr/local/include /usr/local/lib /usr/local/bin && \
-    ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        WASMTIME_ARCH="aarch64"; \
-    else \
-        WASMTIME_ARCH="x86_64"; \
-    fi && \
-    # Install Wasmtime
-    wget -O wasmtime.tar.xz "https://github.com/bytecodealliance/wasmtime/releases/download/v15.0.1/wasmtime-v15.0.1-${WASMTIME_ARCH}-linux.tar.xz" && \
-    tar -xf wasmtime.tar.xz && \
-    mv "wasmtime-v15.0.1-${WASMTIME_ARCH}-linux/wasmtime" /usr/local/bin/ && \
-    chmod +x /usr/local/bin/wasmtime && \
-    rm -rf wasmtime* && \
-    # Install Wasmer (use correct URL format)
-    if [ "$WASMTIME_ARCH" = "x86_64" ]; then \
-        WASMER_URL="https://github.com/wasmerio/wasmer/releases/download/v4.2.5/wasmer-linux-amd64.tar.gz"; \
-    else \
-        WASMER_URL="https://github.com/wasmerio/wasmer/releases/download/v4.2.5/wasmer-linux-aarch64.tar.gz"; \
-    fi && \
-    wget -O wasmer.tar.gz "$WASMER_URL" && \
-    tar -xf wasmer.tar.gz && \
-    mv bin/wasmer /usr/local/bin/ && \
-    mv lib/* /usr/local/lib/ && \
-    mv include/* /usr/local/include/ && \
-    chmod +x /usr/local/bin/wasmer && \
-    rm -rf wasmer.tar.gz bin lib include && \
-    echo "WASM runtimes installed in builder stage"
-
-# Set CGO flags for WASM support
-ENV CGO_ENABLED=1
-ENV CGO_CFLAGS="-I/usr/local/include"
-ENV CGO_LDFLAGS="-L/usr/local/lib"
-
-# Copy source code
 COPY . .
 
-# Build the application (exclude Wasmer runtime, use only Wazero)
-RUN set -ex && \
-    BUILD_DATE=$(date -u -Iseconds | sed 's/+00:00/Z/') && \
-    VCS_REF=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
-    echo "Building for VERSION=${VERSION}, BUILD_DATE=${BUILD_DATE}, VCS_REF=${VCS_REF}, BUILD_TAGS=${BUILD_TAGS}" && \
-    mkdir -p bin && \
-    CGO_ENABLED=1 go build -v \
-    -ldflags="-w -s -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.gitCommit=${VCS_REF}" \
-    ${BUILD_TAGS:+-tags="${BUILD_TAGS}"} \
-    -o bin/block_poster \
-    cmd/block_poster/main.go && \
-    echo "Build completed, checking binary:" && \
-    ls -la bin/ && \
-    echo "Binary created successfully"
+# gcc and git already ship in the golang image; wasmtime links statically.
+RUN CGO_ENABLED=1 go build -ldflags="-w -s" -o /out/block_poster ./cmd/block_poster
 
-# Stage 2: Runtime stage
-FROM ubuntu:24.04
+# Stage 2: runtime
+# bookworm-slim matches the builder's glibc exactly, which a cgo binary needs.
+FROM debian:bookworm-slim
 
-# Re-declare build arguments for this stage
-ARG BUILD_DATE
-ARG VCS_REF
-ARG VERSION=dev
-
-# Labels for metadata
-LABEL maintainer="Shinzo Network <team@shinzo.network>" \
-      org.opencontainers.image.title="Shinzo Network Generator" \
-      org.opencontainers.image.description="Ethereum blockchain generator for Shinzo Network" \
-      org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.source="https://github.com/shinzonetwork/shinzo-generator-client"
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    tzdata \
-    curl \
-    jq \
-    dumb-init \
-    libc6 \
-    libgcc-s1 \
-    libstdc++6 \
-    && apt-get upgrade -y \
-    && apt-get clean \
+# ca-certificates for TLS to the RPC node; curl only for the compose healthcheck.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy WASM runtimes from builder stage (avoids command issues in runtime)
-COPY --from=builder /usr/local/bin/wasmtime /usr/local/bin/wasmtime
-COPY --from=builder /usr/local/bin/wasmer /usr/local/bin/wasmer
-COPY --from=builder /usr/local/lib/ /usr/local/lib/
-COPY --from=builder /usr/local/include/ /usr/local/include/
+# uid/gid 1001 is what docker-compose-prod.yml runs as and what the
+# ~/shinzo-data volumes are chowned to.
+RUN groupadd -g 1001 shinzo && useradd -u 1001 -g shinzo -m shinzo
 
-# Set library path for WASM runtimes
-ENV LD_LIBRARY_PATH="/usr/local/lib"
-
-# Create non-root user for security
-RUN groupadd -g 1001 shinzo-generator && \
-    useradd -u 1001 -g shinzo-generator -m -s /bin/bash shinzo-generator
-
-# Set working directory
 WORKDIR /app
 
-# Copy binary from builder stage
-COPY --from=builder /app/bin/block_poster /app/block_poster
+COPY --from=builder /out/block_poster /app/block_poster
+# GraphQL collections are go:embed-ed into the binary; only the YAML is needed.
+COPY config/config.yaml /app/config/config.yaml
 
-# Copy configuration files
-COPY --from=builder /app/config/ /app/config/
-COPY --from=builder /app/pkg/schema/ /app/pkg/schema/
+RUN mkdir -p /app/.defra && chown -R shinzo:shinzo /app
 
-# Create necessary directories with proper permissions
-RUN mkdir -p /app/.defra /app/logs /tmp && \
-    touch /app/logs/logfile && \
-    chown -R shinzo-generator:shinzo-generator /app && \
-    chmod -R 755 /app && \
-    chmod +x /app/block_poster
+USER shinzo
 
-# Switch to non-root user
-USER shinzo-generator
-
-# Health check with better error handling
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
-
-# Expose ports health, p2p, graphql
+# health, p2p, graphql
 EXPOSE 8080 9171 9181
 
-# Use dumb-init for proper signal handling
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-
-# Default command
 CMD ["./block_poster", "-config", "config/config.yaml"]
