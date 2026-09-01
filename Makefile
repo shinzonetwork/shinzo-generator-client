@@ -92,6 +92,8 @@ coverage:
 lint:
 	@echo "🔍 Running golangci-lint..."
 	@golangci-lint run ./...
+	@echo "📏 Checking file sizes..."
+	@./scripts/check_loc.sh
 
 lint-fix:
 	@echo "🔧 Running golangci-lint with auto-fix..."
