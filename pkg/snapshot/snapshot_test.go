@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -64,204 +65,200 @@ func TestNew_StopChanIsOpen(t *testing.T) {
 // ListSnapshots
 // ---------------------------------------------------------------------------
 
-func TestListSnapshots_EmptyDirectory(t *testing.T) {
-	s, _ := newTestSnapshotter(t)
-	infos := s.ListSnapshots()
-	assert.Empty(t, infos)
-}
-
-func TestListSnapshots_ValidSnapshotFiles(t *testing.T) {
-	s, dir := newTestSnapshotter(t)
-
-	// Create valid snapshot files
-	files := []string{
-		"snapshot_1000_1999.kvsnap.gz",
-		"snapshot_2000_2999.kvsnap.gz",
-		"snapshot_3000_3999.kvsnap.gz",
+func TestListSnapshots(t *testing.T) {
+	tests := []struct {
+		name         string
+		useCustomDir bool
+		files        []string
+		fileContent  string
+		wantNames    []string
+		wantStarts   []int64
+		wantEnds     []int64
+		checkExtra   func(t *testing.T, infos []SnapshotInfo)
+	}{
+		{
+			name:       "empty directory returns no infos",
+			wantNames:  []string{},
+			wantStarts: []int64{},
+		},
+		{
+			name: "valid snapshot files are parsed and sorted",
+			files: []string{
+				"snapshot_1000_1999.kvsnap.gz",
+				"snapshot_2000_2999.kvsnap.gz",
+				"snapshot_3000_3999.kvsnap.gz",
+			},
+			fileContent: "test data",
+			wantNames: []string{
+				"snapshot_1000_1999.kvsnap.gz",
+				"snapshot_2000_2999.kvsnap.gz",
+				"snapshot_3000_3999.kvsnap.gz",
+			},
+			wantStarts: []int64{1000, 2000, 3000},
+			wantEnds:   []int64{1999, 2999, 3999},
+		},
+		{
+			name:        "size and modtime come from stat",
+			files:       []string{"snapshot_5000_5999.kvsnap.gz"},
+			fileContent: "some snapshot content here",
+			wantNames:   []string{"snapshot_5000_5999.kvsnap.gz"},
+			wantStarts:  []int64{5000},
+			wantEnds:    []int64{5999},
+			checkExtra: func(t *testing.T, infos []SnapshotInfo) {
+				assert.Equal(t, int64(len("some snapshot content here")), infos[0].SizeBytes)
+				assert.False(t, infos[0].CreatedAt.IsZero())
+				assert.WithinDuration(t, time.Now(), infos[0].CreatedAt, 5*time.Second)
+			},
+		},
+		{
+			name: "malformed names are skipped",
+			files: []string{
+				"snapshot_abc_def.kvsnap.gz", // non-numeric
+				"snapshot_1000.kvsnap.gz",    // only 2 parts after split
+				"random_file.txt",            // not matching glob
+				"snapshot_1_2_3.kvsnap.gz",   // too many parts (4 after split)
+				"snapshot_.kvsnap.gz",        // missing numbers
+				"snapshot_100_199.kvsnap.gz",
+			},
+			fileContent: "data",
+			wantNames:   []string{"snapshot_100_199.kvsnap.gz"},
+			wantStarts:  []int64{100},
+			wantEnds:    []int64{199},
+		},
+		{
+			name: "files are sorted by start block",
+			files: []string{
+				"snapshot_9000_9999.kvsnap.gz",
+				"snapshot_1000_1999.kvsnap.gz",
+				"snapshot_5000_5999.kvsnap.gz",
+			},
+			fileContent: "data",
+			wantNames: []string{
+				"snapshot_1000_1999.kvsnap.gz",
+				"snapshot_5000_5999.kvsnap.gz",
+				"snapshot_9000_9999.kvsnap.gz",
+			},
+			wantStarts: []int64{1000, 5000, 9000},
+			wantEnds:   []int64{1999, 5999, 9999},
+		},
+		{
+			name:         "directory does not exist",
+			useCustomDir: true,
+			wantNames:    []string{},
+			wantStarts:   []int64{},
+		},
+		{
+			name:        "large block numbers parse correctly",
+			files:       []string{"snapshot_23700000_23700999.kvsnap.gz"},
+			fileContent: "data",
+			wantNames:   []string{"snapshot_23700000_23700999.kvsnap.gz"},
+			wantStarts:  []int64{23700000},
+			wantEnds:    []int64{23700999},
+		},
 	}
-	for _, f := range files {
-		err := os.WriteFile(filepath.Join(dir, f), []byte("test data"), 0o600)
-		require.NoError(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, dir := newTestSnapshotter(t)
+			if tt.useCustomDir {
+				s = New(&config.SnapshotConfig{Dir: "/nonexistent/path/snapshots"}, nil, nil)
+			}
+			for _, f := range tt.files {
+				err := os.WriteFile(filepath.Join(dir, f), []byte(tt.fileContent), 0o600)
+				require.NoError(t, err)
+			}
+
+			infos := s.ListSnapshots()
+			require.Len(t, infos, len(tt.wantNames))
+			for i, wantName := range tt.wantNames {
+				assert.Equal(t, wantName, infos[i].Filename)
+				assert.Equal(t, tt.wantStarts[i], infos[i].StartBlock)
+				if tt.wantEnds != nil {
+					assert.Equal(t, tt.wantEnds[i], infos[i].EndBlock)
+				}
+			}
+			if tt.checkExtra != nil {
+				tt.checkExtra(t, infos)
+			}
+		})
 	}
-
-	infos := s.ListSnapshots()
-	require.Len(t, infos, 3)
-
-	// Verify sorting by StartBlock ASC
-	assert.Equal(t, int64(1000), infos[0].StartBlock)
-	assert.Equal(t, int64(1999), infos[0].EndBlock)
-	assert.Equal(t, "snapshot_1000_1999.kvsnap.gz", infos[0].Filename)
-
-	assert.Equal(t, int64(2000), infos[1].StartBlock)
-	assert.Equal(t, int64(2999), infos[1].EndBlock)
-
-	assert.Equal(t, int64(3000), infos[2].StartBlock)
-	assert.Equal(t, int64(3999), infos[2].EndBlock)
-}
-
-func TestListSnapshots_SizeAndModTime(t *testing.T) {
-	s, dir := newTestSnapshotter(t)
-
-	content := []byte("some snapshot content here")
-	fname := "snapshot_5000_5999.kvsnap.gz"
-	err := os.WriteFile(filepath.Join(dir, fname), content, 0o600)
-	require.NoError(t, err)
-
-	infos := s.ListSnapshots()
-	require.Len(t, infos, 1)
-
-	assert.Equal(t, int64(len(content)), infos[0].SizeBytes)
-	assert.False(t, infos[0].CreatedAt.IsZero())
-	assert.WithinDuration(t, time.Now(), infos[0].CreatedAt, 5*time.Second)
-}
-
-func TestListSnapshots_BadNamingSkipped(t *testing.T) {
-	s, dir := newTestSnapshotter(t)
-
-	// Files that don't match the expected pattern
-	badFiles := []string{
-		"snapshot_abc_def.kvsnap.gz", // non-numeric
-		"snapshot_1000.kvsnap.gz",    // only 2 parts after split
-		"random_file.txt",            // not matching glob
-		"snapshot_1_2_3.kvsnap.gz",   // too many parts (4 after split)
-		"snapshot_.kvsnap.gz",        // missing numbers
-	}
-	for _, f := range badFiles {
-		err := os.WriteFile(filepath.Join(dir, f), []byte("data"), 0o600)
-		require.NoError(t, err)
-	}
-
-	// Also add one valid file
-	err := os.WriteFile(filepath.Join(dir, "snapshot_100_199.kvsnap.gz"), []byte("ok"), 0o600)
-	require.NoError(t, err)
-
-	infos := s.ListSnapshots()
-	require.Len(t, infos, 1)
-	assert.Equal(t, int64(100), infos[0].StartBlock)
-	assert.Equal(t, int64(199), infos[0].EndBlock)
-}
-
-func TestListSnapshots_SortedByStartBlock(t *testing.T) {
-	s, dir := newTestSnapshotter(t)
-
-	// Create files in reverse order
-	files := []string{
-		"snapshot_9000_9999.kvsnap.gz",
-		"snapshot_1000_1999.kvsnap.gz",
-		"snapshot_5000_5999.kvsnap.gz",
-	}
-	for _, f := range files {
-		err := os.WriteFile(filepath.Join(dir, f), []byte("data"), 0o600)
-		require.NoError(t, err)
-	}
-
-	infos := s.ListSnapshots()
-	require.Len(t, infos, 3)
-	assert.Equal(t, int64(1000), infos[0].StartBlock)
-	assert.Equal(t, int64(5000), infos[1].StartBlock)
-	assert.Equal(t, int64(9000), infos[2].StartBlock)
-}
-
-func TestListSnapshots_DirectoryDoesNotExist(t *testing.T) {
-	cfg := &config.SnapshotConfig{Dir: "/nonexistent/path/snapshots"}
-	s := New(cfg, nil, nil)
-	infos := s.ListSnapshots()
-	assert.Empty(t, infos)
 }
 
 // ---------------------------------------------------------------------------
 // GetSnapshotPath
 // ---------------------------------------------------------------------------
 
-func TestGetSnapshotPath_ValidFile(t *testing.T) {
-	s, dir := newTestSnapshotter(t)
-
-	fname := "snapshot_1000_1999.kvsnap.gz"
-	err := os.WriteFile(filepath.Join(dir, fname), []byte("data"), 0o600)
-	require.NoError(t, err)
-
-	result := s.GetSnapshotPath(fname)
-	assert.Equal(t, filepath.Join(dir, fname), result)
-}
-
-func TestGetSnapshotPath_FileDoesNotExist(t *testing.T) {
-	s, _ := newTestSnapshotter(t)
-	result := s.GetSnapshotPath("snapshot_9999_10998.kvsnap.gz")
-	assert.Equal(t, "", result)
-}
-
-func TestGetSnapshotPath_PathTraversal(t *testing.T) {
-	s, _ := newTestSnapshotter(t)
-
-	traversalAttempts := []string{
-		"../etc/passwd",
-		"../../secret.txt",
-		"subdir/file.txt",
-		"../snapshot_1000_1999.kvsnap.gz",
-		"./snapshot_1000_1999.kvsnap.gz",
+func TestGetSnapshotPath(t *testing.T) {
+	tests := []struct {
+		name       string
+		filename   string
+		createFile bool
+	}{
+		{name: "existing snapshot file returns its path", filename: "snapshot_1000_1999.kvsnap.gz", createFile: true},
+		{name: "file does not exist returns empty", filename: "snapshot_9999_10998.kvsnap.gz"},
+		{name: "parent traversal rejected", filename: "../etc/passwd"},
+		{name: "grandparent traversal rejected", filename: "../../secret.txt"},
+		{name: "subdirectory filename rejected", filename: "subdir/file.txt"},
+		{name: "traversal to existing-style snapshot name rejected", filename: "../snapshot_1000_1999.kvsnap.gz"},
+		{name: "dot-prefixed relative path rejected", filename: "./snapshot_1000_1999.kvsnap.gz"},
+		{name: "base filename only resolves", filename: "myfile.kvsnap.gz", createFile: true},
+		{name: "hidden dotfile resolves", filename: ".hidden_snapshot.kvsnap.gz", createFile: true},
+		{
+			// filepath.Base("") returns ".", which != "", so it should return ""
+			name: "empty filename returns empty",
+		},
 	}
 
-	for _, attempt := range traversalAttempts {
-		result := s.GetSnapshotPath(attempt)
-		assert.Equal(t, "", result, "path traversal attempt %q should return empty string", attempt)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, dir := newTestSnapshotter(t)
+			if tt.createFile {
+				err := os.WriteFile(filepath.Join(dir, tt.filename), []byte("data"), 0o600)
+				require.NoError(t, err)
+			}
+
+			result := s.GetSnapshotPath(tt.filename)
+			if tt.createFile {
+				assert.Equal(t, filepath.Join(dir, tt.filename), result)
+			} else {
+				assert.Equal(t, "", result)
+			}
+		})
 	}
-}
-
-func TestGetSnapshotPath_BaseFilenameOnly(t *testing.T) {
-	s, dir := newTestSnapshotter(t)
-
-	// Create a file
-	fname := "myfile.kvsnap.gz"
-	err := os.WriteFile(filepath.Join(dir, fname), []byte("data"), 0o600)
-	require.NoError(t, err)
-
-	// Base filename should work
-	result := s.GetSnapshotPath(fname)
-	assert.Equal(t, filepath.Join(dir, fname), result)
-}
-
-func TestGetSnapshotPath_EmptyFilename(t *testing.T) {
-	s, _ := newTestSnapshotter(t)
-	// filepath.Base("") returns ".", which != "", so it should return ""
-	result := s.GetSnapshotPath("")
-	assert.Equal(t, "", result)
 }
 
 // ---------------------------------------------------------------------------
 // GetMetrics
 // ---------------------------------------------------------------------------
 
-func TestGetMetrics_InitialState(t *testing.T) {
-	cfg := &config.SnapshotConfig{Enabled: true, Dir: "/tmp/test"}
-	s := New(cfg, nil, nil)
+func TestGetMetrics(t *testing.T) {
+	tests := []struct {
+		name     string
+		enabled  bool
+		setLast  int64 // value pre-seeded into lastSnapshotBlock
+		setTotal int   // value pre-seeded into totalSnapshots
+	}{
+		{name: "initial state", enabled: true},
+		{name: "disabled config", enabled: false},
+		{name: "after manual update", enabled: true, setLast: 5999, setTotal: 3},
+	}
 
-	m := s.GetMetrics()
-	assert.True(t, m.Enabled)
-	assert.Equal(t, int64(0), m.LastSnapshotBlock)
-	assert.Equal(t, 0, m.TotalSnapshots)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.SnapshotConfig{Enabled: tt.enabled, Dir: "/tmp/test"}
+			s := New(cfg, nil, nil)
 
-func TestGetMetrics_DisabledConfig(t *testing.T) {
-	cfg := &config.SnapshotConfig{Enabled: false, Dir: "/tmp/test"}
-	s := New(cfg, nil, nil)
+			s.mu.Lock()
+			s.lastSnapshotBlock = tt.setLast
+			s.totalSnapshots = tt.setTotal
+			s.mu.Unlock()
 
-	m := s.GetMetrics()
-	assert.False(t, m.Enabled)
-}
-
-func TestGetMetrics_AfterManualUpdate(t *testing.T) {
-	cfg := &config.SnapshotConfig{Enabled: true, Dir: "/tmp/test"}
-	s := New(cfg, nil, nil)
-
-	// Simulate internal state changes
-	s.mu.Lock()
-	s.lastSnapshotBlock = 5999
-	s.totalSnapshots = 3
-	s.mu.Unlock()
-
-	m := s.GetMetrics()
-	assert.Equal(t, int64(5999), m.LastSnapshotBlock)
-	assert.Equal(t, 3, m.TotalSnapshots)
+			m := s.GetMetrics()
+			assert.Equal(t, tt.enabled, m.Enabled)
+			assert.Equal(t, tt.setLast, m.LastSnapshotBlock)
+			assert.Equal(t, tt.setTotal, m.TotalSnapshots)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -389,128 +386,90 @@ func TestStart_ScanExistingSnapshots(t *testing.T) {
 	assert.Equal(t, 3, m.TotalSnapshots)
 }
 
-// ---------------------------------------------------------------------------
-// scanExisting (tested indirectly through Start)
-// ---------------------------------------------------------------------------
-
-func TestScanExisting_NoFiles(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: dir}
-	s := New(cfg, nil, nil)
-	s.scanExisting()
-
-	assert.Equal(t, int64(0), s.lastSnapshotBlock)
-	assert.Equal(t, 0, s.totalSnapshots)
-}
-
-func TestScanExisting_FindsHighestBlock(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: dir}
-
-	files := []string{
-		"snapshot_1000_1999.kvsnap.gz",
-		"snapshot_5000_5999.kvsnap.gz",
-		"snapshot_3000_3999.kvsnap.gz",
-	}
-	for _, f := range files {
-		err := os.WriteFile(filepath.Join(dir, f), []byte("data"), 0o600)
-		require.NoError(t, err)
-	}
-
-	s := New(cfg, nil, nil)
-	s.scanExisting()
-
-	assert.Equal(t, int64(5999), s.lastSnapshotBlock)
-	assert.Equal(t, 3, s.totalSnapshots)
-}
-
-func TestScanExisting_MalformedFilesIgnored(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: dir}
-
-	err := os.WriteFile(filepath.Join(dir, "snapshot_abc_def.kvsnap.gz"), []byte("data"), 0o600)
-	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(dir, "snapshot_1000_1999.kvsnap.gz"), []byte("data"), 0o600)
-	require.NoError(t, err)
-
-	s := New(cfg, nil, nil)
-	s.scanExisting()
-
-	// Both files match the glob, so totalSnapshots = 2, but highest = 1999
-	assert.Equal(t, int64(1999), s.lastSnapshotBlock)
-	assert.Equal(t, 2, s.totalSnapshots)
-}
-
-// ---------------------------------------------------------------------------
-// Metrics struct
-// ---------------------------------------------------------------------------
-
-func TestMetrics_JSONSerialization(t *testing.T) {
-	m := Metrics{
-		Enabled:           true,
-		LastSnapshotBlock: 9999,
-		TotalSnapshots:    5,
+func TestScanExisting(t *testing.T) {
+	tests := []struct {
+		name      string
+		dir       string // empty means a fresh t.TempDir()
+		files     []string
+		wantLast  int64
+		wantTotal int
+	}{
+		{name: "no files"},
+		{
+			name: "finds highest block",
+			files: []string{
+				"snapshot_1000_1999.kvsnap.gz",
+				"snapshot_5000_5999.kvsnap.gz",
+				"snapshot_3000_3999.kvsnap.gz",
+			},
+			wantLast:  5999,
+			wantTotal: 3,
+		},
+		{
+			// Both files match the glob, so totalSnapshots = 2, but highest = 1999
+			name:      "malformed files ignored",
+			files:     []string{"snapshot_abc_def.kvsnap.gz", "snapshot_1000_1999.kvsnap.gz"},
+			wantLast:  1999,
+			wantTotal: 2,
+		},
+		{
+			// Should gracefully handle the glob error and set defaults
+			name: "non-existent dir",
+			dir:  "/nonexistent/path/snapshots",
+		},
 	}
 
-	data, err := json.Marshal(m)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := tt.dir
+			if dir == "" {
+				dir = t.TempDir()
+			}
+			for _, f := range tt.files {
+				err := os.WriteFile(filepath.Join(dir, f), []byte("data"), 0o600)
+				require.NoError(t, err)
+			}
 
-	var decoded Metrics
-	err = json.Unmarshal(data, &decoded)
-	require.NoError(t, err)
+			s := New(&config.SnapshotConfig{Dir: dir}, nil, nil)
+			s.scanExisting()
 
-	assert.Equal(t, m, decoded)
+			assert.Equal(t, tt.wantLast, s.lastSnapshotBlock)
+			assert.Equal(t, tt.wantTotal, s.totalSnapshots)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
-// SnapshotInfo struct
+// JSON round-trip serialization
 // ---------------------------------------------------------------------------
 
-func TestSnapshotInfo_JSONSerialization(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	info := SnapshotInfo{
-		Filename:   "snapshot_1000_1999.kvsnap.gz",
-		StartBlock: 1000,
-		EndBlock:   1999,
-		SizeBytes:  12345,
-		CreatedAt:  now,
+func TestJSONRoundTrip(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+	}{
+		{name: "Metrics", value: &Metrics{Enabled: true, LastSnapshotBlock: 9999, TotalSnapshots: 5}},
+		{name: "SnapshotInfo", value: &SnapshotInfo{
+			Filename:   "snapshot_1000_1999.kvsnap.gz",
+			StartBlock: 1000,
+			EndBlock:   1999,
+			SizeBytes:  12345,
+			CreatedAt:  time.Now().UTC().Truncate(time.Second),
+		}},
 	}
 
-	data, err := json.Marshal(info)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.value)
+			require.NoError(t, err)
 
-	var decoded SnapshotInfo
-	err = json.Unmarshal(data, &decoded)
-	require.NoError(t, err)
+			decoded := reflect.New(reflect.TypeOf(tt.value).Elem()).Interface()
+			err = json.Unmarshal(data, decoded)
+			require.NoError(t, err)
 
-	assert.Equal(t, info.Filename, decoded.Filename)
-	assert.Equal(t, info.StartBlock, decoded.StartBlock)
-	assert.Equal(t, info.EndBlock, decoded.EndBlock)
-	assert.Equal(t, info.SizeBytes, decoded.SizeBytes)
-}
-
-func TestGetSnapshotPath_DotFile(t *testing.T) {
-	s, dir := newTestSnapshotter(t)
-
-	fname := ".hidden_snapshot.kvsnap.gz"
-	err := os.WriteFile(filepath.Join(dir, fname), []byte("data"), 0o600)
-	require.NoError(t, err)
-
-	result := s.GetSnapshotPath(fname)
-	assert.Equal(t, filepath.Join(dir, fname), result)
-}
-
-func TestListSnapshots_LargeBlockNumbers(t *testing.T) {
-	s, dir := newTestSnapshotter(t)
-
-	fname := "snapshot_23700000_23700999.kvsnap.gz"
-	err := os.WriteFile(filepath.Join(dir, fname), []byte("data"), 0o600)
-	require.NoError(t, err)
-
-	infos := s.ListSnapshots()
-	require.Len(t, infos, 1)
-	assert.Equal(t, int64(23700000), infos[0].StartBlock)
-	assert.Equal(t, int64(23700999), infos[0].EndBlock)
+			assert.Equal(t, tt.value, decoded)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -548,69 +507,71 @@ func TestCheckAndSnapshot_InsufficientBlocks(t *testing.T) {
 	assert.Empty(t, files)
 }
 
-func TestCheckAndSnapshot_SmallBlocksPerFile(t *testing.T) {
-	s, _, ctx := newTestSnapshotterWithDB(t, 3, 3, 7)
+func TestCheckAndSnapshot_Sequences(t *testing.T) {
+	tests := []struct {
+		name          string
+		blocksPerFile int64
+		start, end    int64
+		wantLast      []int64       // expected lastSnapshotBlock after each checkAndSnapshot call
+		setLast       map[int]int64 // optional lastSnapshotBlock override applied before call i
+		wantTotal     int
+		wantFiles     []string
+	}{
+		{
+			// blocks_per_file=3 with blocks 3-7 (non-zero start avoids the
+			// lowest==0 early return): [3..5] completes; [6..8] cannot.
+			name:          "small blocks per file stops at incomplete range",
+			blocksPerFile: 3, start: 3, end: 7,
+			wantLast:  []int64{5, 5},
+			wantTotal: 1,
+			wantFiles: []string{"snapshot_3_5.kvsnap.gz"},
+		},
+		{
+			name:          "multiple rounds",
+			blocksPerFile: 2, start: 10, end: 15,
+			wantLast:  []int64{11, 13, 15},
+			wantTotal: 3,
+			wantFiles: []string{"snapshot_10_11.kvsnap.gz", "snapshot_12_13.kvsnap.gz", "snapshot_14_15.kvsnap.gz"},
+		},
+		{
+			// Resetting lastSnapshotBlock below lowest exercises the
+			// rangeStart < lowest skip-ahead path: re-aligns to [20..24].
+			name:          "gap skip ahead realigns to lowest",
+			blocksPerFile: 5, start: 20, end: 29,
+			wantLast:  []int64{24, 29, 24},
+			setLast:   map[int]int64{2: 4},
+			wantTotal: 3,
+		},
+		{
+			name:          "continuation from last snapshot",
+			blocksPerFile: 5, start: 10, end: 19,
+			wantLast:  []int64{19},
+			setLast:   map[int]int64{0: 14},
+			wantTotal: 1,
+			wantFiles: []string{"snapshot_15_19.kvsnap.gz"},
+		},
+	}
 
-	// Insert blocks 3-7 (5 blocks). We start at 3 because checkAndSnapshot
-	// treats lowest==0 as "no blocks in DB" and returns early.
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, _, ctx := newTestSnapshotterWithDB(t, tt.blocksPerFile, tt.start, tt.end)
 
-	snapshotDir := s.cfg.Dir
-	// blocks_per_file=3: first aligned range at or above 3 is [3..5]
+			for i, want := range tt.wantLast {
+				if override, ok := tt.setLast[i]; ok {
+					s.mu.Lock()
+					s.lastSnapshotBlock = override
+					s.mu.Unlock()
+				}
+				require.NoError(t, s.checkAndSnapshot(ctx))
+				assert.Equal(t, want, s.lastSnapshotBlock)
+			}
 
-	// First call should create snapshot for blocks 3-5
-	err := s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-
-	m := s.GetMetrics()
-	assert.Equal(t, int64(5), m.LastSnapshotBlock)
-	assert.Equal(t, 1, m.TotalSnapshots)
-
-	// Verify file exists
-	expectedFile := filepath.Join(snapshotDir, "snapshot_3_5.kvsnap.gz")
-	_, err = os.Stat(expectedFile)
-	require.NoError(t, err, "snapshot file for blocks 3-5 should exist")
-
-	// Second call should create snapshot for blocks 6-8, but we only have up to 7
-	// so it should not create a new snapshot
-	err = s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-	m = s.GetMetrics()
-	assert.Equal(t, int64(5), m.LastSnapshotBlock, "should not advance when range is incomplete")
-	assert.Equal(t, 1, m.TotalSnapshots)
-}
-
-func TestCheckAndSnapshot_MultipleRounds(t *testing.T) {
-	s, _, ctx := newTestSnapshotterWithDB(t, 2, 10, 15)
-
-	// Insert blocks 10-15 (6 blocks) with blocks_per_file=2.
-	// Starting at 10 avoids the lowest==0 early return in checkAndSnapshot.
-
-	snapshotDir := s.cfg.Dir
-
-	// First call: snapshot blocks 10-11
-	err := s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(11), s.lastSnapshotBlock)
-
-	// Second call: snapshot blocks 12-13
-	err = s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(13), s.lastSnapshotBlock)
-
-	// Third call: snapshot blocks 14-15
-	err = s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(15), s.lastSnapshotBlock)
-	assert.Equal(t, 3, s.totalSnapshots)
-
-	// Verify all 3 files exist
-	for _, name := range []string{
-		"snapshot_10_11.kvsnap.gz",
-		"snapshot_12_13.kvsnap.gz",
-		"snapshot_14_15.kvsnap.gz",
-	} {
-		_, err := os.Stat(filepath.Join(snapshotDir, name))
-		require.NoError(t, err, "snapshot %s should exist", name)
+			assert.Equal(t, tt.wantTotal, s.totalSnapshots)
+			for _, name := range tt.wantFiles {
+				_, err := os.Stat(filepath.Join(s.cfg.Dir, name))
+				require.NoError(t, err, "snapshot %s should exist", name)
+			}
+		})
 	}
 }
 
@@ -667,38 +628,6 @@ func TestCheckAndSnapshot_GapHandling(t *testing.T) {
 	err := s.checkAndSnapshot(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1004), s.lastSnapshotBlock)
-}
-
-// ---------------------------------------------------------------------------
-// checkAndSnapshot: gap skip path (rangeStart < lowest)
-// ---------------------------------------------------------------------------
-
-func TestCheckAndSnapshot_GapSkipAhead(t *testing.T) {
-	s, _, ctx := newTestSnapshotterWithDB(t, 5, 20, 29)
-
-	// Insert blocks 20-29 with blocks_per_file=5
-
-	// First snapshot: aligned to [20..24]
-	err := s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(24), s.lastSnapshotBlock)
-
-	// Second snapshot: [25..29]
-	err = s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(29), s.lastSnapshotBlock)
-
-	// Now simulate a gap: set lastSnapshotBlock to 4 (below lowest=20)
-	// This triggers the rangeStart < lowest path
-	s.mu.Lock()
-	s.lastSnapshotBlock = 4
-	s.mu.Unlock()
-
-	// checkAndSnapshot should detect the gap and skip ahead
-	err = s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-	// It should re-align to [20..24] and create a snapshot
-	assert.Equal(t, int64(24), s.lastSnapshotBlock)
 }
 
 // ---------------------------------------------------------------------------
@@ -787,14 +716,6 @@ func TestLoop_StopsOnStopChan(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// createKVSnapshot: os.Rename error path
-// ---------------------------------------------------------------------------
-
-// Note: os.Rename error is hard to trigger in tests without using a filesystem
-// that rejects renames. The atomic rename from .tmp to final path should work
-// on any normal filesystem. This path is structurally difficult to test.
-
-// ---------------------------------------------------------------------------
 // checkAndSnapshot: highest==0 path
 // ---------------------------------------------------------------------------
 
@@ -810,44 +731,6 @@ func TestCheckAndSnapshot_LowestNonZeroHighestZero(t *testing.T) {
 	// No files created
 	files, _ := filepath.Glob(filepath.Join(snapshotDir, "snapshot_*.kvsnap.gz"))
 	assert.Empty(t, files)
-}
-
-// ---------------------------------------------------------------------------
-// checkAndSnapshot: lastSnapshot > 0, next range calculation
-// ---------------------------------------------------------------------------
-
-func TestCheckAndSnapshot_ContinuationFromLastSnapshot(t *testing.T) {
-	s, _, ctx := newTestSnapshotterWithDB(t, 5, 10, 19)
-
-	snapshotDir := s.cfg.Dir
-
-	// Set lastSnapshotBlock to simulate a previous run
-	s.mu.Lock()
-	s.lastSnapshotBlock = 14
-	s.mu.Unlock()
-
-	// Next range should be [15..19]
-	err := s.checkAndSnapshot(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(19), s.lastSnapshotBlock)
-
-	// Verify the file name reflects the correct range
-	_, err = os.Stat(filepath.Join(snapshotDir, "snapshot_15_19.kvsnap.gz"))
-	require.NoError(t, err)
-}
-
-// ---------------------------------------------------------------------------
-// scanExisting: non-existent directory (glob error path)
-// ---------------------------------------------------------------------------
-
-func TestScanExisting_NonExistentDir(t *testing.T) {
-	cfg := &config.SnapshotConfig{Dir: "/nonexistent/path/snapshots"}
-	s := New(cfg, nil, nil)
-	s.scanExisting()
-
-	// Should gracefully handle the error and set defaults
-	assert.Equal(t, int64(0), s.lastSnapshotBlock)
-	assert.Equal(t, 0, s.totalSnapshots)
 }
 
 // ---------------------------------------------------------------------------
@@ -981,17 +864,7 @@ func TestLoop_ErrorLogging(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// createKVSnapshot: signSnapshotWithRoots error path
-// This happens when signing fails and returns an error. Currently,
-// signSnapshotWithRoots returns nil on signing failure (logs warning).
-// The error path in createKVSnapshot (line 139-141) would only be hit
-// if signSnapshotWithRoots returns a non-nil error (e.g., nil merkle root).
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// checkAndSnapshot: chain block range reader error simulation
-// We can't easily cause a chain error with a real DefraDB, but we test that
-// the function properly handles the case where blocks exist.
+// checkAndSnapshot: with block signatures and identity (full signing flow)
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {

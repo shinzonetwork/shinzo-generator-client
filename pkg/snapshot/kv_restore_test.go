@@ -15,125 +15,111 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// ImportKV error paths
+// ImportKV error paths (malformed / missing files)
 // ---------------------------------------------------------------------------
 
-func TestImportKV_FileNotFound(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
+func TestImportKV_MalformedFiles(t *testing.T) {
+	tests := []struct {
+		name        string
+		write       func(t *testing.T, dir string) string
+		errContains string
+	}{
+		{
+			name: "missing file",
+			write: func(_ *testing.T, _ string) string {
+				return "/nonexistent/snapshot.kvsnap.gz"
+			},
+			errContains: "open snapshot",
+		},
+		{
+			name: "invalid gzip data",
+			write: func(t *testing.T, dir string) string {
+				tmpFile := filepath.Join(dir, "bad.kvsnap.gz")
+				err := os.WriteFile(tmpFile, []byte("not gzip data"), 0o600)
+				require.NoError(t, err)
+				return tmpFile
+			},
+			errContains: "gzip reader",
+		},
+		{
+			name: "wrong magic in header",
+			write: func(t *testing.T, dir string) string {
+				// Create a valid gzip file with a header that has the wrong magic
+				tmpFile := filepath.Join(dir, "bad_magic.kvsnap.gz")
+				f, err := os.Create(filepath.Clean(tmpFile))
+				require.NoError(t, err)
 
-	result, err := ImportKV(ctx, td.Node, "/nonexistent/snapshot.kvsnap.gz")
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "open snapshot")
-}
-
-func TestImportKV_InvalidGzip(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
-
-	tmpFile := filepath.Join(t.TempDir(), "bad.kvsnap.gz")
-	err := os.WriteFile(tmpFile, []byte("not gzip data"), 0o600)
-	require.NoError(t, err)
-
-	result, err := ImportKV(ctx, td.Node, tmpFile)
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "gzip reader")
-}
-
-func TestImportKV_InvalidMagic(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
-
-	// Create a valid gzip file with a header that has the wrong magic
-	tmpFile := filepath.Join(t.TempDir(), "bad_magic.kvsnap.gz")
-	f, err := os.Create(filepath.Clean(tmpFile))
-	require.NoError(t, err)
-
-	gw := gzip.NewWriter(f)
-	header := kvSnapshotHeader{
-		Magic:      "XXXX",
-		Version:    1,
-		StartBlock: 0,
-		EndBlock:   0,
+				gw := gzip.NewWriter(f)
+				header := kvSnapshotHeader{
+					Magic:      "XXXX",
+					Version:    1,
+					StartBlock: 0,
+					EndBlock:   0,
+				}
+				require.NoError(t, writeKVSnapHeader(gw, header))
+				require.NoError(t, gw.Close())
+				require.NoError(t, f.Close())
+				return tmpFile
+			},
+			errContains: "invalid snapshot magic",
+		},
+		{
+			name: "truncated header length",
+			write: func(t *testing.T, dir string) string {
+				// Write a gzip file with only 2 bytes (less than the 4-byte header length)
+				return writeKVSnapGz(t, dir, "truncated_len.kvsnap.gz", func(gw *gzip.Writer) {
+					_, err := gw.Write([]byte{0x00, 0x01})
+					require.NoError(t, err)
+				})
+			},
+			errContains: "read header length",
+		},
+		{
+			name: "invalid header json",
+			write: func(t *testing.T, dir string) string {
+				// Write a gzip file with valid 4-byte length prefix but garbage JSON
+				return writeKVSnapGz(t, dir, "bad_json.kvsnap.gz", func(gw *gzip.Writer) {
+					garbage := []byte("not json at all!!")
+					var lenBuf [4]byte
+					binary.BigEndian.PutUint32(lenBuf[:], uint32(len(garbage))) //nolint:gosec
+					_, err := gw.Write(lenBuf[:])
+					require.NoError(t, err)
+					_, err = gw.Write(garbage)
+					require.NoError(t, err)
+				})
+			},
+			errContains: "parse header",
+		},
+		{
+			name: "truncated header body",
+			write: func(t *testing.T, dir string) string {
+				// Write a gzip file with length prefix claiming 100 bytes but only 5 bytes of body
+				return writeKVSnapGz(t, dir, "truncated_body.kvsnap.gz", func(gw *gzip.Writer) {
+					var lenBuf [4]byte
+					binary.BigEndian.PutUint32(lenBuf[:], 100) // claims 100 bytes
+					_, err := gw.Write(lenBuf[:])
+					require.NoError(t, err)
+					_, err = gw.Write([]byte("short"))
+					require.NoError(t, err)
+				})
+			},
+			errContains: "read header",
+		},
 	}
-	require.NoError(t, writeKVSnapHeader(gw, header))
-	require.NoError(t, gw.Close())
-	require.NoError(t, f.Close())
 
-	result, err := ImportKV(ctx, td.Node, tmpFile)
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "invalid snapshot magic")
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			td := testutils.SetupTestDefraDB(t)
+			ctx := context.Background()
 
-// ===========================================================================
-// NEW TESTS: Targeting all uncovered lines for 100% coverage
-// ===========================================================================
+			p := tt.write(t, t.TempDir())
 
-// ---------------------------------------------------------------------------
-// ImportKV error paths: truncated header length, invalid header JSON
-// ---------------------------------------------------------------------------
-
-func TestImportKV_TruncatedHeaderLength(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
-
-	dir := t.TempDir()
-	// Write a gzip file with only 2 bytes (less than the 4-byte header length)
-	p := writeKVSnapGz(t, dir, "truncated_len.kvsnap.gz", func(gw *gzip.Writer) {
-		_, err := gw.Write([]byte{0x00, 0x01})
-		require.NoError(t, err)
-	})
-
-	result, err := ImportKV(ctx, td.Node, p)
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "read header length")
-}
-
-func TestImportKV_InvalidHeaderJSON(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
-
-	dir := t.TempDir()
-	// Write a gzip file with valid 4-byte length prefix but garbage JSON
-	p := writeKVSnapGz(t, dir, "bad_json.kvsnap.gz", func(gw *gzip.Writer) {
-		garbage := []byte("not json at all!!")
-		var lenBuf [4]byte
-		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(garbage))) //nolint:gosec
-		_, err := gw.Write(lenBuf[:])
-		require.NoError(t, err)
-		_, err = gw.Write(garbage)
-		require.NoError(t, err)
-	})
-
-	result, err := ImportKV(ctx, td.Node, p)
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "parse header")
-}
-
-func TestImportKV_TruncatedHeaderBody(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
-
-	dir := t.TempDir()
-	// Write a gzip file with length prefix claiming 100 bytes but only 5 bytes of body
-	p := writeKVSnapGz(t, dir, "truncated_body.kvsnap.gz", func(gw *gzip.Writer) {
-		var lenBuf [4]byte
-		binary.BigEndian.PutUint32(lenBuf[:], 100) // claims 100 bytes
-		_, err := gw.Write(lenBuf[:])
-		require.NoError(t, err)
-		_, err = gw.Write([]byte("short"))
-		require.NoError(t, err)
-	})
-
-	result, err := ImportKV(ctx, td.Node, p)
-	assert.Error(t, err)
-	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "read header")
+			result, err := ImportKV(ctx, td.Node, p)
+			require.Error(t, err)
+			assert.Nil(t, result)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

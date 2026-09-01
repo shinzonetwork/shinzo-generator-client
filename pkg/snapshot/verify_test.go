@@ -21,193 +21,209 @@ import (
 // extractBlockSigMerkleRoots
 // ---------------------------------------------------------------------------
 
-func TestExtractBlockSigMerkleRoots_PlainJSONL(t *testing.T) {
-	dir := t.TempDir()
-
-	mr1 := hexRoot("root1_data_bytes")
-	mr2 := hexRoot("root2_data_bytes")
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr1, constants.BlockNumberKeyValue: 1000}}),
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr2, constants.BlockNumberKeyValue: 1001}}),
-	}
-
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	require.Len(t, roots, 2)
-
-	expected1, _ := hex.DecodeString(mr1)
-	expected2, _ := hex.DecodeString(mr2)
-	assert.Equal(t, expected1, roots[0])
-	assert.Equal(t, expected2, roots[1])
-}
-
-func TestExtractBlockSigMerkleRoots_GzipFile(t *testing.T) {
-	dir := t.TempDir()
-
-	mr1 := hexRoot("gzip_root_data")
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr1}}),
-	}
-
-	p := writeGzipJSONLFile(t, dir, "test.jsonl.gz", lines)
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	require.Len(t, roots, 1)
-
-	expected, _ := hex.DecodeString(mr1)
-	assert.Equal(t, expected, roots[0])
-}
-
-func TestExtractBlockSigMerkleRoots_EmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	p := writeJSONLFile(t, dir, "empty.jsonl", []string{})
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	assert.Empty(t, roots)
-}
-
-func TestExtractBlockSigMerkleRoots_EmptyGzipFile(t *testing.T) {
-	dir := t.TempDir()
-	p := writeGzipJSONLFile(t, dir, "empty.jsonl.gz", []string{})
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	assert.Empty(t, roots)
-}
-
-func TestExtractBlockSigMerkleRoots_NonBlockSigEntriesSkipped(t *testing.T) {
-	dir := t.TempDir()
-
-	mr := hexRoot("valid_root")
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
-		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-		mustJSON(t, map[string]any{"type": "log", "data": map[string]any{"logIndex": 0}}),
-	}
-
-	p := writeJSONLFile(t, dir, "mixed.jsonl", lines)
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	require.Len(t, roots, 1)
-
-	expected, _ := hex.DecodeString(mr)
-	assert.Equal(t, expected, roots[0])
-}
-
-func TestExtractBlockSigMerkleRoots_InvalidJSONSkipped(t *testing.T) {
-	dir := t.TempDir()
-
-	mr := hexRoot("good_root")
-
-	lines := []string{
-		"this is not json at all",
-		"{ broken json",
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-		"",
-	}
-
-	p := writeJSONLFile(t, dir, "invalid_lines.jsonl", lines)
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	require.Len(t, roots, 1)
-
-	expected, _ := hex.DecodeString(mr)
-	assert.Equal(t, expected, roots[0])
-}
-
-func TestExtractBlockSigMerkleRoots_EmptyMerkleRoot(t *testing.T) {
-	dir := t.TempDir()
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: ""}}),
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"other": "field"}}),
-	}
-
-	p := writeJSONLFile(t, dir, "empty_roots.jsonl", lines)
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	assert.Empty(t, roots)
-}
-
-func TestExtractBlockSigMerkleRoots_InvalidHexSkipped(t *testing.T) {
-	dir := t.TempDir()
-
-	mr := hexRoot("valid_root")
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: "not_valid_hex_zzz"}}),
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-
-	p := writeJSONLFile(t, dir, "bad_hex.jsonl", lines)
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	require.Len(t, roots, 1)
-
-	expected, _ := hex.DecodeString(mr)
-	assert.Equal(t, expected, roots[0])
-}
-
-func TestExtractBlockSigMerkleRoots_NilData(t *testing.T) {
-	dir := t.TempDir()
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": nil}),
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue}),
-	}
-
-	p := writeJSONLFile(t, dir, "nil_data.jsonl", lines)
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	require.NoError(t, err)
-	assert.Empty(t, roots)
-}
-
-func TestExtractBlockSigMerkleRoots_FileNotFound(t *testing.T) {
-	roots, err := extractBlockSigMerkleRoots("/nonexistent/path/file.jsonl")
-	assert.Error(t, err)
-	assert.Nil(t, roots)
-}
-
-func TestExtractBlockSigMerkleRoots_MultipleValidRootsInOrder(t *testing.T) {
-	dir := t.TempDir()
-
-	mrs := make([]string, 5)
-	for i := range mrs {
+func TestExtractBlockSigMerkleRoots(t *testing.T) {
+	orderedMrs := make([]string, 5)
+	for i := range orderedMrs {
 		data := make([]byte, 32)
 		data[0] = byte(i + 1)
-		mrs[i] = hex.EncodeToString(data)
+		orderedMrs[i] = hex.EncodeToString(data)
 	}
 
-	var lines []string
-	for i, mr := range mrs {
-		lines = append(lines, mustJSON(t, map[string]any{
-			"type": constants.BlockSignatureTypeValue,
-			"data": map[string]any{constants.MerkleRootKeyValue: mr, constants.BlockNumberKeyValue: 1000 + i},
-		}))
+	tests := []struct {
+		name        string
+		write       func(t *testing.T, dir string) string
+		wantHex     []string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "plain jsonl file with two block signatures",
+			write: func(t *testing.T, dir string) string {
+				lines := []string{
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("root1_data_bytes"), constants.BlockNumberKeyValue: 1000}}),
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("root2_data_bytes"), constants.BlockNumberKeyValue: 1001}}),
+				}
+				return writeJSONLFile(t, dir, "test.jsonl", lines)
+			},
+			wantHex: []string{hexRoot("root1_data_bytes"), hexRoot("root2_data_bytes")},
+		},
+		{
+			name: "gzipped jsonl file",
+			write: func(t *testing.T, dir string) string {
+				lines := []string{
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("gzip_root_data")}}),
+				}
+				return writeGzipJSONLFile(t, dir, "test.jsonl.gz", lines)
+			},
+			wantHex: []string{hexRoot("gzip_root_data")},
+		},
+		{
+			name: "empty plain file",
+			write: func(t *testing.T, dir string) string {
+				return writeJSONLFile(t, dir, "empty.jsonl", []string{})
+			},
+			wantHex: []string{},
+		},
+		{
+			name: "empty gzip file",
+			write: func(t *testing.T, dir string) string {
+				return writeGzipJSONLFile(t, dir, "empty.jsonl.gz", []string{})
+			},
+			wantHex: []string{},
+		},
+		{
+			name: "non-block-signature entries are skipped",
+			write: func(t *testing.T, dir string) string {
+				lines := []string{
+					mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
+					mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("valid_root")}}),
+					mustJSON(t, map[string]any{"type": "log", "data": map[string]any{"logIndex": 0}}),
+				}
+				return writeJSONLFile(t, dir, "mixed.jsonl", lines)
+			},
+			wantHex: []string{hexRoot("valid_root")},
+		},
+		{
+			name: "invalid json lines are skipped",
+			write: func(t *testing.T, dir string) string {
+				lines := []string{
+					"this is not json at all",
+					"{ broken json",
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("good_root")}}),
+					"",
+				}
+				return writeJSONLFile(t, dir, "invalid_lines.jsonl", lines)
+			},
+			wantHex: []string{hexRoot("good_root")},
+		},
+		{
+			name: "empty merkle root and missing field are skipped",
+			write: func(t *testing.T, dir string) string {
+				lines := []string{
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: ""}}),
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{"other": "field"}}),
+				}
+				return writeJSONLFile(t, dir, "empty_roots.jsonl", lines)
+			},
+			wantHex: []string{},
+		},
+		{
+			name: "invalid hex root is skipped",
+			write: func(t *testing.T, dir string) string {
+				lines := []string{
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: "not_valid_hex_zzz"}}),
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("valid_root")}}),
+				}
+				return writeJSONLFile(t, dir, "bad_hex.jsonl", lines)
+			},
+			wantHex: []string{hexRoot("valid_root")},
+		},
+		{
+			name: "nil and missing data are skipped",
+			write: func(t *testing.T, dir string) string {
+				lines := []string{
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": nil}),
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue}),
+				}
+				return writeJSONLFile(t, dir, "nil_data.jsonl", lines)
+			},
+			wantHex: []string{},
+		},
+		{
+			name:    "missing file",
+			write:   func(_ *testing.T, _ string) string { return "/nonexistent/path/file.jsonl" },
+			wantErr: true,
+		},
+		{
+			name: "invalid gzip data",
+			write: func(t *testing.T, dir string) string {
+				// Write non-gzip content to a .gz file
+				p := filepath.Join(dir, "bad.jsonl.gz")
+				err := os.WriteFile(p, []byte("this is not gzip data"), 0o600)
+				require.NoError(t, err)
+				return p
+			},
+			wantErr:     true,
+			errContains: "gzip reader",
+		},
+		{
+			name: "multiple valid roots preserved in order",
+			write: func(t *testing.T, dir string) string {
+				var lines []string
+				for i, mr := range orderedMrs {
+					lines = append(lines, mustJSON(t, map[string]any{
+						"type": constants.BlockSignatureTypeValue,
+						"data": map[string]any{constants.MerkleRootKeyValue: mr, constants.BlockNumberKeyValue: 1000 + i},
+					}))
+				}
+				return writeJSONLFile(t, dir, "ordered.jsonl", lines)
+			},
+			wantHex: orderedMrs,
+		},
 	}
 
-	p := writeJSONLFile(t, dir, "ordered.jsonl", lines)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := tt.write(t, t.TempDir())
 
-	roots, err := extractBlockSigMerkleRoots(p)
+			roots, err := extractBlockSigMerkleRoots(p)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, roots)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, roots, len(tt.wantHex))
+			for i, wantHex := range tt.wantHex {
+				expected, _ := hex.DecodeString(wantHex)
+				assert.Equal(t, expected, roots[i])
+			}
+		})
+	}
+}
+
+// Non-deterministic outcome (error or partial results depending on where
+// truncation lands), so it stays an explicit test instead of a table row.
+func TestExtractBlockSigMerkleRoots_TruncatedGzipCausesReaderErr(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a valid gzip file and then truncate it mid-stream
+	fullPath := filepath.Join(dir, "truncated.jsonl.gz")
+	f, err := os.Create(filepath.Clean(fullPath))
 	require.NoError(t, err)
-	require.Len(t, roots, 5)
 
-	for i, mr := range mrs {
-		expected, _ := hex.DecodeString(mr)
-		assert.Equal(t, expected, roots[i])
+	gw := gzip.NewWriter(f)
+	// Write a large amount of data so we have something to truncate
+	for i := range 100 {
+		line := mustJSON(t, map[string]any{
+			"type": constants.BlockSignatureTypeValue,
+			"data": map[string]any{constants.MerkleRootKeyValue: hex.EncodeToString(bytes.Repeat([]byte{byte(i)}, 32))},
+		})
+		_, err = gw.Write([]byte(line + "\n"))
+		require.NoError(t, err)
+	}
+	require.NoError(t, gw.Close())
+	require.NoError(t, f.Close())
+
+	// Read the file, then truncate it to half its size
+	data, err := os.ReadFile(filepath.Clean(fullPath))
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Clean(fullPath), data[:len(data)/2], 0o600) //nolint:gosec
+	require.NoError(t, err)
+
+	// The scanner should encounter a gzip decompression error
+	roots, err := extractBlockSigMerkleRoots(filepath.Clean(fullPath))
+	// Either returns an error or returns partial results
+	// (depends on where truncation happens - might get some valid lines before error)
+	if err != nil {
+		assert.Contains(t, err.Error(), "read snapshot")
+	} else {
+		// Partial results are OK - some roots may have been parsed before the truncation
+		_ = roots
 	}
 }
 
@@ -295,107 +311,6 @@ func TestVerifySnapshotWithSig_FieldsPropagated(t *testing.T) {
 	assert.Equal(t, "did:key:z6Mk...", result.SignerIdentity)
 }
 
-func TestVerifySnapshotWithSig_MatchingMerkleRootButBadSignatureHex(t *testing.T) {
-	dir := t.TempDir()
-
-	// Build a snapshot with a known root, compute the expected merkle root
-	rootData := bytes.Repeat([]byte{0xAB}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	// Compute expected merkle root from the function
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     constants.Secp256k1ValueString,
-		SignatureIdentity: "signer123",
-		SignatureValue:    "not_valid_hex_zzz",
-	}
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Valid)
-	assert.True(t, result.MerkleRootMatch)
-	assert.Contains(t, result.Error, "decode signature hex")
-}
-
-func TestVerifySnapshotWithSig_UnsupportedSignatureType(t *testing.T) {
-	dir := t.TempDir()
-
-	rootData := bytes.Repeat([]byte{0xCD}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     "RSA-UNSUPPORTED",
-		SignatureIdentity: "signer123",
-		SignatureValue:    hex.EncodeToString([]byte("fake_sig")),
-	}
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.Error(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Valid)
-	assert.True(t, result.MerkleRootMatch)
-	assert.Contains(t, result.Error, "unsupported signature type")
-}
-
-func TestVerifySnapshotWithSig_BadMerkleRootHex(t *testing.T) {
-	dir := t.TempDir()
-
-	rootData := bytes.Repeat([]byte{0xEF}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     constants.Secp256k1ValueString,
-		SignatureIdentity: "bad_key_string",
-		SignatureValue:    hex.EncodeToString([]byte("fake_sig")),
-	}
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Valid)
-	assert.True(t, result.MerkleRootMatch)
-	assert.Contains(t, result.Error, "parse public key")
-}
-
 func TestVerifySnapshotWithSig_SnapshotFileNotFound(t *testing.T) {
 	sig := &SnapshotSignatureData{
 		SnapshotFile: "missing.jsonl",
@@ -408,6 +323,164 @@ func TestVerifySnapshotWithSig_SnapshotFileNotFound(t *testing.T) {
 	require.NotNil(t, result)
 	assert.False(t, result.Valid)
 	assert.Contains(t, result.Error, "extract block sig roots")
+}
+
+// ---------------------------------------------------------------------------
+// VerifySnapshotWithSig (table: crypto verification outcomes over a valid fixture)
+// ---------------------------------------------------------------------------
+
+func TestVerifySnapshotWithSig(t *testing.T) {
+	tests := []struct {
+		name              string
+		keyType           crypto.KeyType
+		mutate            func(t *testing.T, sig *SnapshotSignatureData)
+		wantErr           bool
+		errContains       string
+		wantValid         bool
+		wantRootMatch     bool
+		wantSigValid      bool
+		resultErrContains string
+		resultErrNotEmpty bool
+	}{
+		{
+			name:          "valid ed25519 signature",
+			keyType:       crypto.KeyTypeEd25519,
+			wantValid:     true,
+			wantRootMatch: true,
+			wantSigValid:  true,
+		},
+		{
+			name:          "valid secp256k1 signature",
+			keyType:       crypto.KeyTypeSecp256k1,
+			wantValid:     true,
+			wantRootMatch: true,
+			wantSigValid:  true,
+		},
+		{
+			name:    "lowercase ecdsa-256k type is accepted",
+			keyType: crypto.KeyTypeSecp256k1,
+			mutate: func(_ *testing.T, sig *SnapshotSignatureData) {
+				sig.SignatureType = "ecdsa-256k"
+			},
+			wantValid:     true,
+			wantRootMatch: true,
+			wantSigValid:  true,
+		},
+		{
+			name:    "lowercase ed25519 type is accepted",
+			keyType: crypto.KeyTypeEd25519,
+			mutate: func(_ *testing.T, sig *SnapshotSignatureData) {
+				sig.SignatureType = strings.ToLower(constants.Ed25519ValueString)
+			},
+			wantValid:     true,
+			wantRootMatch: true,
+			wantSigValid:  true,
+		},
+		{
+			name:    "signature over different data fails verification",
+			keyType: crypto.KeyTypeEd25519,
+			mutate: func(t *testing.T, sig *SnapshotSignatureData) {
+				fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
+				require.NoError(t, err)
+				wrongData := bytes.Repeat([]byte{0xFF}, 32)
+				sigValue, err := fullIdent.PrivateKey().Sign(wrongData)
+				require.NoError(t, err)
+				sig.SignatureType = constants.Ed25519ValueString
+				sig.SignatureIdentity = fullIdent.PublicKey().String()
+				sig.SignatureValue = hex.EncodeToString(sigValue)
+			},
+			wantRootMatch:     true,
+			resultErrContains: "signature verification failed",
+		},
+		{
+			name:    "secp256k1 signature with garbage DER bytes",
+			keyType: crypto.KeyTypeSecp256k1,
+			mutate: func(_ *testing.T, sig *SnapshotSignatureData) {
+				sig.SignatureValue = hex.EncodeToString([]byte("not a valid DER signature"))
+			},
+			wantRootMatch:     true,
+			resultErrNotEmpty: true,
+		},
+		{
+			name:    "truncated ed25519 signature",
+			keyType: crypto.KeyTypeEd25519,
+			mutate: func(t *testing.T, sig *SnapshotSignatureData) {
+				sigBytes, err := hex.DecodeString(sig.SignatureValue)
+				require.NoError(t, err)
+				sig.SignatureValue = hex.EncodeToString(sigBytes[:len(sigBytes)-10])
+			},
+			wantRootMatch: true,
+		},
+		{
+			name:    "signature value is not valid hex",
+			keyType: crypto.KeyTypeEd25519,
+			mutate: func(_ *testing.T, sig *SnapshotSignatureData) {
+				sig.SignatureValue = "not_valid_hex_zzz"
+			},
+			wantRootMatch:     true,
+			resultErrContains: "decode signature hex",
+		},
+		{
+			name:    "unsupported signature type",
+			keyType: crypto.KeyTypeEd25519,
+			mutate: func(_ *testing.T, sig *SnapshotSignatureData) {
+				sig.SignatureType = "RSA-UNSUPPORTED"
+			},
+			wantErr:           true,
+			errContains:       "unsupported signature type",
+			wantRootMatch:     true,
+			resultErrContains: "unsupported signature type",
+		},
+		{
+			name:    "unparseable signer identity",
+			keyType: crypto.KeyTypeEd25519,
+			mutate: func(_ *testing.T, sig *SnapshotSignatureData) {
+				sig.SignatureIdentity = "bad_key_string"
+			},
+			wantRootMatch:     true,
+			resultErrContains: "parse public key",
+		},
+		{
+			name:    "invalid merkle root hex in signature mismatches",
+			keyType: crypto.KeyTypeEd25519,
+			mutate: func(_ *testing.T, sig *SnapshotSignatureData) {
+				sig.MerkleRoot = "not_valid_hex_zzz"
+			},
+			resultErrContains: "merkle root mismatch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, sig := newVerifyFixture(t, tt.keyType)
+			if tt.mutate != nil {
+				tt.mutate(t, sig)
+			}
+
+			result, err := VerifySnapshotWithSig(p, sig)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantValid, result.Valid)
+			assert.Equal(t, tt.wantRootMatch, result.MerkleRootMatch)
+			assert.Equal(t, tt.wantSigValid, result.SignatureValid)
+			if tt.wantValid {
+				assert.Empty(t, result.Error)
+			}
+			if tt.resultErrContains != "" {
+				assert.Contains(t, result.Error, tt.resultErrContains)
+			}
+			if tt.resultErrNotEmpty {
+				assert.NotEmpty(t, result.Error)
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -549,317 +622,4 @@ func TestVerifyResult_OmitEmptyError(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data2), "error")
 	assert.Contains(t, string(data2), "something went wrong")
-}
-
-func TestExtractBlockSigMerkleRoots_InvalidGzipFile(t *testing.T) {
-	dir := t.TempDir()
-
-	// Write non-gzip content to a .gz file
-	p := filepath.Join(dir, "bad.jsonl.gz")
-	err := os.WriteFile(p, []byte("this is not gzip data"), 0o600)
-	require.NoError(t, err)
-
-	roots, err := extractBlockSigMerkleRoots(p)
-	assert.Error(t, err)
-	assert.Nil(t, roots)
-	assert.Contains(t, err.Error(), "gzip reader")
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: invalid merkle root hex in signature
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_InvalidMerkleRootHex(t *testing.T) {
-	dir := t.TempDir()
-
-	rootData := bytes.Repeat([]byte{0xAA}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-	sig := &SnapshotSignatureData{}
-
-	_ = sig
-	_ = p
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: valid signature (full end-to-end verify)
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_ValidSignature_Ed25519(t *testing.T) {
-	p, sig := newVerifyFixture(t, crypto.KeyTypeEd25519)
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Valid, "signature should be valid")
-	assert.True(t, result.MerkleRootMatch, "merkle root should match")
-	assert.True(t, result.SignatureValid, "signature should be cryptographically valid")
-	assert.Empty(t, result.Error)
-}
-
-func TestVerifySnapshotWithSig_ValidSignature_Secp256k1(t *testing.T) {
-	p, sig := newVerifyFixture(t, crypto.KeyTypeSecp256k1)
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Valid, "signature should be valid")
-	assert.True(t, result.MerkleRootMatch)
-	assert.True(t, result.SignatureValid)
-	assert.Empty(t, result.Error)
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: wrong signature (valid key, but signed different data)
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_WrongSignature(t *testing.T) {
-	dir := t.TempDir()
-
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	rootData := bytes.Repeat([]byte{0xDD}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	// Sign DIFFERENT data (not the computed root)
-	wrongData := bytes.Repeat([]byte{0xFF}, 32)
-	sigValue, err := fullIdent.PrivateKey().Sign(wrongData)
-	require.NoError(t, err)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     "Ed25519",
-		SignatureIdentity: fullIdent.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString(sigValue),
-	}
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Valid, "signature should be invalid (wrong data signed)")
-	assert.True(t, result.MerkleRootMatch)
-	assert.False(t, result.SignatureValid)
-	assert.Contains(t, result.Error, "signature verification failed")
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: secp256k1 with bad signature bytes (triggers verify error)
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
-	p, sig := newVerifyFixture(t, crypto.KeyTypeSecp256k1)
-
-	// Use garbage bytes as signature - should fail DER parsing for secp256k1
-	sig.SignatureValue = hex.EncodeToString([]byte("not a valid DER signature"))
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Valid)
-	assert.True(t, result.MerkleRootMatch)
-	// Should hit either "verify signature" error or signature invalid
-	assert.NotEmpty(t, result.Error)
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: "ecdsa-256k" and "ed25519" lowercase variants
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
-	// Test "ecdsa-256k" variant
-	p, sig := newVerifyFixture(t, crypto.KeyTypeSecp256k1)
-	sig.SignatureType = "ecdsa-256k"
-	sig.SnapshotFile = "test_ecdsa.jsonl"
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Valid)
-
-	// Test "ed25519" lowercase variant
-	p2, sig2 := newVerifyFixture(t, crypto.KeyTypeEd25519)
-	sig2.SignatureType = strings.ToLower(constants.Ed25519ValueString)
-	sig2.SnapshotFile = "test_ed25519.jsonl"
-
-	result2, err := VerifySnapshotWithSig(p2, sig2)
-	require.NoError(t, err)
-	require.NotNil(t, result2)
-	assert.True(t, result2.Valid)
-}
-
-// ---------------------------------------------------------------------------
-// extractBlockSigMerkleRoots: reader.Err() error path via truncated gzip
-// ---------------------------------------------------------------------------
-
-func TestExtractBlockSigMerkleRoots_TruncatedGzipCausesReaderErr(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create a valid gzip file and then truncate it mid-stream
-	fullPath := filepath.Join(dir, "truncated.jsonl.gz")
-	f, err := os.Create(filepath.Clean(fullPath))
-	require.NoError(t, err)
-
-	gw := gzip.NewWriter(f)
-	// Write a large amount of data so we have something to truncate
-	for i := range 100 {
-		line := mustJSON(t, map[string]any{
-			"type": constants.BlockSignatureTypeValue,
-			"data": map[string]any{constants.MerkleRootKeyValue: hex.EncodeToString(bytes.Repeat([]byte{byte(i)}, 32))},
-		})
-		_, err = gw.Write([]byte(line + "\n"))
-		require.NoError(t, err)
-	}
-	require.NoError(t, gw.Close())
-	require.NoError(t, f.Close())
-
-	// Read the file, then truncate it to half its size
-	data, err := os.ReadFile(filepath.Clean(fullPath))
-	require.NoError(t, err)
-	err = os.WriteFile(filepath.Clean(fullPath), data[:len(data)/2], 0o600) //nolint:gosec
-	require.NoError(t, err)
-
-	// The scanner should encounter a gzip decompression error
-	roots, err := extractBlockSigMerkleRoots(filepath.Clean(fullPath))
-	// Either returns an error or returns partial results
-	// (depends on where truncation happens - might get some valid lines before error)
-	if err != nil {
-		assert.Contains(t, err.Error(), "read snapshot")
-	} else {
-		// Partial results are OK - some roots may have been parsed before the truncation
-		_ = roots
-	}
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: invalid merkle root hex in signature (verify.go:84-87)
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_InvalidSignatureValueHex(t *testing.T) {
-	dir := t.TempDir()
-
-	root := []byte("valid_root_data")
-	mr := hex.EncodeToString(root)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	rootBytes, _ := hex.DecodeString(mr)
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootBytes})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     constants.Ed25519ValueString,
-		SignatureIdentity: "z6MkTestKey",
-		SignatureValue:    "not_valid_hex_zzz",
-		CreatedAt:         "2024-01-01T00:00:00Z",
-	}
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	assert.False(t, result.Valid)
-	assert.Contains(t, result.Error, "decode signature hex")
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: verify returns error (verify.go:112-116)
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
-	p, sig := newVerifyFixture(t, crypto.KeyTypeEd25519)
-
-	// Corrupt the signature (truncate)
-	sigBytes, err := hex.DecodeString(sig.SignatureValue)
-	require.NoError(t, err)
-	sig.SignatureValue = hex.EncodeToString(sigBytes[:len(sigBytes)-10])
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	assert.False(t, result.Valid)
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: valid=true path (verify.go:117-124)
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_FullyValid(t *testing.T) {
-	p, sig := newVerifyFixture(t, crypto.KeyTypeEd25519)
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	assert.True(t, result.Valid)
-	assert.True(t, result.MerkleRootMatch)
-	assert.True(t, result.SignatureValid)
-	assert.Empty(t, result.Error)
-}
-
-// ---------------------------------------------------------------------------
-// VerifySnapshotWithSig: signature fails verification (!Valid && Error=="")
-// (verify.go:120-122)
-// ---------------------------------------------------------------------------
-
-func TestVerifySnapshotWithSig_SignatureInvalid_NoError(t *testing.T) {
-	dir := t.TempDir()
-
-	rootData := []byte("block_sig_root_data_2")
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	rootBytes, _ := hex.DecodeString(mr)
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootBytes})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	// Generate key and sign DIFFERENT data so verification fails
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	wrongData := []byte("completely different data to sign")
-	sigBytes, err := fullIdent.PrivateKey().Sign(wrongData)
-	require.NoError(t, err)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     constants.Ed25519ValueString,
-		SignatureIdentity: fullIdent.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString(sigBytes),
-		CreatedAt:         "2024-01-01T00:00:00Z",
-	}
-
-	result, err := VerifySnapshotWithSig(p, sig)
-	require.NoError(t, err)
-	assert.False(t, result.Valid)
-	assert.True(t, result.MerkleRootMatch)
-	assert.False(t, result.SignatureValid)
-	assert.Contains(t, result.Error, "signature verification failed")
 }
