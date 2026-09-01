@@ -72,3 +72,14 @@ func ImportKV(ctx context.Context, defraNode *node.Node, filePath string) (*Impo
 		EndBlock:   header.EndBlock,
 	}, nil
 }
+
+// RebuildAllIndexes rebuilds indexes for all collections after bulk KV import.
+// Call this once after importing all snapshots, not after each individual import.
+func RebuildAllIndexes(ctx context.Context, defraNode *node.Node, collections []string) error {
+	for _, colName := range collections {
+		if err := defraNode.DB.RebuildCollectionIndexes(ctx, colName); err != nil {
+			return fmt.Errorf("failed to rebuild indexes for %s: %w", colName, err)
+		}
+	}
+	return nil
+}

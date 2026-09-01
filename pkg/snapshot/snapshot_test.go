@@ -1790,6 +1790,10 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	assert.Equal(t, int64(1000), importResult.StartBlock)
 	assert.Equal(t, int64(1004), importResult.EndBlock)
 
+	// Rebuild indexes after bulk KV import
+	err = RebuildAllIndexes(ctx, td2.Node, constants.DefaultCollections())
+	require.NoError(t, err)
+
 	// Verify blocks exist in the second node
 	lowest, err = s2.getBlockNumber(ctx, "ASC")
 	require.NoError(t, err)
@@ -2171,6 +2175,10 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	require.NotNil(t, importResult)
 	assert.Equal(t, int64(100), importResult.StartBlock)
 	assert.Equal(t, int64(104), importResult.EndBlock)
+
+	// Rebuild indexes after bulk KV import
+	err = RebuildAllIndexes(ctx, td2.Node, constants.DefaultCollections())
+	require.NoError(t, err)
 
 	// Verify the second node has the blocks
 	s2 := New(&Config{Dir: t.TempDir(), BlocksPerFile: 5}, td2.Node)
@@ -3246,6 +3254,10 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 	require.NotNil(t, importResult)
 	assert.Equal(t, int64(100), importResult.StartBlock)
 	assert.Equal(t, int64(109), importResult.EndBlock)
+
+	// Rebuild indexes after bulk KV import
+	err = RebuildAllIndexes(ctx, td2.Node, constants.DefaultCollections())
+	require.NoError(t, err)
 
 	// Verify
 	s2 := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node)

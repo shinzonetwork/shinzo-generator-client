@@ -164,7 +164,7 @@ func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, 
 		// Buffer each call so we can strip that sentinel before writing to the shared
 		// gzip stream; our caller (writeKVSnapshotContents) writes the single final sentinel.
 		var buf bytes.Buffer
-		n, err := s.defraNode.DB.ExportDocKVs(ctx, col.name, docIDs, &buf, true)
+		n, err := s.defraNode.DB.ExportDocKVs(ctx, col.name, docIDs, &buf, false)
 		if err != nil {
 			return 0, fmt.Errorf("export KVs for %s: %w", col.name, err)
 		}
