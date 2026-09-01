@@ -32,95 +32,82 @@ func TestComputeSnapshotMerkleRoot_EmptyInput(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-func TestComputeSnapshotMerkleRoot_SingleRoot(t *testing.T) {
-	root := []byte("test merkle root data")
-	result := ComputeSnapshotMerkleRoot([][]byte{root})
-	require.NotNil(t, result)
-
-	// Single root: hash of that root
-	expected := sha256.Sum256(root)
-	assert.Equal(t, expected[:], result)
-}
-
-func TestComputeSnapshotMerkleRoot_TwoRoots(t *testing.T) {
-	root1 := []byte("root one")
-	root2 := []byte("root two")
-
-	result := ComputeSnapshotMerkleRoot([][]byte{root1, root2})
-	require.NotNil(t, result)
-
-	// Two roots: hash(hash(root1) || hash(root2))
-	h1 := sha256.Sum256(root1)
-	h2 := sha256.Sum256(root2)
-	combined := make([]byte, 64)
-	copy(combined[:32], h1[:])
-	copy(combined[32:], h2[:])
-	expected := sha256.Sum256(combined)
-	assert.Equal(t, expected[:], result)
-}
-
-func TestComputeSnapshotMerkleRoot_ThreeRoots_OddCount(t *testing.T) {
-	root1 := []byte("root one")
-	root2 := []byte("root two")
-	root3 := []byte("root three")
-
-	result := ComputeSnapshotMerkleRoot([][]byte{root1, root2, root3})
-	require.NotNil(t, result)
-	assert.Len(t, result, 32)
-
-	// Three roots: pair (h1, h2) -> combined hash, h3 promoted.
-	// Then pair (combined, h3) -> final.
-	h1 := sha256.Sum256(root1)
-	h2 := sha256.Sum256(root2)
-	h3 := sha256.Sum256(root3)
-
-	combined12 := make([]byte, 64)
-	copy(combined12[:32], h1[:])
-	copy(combined12[32:], h2[:])
-	hash12 := sha256.Sum256(combined12)
-
-	// h3 is promoted as-is (odd element)
-	// Now pair (hash12, h3[:])
-	combinedFinal := make([]byte, 64)
-	copy(combinedFinal[:32], hash12[:])
-	copy(combinedFinal[32:], h3[:])
-	expected := sha256.Sum256(combinedFinal)
-	assert.Equal(t, expected[:], result)
-}
-
-func TestComputeSnapshotMerkleRoot_FourRoots(t *testing.T) {
-	roots := make([][]byte, 4)
-	for i := range roots {
-		roots[i] = []byte{byte(i + 1), byte(i + 10), byte(i + 20)}
+func TestComputeSnapshotMerkleRoot_Sizes(t *testing.T) {
+	single := [][]byte{[]byte("test merkle root data")}
+	two := [][]byte{[]byte("root one"), []byte("root two")}
+	three := [][]byte{[]byte("root one"), []byte("root two"), []byte("root three")}
+	four := make([][]byte, 4)
+	for i := range four {
+		four[i] = []byte{byte(i + 1), byte(i + 10), byte(i + 20)}
+	}
+	five := make([][]byte, 5)
+	for i := range five {
+		five[i] = bytes.Repeat([]byte{byte(i + 10)}, 32)
 	}
 
-	result := ComputeSnapshotMerkleRoot(roots)
-	require.NotNil(t, result)
-	assert.Len(t, result, 32)
-
-	// Manually compute
-	hashes := make([][]byte, 4)
-	for i, r := range roots {
-		h := sha256.Sum256(r)
-		hashes[i] = h[:]
+	// Hand-computed expectations (never via the function under test).
+	leaf := func(data []byte) []byte {
+		h := sha256.Sum256(data)
+		return h[:]
+	}
+	hashPair := func(a, b []byte) []byte {
+		combined := make([]byte, 64)
+		copy(combined[:32], a)
+		copy(combined[32:], b)
+		h := sha256.Sum256(combined)
+		return h[:]
 	}
 
-	combined01 := make([]byte, 64)
-	copy(combined01[:32], hashes[0])
-	copy(combined01[32:], hashes[1])
-	h01 := sha256.Sum256(combined01)
+	tests := []struct {
+		name  string
+		roots [][]byte
+		want  func() []byte
+	}{
+		{
+			name:  "single root is hashed directly",
+			roots: single,
+			want:  func() []byte { return leaf([]byte("test merkle root data")) },
+		},
+		{
+			name:  "two roots pair into one hash",
+			roots: two,
+			want:  func() []byte { return hashPair(leaf([]byte("root one")), leaf([]byte("root two"))) },
+		},
+		{
+			name:  "three roots promote the odd element",
+			roots: three,
+			want: func() []byte {
+				return hashPair(hashPair(leaf([]byte("root one")), leaf([]byte("root two"))), leaf([]byte("root three")))
+			},
+		},
+		{
+			name:  "four roots form a balanced tree",
+			roots: four,
+			want: func() []byte {
+				h01 := hashPair(leaf(four[0]), leaf(four[1]))
+				h23 := hashPair(leaf(four[2]), leaf(four[3]))
+				return hashPair(h01, h23)
+			},
+		},
+		{
+			name:  "five roots are odd at the second level",
+			roots: five,
+			want: func() []byte {
+				h01 := hashPair(leaf(five[0]), leaf(five[1]))
+				h23 := hashPair(leaf(five[2]), leaf(five[3]))
+				return hashPair(hashPair(h01, h23), leaf(five[4]))
+			},
+		},
+	}
 
-	combined23 := make([]byte, 64)
-	copy(combined23[:32], hashes[2])
-	copy(combined23[32:], hashes[3])
-	h23 := sha256.Sum256(combined23)
-
-	combinedFinal := make([]byte, 64)
-	copy(combinedFinal[:32], h01[:])
-	copy(combinedFinal[32:], h23[:])
-	expected := sha256.Sum256(combinedFinal)
-
-	assert.Equal(t, expected[:], result)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ComputeSnapshotMerkleRoot(tt.roots)
+			require.NotNil(t, result)
+			assert.Len(t, result, 32)
+			assert.Equal(t, tt.want(), result)
+		})
+	}
 }
 
 func TestComputeSnapshotMerkleRoot_Deterministic(t *testing.T) {
@@ -375,40 +362,36 @@ func TestSignMerkleRoot_NoIdentityInContext(t *testing.T) {
 	assert.Contains(t, err.Error(), "no identity in context")
 }
 
-func TestSignMerkleRoot_Ed25519(t *testing.T) {
-	ctx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
+func TestSignMerkleRoot(t *testing.T) {
+	tests := []struct {
+		name     string
+		keyType  crypto.KeyType
+		wantType string
+		root     byte
+	}{
+		{name: "Ed25519", keyType: crypto.KeyTypeEd25519, wantType: constants.Ed25519ValueString, root: 0xBB},
+		{name: "Secp256k1", keyType: crypto.KeyTypeSecp256k1, wantType: constants.Secp256k1ValueString, root: 0xCC},
+	}
 
-	merkleRoot := bytes.Repeat([]byte{0xBB}, 32)
-	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
-	require.NoError(t, err)
-	assert.Equal(t, constants.Ed25519ValueString, sigType)
-	assert.NotEmpty(t, sigIdentity)
-	assert.NotEmpty(t, sigValue)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := newIdentityCtx(t, tt.keyType)
 
-	// Verify the signature is correct
-	pubKey, err := crypto.PublicKeyFromString(crypto.KeyTypeEd25519, sigIdentity)
-	require.NoError(t, err)
-	valid, err := pubKey.Verify(merkleRoot, sigValue)
-	require.NoError(t, err)
-	assert.True(t, valid)
-}
+			merkleRoot := bytes.Repeat([]byte{tt.root}, 32)
+			sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantType, sigType)
+			assert.NotEmpty(t, sigIdentity)
+			assert.NotEmpty(t, sigValue)
 
-func TestSignMerkleRoot_Secp256k1(t *testing.T) {
-	ctx, _ := newIdentityCtx(t, crypto.KeyTypeSecp256k1)
-
-	merkleRoot := bytes.Repeat([]byte{0xCC}, 32)
-	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
-	require.NoError(t, err)
-	assert.Equal(t, constants.Secp256k1ValueString, sigType)
-	assert.NotEmpty(t, sigIdentity)
-	assert.NotEmpty(t, sigValue)
-
-	// Verify the signature is correct
-	pubKey, err := crypto.PublicKeyFromString(crypto.KeyTypeSecp256k1, sigIdentity)
-	require.NoError(t, err)
-	valid, err := pubKey.Verify(merkleRoot, sigValue)
-	require.NoError(t, err)
-	assert.True(t, valid)
+			// Verify the signature is correct
+			pubKey, err := crypto.PublicKeyFromString(tt.keyType, sigIdentity)
+			require.NoError(t, err)
+			valid, err := pubKey.Verify(merkleRoot, sigValue)
+			require.NoError(t, err)
+			assert.True(t, valid)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -616,31 +599,6 @@ func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ComputeSnapshotMerkleRoot: five roots (odd at second level)
-// ---------------------------------------------------------------------------
-
-func TestComputeSnapshotMerkleRoot_FiveRoots(t *testing.T) {
-	roots := make([][]byte, 5)
-	for i := range roots {
-		roots[i] = bytes.Repeat([]byte{byte(i + 10)}, 32)
-	}
-
-	result := ComputeSnapshotMerkleRoot(roots)
-	require.NotNil(t, result)
-	assert.Len(t, result, 32)
-
-	// Verify deterministic
-	result2 := ComputeSnapshotMerkleRoot(roots)
-	assert.Equal(t, result, result2)
-}
-
-// ---------------------------------------------------------------------------
-// checkAndSnapshot: highest > 0 but lowest == 0 (structurally impossible)
-// and lowest > 0 but highest == 0 (structurally impossible)
-// These paths are defensive and cannot be triggered with real DefraDB.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // signSnapshotWithRoots: computed merkle root is nil (single empty root)
 // ---------------------------------------------------------------------------
 
@@ -691,78 +649,63 @@ func TestSignMerkleRoot_IdentityIsPublicKeyHex(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// createKVSnapshot: rootsHex loop (line 57-59)
-// This is covered when block signatures exist and getBlockSigMerkleRoots returns roots.
-// Since our test DefraDB doesn't create block signatures, we need an identity-enabled node.
-// We test this indirectly via createKVSnapshot_WithIdentity_SignsSnapshot.
-// Let's also test it directly by inserting block signatures manually.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // getBlockSigMerkleRoots: with actual BlockSignature documents
 // ---------------------------------------------------------------------------
 
-func TestGetBlockSigMerkleRoots_WithBlockSignatures(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
-	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+func TestGetBlockSigMerkleRoots_InsertVariants(t *testing.T) {
+	tests := []struct {
+		name      string
+		inserts   []string
+		wantCount int
+		wantRoots [][]byte
+	}{
+		{
+			name: "valid block signatures return their exact roots",
+			inserts: []string{
+				hex.EncodeToString(bytes.Repeat([]byte{0x11}, 32)),
+				hex.EncodeToString(bytes.Repeat([]byte{0x22}, 32)),
+				hex.EncodeToString(bytes.Repeat([]byte{0x33}, 32)),
+			},
+			wantCount: 3,
+			wantRoots: [][]byte{
+				bytes.Repeat([]byte{0x11}, 32),
+				bytes.Repeat([]byte{0x22}, 32),
+				bytes.Repeat([]byte{0x33}, 32),
+			},
+		},
+		{
+			name:      "invalid hex root is counted but excluded",
+			inserts:   []string{"not_valid_hex_zzzzz", hex.EncodeToString(bytes.Repeat([]byte{0xAA}, 32))},
+			wantCount: 2,
+			wantRoots: [][]byte{bytes.Repeat([]byte{0xAA}, 32)},
+		},
+		{
+			name:      "empty root is counted but excluded",
+			inserts:   []string{"", hex.EncodeToString(bytes.Repeat([]byte{0xBB}, 32))},
+			wantCount: 2,
+			wantRoots: [][]byte{bytes.Repeat([]byte{0xBB}, 32)},
+		},
+	}
 
-	// Insert block signature documents with known merkle roots
-	mr1 := hex.EncodeToString(bytes.Repeat([]byte{0x11}, 32))
-	mr2 := hex.EncodeToString(bytes.Repeat([]byte{0x22}, 32))
-	mr3 := hex.EncodeToString(bytes.Repeat([]byte{0x33}, 32))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			td := testutils.SetupTestDefraDB(t)
+			ctx := context.Background()
+			s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
-	insertBlockSignature(t, td, 100, mr1)
-	insertBlockSignature(t, td, 101, mr2)
-	insertBlockSignature(t, td, 102, mr3)
+			for i, mr := range tt.inserts {
+				insertBlockSignature(t, td, int64(100+i), mr)
+			}
 
-	roots, count, err := s.getBlockSigMerkleRoots(ctx, 100, 102)
-	require.NoError(t, err)
-	assert.Equal(t, 3, count)
-	require.Len(t, roots, 3)
-
-	expected1 := bytes.Repeat([]byte{0x11}, 32)
-	expected2 := bytes.Repeat([]byte{0x22}, 32)
-	expected3 := bytes.Repeat([]byte{0x33}, 32)
-	assert.Equal(t, expected1, roots[0])
-	assert.Equal(t, expected2, roots[1])
-	assert.Equal(t, expected3, roots[2])
-}
-
-func TestGetBlockSigMerkleRoots_WithInvalidMerkleRootHex(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
-	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
-
-	// Insert a block signature with invalid hex in merkleRoot
-	insertBlockSignature(t, td, 200, "not_valid_hex_zzzzz")
-	// Insert a valid one
-	validMR := hex.EncodeToString(bytes.Repeat([]byte{0xAA}, 32))
-	insertBlockSignature(t, td, 201, validMR)
-
-	roots, count, err := s.getBlockSigMerkleRoots(ctx, 200, 201)
-	require.NoError(t, err)
-	assert.Equal(t, 2, count, "count includes invalid docs")
-	assert.Len(t, roots, 1, "only valid roots are returned")
-	assert.Equal(t, bytes.Repeat([]byte{0xAA}, 32), roots[0])
-}
-
-func TestGetBlockSigMerkleRoots_WithEmptyMerkleRoot(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	ctx := context.Background()
-	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
-
-	// Insert a block signature with empty merkleRoot
-	insertBlockSignature(t, td, 300, "")
-	// Insert a valid one
-	validMR := hex.EncodeToString(bytes.Repeat([]byte{0xBB}, 32))
-	insertBlockSignature(t, td, 301, validMR)
-
-	roots, count, err := s.getBlockSigMerkleRoots(ctx, 300, 301)
-	require.NoError(t, err)
-	assert.Equal(t, 2, count)
-	assert.Len(t, roots, 1, "empty merkleRoot should be skipped")
-	assert.Equal(t, bytes.Repeat([]byte{0xBB}, 32), roots[0])
+			roots, count, err := s.getBlockSigMerkleRoots(ctx, 100, int64(100+len(tt.inserts)-1))
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCount, count)
+			require.Len(t, roots, len(tt.wantRoots))
+			for i, want := range tt.wantRoots {
+				assert.Equal(t, want, roots[i])
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

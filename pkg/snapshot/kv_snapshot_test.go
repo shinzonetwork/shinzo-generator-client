@@ -164,6 +164,11 @@ func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
 // createKVSnapshot: os.Create error (dir doesn't exist)
 // ---------------------------------------------------------------------------
 
+// Note: the tests below cover the os.Create failure and tmp-file cleanup
+// error paths. The os.Rename error is hard to trigger without a filesystem
+// that rejects renames, since the atomic rename from .tmp to the final path
+// works on any normal filesystem, so it is structurally difficult to test.
+
 func TestCreateKVSnapshot_OsCreateError(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
@@ -339,7 +344,7 @@ func TestCreateKVSnapshot_CleanupDeferOnError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// createKVSnapshot: getBlockSigMerkleRoots warn path (line 53-55)
+// createKVSnapshot: getBlockSigMerkleRoots warn path
 // When getBlockSigMerkleRoots returns an error, it logs a warning and continues.
 // This is tested indirectly when signing infra is not set up.
 // We test it by ensuring createKVSnapshot still succeeds even when
@@ -397,8 +402,14 @@ func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // createKVSnapshot + signSnapshotWithRoots: full end-to-end with identity
-// This covers: rootsHex loop (57-59), signSnapshotWithRoots call (139-141)
+// This covers the rootsHex loop and the signSnapshotWithRoots call.
 // ---------------------------------------------------------------------------
+
+// Note: createKVSnapshot's signSnapshotWithRoots error path is effectively
+// unreachable — signSnapshotWithRoots logs a warning and returns nil on
+// signing failure, so only file-write errors propagate (covered by the
+// read-only-directory test above). The compute-fail path is structurally
+// unreachable (see TestSignSnapshotWithRoots_ComputeRootFails).
 
 func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
