@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,29 +30,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-const (
-	// Test collection names derived from the default prefix
-	// testBlockCollection is a constant for block collections.
-	testBlockCollection = evm.DefaultCollectionPrefix + "__Block"
-	// testTransactionCollection is a constant for transaction collections.
-	testTransactionCollection = evm.DefaultCollectionPrefix + "__Transaction"
-	// testBlockSignatureCollection is a constant for blockSignature collections.
-	testBlockSignatureCollection = evm.DefaultCollectionPrefix + "__BlockSignature"
-	// testSnapshotSignatureCollection is a constant for snapshotSignature collections.
-	testSnapshotSignatureCollection = evm.DefaultCollectionPrefix + "__SnapshotSignature"
-)
-
-// newTestChainFromNode returns a chains.Converter for the given test node.
-func newTestChainFromNode(t *testing.T, _ *testutils.TestDefraDB) chains.Converter {
-	t.Helper()
-	return evm.NewConverter(nil)
-}
-
-func TestMain(m *testing.M) {
-	logger.InitConsoleOnly(true)
-	os.Exit(m.Run())
-}
 
 // ---------------------------------------------------------------------------
 // New (constructor)
@@ -98,14 +74,6 @@ func TestNew_StopChanIsOpen(t *testing.T) {
 // ---------------------------------------------------------------------------
 // ListSnapshots
 // ---------------------------------------------------------------------------
-
-func newTestSnapshotter(t *testing.T) (*Snapshotter, string) {
-	t.Helper()
-	dir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: dir, BlocksPerFile: 1000, IntervalSeconds: 60}
-	s := New(cfg, nil, nil)
-	return s, dir
-}
 
 func TestListSnapshots_EmptyDirectory(t *testing.T) {
 	s, _ := newTestSnapshotter(t)
@@ -561,40 +529,6 @@ func TestComputeSnapshotMerkleRoot_DifferentOrder_DifferentResult(t *testing.T) 
 // ---------------------------------------------------------------------------
 // extractBlockSigMerkleRoots
 // ---------------------------------------------------------------------------
-
-func writeJSONLFile(t *testing.T, dir, name string, lines []string) string {
-	t.Helper()
-	p := filepath.Join(dir, name)
-	content := strings.Join(lines, "\n")
-	if len(lines) > 0 {
-		content += "\n"
-	}
-	err := os.WriteFile(filepath.Clean(p), []byte(content), 0o600)
-	require.NoError(t, err)
-	return p
-}
-
-func writeGzipJSONLFile(t *testing.T, dir, name string, lines []string) string {
-	t.Helper()
-	p := filepath.Join(dir, name)
-	f, err := os.Create(filepath.Clean(p))
-	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
-
-	gw := gzip.NewWriter(f)
-	content := strings.Join(lines, "\n")
-	if len(lines) > 0 {
-		content += "\n"
-	}
-	_, err = gw.Write([]byte(content))
-	require.NoError(t, err)
-	require.NoError(t, gw.Close())
-	return p
-}
-
-func hexRoot(data string) string {
-	return hex.EncodeToString([]byte(data))
-}
 
 func TestExtractBlockSigMerkleRoots_PlainJSONL(t *testing.T) {
 	dir := t.TempDir()
@@ -1338,149 +1272,18 @@ func TestExtractBlockSigMerkleRoots_InvalidGzipFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "gzip reader")
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-func mustJSON(t *testing.T, v any) string {
-	t.Helper()
-	data, err := json.Marshal(v)
-	require.NoError(t, err)
-	return string(data)
-}
-
 // ===========================================================================
 // DefraDB-dependent integration tests
 // ===========================================================================
-
-// ---------------------------------------------------------------------------
-// Helpers for DefraDB integration tests
-// ---------------------------------------------------------------------------
-
-// deterministicHash generates a valid 66-char hex hash from a seed string.
-func deterministicHash(seed string) string {
-	h := sha256.Sum256([]byte(seed))
-	return "0x" + hex.EncodeToString(h[:])
-}
-
-// testBlock creates a *evm.Block with a hex-encoded block number.
-func testBlock(hexNumber string) *evm.Block {
-	return &evm.Block{
-		Hash:             deterministicHash("block-" + hexNumber),
-		Number:           hexNumber,
-		Timestamp:        "1640995200",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Difficulty:       "1000000",
-		TotalDifficulty:  "1000000",
-		GasUsed:          "21000",
-		GasLimit:         "8000000",
-		BaseFeePerGas:    "",
-		Nonce:            "0x0",
-		Miner:            "0x0000000000000000000000000000000000000001",
-		Size:             "1024",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000001",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		ReceiptsRoot:     "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		LogsBloom:        "0x00",
-		ExtraData:        "0x",
-		MixHash:          "0x0000000000000000000000000000000000000000000000000000000000000000",
-	}
-}
-
-// testTransaction creates a *evm.Transaction with a deterministic hash.
-func testTransaction(seed, blockNumber string) *evm.Transaction {
-	return &evm.Transaction{
-		Hash:              deterministicHash("tx-" + seed),
-		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-		BlockNumber:       blockNumber,
-		From:              "0x0000000000000000000000000000000000000001",
-		To:                "0x0000000000000000000000000000000000000002",
-		Value:             "1000000000000000000",
-		Gas:               "21000",
-		GasPrice:          "20000000000",
-		Input:             "0x",
-		Nonce:             "1",
-		TransactionIndex:  0,
-		Type:              "0",
-		ChainID:           "1",
-		V:                 "27",
-		R:                 "0x0000000000000000000000000000000000000000000000000000000000000001",
-		S:                 "0x0000000000000000000000000000000000000000000000000000000000000001",
-		Status:            true,
-		CumulativeGasUsed: "21000",
-		EffectiveGasPrice: "20000000000",
-	}
-}
-
-// testReceipt creates a *evm.TransactionReceipt with one log.
-func testReceipt(txSeed, blockNumberHex string) *evm.TransactionReceipt {
-	txHash := deterministicHash("tx-" + txSeed)
-	return &evm.TransactionReceipt{
-		TransactionHash:   txHash,
-		TransactionIndex:  "0",
-		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
-		BlockNumber:       blockNumberHex,
-		From:              "0x0000000000000000000000000000000000000001",
-		To:                "0x0000000000000000000000000000000000000002",
-		CumulativeGasUsed: "21000",
-		GasUsed:           "21000",
-		Status:            "0x1",
-		Logs: []evm.Log{
-			{
-				Address:          "0x0000000000000000000000000000000000000003",
-				Topics:           []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
-				Data:             "0x00",
-				BlockNumber:      blockNumberHex,
-				TransactionHash:  txHash,
-				TransactionIndex: 0,
-				BlockHash:        "0x0000000000000000000000000000000000000000000000000000000000000001",
-				LogIndex:         0,
-				Removed:          false,
-			},
-		},
-	}
-}
-
-// insertTestBlocks inserts a range of blocks into DefraDB using the block handler.
-// Each block gets one transaction and one receipt (with one log).
-// Returns the block handler for further use.
-func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) *defra.BlockHandler {
-	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	for i := startBlock; i <= endBlock; i++ {
-		hexNum := fmt.Sprintf("0x%x", i)
-		decNum := fmt.Sprintf("%d", i)
-		block := testBlock(hexNum)
-		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
-		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
-			Block:        block,
-			Transactions: []*evm.Transaction{tx},
-			Receipts:     []*evm.TransactionReceipt{receipt},
-		})
-		_, err = handler.Store(ctx, result)
-		require.NoError(t, err, "failed to insert block %d", i)
-	}
-	return handler
-}
 
 // ---------------------------------------------------------------------------
 // createKVSnapshot + ImportKV roundtrip
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_CreatesFile(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td, 1000, 1002)
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 1000, 1002)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	err := s.createKVSnapshot(ctx, 1000, 1002)
 	require.NoError(t, err)
@@ -1493,43 +1296,16 @@ func TestCreateKVSnapshot_CreatesFile(t *testing.T) {
 }
 
 func TestCreateKVSnapshot_HeaderValid(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td, 2000, 2004)
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 2000, 2004)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	err := s.createKVSnapshot(ctx, 2000, 2004)
 	require.NoError(t, err)
 
 	// Read the snapshot file and verify the header
 	filePath := filepath.Join(snapshotDir, "snapshot_2000_2004.kvsnap.gz")
-	f, err := os.Open(filepath.Clean(filePath))
-	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
-
-	gr, err := gzip.NewReader(f)
-	require.NoError(t, err)
-	defer func() { _ = gr.Close() }()
-
-	// Read header length (4 bytes, big-endian)
-	var lenBuf [4]byte
-	_, err = io.ReadFull(gr, lenBuf[:])
-	require.NoError(t, err)
-	headerLen := binary.BigEndian.Uint32(lenBuf[:])
-	assert.True(t, headerLen > 0 && headerLen < 10000, "header length should be reasonable")
-
-	// Read header JSON
-	headerBytes := make([]byte, headerLen)
-	_, err = io.ReadFull(gr, headerBytes)
-	require.NoError(t, err)
-
-	var header kvSnapshotHeader
-	err = json.Unmarshal(headerBytes, &header)
-	require.NoError(t, err)
+	header := readSnapshotHeader(t, filePath)
 
 	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, 1, header.Version)
@@ -1540,14 +1316,9 @@ func TestCreateKVSnapshot_HeaderValid(t *testing.T) {
 
 func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	// Setup first DefraDB node and insert blocks
-	td1 := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td1, 1000, 1004) // 5 blocks
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 1000, 1004)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td1.Node, newTestChainFromNode(t, td1))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	// Create snapshot
 	err := s.createKVSnapshot(ctx, 1000, 1004)
@@ -1573,24 +1344,14 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	assert.Equal(t, int64(1004), importResult.EndBlock)
 
 	// Verify blocks exist in the second node
-	lowest, err := s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
-	require.NoError(t, err)
-	assert.Equal(t, int64(1000), lowest, "second node should have block 1000 after import")
-
-	highest, err := s2.converter.GetHighestStoredBlockNumber(ctx, s2.defraNode)
-	require.NoError(t, err)
-	assert.Equal(t, int64(1004), highest, "second node should have block 1004 after import")
+	assertBlockRange(t, td2, 1000, 1004)
 }
 
 func TestCreateKVSnapshot_EmptyRange(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 1, 0)
 	// Don't insert any blocks
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	// Creating a snapshot for a range with no blocks should still succeed
 	// (it creates an empty snapshot with just header + EOF marker)
@@ -1646,15 +1407,7 @@ func TestImportKV_InvalidMagic(t *testing.T) {
 		StartBlock: 0,
 		EndBlock:   0,
 	}
-	headerBytes, err := json.Marshal(header)
-	require.NoError(t, err)
-
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes))) //nolint:gosec
-	_, err = gw.Write(lenBuf[:])
-	require.NoError(t, err)
-	_, err = gw.Write(headerBytes)
-	require.NoError(t, err)
+	require.NoError(t, writeKVSnapHeader(gw, header))
 	require.NoError(t, gw.Close())
 	require.NoError(t, f.Close())
 
@@ -1811,12 +1564,8 @@ func TestCreateSnapshotSignatureDoc_MultipleDocs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_NoBlocks(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 1, 0)
+	snapshotDir := s.cfg.Dir
 
 	err := s.checkAndSnapshot(ctx)
 	require.NoError(t, err, "checkAndSnapshot should return nil when DB is empty")
@@ -1828,16 +1577,11 @@ func TestCheckAndSnapshot_NoBlocks(t *testing.T) {
 }
 
 func TestCheckAndSnapshot_InsufficientBlocks(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 1000, 1004)
 
 	// Insert only 5 blocks at 1000-1004
-	insertTestBlocks(t, td, 1000, 1004)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	// With blocks_per_file=1000, the range [1000..1999] is needed,
 	// but we only have 1000-1004, so rangeEnd (1999) > highest (1004).
@@ -1851,18 +1595,13 @@ func TestCheckAndSnapshot_InsufficientBlocks(t *testing.T) {
 }
 
 func TestCheckAndSnapshot_SmallBlocksPerFile(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, ctx := newTestSnapshotterWithDB(t, 3, 3, 7)
 
 	// Insert blocks 3-7 (5 blocks). We start at 3 because checkAndSnapshot
 	// treats lowest==0 as "no blocks in DB" and returns early.
-	insertTestBlocks(t, td, 3, 7)
 
-	snapshotDir := t.TempDir()
+	snapshotDir := s.cfg.Dir
 	// blocks_per_file=3: first aligned range at or above 3 is [3..5]
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 3}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
 
 	// First call should create snapshot for blocks 3-5
 	err := s.checkAndSnapshot(ctx)
@@ -1887,17 +1626,12 @@ func TestCheckAndSnapshot_SmallBlocksPerFile(t *testing.T) {
 }
 
 func TestCheckAndSnapshot_MultipleRounds(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, ctx := newTestSnapshotterWithDB(t, 2, 10, 15)
 
 	// Insert blocks 10-15 (6 blocks) with blocks_per_file=2.
 	// Starting at 10 avoids the lowest==0 early return in checkAndSnapshot.
-	insertTestBlocks(t, td, 10, 15)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 2}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	// First call: snapshot blocks 10-11
 	err := s.checkAndSnapshot(ctx)
@@ -1933,14 +1667,9 @@ func TestCheckAndSnapshot_MultipleRounds(t *testing.T) {
 func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	// Create source node with enough blocks for one snapshot.
 	// Starting at 100 avoids the lowest==0 early return in checkAndSnapshot.
-	td1 := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td1, 100, 104) // 5 blocks
+	s, _, ctx := newTestSnapshotterWithDB(t, 5, 100, 104)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
-	s := New(cfg, td1.Node, newTestChainFromNode(t, td1))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	// Create snapshot via checkAndSnapshot
 	err := s.checkAndSnapshot(ctx)
@@ -1961,13 +1690,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 
 	// Verify the second node has the blocks
 	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 5}, td2.Node, newTestChainFromNode(t, td2))
-	lowest, err := s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
-	require.NoError(t, err)
-	assert.Equal(t, int64(100), lowest)
-
-	highest, err := s2.converter.GetHighestStoredBlockNumber(ctx, s2.defraNode)
-	require.NoError(t, err)
-	assert.Equal(t, int64(104), highest)
+	assertBlockRange(t, td2, 100, 104)
 
 	// Also verify we can query doc IDs in the imported node
 	docIDsByCol, err := s2.converter.GetDocIDsByBlockRange(ctx, s2.defraNode, 100, 104)
@@ -1982,15 +1705,10 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithTransactionsAndLogs(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 500, 502)
 	// Each block inserted by insertTestBlocks has 1 tx and 1 log
-	insertTestBlocks(t, td, 500, 502)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	err := s.createKVSnapshot(ctx, 500, 502)
 	require.NoError(t, err)
@@ -2021,17 +1739,10 @@ var (
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_GapHandling(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, ctx := newTestSnapshotterWithDB(t, 5, 1000, 1004)
 
 	// Insert blocks 1000-1004 with blocks_per_file=5
 	// The aligned range is [1000..1004] which is fully present
-	insertTestBlocks(t, td, 1000, 1004)
-
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
 
 	err := s.checkAndSnapshot(ctx)
 	require.NoError(t, err)
@@ -2045,20 +1756,6 @@ func TestCheckAndSnapshot_GapHandling(t *testing.T) {
 // ---------------------------------------------------------------------------
 // ImportKV error paths: truncated header length, invalid header JSON
 // ---------------------------------------------------------------------------
-
-// writeKVSnapGz is a helper that creates a .kvsnap.gz file with raw gzipped bytes.
-func writeKVSnapGz(t *testing.T, dir, name string, writeContent func(gw *gzip.Writer)) string {
-	t.Helper()
-	p := filepath.Join(dir, name)
-	f, err := os.Create(filepath.Clean(p))
-	require.NoError(t, err)
-
-	gw := gzip.NewWriter(f)
-	writeContent(gw)
-	require.NoError(t, gw.Close())
-	require.NoError(t, f.Close())
-	return p
-}
 
 func TestImportKV_TruncatedHeaderLength(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
@@ -2145,39 +1842,7 @@ func TestVerifySnapshotWithSig_InvalidMerkleRootHex(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_ValidSignature_Ed25519(t *testing.T) {
-	dir := t.TempDir()
-
-	// Generate a real Ed25519 key pair
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	// Create block sig merkle root data and build the snapshot
-	rootData := bytes.Repeat([]byte{0xBB}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	// Compute expected merkle root
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	// Sign the merkle root with the real key
-	sigValue, err := fullIdent.PrivateKey().Sign(computedRoot)
-	require.NoError(t, err)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     "Ed25519",
-		SignatureIdentity: fullIdent.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString(sigValue),
-	}
+	p, sig := newVerifyFixture(t, crypto.KeyTypeEd25519)
 
 	result, err := VerifySnapshotWithSig(p, sig)
 	require.NoError(t, err)
@@ -2189,36 +1854,7 @@ func TestVerifySnapshotWithSig_ValidSignature_Ed25519(t *testing.T) {
 }
 
 func TestVerifySnapshotWithSig_ValidSignature_Secp256k1(t *testing.T) {
-	dir := t.TempDir()
-
-	// Generate a real Secp256k1 key pair
-	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-
-	rootData := bytes.Repeat([]byte{0xCC}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	sigValue, err := fullIdent.PrivateKey().Sign(computedRoot)
-	require.NoError(t, err)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     constants.Secp256k1ValueString,
-		SignatureIdentity: fullIdent.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString(sigValue),
-	}
+	p, sig := newVerifyFixture(t, crypto.KeyTypeSecp256k1)
 
 	result, err := VerifySnapshotWithSig(p, sig)
 	require.NoError(t, err)
@@ -2280,33 +1916,10 @@ func TestVerifySnapshotWithSig_WrongSignature(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
-	dir := t.TempDir()
-
-	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-
-	rootData := bytes.Repeat([]byte{0xEE}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
+	p, sig := newVerifyFixture(t, crypto.KeyTypeSecp256k1)
 
 	// Use garbage bytes as signature - should fail DER parsing for secp256k1
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     constants.Secp256k1ValueString,
-		SignatureIdentity: fullIdent.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString([]byte("not a valid DER signature")),
-	}
+	sig.SignatureValue = hex.EncodeToString([]byte("not a valid DER signature"))
 
 	result, err := VerifySnapshotWithSig(p, sig)
 	require.NoError(t, err)
@@ -2322,37 +1935,10 @@ func TestVerifySnapshotWithSig_Secp256k1_InvalidSigBytes(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
-	dir := t.TempDir()
-
-	rootData := bytes.Repeat([]byte{0x11}, 32)
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootData})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
 	// Test "ecdsa-256k" variant
-	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-
-	sigValue, err := fullIdent.PrivateKey().Sign(computedRoot)
-	require.NoError(t, err)
-
-	p := writeJSONLFile(t, dir, "test_ecdsa.jsonl", lines)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test_ecdsa.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     "ecdsa-256k",
-		SignatureIdentity: fullIdent.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString(sigValue),
-	}
+	p, sig := newVerifyFixture(t, crypto.KeyTypeSecp256k1)
+	sig.SignatureType = "ecdsa-256k"
+	sig.SnapshotFile = "test_ecdsa.jsonl"
 
 	result, err := VerifySnapshotWithSig(p, sig)
 	require.NoError(t, err)
@@ -2360,24 +1946,9 @@ func TestVerifySnapshotWithSig_LowercaseSignatureTypes(t *testing.T) {
 	assert.True(t, result.Valid)
 
 	// Test "ed25519" lowercase variant
-	fullIdentEd, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	sigValueEd, err := fullIdentEd.PrivateKey().Sign(computedRoot)
-	require.NoError(t, err)
-
-	p2 := writeJSONLFile(t, dir, "test_ed25519.jsonl", lines)
-
-	sig2 := &SnapshotSignatureData{
-		SnapshotFile:      "test_ed25519.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     strings.ToLower(constants.Ed25519ValueString),
-		SignatureIdentity: fullIdentEd.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString(sigValueEd),
-	}
+	p2, sig2 := newVerifyFixture(t, crypto.KeyTypeEd25519)
+	sig2.SignatureType = strings.ToLower(constants.Ed25519ValueString)
+	sig2.SnapshotFile = "test_ed25519.jsonl"
 
 	result2, err := VerifySnapshotWithSig(p2, sig2)
 	require.NoError(t, err)
@@ -2442,10 +2013,7 @@ func TestSignMerkleRoot_NoIdentityInContext(t *testing.T) {
 }
 
 func TestSignMerkleRoot_Ed25519(t *testing.T) {
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+	ctx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
 
 	merkleRoot := bytes.Repeat([]byte{0xBB}, 32)
 	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
@@ -2463,10 +2031,7 @@ func TestSignMerkleRoot_Ed25519(t *testing.T) {
 }
 
 func TestSignMerkleRoot_Secp256k1(t *testing.T) {
-	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+	ctx, _ := newIdentityCtx(t, crypto.KeyTypeSecp256k1)
 
 	merkleRoot := bytes.Repeat([]byte{0xCC}, 32)
 	sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
@@ -2517,17 +2082,14 @@ func TestSignSnapshotWithRoots_WithIdentity(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+	ctx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
 
 	roots := [][]byte{
 		bytes.Repeat([]byte{0xAA}, 32),
 		bytes.Repeat([]byte{0xBB}, 32),
 	}
 
-	err = s.signSnapshotWithRoots(ctx, "snapshot_1000_1999.kvsnap.gz", 1000, 1999, roots, 2)
+	err := s.signSnapshotWithRoots(ctx, "snapshot_1000_1999.kvsnap.gz", 1000, 1999, roots, 2)
 	require.NoError(t, err)
 
 	// Verify the signature was stored in DefraDB
@@ -2553,17 +2115,14 @@ func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 2000, 2002)
 
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	identCtx := defracontext.WithIdentity(context.Background(), fullIdent)
+	identCtx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
 
 	snapshotDir := t.TempDir()
 	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = identCtx // Set identity context for signing
 
-	err = s.createKVSnapshot(context.Background(), 2000, 2002)
+	err := s.createKVSnapshot(context.Background(), 2000, 2002)
 	require.NoError(t, err)
 
 	// Verify file was created
@@ -2583,16 +2142,9 @@ func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_GapSkipAhead(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, ctx := newTestSnapshotterWithDB(t, 5, 20, 29)
 
 	// Insert blocks 20-29 with blocks_per_file=5
-	insertTestBlocks(t, td, 20, 29)
-
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
 
 	// First snapshot: aligned to [20..24]
 	err := s.checkAndSnapshot(ctx)
@@ -2637,11 +2189,7 @@ func TestCheckAndSnapshot_CreateSnapshotError(t *testing.T) {
 	s.ctx = context.Background()
 
 	// Make directory read-only to force os.Create error in createKVSnapshot
-	err = os.Chmod(snapshotDir, 0o555) //nolint:gosec
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		os.Chmod(snapshotDir, 0o755) //nolint:gosec,errcheck
-	})
+	chmodReadOnly(t, snapshotDir)
 
 	ctx := context.Background()
 	err = s.checkAndSnapshot(ctx)
@@ -2828,20 +2376,10 @@ func TestImportKV_ValidHeaderEmptyKVs(t *testing.T) {
 			StartBlock: 0,
 			EndBlock:   0,
 		}
-		headerBytes, err := json.Marshal(header)
-		require.NoError(t, err)
-
-		var lenBuf [4]byte
-		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes))) //nolint:gosec
-		_, err = gw.Write(lenBuf[:])
-		require.NoError(t, err)
-		_, err = gw.Write(headerBytes)
-		require.NoError(t, err)
+		require.NoError(t, writeKVSnapHeader(gw, header))
 
 		// Write EOF marker (key_len = 0)
-		binary.BigEndian.PutUint32(lenBuf[:], 0) //nolint:gosec
-		_, err = gw.Write(lenBuf[:])
-		require.NoError(t, err)
+		require.NoError(t, writeKVSnapEOF(gw))
 	})
 
 	result, err := ImportKV(ctx, td.Node, p)
@@ -2875,11 +2413,7 @@ func TestCreateKVSnapshot_TmpFileCleanedOnError(t *testing.T) {
 
 	// Make the directory read-only AFTER creating config
 	// so os.Create will fail
-	err = os.Chmod(snapshotDir, 0o555) //nolint:gosec
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = os.Chmod(snapshotDir, 0o755) //nolint:gosec
-	})
+	chmodReadOnly(t, snapshotDir)
 	err = s.createKVSnapshot(context.Background(), 100, 102)
 	assert.Error(t, err)
 
@@ -2903,11 +2437,8 @@ func TestCreateKVSnapshot_TmpFileCleanedOnError(t *testing.T) {
 func TestCheckAndSnapshot_LowestNonZeroHighestZero(t *testing.T) {
 	// This is structurally unreachable: if lowest > 0, highest >= lowest.
 	// But we test the general flow where both are 0 (empty DB).
-	td := testutils.SetupTestDefraDB(t)
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
+	s, _, _ := newTestSnapshotterWithDB(t, 1000, 1, 0)
+	snapshotDir := s.cfg.Dir
 
 	err := s.checkAndSnapshot(context.Background())
 	require.NoError(t, err)
@@ -2922,14 +2453,9 @@ func TestCheckAndSnapshot_LowestNonZeroHighestZero(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_ContinuationFromLastSnapshot(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td, 10, 19) // 10 blocks
+	s, _, ctx := newTestSnapshotterWithDB(t, 5, 10, 19)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	// Set lastSnapshotBlock to simulate a previous run
 	s.mu.Lock()
@@ -2951,14 +2477,9 @@ func TestCheckAndSnapshot_ContinuationFromLastSnapshot(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
-	td1 := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td1, 100, 109) // 10 blocks
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 100, 109)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td1.Node, newTestChainFromNode(t, td1))
-	s.ctx = context.Background()
-	ctx := context.Background()
+	snapshotDir := s.cfg.Dir
 
 	err := s.createKVSnapshot(ctx, 100, 109)
 	require.NoError(t, err)
@@ -2974,13 +2495,7 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 	assert.Equal(t, int64(109), importResult.EndBlock)
 
 	// Verify
-	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
-	lowest, err := s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
-	require.NoError(t, err)
-	assert.Equal(t, int64(100), lowest)
-	highest, err := s2.converter.GetHighestStoredBlockNumber(ctx, s2.defraNode)
-	require.NoError(t, err)
-	assert.Equal(t, int64(109), highest)
+	assertBlockRange(t, td2, 100, 109)
 }
 
 // ---------------------------------------------------------------------------
@@ -3080,40 +2595,17 @@ func TestSnapshotter_FullLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_AllCollections(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, _ := newTestSnapshotterWithDB(t, 1000, 300, 302)
 	// Insert blocks with transactions and logs
-	insertTestBlocks(t, td, 300, 302)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
+	snapshotDir := s.cfg.Dir
 
 	err := s.createKVSnapshot(context.Background(), 300, 302)
 	require.NoError(t, err)
 
 	// Read and verify header
 	path := filepath.Join(snapshotDir, "snapshot_300_302.kvsnap.gz")
-	f, err := os.Open(filepath.Clean(path))
-	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
-
-	gr, err := gzip.NewReader(f)
-	require.NoError(t, err)
-	defer func() { _ = gr.Close() }()
-
-	var lenBuf [4]byte
-	_, err = io.ReadFull(gr, lenBuf[:])
-	require.NoError(t, err)
-
-	headerLen := binary.BigEndian.Uint32(lenBuf[:])
-	headerBytes := make([]byte, headerLen)
-	_, err = io.ReadFull(gr, headerBytes)
-	require.NoError(t, err)
-
-	var header kvSnapshotHeader
-	err = json.Unmarshal(headerBytes, &header)
-	require.NoError(t, err)
+	header := readSnapshotHeader(t, path)
 
 	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, int64(300), header.StartBlock)
@@ -3152,10 +2644,7 @@ func TestGetBlockSigMerkleRoots_CoverParsing(t *testing.T) {
 func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
-	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+	ctx, _ := newIdentityCtx(t, crypto.KeyTypeSecp256k1)
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots := make([][]byte, 5)
@@ -3163,7 +2652,7 @@ func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
 		roots[i] = bytes.Repeat([]byte{byte(i + 1)}, 32)
 	}
 
-	err = s.signSnapshotWithRoots(ctx, "snapshot_5000_5999.kvsnap.gz", 5000, 5999, roots, 5)
+	err := s.signSnapshotWithRoots(ctx, "snapshot_5000_5999.kvsnap.gz", 5000, 5999, roots, 5)
 	require.NoError(t, err)
 
 	// Verify the signature document was created
@@ -3199,20 +2688,10 @@ func TestImportKV_HeaderWithBlockSigMerkleRoots(t *testing.T) {
 			CreatedAt:           "2024-01-15T12:00:00Z",
 			BlockSigMerkleRoots: []string{"aabb", "ccdd"},
 		}
-		headerBytes, err := json.Marshal(header)
-		require.NoError(t, err)
-
-		var lenBuf [4]byte
-		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes))) //nolint:gosec
-		_, err = gw.Write(lenBuf[:])
-		require.NoError(t, err)
-		_, err = gw.Write(headerBytes)
-		require.NoError(t, err)
+		require.NoError(t, writeKVSnapHeader(gw, header))
 
 		// Write EOF marker
-		binary.BigEndian.PutUint32(lenBuf[:], 0)
-		_, err = gw.Write(lenBuf[:])
-		require.NoError(t, err)
+		require.NoError(t, writeKVSnapEOF(gw))
 	})
 
 	result, err := ImportKV(ctx, td.Node, p)
@@ -3248,13 +2727,9 @@ func TestComputeSnapshotMerkleRoot_FiveRoots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_NoTmpFileOnSuccess(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td, 800, 802)
+	s, _, _ := newTestSnapshotterWithDB(t, 1000, 800, 802)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
+	snapshotDir := s.cfg.Dir
 
 	err := s.createKVSnapshot(context.Background(), 800, 802)
 	require.NoError(t, err)
@@ -3317,11 +2792,7 @@ func TestLoop_ErrorLogging(t *testing.T) {
 	snapshotDir := filepath.Join(t.TempDir(), "readonly")
 	err := os.MkdirAll(snapshotDir, 0o750)
 	require.NoError(t, err)
-	err = os.Chmod(snapshotDir, 0o555) //nolint:gosec
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = os.Chmod(snapshotDir, 0o600) //nolint:mnd,errcheck
-	})
+	chmodReadOnly(t, snapshotDir)
 
 	cfg := &config.SnapshotConfig{
 		Enabled:         true,
@@ -3366,13 +2837,9 @@ func TestLoop_ErrorLogging(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_CleanupDeferOnError(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td, 100, 102)
+	s, _, _ := newTestSnapshotterWithDB(t, 1000, 100, 102)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
+	snapshotDir := s.cfg.Dir
 
 	// Use a canceled context to make the GQL query fail
 	ctx, cancel := context.WithCancel(context.Background())
@@ -3400,14 +2867,10 @@ func TestCreateKVSnapshot_CleanupDeferOnError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_ContinuesAfterSigRootsError(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	s, _, _ := newTestSnapshotterWithDB(t, 1000, 900, 902)
 	// Insert blocks with no block signatures
-	insertTestBlocks(t, td, 900, 902)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background() // No identity, so signing will be skipped
+	snapshotDir := s.cfg.Dir
 
 	err := s.createKVSnapshot(context.Background(), 900, 902)
 	require.NoError(t, err)
@@ -3459,10 +2922,7 @@ func TestSignSnapshotWithRoots_ComputeRootFails(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignMerkleRoot_IdentityIsPublicKeyHex(t *testing.T) {
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+	ctx, fullIdent := newIdentityCtx(t, crypto.KeyTypeEd25519)
 
 	merkleRoot := bytes.Repeat([]byte{0xAA}, 32)
 	_, sigIdentity, _, err := signMerkleRoot(ctx, merkleRoot)
@@ -3483,38 +2943,6 @@ func TestSignMerkleRoot_IdentityIsPublicKeyHex(t *testing.T) {
 // We test this indirectly via createKVSnapshot_WithIdentity_SignsSnapshot.
 // Let's also test it directly by inserting block signatures manually.
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// insertBlockSignature: helper to insert a BlockSignature doc directly
-// ---------------------------------------------------------------------------
-
-func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber int64, merkleRoot string) {
-	t.Helper()
-	ctx := context.Background()
-
-	txn, err := td.Node.DB.NewTxn(false)
-	require.NoError(t, err)
-
-	col, err := txn.GetCollectionByName(ctx, testBlockSignatureCollection)
-	require.NoError(t, err)
-
-	data := map[string]any{
-		constants.BlockNumberKeyValue: blockNumber,
-		constants.BlockHashKeyValue:   deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
-		constants.MerkleRootKeyValue:  merkleRoot,
-		"cidCount":                    5,
-		"cids":                        []string{"cidA", "cidB"},
-	}
-
-	doc, err := client.NewDocFromMap(ctx, data, col.Version())
-	require.NoError(t, err)
-
-	err = col.AddDocument(ctx, doc)
-	require.NoError(t, err)
-
-	err = txn.Commit()
-	require.NoError(t, err)
-}
 
 // ---------------------------------------------------------------------------
 // getBlockSigMerkleRoots: with actual BlockSignature documents
@@ -3588,8 +3016,7 @@ func TestGetBlockSigMerkleRoots_WithEmptyMerkleRoot(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td, 500, 502)
+	s, td, _ := newTestSnapshotterWithDB(t, 1000, 500, 502)
 
 	// Also insert block signatures for these blocks
 	for i := int64(500); i <= 502; i++ {
@@ -3597,36 +3024,14 @@ func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
 		insertBlockSignature(t, td, i, mr)
 	}
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
+	snapshotDir := s.cfg.Dir
 
 	err := s.createKVSnapshot(context.Background(), 500, 502)
 	require.NoError(t, err)
 
 	// Read and verify the header has BlockSigMerkleRoots
 	path := filepath.Join(snapshotDir, "snapshot_500_502.kvsnap.gz")
-	f, err := os.Open(filepath.Clean(path))
-	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
-
-	gr, err := gzip.NewReader(f)
-	require.NoError(t, err)
-	defer func() { _ = gr.Close() }()
-
-	var lenBuf [4]byte
-	_, err = io.ReadFull(gr, lenBuf[:])
-	require.NoError(t, err)
-
-	headerLen := binary.BigEndian.Uint32(lenBuf[:])
-	headerBytes := make([]byte, headerLen)
-	_, err = io.ReadFull(gr, headerBytes)
-	require.NoError(t, err)
-
-	var header kvSnapshotHeader
-	err = json.Unmarshal(headerBytes, &header)
-	require.NoError(t, err)
+	header := readSnapshotHeader(t, path)
 
 	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Equal(t, int64(500), header.StartBlock)
@@ -3658,11 +3063,9 @@ func TestSignSnapshotWithRoots_FullFlowWithBlockSigs(t *testing.T) {
 		insertBlockSignature(t, td, i, hex.EncodeToString(rootBytes))
 	}
 
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+	ctx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
 
-	err = s.signSnapshotWithRoots(ctx, "snapshot_600_602.kvsnap.gz", 600, 602, roots, 3)
+	err := s.signSnapshotWithRoots(ctx, "snapshot_600_602.kvsnap.gz", 600, 602, roots, 3)
 	require.NoError(t, err)
 
 	// Verify the signature document
@@ -3707,16 +3110,14 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 		insertBlockSignature(t, td, i, mr)
 	}
 
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-	identCtx := defracontext.WithIdentity(context.Background(), fullIdent)
+	identCtx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
 
 	snapshotDir := t.TempDir()
 	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = identCtx // Set identity context for signing
 
-	err = s.createKVSnapshot(identCtx, 700, 702)
+	err := s.createKVSnapshot(identCtx, 700, 702)
 	require.NoError(t, err)
 
 	// Verify the snapshot file exists
@@ -3742,20 +3143,12 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 
 func TestSignMerkleRoot_UnsupportedKeyType(t *testing.T) {
 	// Generate a secp256r1 key, which is not supported by signMerkleRoot
-	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256r1)
-	require.NoError(t, err)
-
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+	ctx, _ := newIdentityCtx(t, crypto.KeyTypeSecp256r1)
 
 	merkleRoot := bytes.Repeat([]byte{0xAA}, 32)
-	err = signMerkleRootErr(ctx, merkleRoot)
+	err := signMerkleRootErr(ctx, merkleRoot)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported key type")
-}
-
-func signMerkleRootErr(ctx context.Context, merkleRoot []byte) error {
-	_, _, _, err := signMerkleRoot(ctx, merkleRoot) // nolint: dogsled
-	return err
 }
 
 // ---------------------------------------------------------------------------
@@ -3766,16 +3159,14 @@ func signMerkleRootErr(ctx context.Context, merkleRoot []byte) error {
 func TestSignSnapshotWithRoots_UnsupportedKeyType(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
-	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256r1)
-	require.NoError(t, err)
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+	ctx, _ := newIdentityCtx(t, crypto.KeyTypeSecp256r1)
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots := [][]byte{bytes.Repeat([]byte{0xAA}, 32)}
 
 	// signMerkleRoot will fail with "unsupported key type",
 	// signSnapshotWithRoots logs warning and returns nil
-	err = s.signSnapshotWithRoots(ctx, "test.kvsnap.gz", 1000, 1999, roots, 1)
+	err := s.signSnapshotWithRoots(ctx, "test.kvsnap.gz", 1000, 1999, roots, 1)
 	require.NoError(t, err, "should return nil even when signing fails")
 }
 
@@ -3786,10 +3177,7 @@ func TestSignSnapshotWithRoots_UnsupportedKeyType(t *testing.T) {
 func TestSignMerkleRoot_ProducesVerifiableSignature(t *testing.T) {
 	for _, keyType := range []crypto.KeyType{crypto.KeyTypeEd25519, crypto.KeyTypeSecp256k1} {
 		t.Run(string(keyType), func(t *testing.T) {
-			fullIdent, err := identity.Generate(keyType)
-			require.NoError(t, err)
-
-			ctx := defracontext.WithIdentity(context.Background(), fullIdent)
+			ctx, _ := newIdentityCtx(t, keyType)
 
 			merkleRoot := bytes.Repeat([]byte{0xDD}, 32)
 			sigType, sigIdentity, sigValue, err := signMerkleRoot(ctx, merkleRoot)
@@ -3842,16 +3230,14 @@ func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {
 		insertBlockSignature(t, td, i, mr)
 	}
 
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-	identCtx := defracontext.WithIdentity(context.Background(), fullIdent)
+	identCtx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
 
 	snapshotDir := t.TempDir()
 	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = identCtx
 
-	err = s.checkAndSnapshot(identCtx)
+	err := s.checkAndSnapshot(identCtx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(54), s.lastSnapshotBlock)
 
@@ -3881,18 +3267,10 @@ func TestImportKV_CorruptKVData(t *testing.T) {
 			StartBlock: 0,
 			EndBlock:   0,
 		}
-		headerBytes, err := json.Marshal(header)
-		require.NoError(t, err)
-
-		var lenBuf [4]byte
-		binary.BigEndian.PutUint32(lenBuf[:], uint32(len(headerBytes))) //nolint:gosec
-		_, err = gw.Write(lenBuf[:])
-		require.NoError(t, err)
-		_, err = gw.Write(headerBytes)
-		require.NoError(t, err)
+		require.NoError(t, writeKVSnapHeader(gw, header))
 
 		// Write garbage KV data (not a valid key_len/key/value format)
-		_, err = gw.Write([]byte("this is not valid KV data that ImportRawKVs can parse correctly"))
+		_, err := gw.Write([]byte("this is not valid KV data that ImportRawKVs can parse correctly"))
 		require.NoError(t, err)
 	})
 
@@ -3950,37 +3328,6 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// insertTestBlocksWithIdentity: inserts blocks with a signing identity context
-// This creates actual BlockSignature documents through the normal code path.
-// ---------------------------------------------------------------------------
-
-func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) (context.Context, *defra.BlockHandler) {
-	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000)
-	require.NoError(t, err)
-
-	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
-
-	for i := startBlock; i <= endBlock; i++ {
-		hexNum := fmt.Sprintf("0x%x", i)
-		decNum := fmt.Sprintf("%d", i)
-		block := testBlock(hexNum)
-		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
-		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
-			Block:        block,
-			Transactions: []*evm.Transaction{tx},
-			Receipts:     []*evm.TransactionReceipt{receipt},
-		})
-		_, err = handler.Store(ctx, result)
-		require.NoError(t, err, "failed to insert block %d", i)
-	}
-	return ctx, handler
-}
-
-// ---------------------------------------------------------------------------
 // getBlockSigMerkleRoots: with blocks inserted via identity ([]any code path)
 // ---------------------------------------------------------------------------
 
@@ -4018,26 +3365,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 
 	// Verify the header has BlockSigMerkleRoots from real block signatures
 	path := filepath.Join(snapshotDir, "snapshot_200_204.kvsnap.gz")
-	f, err := os.Open(filepath.Clean(path))
-	require.NoError(t, err)
-	defer func() { _ = f.Close() }()
-
-	gr, err := gzip.NewReader(f)
-	require.NoError(t, err)
-	defer func() { _ = gr.Close() }()
-
-	var lenBuf [4]byte
-	_, err = io.ReadFull(gr, lenBuf[:])
-	require.NoError(t, err)
-
-	headerLen := binary.BigEndian.Uint32(lenBuf[:])
-	headerBytes := make([]byte, headerLen)
-	_, err = io.ReadFull(gr, headerBytes)
-	require.NoError(t, err)
-
-	var header kvSnapshotHeader
-	err = json.Unmarshal(headerBytes, &header)
-	require.NoError(t, err)
+	header := readSnapshotHeader(t, path)
 
 	assert.Equal(t, constants.HeaderMagicValue, header.Magic)
 	assert.Len(t, header.BlockSigMerkleRoots, 5, "should have 5 block sig merkle roots from identity-signed blocks")
@@ -4086,13 +3414,7 @@ func TestCheckAndSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_ClosedNode(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td, 100, 102)
-
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 3}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
+	s, td, _ := newTestSnapshotterWithDB(t, 3, 100, 102)
 
 	_ = td.Node.Close(context.Background())
 
@@ -4106,13 +3428,9 @@ func TestCheckAndSnapshot_ClosedNode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_ExportError(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
-	insertTestBlocks(t, td, 100, 102)
+	s, _, _ := newTestSnapshotterWithDB(t, 1000, 100, 102)
 
-	snapshotDir := t.TempDir()
-	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
-	s := New(cfg, td.Node, newTestChainFromNode(t, td))
-	s.ctx = context.Background()
+	snapshotDir := s.cfg.Dir
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -4167,40 +3485,12 @@ func TestVerifySnapshotWithSig_InvalidSignatureValueHex(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
-	dir := t.TempDir()
-
-	rootData := []byte("test_root")
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	rootBytes, _ := hex.DecodeString(mr)
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootBytes})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	sigBytes, err := fullIdent.PrivateKey().Sign(computedRoot)
-	require.NoError(t, err)
+	p, sig := newVerifyFixture(t, crypto.KeyTypeEd25519)
 
 	// Corrupt the signature (truncate)
-	corruptSig := sigBytes[:len(sigBytes)-10]
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     constants.Ed25519ValueString,
-		SignatureIdentity: fullIdent.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString(corruptSig),
-		CreatedAt:         "2024-01-01T00:00:00Z",
-	}
+	sigBytes, err := hex.DecodeString(sig.SignatureValue)
+	require.NoError(t, err)
+	sig.SignatureValue = hex.EncodeToString(sigBytes[:len(sigBytes)-10])
 
 	result, err := VerifySnapshotWithSig(p, sig)
 	require.NoError(t, err)
@@ -4212,37 +3502,7 @@ func TestVerifySnapshotWithSig_VerifyReturnsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestVerifySnapshotWithSig_FullyValid(t *testing.T) {
-	dir := t.TempDir()
-
-	rootData := []byte("block_sig_root_data")
-	mr := hex.EncodeToString(rootData)
-
-	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
-	}
-	p := writeJSONLFile(t, dir, "test.jsonl", lines)
-
-	rootBytes, _ := hex.DecodeString(mr)
-	computedRoot := ComputeSnapshotMerkleRoot([][]byte{rootBytes})
-	computedRootHex := hex.EncodeToString(computedRoot)
-
-	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
-	require.NoError(t, err)
-
-	sigBytes, err := fullIdent.PrivateKey().Sign(computedRoot)
-	require.NoError(t, err)
-
-	sig := &SnapshotSignatureData{
-		SnapshotFile:      "test.jsonl",
-		StartBlock:        1000,
-		EndBlock:          1999,
-		MerkleRoot:        computedRootHex,
-		BlockCount:        1,
-		SignatureType:     constants.Ed25519ValueString,
-		SignatureIdentity: fullIdent.PublicKey().String(),
-		SignatureValue:    hex.EncodeToString(sigBytes),
-		CreatedAt:         "2024-01-01T00:00:00Z",
-	}
+	p, sig := newVerifyFixture(t, crypto.KeyTypeEd25519)
 
 	result, err := VerifySnapshotWithSig(p, sig)
 	require.NoError(t, err)
