@@ -1,7 +1,7 @@
 type Ethereum__Mainnet__Transaction {
     hash: String
     blockHash: String
-    blockNumber: Int
+    blockNumber: Int @index
     from: String
     to: String
     value: String

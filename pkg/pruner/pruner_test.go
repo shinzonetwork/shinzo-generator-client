@@ -745,6 +745,49 @@ func TestGetLowestAndHighestBlockNumber(t *testing.T) {
 	assert.Equal(t, int64(30), highest)
 }
 
+func TestGetLowestAndHighestBlockNumber_SkipsRowsWithNoNumber(t *testing.T) {
+	n := startTestNode(t)
+	p := NewPruner(&Config{Enabled: true, MaxBlocks: 100}, n, testCollections())
+	ctx := context.Background()
+
+	// More rows without a number than the query's limit, so an ordering that does not
+	// exclude them returns nulls only.
+	for i := range 10 {
+		res := n.DB.ExecRequest(ctx, fmt.Sprintf(`mutation { add_TestBlock(input: [{hash: "no-number-%d"}]) { _docID } }`, i))
+		require.Empty(t, res.GQL.Errors, "insert failed: %v", res.GQL.Errors)
+	}
+	for _, num := range []int64{10, 20, 30} {
+		insertTestBlock(t, n, num, 0)
+	}
+
+	lowest, err := p.getLowestBlockNumber(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), lowest)
+
+	highest, err := p.getHighestBlockNumber(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(30), highest)
+}
+
+// A collection holding only rows without a number must stay distinguishable from an empty
+// one: the callers warn on the first and not on the second.
+func TestGetLowestAndHighestBlockNumber_NoRowsWithNumber(t *testing.T) {
+	n := startTestNode(t)
+	p := NewPruner(&Config{Enabled: true, MaxBlocks: 100}, n, testCollections())
+	ctx := context.Background()
+
+	for i := range 3 {
+		res := n.DB.ExecRequest(ctx, fmt.Sprintf(`mutation { add_TestBlock(input: [{hash: "no-number-%d"}]) { _docID } }`, i))
+		require.Empty(t, res.GQL.Errors, "insert failed: %v", res.GQL.Errors)
+	}
+
+	_, err := p.getLowestBlockNumber(ctx)
+	assert.ErrorIs(t, err, ErrNoValidBlocks)
+
+	_, err = p.getHighestBlockNumber(ctx)
+	assert.ErrorIs(t, err, ErrNoValidBlocks)
+}
+
 func TestGetBlockRange(t *testing.T) {
 	n := startTestNode(t)
 	cols := testCollections()
@@ -936,6 +979,24 @@ func TestFilterBasedPrune(t *testing.T) {
 	// Metrics should be updated
 	assert.True(t, p.totalBlocksPruned > 0)
 	assert.True(t, p.totalDocsPruned > 0)
+}
+
+// Rows without a number must not stop the pruner reaching the block range and pruning.
+func TestFilterBasedPrune_WithRowsWithNoNumber(t *testing.T) {
+	n := startTestNode(t)
+	p := NewPruner(&Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}, n, testCollections())
+	ctx := context.Background()
+
+	for i := range 10 {
+		res := n.DB.ExecRequest(ctx, fmt.Sprintf(`mutation { add_TestBlock(input: [{hash: "no-number-%d"}]) { _docID } }`, i))
+		require.Empty(t, res.GQL.Errors, "insert failed: %v", res.GQL.Errors)
+	}
+	for _, num := range []int64{1, 2, 3, 4} {
+		insertTestBlock(t, n, num, 0)
+	}
+
+	require.NoError(t, p.filterBasedPrune(ctx))
+	assert.True(t, p.totalBlocksPruned > 0)
 }
 
 func TestFilterBasedPrune_WithinLimit(t *testing.T) {

@@ -564,33 +564,72 @@ func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err 
 }
 
 func (p *Pruner) getLowestBlockNumber(ctx context.Context) (int64, error) {
-	query := `query {
-		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: ASC}, limit: 7) {
-			` + p.collections.BlockNumberField + `
-		}
-	}`
-
-	result := p.defraNode.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return 0, fmt.Errorf("lowest block query failed: %w", result.GQL.Errors[0])
-	}
-
-	return p.extractBlockNumber(result.GQL.Data)
+	return p.blockNumberBound(ctx, "ASC", "lowest")
 }
 
 func (p *Pruner) getHighestBlockNumber(ctx context.Context) (int64, error) {
+	return p.blockNumberBound(ctx, "DESC", "highest")
+}
+
+// blockNumberBound returns the first block number under the given sort order. Rows whose
+// number is null are excluded: under ASC they sort ahead of real numbers and can fill the
+// limit on their own. Block numbers are non-negative, so _geq: 0 admits every real block
+// including genesis.
+func (p *Pruner) blockNumberBound(ctx context.Context, order, label string) (int64, error) {
+	field := p.collections.BlockNumberField
 	query := `query {
-		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: DESC}, limit: 7) {
-			` + p.collections.BlockNumberField + `
+		` + p.collections.BlockCollection + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: 7) {
+			` + field + `
 		}
 	}`
 
 	result := p.defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return 0, fmt.Errorf("highest block query failed: %w", result.GQL.Errors[0])
+		return 0, fmt.Errorf("%s block query failed: %w", label, result.GQL.Errors[0])
 	}
 
-	return p.extractBlockNumber(result.GQL.Data)
+	number, err := p.extractBlockNumber(result.GQL.Data)
+	if !errors.Is(err, ErrNoBlocks) {
+		return number, err
+	}
+
+	// The filter hides rows without a number, so an empty result does not by itself mean the
+	// collection is empty. Callers act on those two cases differently.
+	present, presentErr := p.hasAnyBlocks(ctx)
+	if presentErr != nil {
+		return 0, presentErr
+	}
+	if present {
+		return 0, ErrNoValidBlocks
+	}
+	return 0, ErrNoBlocks
+}
+
+// hasAnyBlocks reports whether the block collection holds any document, including rows with
+// no block number.
+func (p *Pruner) hasAnyBlocks(ctx context.Context) (bool, error) {
+	query := `query {
+		` + p.collections.BlockCollection + ` (limit: 1) {
+			_docID
+		}
+	}`
+
+	result := p.defraNode.DB.ExecRequest(ctx, query)
+	if len(result.GQL.Errors) > 0 {
+		return false, fmt.Errorf("block presence query failed: %w", result.GQL.Errors[0])
+	}
+
+	data, ok := result.GQL.Data.(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	switch rows := data[p.collections.BlockCollection].(type) {
+	case []any:
+		return len(rows) > 0, nil
+	case []map[string]any:
+		return len(rows) > 0, nil
+	}
+	return false, nil
 }
 
 func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
