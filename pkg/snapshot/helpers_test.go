@@ -428,3 +428,25 @@ func assertBlockRange(t *testing.T, td *testutils.TestDefraDB, lowest, highest i
 	require.NoError(t, err)
 	assert.Equal(t, highest, gotHighest)
 }
+
+// seedSnapshotFiles writes count well-formed (empty) snapshot files covering
+// sequential 100-block aligned ranges starting at start. Returns the names.
+func seedSnapshotFiles(t *testing.T, dir string, start, count int64) []string {
+	t.Helper()
+	names := make([]string, 0, count)
+	for i := range count {
+		s := start + i*100
+		name := fmt.Sprintf("snapshot_%d_%d.kvsnap.gz", s, s+99)
+		writeKVSnapGz(t, dir, name, func(_ *gzip.Writer) {})
+		names = append(names, name)
+	}
+	return names
+}
+
+// countSnapshotFiles counts on-disk snapshot files (well-formed or not).
+func countSnapshotFiles(t *testing.T, dir string) int {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "snapshot_*.kvsnap.gz"))
+	require.NoError(t, err)
+	return len(files)
+}
