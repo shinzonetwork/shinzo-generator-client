@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -324,6 +325,71 @@ func TestGetDocIDsByBlockRange_Empty(t *testing.T) {
 	result, err := c.GetDocIDsByBlockRange(context.Background(), td.Node, 1, 100)
 	require.NoError(t, err)
 	assert.Empty(t, result)
+}
+
+func TestGetStoredBlockNumbers_WithBlocks(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	c := NewConverter(cfg)
+	td := testutils.SetupTestDefraDB(t)
+	ctx := context.Background()
+
+	for _, num := range []int64{100, 101, 102} {
+		storeTestBlockDoc(ctx, t, td, c, num)
+	}
+
+	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), lowest)
+
+	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(102), highest)
+}
+
+// TestGetLowestStoredBlockNumber_AfterPurge is the regression test for the
+// 2026-09-02 incident: a PurgeByDocIDs residue left a dangling row behind, so
+// the ASC lowest-block query kept returning a row whose number field was
+// unparseable ("block exists but has invalid or unparseable number field").
+// After purging the lowest blocks, the query must return the next stored
+// block without error.
+func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	c := NewConverter(cfg)
+	td := testutils.SetupTestDefraDB(t)
+	ctx := context.Background()
+
+	for _, num := range []int64{100, 101, 102, 103, 104} {
+		storeTestBlockDoc(ctx, t, td, c, num)
+	}
+
+	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), lowest)
+
+	docIDs, err := c.queryCollectionDocIDs(ctx, td.Node, c.collections.Block, constants.NumberFieldValue, 100, 101)
+	require.NoError(t, err)
+	require.Len(t, docIDs, 2)
+
+	col, err := td.Node.DB.GetCollectionByName(ctx, c.collections.Block)
+	require.NoError(t, err)
+
+	purgeIDs := make([]client.DocID, 0, len(docIDs))
+	for _, id := range docIDs {
+		docID, err := client.NewDocIDFromString(id)
+		require.NoError(t, err)
+		purgeIDs = append(purgeIDs, docID)
+	}
+	require.NoError(t, col.PurgeByDocIDs(ctx, purgeIDs, true))
+
+	lowest, err = c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(102), lowest)
+
+	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(104), highest)
 }
 
 // ---------------------------------------------------------------------------
