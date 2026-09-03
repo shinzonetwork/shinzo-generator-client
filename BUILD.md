@@ -27,7 +27,7 @@ The compiled binary goes into `./bin`.
 | `make test` | Run all tests with a summary. |
 | `make integration-test` | Run mock and live integration tests. |
 | `make coverage` | Generate an HTML coverage report. |
-| `make geth-status` | Only applies to Ethereum Geth nodes. Check Geth node connectivity and current block number. |
+| `make node-status` | Check connectivity and current block number for a blockchain node. Probes Ethereum-compatible JSON-RPC endpoints via `eth_blockNumber`; the Generator itself is chain-agnostic and accepts any compatible JSON-RPC/WebSocket endpoint. |
 | `make clean` | Remove build artifacts. |
 | `make stop` | Stop running generator and DefraDB processes. |
 | `make help` | Show all available targets. |

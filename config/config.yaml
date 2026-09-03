@@ -32,6 +32,7 @@ defradb:
     # num_level_zero_tables_stall: 30  # L0 tables that trigger write stalls
     # Badger value log configuration
     value_log_file_size_mb: 128      # Size of each vlog file (smaller = more effective GC)
+# The geth section name is historical. The Generator is chain-agnostic and accepts any compatible JSON-RPC and WebSocket endpoint, not just Geth.
 geth:
   node_url: "${GETH_RPC_URL}"  # Fallback
   ws_url: "${GETH_WS_URL}"

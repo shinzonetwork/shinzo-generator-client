@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt
+.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -6,6 +6,7 @@ ifneq (,$(wildcard ./.env))
     export
 endif
 
+# The GETH_* env var names below are historical. The Generator is chain-agnostic and accepts any compatible JSON-RPC and WebSocket endpoint, not just Geth.
 GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
@@ -19,7 +20,8 @@ start:
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
-geth-status:
+# node-status probes an Ethereum-compatible JSON-RPC endpoint via eth_blockNumber. The Generator itself is chain-agnostic; see https://docs.shinzo.network/generator/overview.
+node-status:
 	@if [ -z "$(GETH_RPC_URL)" ]; then \
 		echo "❌ GETH_RPC_URL not set"; \
 		exit 1; \
@@ -64,13 +66,13 @@ test:
 	exit $$exit_code
 
 test-local:
-	@echo "🧪 Running local generator test with Geth endpoint..."
+	@echo "🧪 Running local generator test with your blockchain node endpoint..."
 	@if [ -z "$(GETH_RPC_URL)" ]; then \
 		echo "❌ GETH_RPC_URL not set. Please export it first:"; \
-		echo "   export GETH_RPC_URL=<your-geth-url>"; \
+		echo "   export GETH_RPC_URL=<your-node-url>"; \
 		exit 1; \
 	fi
-	@echo "✅ Using Geth endpoint: $(GETH_RPC_URL)"
+	@echo "✅ Using node endpoint: $(GETH_RPC_URL)"
 	@go test ./pkg/indexer -v -run TestIndexing
 
 integration-test:
@@ -149,7 +151,7 @@ help:
 	@echo "  fmt                - Format code with gofmt and goimports"
 	@echo ""
 	@echo "🔗 Connectivity Testing:"
-	@echo "  geth-status        - Comprehensive Geth node diagnostics"
+	@echo "  node-status        - Check blockchain node connectivity and current block"
 	@echo "  defra-status       - Check DefraDB status"
 	@echo ""
 	@echo "🏃 Services:"
@@ -157,12 +159,13 @@ help:
 	@echo "  start              - Start the generator"
 	@echo "  stop               - Stop all services"
 	@echo ""
-	@echo "🔧 Environment Variables for geth-status:"
+	@echo "🔧 Environment Variables for node-status:"
 	@echo "  GETH_RPC_URL   - HTTP RPC endpoint (required)"
 	@echo "  GETH_API_KEY   - API key for authentication (optional)"
 	@echo "  GETH_WS_URL    - WebSocket endpoint (optional)"
+	@echo "  (GETH_* names are historical; any compatible JSON-RPC/WS endpoint works)"
 	@echo ""
 	@echo "💡 Example Usage:"
 	@echo "  export GETH_RPC_URL=http://xx.xx.xx.xx:port"
 	@echo "  export GETH_API_KEY=your-api-key-here"
-	@echo "  make geth-status"
+	@echo "  make node-status"

@@ -11,14 +11,14 @@ if [ -f .env ]; then
     source .env
 fi
 
-# Ensure GETH_RPC_URL is set
+# Ensure GETH_RPC_URL is set (the GETH_* names are historical examples; any compatible JSON-RPC/WebSocket endpoint works, not just Geth)
 if [ -z "$GETH_RPC_URL" ]; then
     echo "❌ GETH_RPC_URL not set. Please export it first:"
-    echo "   export GETH_RPC_URL=<your-geth-url>"
+    echo "   export GETH_RPC_URL=<your-node-url>"
     exit 1
 fi
 
-echo "✅ Using Geth endpoint: $GETH_RPC_URL"
+echo "✅ Using node endpoint: $GETH_RPC_URL"
 
 # Optional: Set WebSocket URL if available
 if [ -n "$GETH_WS_URL" ]; then
