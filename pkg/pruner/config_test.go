@@ -3,20 +3,8 @@ package pruner
 import (
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/stretchr/testify/assert"
 )
-
-func TestDefaultCollectionConfig(t *testing.T) {
-	cfg := DefaultCollectionConfig()
-	assert.Equal(t, constants.CollectionBlock, cfg.BlockCollection)
-	assert.Equal(t, "number", cfg.BlockNumberField)
-	assert.Len(t, cfg.DependentCollections, 4)
-	assert.Contains(t, cfg.DependentCollections, constants.CollectionTransaction)
-	assert.Contains(t, cfg.DependentCollections, constants.CollectionLog)
-	assert.Contains(t, cfg.DependentCollections, constants.CollectionAccessListEntry)
-	assert.Contains(t, cfg.DependentCollections, constants.CollectionBlockSignature)
-}
 
 func TestConfigMaxDocs(t *testing.T) {
 	cfg := &Config{MaxBlocks: 100, DocsPerBlock: 1000}

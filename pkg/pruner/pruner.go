@@ -4,27 +4,49 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
+// BlockRangeReader provides block-range queries and collection metadata.
+// It is a subset of chain.Chain; any chain.Chain implementer satisfies it.
+//
+// Defined locally (rather than importing pkg/chain.Chain) to break an import
+// cycle: pkg/pruner → pkg/chain → config → pkg/pruner (config embeds
+// pruner.Config). Go's structural interfaces mean chain.Adapter,
+// testutils.MockChain, and any other chain.Chain implementer satisfy
+// BlockRangeReader without an explicit implements clause.
+type BlockRangeReader interface {
+	GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
+	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
+	GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error)
+	GetCollections() []string
+}
+
+// Suffixes used to resolve the block and block-signature collection names from
+// the chain's GetCollections() list. Collection names follow the convention
+// prefix + "__" + shortName (e.g. "Ethereum__Mainnet__Block").
+const (
+	blockCollectionSuffix          = "__Block"
+	blockSignatureCollectionSuffix = "__BlockSignature"
+)
+
 // ErrNoBlocks indicates that the query succeeded but no blocks were found.
 var ErrNoBlocks = errors.New("no blocks found")
 
-// ErrNoValidBlocks indicates that blocks exist in the database but none have
-// a parseable block number field. This is a data-integrity issue, not an
-// empty database — distinct from ErrNoBlocks.
+// ErrNoValidBlocks indicates that block documents exist in the store but none
+// have a valid, parseable block number field (data corruption). Unlike
+// ErrNoBlocks, this is a hard error — pruning cannot safely proceed when the
+// block range is uncomputable.
 var ErrNoValidBlocks = errors.New("blocks exist but none have a valid block number")
-
-// ErrNoValidDocs indicates that documents exist in a collection but none have
-// a parseable block number field. This is a data-integrity issue, not an
-// empty result set — distinct from the (nil, nil) "no docs in range" return.
-var ErrNoValidDocs = errors.New("docs exist but none have a valid block number")
 
 // Pruner handles periodic removal of old blockchain documents from DefraDB.
 // It supports two queue types:
@@ -33,13 +55,15 @@ var ErrNoValidDocs = errors.New("docs exist but none have a valid block number")
 //
 // When no queue is set or the queue is underfilled, falls back to filter-based pruning.
 type Pruner struct {
-	cfg         *Config
-	collections CollectionConfig
-	defraNode   *node.Node
-	queue       Queue
-	stopChan    chan struct{}
-	wg          sync.WaitGroup
-	mu          sync.RWMutex
+	cfg                *Config
+	defraNode          *node.Node
+	chain              BlockRangeReader
+	blockCollection    string
+	blockSigCollection string
+	queue              Queue
+	stopChan           chan struct{}
+	wg                 sync.WaitGroup
+	mu                 sync.RWMutex
 
 	// Metrics
 	lastPruneTime     time.Time
@@ -58,16 +82,33 @@ type Metrics struct {
 }
 
 // NewPruner creates a new Pruner instance.
-func NewPruner(cfg *Config, defraNode *node.Node, collections ...CollectionConfig) *Pruner {
-	cols := DefaultCollectionConfig()
-	if len(collections) > 0 {
-		cols = collections[0]
+// The chain parameter provides block-range queries and collection names;
+// any chain.Chain implementer satisfies the local BlockRangeReader interface.
+func NewPruner(cfg *Config, defraNode *node.Node, chain BlockRangeReader) *Pruner {
+	p := &Pruner{
+		cfg:       cfg,
+		defraNode: defraNode,
+		chain:     chain,
+		stopChan:  make(chan struct{}),
 	}
-	return &Pruner{
-		cfg:         cfg,
-		collections: cols,
-		defraNode:   defraNode,
-		stopChan:    make(chan struct{}),
+	if chain != nil {
+		p.resolveCollectionNames(chain.GetCollections())
+	}
+	return p
+}
+
+// resolveCollectionNames identifies the block and block-signature collection
+// names from the chain's collection list via suffix matching. Collection names
+// follow the convention prefix + "__" + shortName, so "__Block" uniquely
+// matches the block collection (not BlockSignature).
+func (p *Pruner) resolveCollectionNames(collections []string) {
+	for _, name := range collections {
+		switch {
+		case strings.HasSuffix(name, blockSignatureCollectionSuffix):
+			p.blockSigCollection = name
+		case strings.HasSuffix(name, blockCollectionSuffix):
+			p.blockCollection = name
+		}
 	}
 }
 
@@ -218,8 +259,7 @@ func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) erro
 	if p.cfg.MaxBlocksPerCycle > 0 && blockCount-keep > p.cfg.MaxBlocksPerCycle {
 		keep = blockCount - p.cfg.MaxBlocksPerCycle
 	}
-
-	result := q.Drain(int(keep), p.collections)
+	result := q.Drain(int(keep), p.blockCollection, p.blockSigCollection)
 	if result == nil {
 		return nil
 	}
@@ -231,47 +271,25 @@ func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) erro
 }
 
 // purgeFromDrainResult deletes documents from a DrainResult.
-// Deletes dependent collections first, then the block collection last.
+// Collections are purged in sorted collection-name order — DefraDB does not
+// enforce foreign keys, so purge order does not affect correctness; any
+// orphan documents are cleaned by the next prune run's startupCleanup.
 func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) error {
-	startTime := time.Now()
-	totalPurged := int64(0)
-	var depErrs []error
+	totalPurged, err := p.purgeByDocIDsByCollection(ctx, result.DocIDsByCollection)
 
-	// Dependent collections first, block collection last
-	for _, colName := range p.collections.DependentCollections {
-		docIDs, ok := result.DocIDsByCollection[colName]
-		if !ok || len(docIDs) == 0 {
-			continue
-		}
-		purged, err := p.purgeByDocIDs(ctx, colName, docIDs)
-		totalPurged += purged
-		if err != nil {
-			depErrs = append(depErrs, fmt.Errorf("purge %s: %w", colName, err))
-		}
+	logger.Sugar.Infof("Prune complete: removed %d docs for %d blocks",
+		totalPurged, result.BlockCount)
+	if errors.Is(err, ErrNoValidBlocks) {
+		logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping cleanup")
+		return nil
 	}
-
-	if blockIDs, ok := result.DocIDsByCollection[p.collections.BlockCollection]; ok && len(blockIDs) > 0 {
-		purged, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockIDs)
-		totalPurged += purged
-		if err != nil {
-			return fmt.Errorf("failed to purge blocks: %w", err)
-		}
-	}
-
-	elapsed := time.Since(startTime)
-	logger.Sugar.Infof("Prune complete: removed %d docs for %d blocks in %v",
-		totalPurged, result.BlockCount, elapsed)
-
 	p.mu.Lock()
 	p.totalBlocksPruned += int64(result.BlockCount)
 	p.totalDocsPruned += totalPurged
 	p.lastPruneTime = time.Now()
 	p.mu.Unlock()
 
-	if len(depErrs) > 0 {
-		return fmt.Errorf("dependent collection errors: %w", errors.Join(depErrs...))
-	}
-	return nil
+	return err
 }
 
 // startupCleanup removes blocks left over from previous runs that aren't in the queue.
@@ -280,10 +298,6 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	if err != nil {
 		if errors.Is(err, ErrNoBlocks) {
 			logger.Sugar.Debugf("No existing blocks in database")
-			return nil
-		}
-		if errors.Is(err, ErrNoValidBlocks) {
-			logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping cleanup")
 			return nil
 		}
 		return fmt.Errorf("startup cleanup: get block range: %w", err)
@@ -310,6 +324,11 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 
 	logger.Sugar.Infof("Startup cleanup complete: purged %d documents", totalPurged)
 
+	if errors.Is(err, ErrNoValidBlocks) {
+		logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping cleanup")
+		return nil
+	}
+
 	p.mu.Lock()
 	p.totalBlocksPruned += toPrune
 	p.totalDocsPruned += totalPurged
@@ -325,10 +344,6 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 	lowest, highest, err := p.getBlockRange(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNoBlocks) {
-			return nil
-		}
-		if errors.Is(err, ErrNoValidBlocks) {
-			logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping prune")
 			return nil
 		}
 		return fmt.Errorf("filter-based prune: get block range: %w", err)
@@ -360,147 +375,59 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 }
 
 // pruneBlockRange removes all documents for blocks in [startBlock, endBlock].
-// Uses order+limit queries to get docIDs, then purges them.
-// Safe to call with concurrent P2P replication — merge handles missing blocks gracefully.
+// Queries docIDs from the chain, then purges each collection in sorted-name
+// order (DefraDB has no FK enforcement; any orphans are cleaned by the next
+// prune run).
 func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64) (int64, error) {
-	totalPurged := int64(0)
-	var depErrs []error
-
 	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
 		startBlock, endBlock, endBlock-startBlock+1)
 
-	// Dependent collections first, block collection last
-	for _, colName := range p.collections.DependentCollections {
-		docIDs, err := p.queryOldestDocIDs(ctx, colName, constants.BlockNumberKeyValue, endBlock)
-		if err != nil {
-			depErrs = append(depErrs, fmt.Errorf("query %s: %w", colName, err))
-			continue
-		}
-		if len(docIDs) > 0 {
-			purged, err := p.purgeByDocIDs(ctx, colName, docIDs)
-			totalPurged += purged
-			if err != nil {
-				depErrs = append(depErrs, fmt.Errorf("purge %s: %w", colName, err))
-			}
-		}
+	docIDsByCollection, err := p.chain.GetDocIDsByBlockRange(ctx, startBlock, endBlock)
+	if err != nil {
+		return 0, fmt.Errorf("get docIDs by block range: %w", err)
 	}
 
-	blockDocIDs, err := p.queryOldestDocIDs(ctx, p.collections.BlockCollection, p.collections.BlockNumberField, endBlock)
-	if err != nil {
-		return totalPurged, fmt.Errorf("query failed for blocks: %w", err)
-	}
-	if len(blockDocIDs) > 0 {
-		purged, err := p.purgeByDocIDs(ctx, p.collections.BlockCollection, blockDocIDs)
-		totalPurged += purged
-		if err != nil {
-			return totalPurged, fmt.Errorf("failed to purge blocks: %w", err)
-		}
-	}
+	totalPurged, purgeErr := p.purgeByDocIDsByCollection(ctx, docIDsByCollection)
 
 	logger.Sugar.Infof("pruneBlockRange: purged %d docs for blocks %d-%d", totalPurged, startBlock, endBlock)
+	return totalPurged, purgeErr
+}
 
-	if len(depErrs) > 0 {
-		return totalPurged, fmt.Errorf("dependent collection errors: %w", errors.Join(depErrs...))
+// purgeByDocIDsByCollection purges documents from each collection in the map,
+// iterating collection names in sorted order. Returns the total purged count
+// and a joined error of any per-collection failures.
+func (p *Pruner) purgeByDocIDsByCollection(ctx context.Context, docIDsByCollection map[string][]string) (int64, error) {
+	startTime := time.Now()
+	totalPurged := int64(0)
+	var errs []error
+
+	cols := make([]string, 0, len(docIDsByCollection))
+	for col := range docIDsByCollection {
+		cols = append(cols, col)
+	}
+	sort.Strings(cols)
+
+	for _, colName := range cols {
+		docIDs := docIDsByCollection[colName]
+		if len(docIDs) == 0 {
+			continue
+		}
+		purged, err := p.purgeByDocIDs(ctx, colName, docIDs)
+		totalPurged += purged
+		if err != nil {
+			errs = append(errs, fmt.Errorf("purge %s: %w", colName, err))
+		}
+	}
+
+	logger.Sugar.Infof("Purge complete: removed %d docs in %v", totalPurged, time.Since(startTime))
+
+	if len(errs) > 0 {
+		return totalPurged, fmt.Errorf("collection purge errors: %w", errors.Join(errs...))
 	}
 	return totalPurged, nil
 }
 
 // ─── Document operations ─────────────────────────────────────────────────────
-
-// queryOldestDocIDs queries for docIDs where fieldName <= maxBlockNumber using order+limit.
-// Works on P2P-replicated data where filter queries return empty results.
-func (p *Pruner) queryOldestDocIDs(ctx context.Context, collectionName, fieldName string, maxBlockNumber int64) ([]string, error) {
-	limit := 50000
-	query := fmt.Sprintf(`query {
-		%s(order: { %s: ASC }, limit: %d) {
-			_docID
-			%s
-		}
-	}`, collectionName, fieldName, limit, fieldName)
-
-	result := p.defraNode.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return nil, fmt.Errorf("query failed for %s: %w", collectionName, result.GQL.Errors[0])
-	}
-
-	// Data is nil when the query returns no result set at all (no errors, no data key).
-	if result.GQL.Data == nil {
-		return nil, nil // This is a legitimate empty result, not an error.
-	}
-
-	data, ok := result.GQL.Data.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("unexpected GQL data type %T for %s", result.GQL.Data, collectionName)
-	}
-
-	// DefraDB may return []map[string]interface{} or []interface{} depending on context.
-	// In Go these are distinct types, so we must handle both.
-	raw, ok := data[collectionName]
-	if !ok {
-		return nil, fmt.Errorf("collection %s not found in GQL response", collectionName)
-	}
-	// The collection key exists but maps to nil — DefraDB returns nil for
-	// collections that exist in the schema but contain zero documents.
-	if raw == nil {
-		return nil, nil // This is a legitimate empty result, not an error.
-	}
-
-	switch docs := raw.(type) {
-	case []map[string]any:
-		return extractDocIDs(docs, fieldName, maxBlockNumber, collectionName)
-	case []any:
-		typed := make([]map[string]any, 0, len(docs))
-		for _, doc := range docs {
-			docMap, ok := doc.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("unexpected element type %T in %s", doc, collectionName)
-			}
-			typed = append(typed, docMap)
-		}
-		return extractDocIDs(typed, fieldName, maxBlockNumber, collectionName)
-	default:
-		return nil, fmt.Errorf("unexpected collection result type %T for %s", raw, collectionName)
-	}
-}
-
-// extractDocIDs collects docIDs for documents whose block number is within the
-// allowed range. Docs with nil or unparseable block numbers, or non-string
-// _docID fields, are counted and skipped — a single corrupt doc must not
-// prevent pruning of all other valid docs. A single summary warning is logged
-// if any docs were skipped, instead of one log line per corrupt doc.
-//
-// Returns (nil, ErrNoValidDocs) when docs exist but none have a parseable
-// block number — this is a data-integrity issue distinct from "no docs in
-// range", which returns (nil, nil).
-func extractDocIDs(docs []map[string]any, fieldName string, maxBlockNumber int64, collectionName string) ([]string, error) {
-	var docIDs []string
-	skipped := 0
-	parsedAny := false
-	for _, docMap := range docs {
-		blockNumber, err := parseBlockNumber(docMap[fieldName])
-		if err != nil {
-			skipped++
-			continue
-		}
-		parsedAny = true
-		if blockNumber > maxBlockNumber {
-			break
-		}
-		docID, ok := docMap["_docID"].(string)
-		if !ok {
-			skipped++
-			continue
-		}
-		docIDs = append(docIDs, docID)
-	}
-	if skipped > 0 {
-		logger.Sugar.Warnf("Skipped %d doc(s) in %s with missing or unparseable fields", skipped, collectionName)
-	}
-	if len(docs) > 0 && !parsedAny {
-		return nil, fmt.Errorf("%s: %w", collectionName, ErrNoValidDocs)
-	}
-	return docIDs, nil
-}
 
 // purgeByDocIDs deletes documents by their docIDs.
 // Returns the count of successfully purged documents and an error if any
@@ -546,132 +473,32 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 
 // ─── Block number queries ────────────────────────────────────────────────────
 
-// getBlockRange returns the lowest and highest block numbers from the database.
-// Returns (0, 0, ErrNoBlocks) if the database has no blocks.
-// Returns (0, 0, ErrNoValidBlocks) if blocks exist but none have parseable numbers.
-// Returns (0, 0, err) for query or type errors.
-// Returns (lowest, highest, nil) when valid block numbers are found.
+// getBlockRange returns the lowest and highest block numbers from the chain.
+// Returns (0, 0, ErrNoBlocks) if the database has no blocks (chain returns
+// errors.IsErrNotFound on an empty DB).
 func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err error) {
-	lowest, err = p.getLowestBlockNumber(ctx)
-	if err != nil {
-		return 0, 0, err
+	if p.chain == nil {
+		return 0, 0, ErrNoBlocks
 	}
-	highest, err = p.getHighestBlockNumber(ctx)
+	lowest, err = p.chain.GetLowestStoredBlockNumber(ctx)
 	if err != nil {
-		return 0, 0, err
+		if pkgerrors.IsErrNotFound(err) {
+			return 0, 0, ErrNoBlocks
+		}
+		if errors.Is(err, defra.ErrBlockNumberCorrupt) {
+			return 0, 0, fmt.Errorf("get lowest block: %w", ErrNoValidBlocks)
+		}
+		return 0, 0, fmt.Errorf("get lowest block: %w", err)
+	}
+	highest, err = p.chain.GetHighestStoredBlockNumber(ctx)
+	if err != nil {
+		if pkgerrors.IsErrNotFound(err) {
+			return 0, 0, ErrNoBlocks
+		}
+		if errors.Is(err, defra.ErrBlockNumberCorrupt) {
+			return 0, 0, fmt.Errorf("get highest block: %w", ErrNoValidBlocks)
+		}
+		return 0, 0, fmt.Errorf("get highest block: %w", err)
 	}
 	return lowest, highest, nil
-}
-
-func (p *Pruner) getLowestBlockNumber(ctx context.Context) (int64, error) {
-	query := `query {
-		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: ASC}, limit: 7) {
-			` + p.collections.BlockNumberField + `
-		}
-	}`
-
-	result := p.defraNode.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return 0, fmt.Errorf("lowest block query failed: %w", result.GQL.Errors[0])
-	}
-
-	return p.extractBlockNumber(result.GQL.Data)
-}
-
-func (p *Pruner) getHighestBlockNumber(ctx context.Context) (int64, error) {
-	query := `query {
-		` + p.collections.BlockCollection + ` (order: {` + p.collections.BlockNumberField + `: DESC}, limit: 7) {
-			` + p.collections.BlockNumberField + `
-		}
-	}`
-
-	result := p.defraNode.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return 0, fmt.Errorf("highest block query failed: %w", result.GQL.Errors[0])
-	}
-
-	return p.extractBlockNumber(result.GQL.Data)
-}
-
-func (p *Pruner) extractBlockNumber(gqlData any) (int64, error) {
-	if gqlData == nil {
-		return 0, ErrNoBlocks
-	}
-
-	data, ok := gqlData.(map[string]any)
-	if !ok {
-		return 0, fmt.Errorf("unexpected GQL data type %T", gqlData)
-	}
-
-	blocksRaw, ok := data[p.collections.BlockCollection]
-	if !ok {
-		return 0, fmt.Errorf("collection %s not found in GQL response", p.collections.BlockCollection)
-	}
-
-	if blocksTyped, ok := blocksRaw.([]map[string]any); ok {
-		if len(blocksTyped) == 0 {
-			return 0, ErrNoBlocks
-		}
-		return p.findFirstValidBlockNumber(blocksTyped)
-	}
-
-	blocks, ok := blocksRaw.([]any)
-	if !ok {
-		if blocksRaw == nil {
-			return 0, ErrNoBlocks
-		}
-		return 0, fmt.Errorf("unexpected blocks type %T", blocksRaw)
-	}
-	if len(blocks) == 0 {
-		return 0, ErrNoBlocks
-	}
-
-	typed := make([]map[string]any, 0, len(blocks))
-	for _, block := range blocks {
-		blockMap, ok := block.(map[string]any)
-		if !ok {
-			return 0, fmt.Errorf("unexpected block element type %T", block)
-		}
-		typed = append(typed, blockMap)
-	}
-	return p.findFirstValidBlockNumber(typed)
-}
-
-// findFirstValidBlockNumber iterates through blocks and returns the first valid
-// block number. Blocks with missing or unparseable number fields are counted and
-// skipped — this is not propagated as an error because a single corrupt block
-// (e.g. from P2P replication with a nil number field) must not prevent pruning
-// of all other valid blocks. A single summary warning is logged if any blocks
-// were skipped, instead of one log line per corrupt block.
-func (p *Pruner) findFirstValidBlockNumber(blocks []map[string]any) (int64, error) {
-	skipped := 0
-	for _, block := range blocks {
-		number, ok := block[p.collections.BlockNumberField]
-		if !ok {
-			skipped++
-			continue
-		}
-		blockNumber, err := parseBlockNumber(number)
-		if err != nil {
-			skipped++
-			continue
-		}
-		if skipped > 0 {
-			logger.Sugar.Warnf("Skipped %d block(s) with missing or unparseable number fields", skipped)
-		}
-		return blockNumber, nil
-	}
-	return 0, ErrNoValidBlocks
-}
-
-func parseBlockNumber(number any) (int64, error) {
-	switch v := number.(type) {
-	case float64:
-		return int64(v), nil
-	case int64:
-		return v, nil
-	case int:
-		return int64(v), nil
-	}
-	return 0, fmt.Errorf("unexpected block number type %T", number)
 }
