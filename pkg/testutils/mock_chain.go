@@ -25,7 +25,7 @@ type MockChain struct {
 	mu sync.Mutex
 
 	// Optional overrides. When nil the method returns its zero value.
-	FetchAndStoreBlockFn          func(ctx context.Context, height int64) error
+	FetchAndStoreBlockFn          func(ctx context.Context, height int64) (string, error)
 	FetchHighestBlockNumberFn     func(ctx context.Context) (int64, error)
 	GetHighestStoredBlockNumberFn func(ctx context.Context) (int64, error)
 	GetLowestStoredBlockNumberFn  func(ctx context.Context) (int64, error)
@@ -44,14 +44,14 @@ type MockChain struct {
 }
 
 // FetchAndStoreBlock records the height and delegates to FetchAndStoreBlockFn.
-func (m *MockChain) FetchAndStoreBlock(ctx context.Context, height int64) error {
+func (m *MockChain) FetchAndStoreBlock(ctx context.Context, height int64) (string, error) {
 	m.mu.Lock()
 	m.FetchAndStoreBlockCalls = append(m.FetchAndStoreBlockCalls, height)
 	m.mu.Unlock()
 	if m.FetchAndStoreBlockFn != nil {
 		return m.FetchAndStoreBlockFn(ctx, height)
 	}
-	return nil
+	return "", nil
 }
 
 // FetchHighestBlockNumber records the call and delegates to FetchHighestBlockNumberFn.
