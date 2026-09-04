@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -36,7 +37,7 @@ func (s *Snapshotter) createKVSnapshot(ctx context.Context, startBlock, endBlock
 		return err
 	}
 
-	if err := signSnapshotWithRoots(ctx, s.defraNode, filename, startBlock, endBlock, roots, len(roots)); err != nil {
+	if err := s.signSnapshotWithRoots(ctx, filename, startBlock, endBlock, roots, len(roots)); err != nil {
 		return fmt.Errorf("snapshot signing failed for %s: %w", filename, err)
 	}
 
@@ -90,7 +91,7 @@ func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writ
 		return nil, err
 	}
 
-	roots, _, err := getBlockSigMerkleRoots(ctx, s.defraNode, startBlock, endBlock)
+	roots, _, err := s.getBlockSigMerkleRoots(ctx, startBlock, endBlock)
 	if err != nil {
 		logger.Sugar.Warnf("KV snapshot: failed to get block sig roots: %v", err)
 	}
@@ -138,24 +139,27 @@ func (s *Snapshotter) writeKVSnapshotContents(ctx context.Context, gw *gzip.Writ
 }
 
 // exportCollectionKVs exports KV pairs for all collections in the block range.
+// Collection names and docIDs are resolved via chain.GetDocIDsByBlockRange,
+// producing a deterministic iteration order (sorted by collection name).
 func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, startBlock, endBlock int64) (int, error) {
-	collections := []struct {
-		name       string
-		blockField string
-	}{
-		{constants.CollectionBlock, "number"},                //nolint:goconst
-		{constants.CollectionTransaction, "blockNumber"},     //nolint:goconst
-		{constants.CollectionLog, "blockNumber"},             //nolint:goconst
-		{constants.CollectionAccessListEntry, "blockNumber"}, //nolint:goconst
-		{constants.CollectionBlockSignature, "blockNumber"},  //nolint:goconst
+	if s.chain == nil {
+		return 0, fmt.Errorf("chain not initialized")
+	}
+	docIDsByCollection, err := s.chain.GetDocIDsByBlockRange(ctx, startBlock, endBlock)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get docIDs for blocks in range %d-%d: %w", startBlock, endBlock, err)
 	}
 
+	// Sort collection names for deterministic file bytes.
+	collections := make([]string, 0, len(docIDsByCollection))
+	for name := range docIDsByCollection {
+		collections = append(collections, name)
+	}
+	sort.Strings(collections)
+
 	totalKVs := 0
-	for _, col := range collections {
-		docIDs, err := s.queryDocIDs(ctx, col.name, col.blockField, startBlock, endBlock)
-		if err != nil {
-			return 0, fmt.Errorf("query docIDs for %s: %w", col.name, err)
-		}
+	for _, colName := range collections {
+		docIDs := docIDsByCollection[colName]
 		if len(docIDs) == 0 {
 			continue
 		}
@@ -164,9 +168,9 @@ func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, 
 		// Buffer each call so we can strip that sentinel before writing to the shared
 		// gzip stream; our caller (writeKVSnapshotContents) writes the single final sentinel.
 		var buf bytes.Buffer
-		n, err := s.defraNode.DB.ExportDocKVs(ctx, col.name, docIDs, &buf, true)
+		n, err := s.defraNode.DB.ExportDocKVs(ctx, colName, docIDs, &buf, true)
 		if err != nil {
-			return 0, fmt.Errorf("export KVs for %s: %w", col.name, err)
+			return 0, fmt.Errorf("export KVs for %s: %w", colName, err)
 		}
 		data := buf.Bytes()
 		const sentinelLen = 4
@@ -174,66 +178,11 @@ func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, 
 			data = data[:len(data)-sentinelLen]
 		}
 		if _, err := gw.Write(data); err != nil {
-			return 0, fmt.Errorf("write KVs for %s: %w", col.name, err)
+			return 0, fmt.Errorf("write KVs for %s: %w", colName, err)
 		}
 		totalKVs += n
-		logger.Sugar.Debugf("Exported %d KV pairs for %s (%d docs)", n, col.name, len(docIDs))
+		logger.Sugar.Debugf("Exported %d KV pairs for %s (%d docs)", n, colName, len(docIDs))
 	}
 
 	return totalKVs, nil
-}
-
-// queryDocIDs returns all document IDs for a collection in the given block range.
-func (s *Snapshotter) queryDocIDs(ctx context.Context, collection, blockField string, startBlock, endBlock int64) ([]string, error) {
-	var allDocIDs []string
-
-	for chunkStart := startBlock; chunkStart <= endBlock; chunkStart += queryChunkSize {
-		chunkEnd := chunkStart + queryChunkSize - 1
-		chunkEnd = min(chunkEnd, endBlock)
-
-		query := fmt.Sprintf(
-			`query { %s(filter: {%s: {_geq: %d, _leq: %d}}) { _docID } }`,
-			collection, blockField, chunkStart, chunkEnd,
-		)
-
-		result := s.defraNode.DB.ExecRequest(ctx, query)
-		if len(result.GQL.Errors) > 0 {
-			return nil, fmt.Errorf("query %s [%d-%d]: %w", collection, chunkStart, chunkEnd, result.GQL.Errors[0])
-		}
-
-		data, ok := result.GQL.Data.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		raw := data[collection]
-		if raw == nil {
-			continue
-		}
-
-		var docs []any
-		switch typed := raw.(type) {
-		case []any:
-			docs = typed
-		case []map[string]any:
-			docs = make([]any, len(typed))
-			for i, d := range typed {
-				docs[i] = d
-			}
-		default:
-			continue
-		}
-
-		for _, doc := range docs {
-			m, ok := doc.(map[string]any)
-			if !ok {
-				continue
-			}
-			if docID, ok := m["_docID"].(string); ok {
-				allDocIDs = append(allDocIDs, docID)
-			}
-		}
-	}
-
-	return allDocIDs, nil
 }
