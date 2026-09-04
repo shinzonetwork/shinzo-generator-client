@@ -143,6 +143,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
+	cfg.Chain.Adapter = DefaultChainAdapter
 	cfg.Indexer.StartHeight = -1
 
 	err := validateConfig(cfg)
@@ -153,6 +154,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
+	cfg.Chain.Adapter = DefaultChainAdapter
 	cfg.DefraDB.Embedded = false
 	cfg.DefraDB.URL = ""
 
@@ -164,6 +166,7 @@ func TestValidateConfig_Valid(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
+	cfg.Chain.Adapter = DefaultChainAdapter
 	cfg.Indexer.StartHeight = 0
 	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 
@@ -490,6 +493,7 @@ func TestValidateConfig_AuthModes(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = DefaultChainAdapter
 			cfg.Indexer.SchemaAuthMode = tt.mode
 			err := validateConfig(cfg)
 			if tt.shouldError {
@@ -500,4 +504,110 @@ func TestValidateConfig_AuthModes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestChainAdapter_DefaultEVM(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{}
+	applyDefaults(cfg)
+	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "Chain.Adapter should default to evm")
+}
+
+func TestChainAdapter_EnvOverride(t *testing.T) {
+	tests := []struct {
+		name   string
+		envVal string
+		want   string
+	}{
+		{"evm", DefaultChainAdapter, DefaultChainAdapter},
+		{"cosmos", "cosmos", "cosmos"},
+		{"custom", "solana", "solana"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			t.Setenv("CHAIN_ADAPTER", tt.envVal)
+			applyChainEnvOverrides(cfg)
+			assert.Equal(t, tt.want, cfg.Chain.Adapter, "Chain.Adapter")
+		})
+	}
+}
+
+func TestChainAdapter_EnvOverrideEmptyIgnored(t *testing.T) {
+	cfg := &Config{}
+	cfg.Chain.Adapter = DefaultChainAdapter
+	t.Setenv("CHAIN_ADAPTER", "")
+	applyChainEnvOverrides(cfg)
+	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "empty CHAIN_ADAPTER should not override")
+}
+
+func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		chainAdapter string
+		shouldError  bool
+		errContains  string
+	}{
+		{"evm valid", DefaultChainAdapter, false, ""},
+		{"cosmos rejected", "cosmos", true, "not yet implemented"},
+		{"solana rejected", "solana", true, "not yet implemented"},
+		{"empty rejected", "", true, "not yet implemented"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = tt.chainAdapter
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_DefaultChainAdapter(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	configContent := `
+defradb:
+  embedded: true
+indexer:
+  start_height: 0
+`
+
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "Chain.Adapter should default to evm")
+}
+
+func TestLoadConfig_InvalidChainAdapter(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	configContent := `
+chain:
+  adapter: "cosmos"
+defradb:
+  embedded: true
+indexer:
+  start_height: 0
+`
+
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
+
+	_, err := LoadConfig(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet implemented")
 }
