@@ -201,13 +201,13 @@ func (a *EVMAdapter) Close() error {
 }
 
 // FetchAndStoreBlock implements Chain.
-func (a *EVMAdapter) FetchAndStoreBlock(ctx context.Context, height int64) error {
+func (a *EVMAdapter) FetchAndStoreBlock(ctx context.Context, height int64) (string, error) {
 	if a.blockHandler == nil {
-		return ErrAdapterNotInitialized
+		return "", ErrAdapterNotInitialized
 	}
 	block, err := a.fetchBlockWithRetry(ctx, height)
 	if err != nil {
-		return err
+		return "", err
 	}
 	transactions, receipts := a.fetchTransactionsAndReceipts(ctx, block, height)
 	return a.createBlockBatchWithRetry(ctx, block, height, transactions, receipts)
@@ -303,15 +303,15 @@ func (a *EVMAdapter) fetchTransactionsAndReceipts(ctx context.Context, block *ty
 // createBlockBatchWithRetry persists the block batch via the BlockHandler. When
 // the block already exists a signing job is enqueued and nil is returned.
 // Transaction conflicts are retried up to maxRPCRetries times.
-func (a *EVMAdapter) createBlockBatchWithRetry(ctx context.Context, block *types.Block, blockNum int64, transactions []*types.Transaction, receipts []*types.TransactionReceipt) error {
+func (a *EVMAdapter) createBlockBatchWithRetry(ctx context.Context, block *types.Block, blockNum int64, transactions []*types.Transaction, receipts []*types.TransactionReceipt) (string, error) {
 	for attempt := range maxRPCRetries {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return "", ctx.Err()
 		}
 
-		_, err := a.blockHandler.CreateBlockBatch(ctx, block, transactions, receipts)
+		blockID, err := a.blockHandler.CreateBlockBatch(ctx, block, transactions, receipts)
 		if err == nil {
-			return nil
+			return blockID, nil
 		}
 
 		if errors.IsErrAlreadyExists(err) {
@@ -326,22 +326,22 @@ func (a *EVMAdapter) createBlockBatchWithRetry(ctx context.Context, block *types
 			default:
 				logger.Sugar.Warnf("Block %d: signing queue full, skipping block signature", blockNum)
 			}
-			return nil
+			return "", nil
 		}
 
 		if errors.IsErrTransactionConflict(err) && attempt < maxRPCRetries-1 {
 			logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", blockNum, attempt+1, maxRPCRetries)
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return "", ctx.Err()
 			case <-time.After(time.Duration(attempt+1) * transactionConflictRetryBaseDelay):
 			}
 			continue
 		}
 
-		return fmt.Errorf("failed to create block batch: %w", err)
+		return "", fmt.Errorf("failed to create block batch: %w", err)
 	}
-	return nil
+	return "", nil
 }
 
 // FetchHighestBlockNumber implements Chain.

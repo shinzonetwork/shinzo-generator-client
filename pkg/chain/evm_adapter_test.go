@@ -2,11 +2,11 @@ package chain
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	stderrors "errors"
+	"fmt"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,89 +17,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
-func testConfig() *config.Config {
-	return &config.Config{
-		Chain: config.ChainConfig{
-			Name:    "Ethereum",
-			Network: "Mainnet",
-		},
-		Geth: config.GethConfig{},
-		Indexer: config.IndexerConfig{
-			MaxDocsPerTxn:      1000,
-			MaxTxDocsPerBatch:  100,
-			MaxLogDocsPerBatch: 100,
-			MaxALEDocsPerBatch: 100,
-			ReceiptWorkers:     8,
-		},
-	}
-}
-
-func fakeHash(seed string) string {
-	h := sha256.Sum256([]byte(seed))
-	return "0x" + hex.EncodeToString(h[:])
-}
-
-func fakeBlock(num int64) *types.Block {
-	return &types.Block{
-		Hash:             fakeHash("block-" + big.NewInt(num).String()),
-		Number:           "0x" + big.NewInt(num).Text(16),
-		Timestamp:        "1640995200",
-		ParentHash:       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		Difficulty:       "1000000",
-		TotalDifficulty:  "1000000",
-		GasUsed:          "21000",
-		GasLimit:         "8000000",
-		Nonce:            "0x0",
-		Miner:            "0x0000000000000000000000000000000000000001",
-		Size:             "1024",
-		StateRoot:        "0x0000000000000000000000000000000000000000000000000000000000000001",
-		Sha3Uncles:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		TransactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		ReceiptsRoot:     "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-		LogsBloom:        "0x00",
-		ExtraData:        "0x",
-		MixHash:          "0x0000000000000000000000000000000000000000000000000000000000000000",
-	}
-}
-
-// fakeRPCClient is a lightweight in-memory rpcClient for testing delegation.
-type fakeRPCClient struct {
-	latestNum     *big.Int
-	latestErr     error
-	block         *types.Block
-	blockErr      error
-	batchReceipts []*types.TransactionReceipt
-	batchErr      error
-	txReceipt     *types.TransactionReceipt
-	txErr         error
-	closed        bool
-}
-
-func (f *fakeRPCClient) GetLatestBlockNumber(_ context.Context) (*big.Int, error) {
-	return f.latestNum, f.latestErr
-}
-
-func (f *fakeRPCClient) GetBlockByNumber(_ context.Context, _ *big.Int) (*types.Block, error) {
-	return f.block, f.blockErr
-}
-
-func (f *fakeRPCClient) GetBlockReceipts(_ context.Context, _ *big.Int) ([]*types.TransactionReceipt, error) {
-	return f.batchReceipts, f.batchErr
-}
-
-func (f *fakeRPCClient) GetTransactionReceipt(_ context.Context, _ string) (*types.TransactionReceipt, error) {
-	return f.txReceipt, f.txErr
-}
-
-func (f *fakeRPCClient) Close() error {
-	f.closed = true
-	return nil
-}
 
 // ---------------------------------------------------------------------------
 // Construction
@@ -209,7 +126,8 @@ func TestEVMAdapter_PreInitGuard(t *testing.T) {
 			return err
 		}},
 		{"FetchAndStoreBlock", func() error {
-			return a.FetchAndStoreBlock(ctx, 1)
+			_, err := a.FetchAndStoreBlock(ctx, 1)
+			return err
 		}},
 	}
 
@@ -296,7 +214,8 @@ func TestEVMAdapter_StoredBlockNumberDelegation(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 
 	// Persist block 100 via the adapter.
-	require.NoError(t, a.FetchAndStoreBlock(context.Background(), 100))
+	_, err = a.FetchAndStoreBlock(context.Background(), 100)
+	require.NoError(t, err)
 
 	highest, err := a.GetHighestStoredBlockNumber(context.Background())
 	require.NoError(t, err)
@@ -319,6 +238,293 @@ func TestEVMAdapter_StoredBlockNumberDelegation(t *testing.T) {
 	tip, err := a.FetchHighestBlockNumber(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), tip)
+}
+
+// ---------------------------------------------------------------------------
+// FetchAndStoreBlock: persistence, duplicate, batch receipts
+// ---------------------------------------------------------------------------
+
+func TestEVMAdapter_FetchAndStoreBlock(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	cases := []struct {
+		name          string
+		blockNum      int64
+		txs           []types.Transaction
+		batchReceipts []*types.TransactionReceipt
+		calls         int
+	}{
+		{
+			name:          "NoTx_Success",
+			blockNum:      500,
+			batchReceipts: []*types.TransactionReceipt{},
+			calls:         1,
+		},
+		{
+			name:          "DuplicateBlock",
+			blockNum:      700,
+			batchReceipts: []*types.TransactionReceipt{},
+			calls:         2,
+		},
+		{
+			name:          "WithTxAndBatchReceipts",
+			blockNum:      0xbbb0,
+			txs:           []types.Transaction{fakeTx(txHash)},
+			batchReceipts: []*types.TransactionReceipt{fakeReceipt(txHash, 0xbbb0)},
+			calls:         1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			td := testutils.SetupTestDefraDB(t)
+			cfg := testConfig()
+
+			block := fakeBlock(tc.blockNum)
+			if len(tc.txs) > 0 {
+				block = fakeBlockWithTxs(tc.blockNum, tc.txs...)
+			}
+
+			client := &fakeRPCClient{
+				block:         block,
+				batchReceipts: tc.batchReceipts,
+			}
+			a := newEVMAdapter(cfg, client)
+			t.Cleanup(func() { _ = a.Close() })
+			require.NoError(t, a.Init(context.Background(), td.Node))
+
+			for range tc.calls {
+				_, err := a.FetchAndStoreBlock(context.Background(), tc.blockNum)
+				require.NoError(t, err)
+			}
+
+			highest, err := a.GetHighestStoredBlockNumber(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.blockNum, highest)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Receipt fallback (batch fails → individual GetTransactionReceipt)
+// ---------------------------------------------------------------------------
+
+func TestEVMAdapter_ReceiptFallback(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	cases := []struct {
+		name        string
+		blockNum    int64
+		txs         []types.Transaction
+		txReceiptFn func(_ context.Context, _ string) (*types.TransactionReceipt, error)
+	}{
+		{
+			name:     "NoTxns",
+			blockNum: 100000,
+		},
+		{
+			name:     "IndividualSuccess",
+			blockNum: 100000,
+			txs:      []types.Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+				return fakeReceipt(txHash, 100000), nil
+			},
+		},
+		{
+			name:     "IndividualFail",
+			blockNum: 100001,
+			txs:      []types.Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+				return nil, fmt.Errorf("receipt not available")
+			},
+		},
+		{
+			name:     "IndividualReceiptSuccess",
+			blockNum: 0xccc0,
+			txs:      []types.Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+				return fakeReceipt(txHash, 0xccc0), nil
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			td := testutils.SetupTestDefraDB(t)
+			cfg := testConfig()
+
+			block := fakeBlock(tc.blockNum)
+			if len(tc.txs) > 0 {
+				block = fakeBlockWithTxs(tc.blockNum, tc.txs...)
+			}
+
+			client := &fakeRPCClient{
+				block:       block,
+				batchErr:    fmt.Errorf("eth_getBlockReceipts not supported"),
+				txReceiptFn: tc.txReceiptFn,
+			}
+			a := newEVMAdapter(cfg, client)
+			t.Cleanup(func() { _ = a.Close() })
+			require.NoError(t, a.Init(context.Background(), td.Node))
+
+			_, err := a.FetchAndStoreBlock(context.Background(), tc.blockNum)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Context cancellation during receipt fetch
+// ---------------------------------------------------------------------------
+
+func TestEVMAdapter_ReceiptFallback_ContextCancelTiming(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	cases := []struct {
+		name        string
+		blockNum    int64
+		txSleep     time.Duration
+		ctxTimeout  time.Duration
+		returnError bool
+	}{
+		{
+			name:        "ContextCancel",
+			blockNum:    100002,
+			txSleep:     2 * time.Second,
+			ctxTimeout:  500 * time.Millisecond,
+			returnError: true,
+		},
+		{
+			name:        "ContextCancelDuringFetch",
+			blockNum:    1000,
+			txSleep:     500 * time.Millisecond,
+			ctxTimeout:  200 * time.Millisecond,
+			returnError: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			td := testutils.SetupTestDefraDB(t)
+			cfg := testConfig()
+
+			block := fakeBlockWithTxs(tc.blockNum, fakeTx(txHash))
+			client := &fakeRPCClient{
+				block:    block,
+				batchErr: fmt.Errorf("not supported"),
+				txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+					time.Sleep(tc.txSleep)
+					if tc.returnError {
+						return nil, fmt.Errorf("timeout")
+					}
+					return fakeReceipt(txHash, tc.blockNum), nil
+				},
+			}
+			a := newEVMAdapter(cfg, client)
+			t.Cleanup(func() { _ = a.Close() })
+			require.NoError(t, a.Init(context.Background(), td.Node))
+
+			ctx, cancel := context.WithTimeout(context.Background(), tc.ctxTimeout)
+			defer cancel()
+
+			_, err := a.FetchAndStoreBlock(ctx, tc.blockNum)
+			t.Logf("FetchAndStoreBlock error: %v", err)
+		})
+	}
+}
+
+func TestEVMAdapter_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	cfg := testConfig()
+	cfg.Indexer.ReceiptWorkers = 1
+
+	txs := make([]types.Transaction, 3)
+	for i := range 3 {
+		txs[i] = fakeTx(fmt.Sprintf("0x%064x", i+1))
+	}
+	block := fakeBlockWithTxs(0xddd0, txs...)
+
+	firstReceiptCalled := make(chan struct{})
+	client := &fakeRPCClient{
+		block:    block,
+		batchErr: fmt.Errorf("not supported"),
+		txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+			select {
+			case firstReceiptCalled <- struct{}{}:
+			default:
+			}
+			time.Sleep(5 * time.Second)
+			return nil, fmt.Errorf("timeout")
+		},
+	}
+	a := newEVMAdapter(cfg, client)
+	t.Cleanup(func() { _ = a.Close() })
+	require.NoError(t, a.Init(context.Background(), td.Node))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := a.FetchAndStoreBlock(ctx, 0xddd0)
+		errCh <- err
+	}()
+
+	select {
+	case <-firstReceiptCalled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for first receipt call")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		t.Logf("FetchAndStoreBlock error: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for FetchAndStoreBlock to complete")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Context cancellation during batch creation
+// ---------------------------------------------------------------------------
+
+func TestEVMAdapter_FetchAndStoreBlock_ContextCancelDuringBatch(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	cfg := testConfig()
+	client := &fakeRPCClient{
+		block:         fakeBlock(0xdead),
+		batchReceipts: []*types.TransactionReceipt{},
+	}
+	a := newEVMAdapter(cfg, client)
+	t.Cleanup(func() { _ = a.Close() })
+	require.NoError(t, a.Init(context.Background(), td.Node))
+
+	// First call: block persists.
+	_, err := a.FetchAndStoreBlock(context.Background(), 0xdead)
+	require.NoError(t, err)
+
+	// Second call with pre-canceled ctx — either already-exists or ctx error.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = a.FetchAndStoreBlock(ctx, 0xdead)
+	if err != nil {
+		assert.Error(t, err)
+	}
 }
 
 // ---------------------------------------------------------------------------

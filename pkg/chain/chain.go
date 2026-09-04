@@ -19,6 +19,10 @@ package chain
 import (
 	"context"
 	stderrors "errors"
+
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/sourcenetwork/defradb/node"
 )
 
 // ErrAdapterNotInitialized is returned by methods that require a DefraDB-backed
@@ -36,12 +40,14 @@ type Chain interface {
 	// FetchAndStoreBlock fetches the block and its receipts at the given height
 	// from the chain and persists them via the configured BlockHandler.
 	//
-	// When the block already exists in DefraDB a background signing job is
-	// enqueued and the method returns nil.
+	// It returns the DefraDB docID of the newly created block document. When the
+	// block already exists in DefraDB a background signing job is enqueued, the
+	// method returns nil, and the returned docID is empty (no new document was
+	// created).
 	//
 	// When the block is not yet available on chain the returned error matches
 	// errors.IsErrNotFound so the caller (e.g. the block processor) can retry.
-	FetchAndStoreBlock(ctx context.Context, height int64) error
+	FetchAndStoreBlock(ctx context.Context, height int64) (string, error)
 
 	// FetchHighestBlockNumber returns the latest block number known to the
 	// chain (the on-chain tip), querying the RPC endpoint directly.
@@ -70,4 +76,45 @@ type Chain interface {
 	// GetCollections returns the names of all collections for the configured
 	// chain in dependency-safe order.
 	GetCollections() []string
+}
+
+// Adapter extends Chain with the lifecycle methods needed only by the indexer
+// orchestrator. Pruner, snapshotter, and the concurrent block processor depend
+// solely on Chain — their interfaces stay narrow per the Interface Segregation
+// Principle.
+//
+// *EVMAdapter satisfies Adapter via structural typing.
+type Adapter interface {
+	Chain
+
+	// Init connects to the chain RPC endpoint and prepares the adapter for
+	// block processing. Must be called exactly once after DefraDB is started
+	// and before any fetch/store methods are invoked.
+	Init(ctx context.Context, node *node.Node) error
+
+	// Close releases the adapter's RPC connection and background resources.
+	// Safe to call multiple times.
+	Close() error
+
+	// SetDocIDTracker wires the pruner's DocIDTracker so the adapter can
+	// enqueue docIDs for pruning as blocks are stored.
+	SetDocIDTracker(tracker defra.DocIDTrackerInterface)
+}
+
+// NewAdapter constructs the chain adapter for the configured chain backend.
+//
+// In Phase 1 the only implementation is the EVM adapter, so this function
+// delegates to NewEVMAdapter unconditionally — no runtime dispatch on
+// cfg.Chain.Adapter. The config value stays validation-only (config.go
+// rejects unknowns); the binary itself determines which chain package is
+// linked, not the config string.
+//
+// pkg/indexer calls this instead of NewEVMAdapter directly so the indexer
+// names only the chain-agnostic Adapter interface and this factory — never
+// an EVM-specific constructor symbol. When a second chain package arrives
+// (Phase 2 per-chain binaries), this default returns to per-chain packages
+// and the indexer receives its factory via constructor injection; the
+// indexer stays untouched.
+func NewAdapter(cfg *config.Config) (Adapter, error) {
+	return NewEVMAdapter(cfg)
 }
