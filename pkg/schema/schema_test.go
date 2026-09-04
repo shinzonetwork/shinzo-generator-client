@@ -1,5 +1,3 @@
-//go:build !branchable
-
 package schema
 
 import (
