@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -161,7 +162,7 @@ func newTestChain(n *node.Node) *testChain {
 // suffixes resolveCollectionNames expects, so we set the field directly
 // (accessible because tests are in package pruner).
 // Returns the testChain as well for tests that need direct chain queries.
-func newTestPruner(cfg *Config, n *node.Node) (*Pruner, *testChain) {
+func newTestPruner(cfg *config.PrunerConfig, n *node.Node) (*Pruner, *testChain) {
 	tc := newTestChain(n)
 	p := NewPruner(cfg, n, tc)
 	p.blockCollection = testBlockColName

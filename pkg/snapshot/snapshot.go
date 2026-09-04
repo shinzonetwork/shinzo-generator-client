@@ -11,19 +11,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 
 // BlockRangeReader provides block-range queries and collection metadata.
-// It is a subset of chain.Chain; any chain.Chain implementer satisfies it.
+// It is a subset of chains.Chain; any chains.Chain implementer satisfies it.
 //
-// Defined locally (rather than importing pkg/chain.Chain) to break an import
-// cycle: pkg/snapshot → pkg/chain → config → pkg/snapshot (config embeds
-// snapshot.Config). Go's structural interfaces mean chain.Adapter,
-// testutils.MockChain, and any other chain.Chain implementer satisfy
-// BlockRangeReader without an explicit implements clause.
+// Defined locally (rather than importing pkg/chains.Chain) to keep the
+// snapshotter's dependency surface narrow per the Interface Segregation
+// Principle. pkg/chains imports config (for AdapterFactory), and config defines
+// SnapshotConfig directly, so no import cycle exists — the local interface is
+// a design choice, not a cycle-breaking necessity.
 type BlockRangeReader interface {
 	GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
 	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
@@ -37,27 +38,6 @@ const (
 	// numFileParts is the expected number of parts in a snapshot filename when split by "_".
 	numFileParts = 3
 )
-
-// Config holds snapshot configuration.
-type Config struct {
-	Enabled         bool   `yaml:"enabled"`
-	Dir             string `yaml:"dir"`
-	BlocksPerFile   int64  `yaml:"blocks_per_file"`
-	IntervalSeconds int    `yaml:"interval_seconds"`
-}
-
-// SetDefaults applies default values for unset fields.
-func (c *Config) SetDefaults() {
-	if c.Dir == "" {
-		c.Dir = "./snapshots"
-	}
-	if c.BlocksPerFile <= 0 {
-		c.BlocksPerFile = 1000
-	}
-	if c.IntervalSeconds <= 0 {
-		c.IntervalSeconds = 60
-	}
-}
 
 // SnapshotInfo describes a snapshot file on disk.
 //
@@ -79,7 +59,7 @@ type Metrics struct {
 
 // Snapshotter exports block data to gzip'd KV snapshot files before they are pruned.
 type Snapshotter struct {
-	cfg       *Config
+	cfg       *config.SnapshotConfig
 	defraNode *node.Node
 	chain     BlockRangeReader
 	ctx       context.Context //nolint:containedctx // stored from Start(), carries identity for signing
@@ -99,7 +79,7 @@ type Snapshotter struct {
 // New creates a new Snapshotter. The chain argument supplies block-range
 // queries and resolves chain-specific collection names; it may be nil for
 // tests that never invoke checkAndSnapshot.
-func New(cfg *Config, defraNode *node.Node, chain BlockRangeReader) *Snapshotter {
+func New(cfg *config.SnapshotConfig, defraNode *node.Node, chain BlockRangeReader) *Snapshotter {
 	s := &Snapshotter{
 		cfg:       cfg,
 		defraNode: defraNode,

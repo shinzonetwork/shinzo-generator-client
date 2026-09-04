@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const snapshotsDefaultDir = "./snapshots"
+
 func TestLoadConfig_ValidYAML(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
@@ -610,4 +612,98 @@ indexer:
 	_, err := LoadConfig(configPath)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet implemented")
+}
+
+func TestPrunerConfigMaxDocs(t *testing.T) {
+	cfg := &PrunerConfig{MaxBlocks: 100, DocsPerBlock: 1000}
+	assert.Equal(t, int64(100000), cfg.MaxDocs())
+
+	cfg2 := &PrunerConfig{MaxBlocks: 0, DocsPerBlock: 1000}
+	assert.Equal(t, int64(0), cfg2.MaxDocs())
+}
+
+func TestPrunerConfigSetDefaults(t *testing.T) {
+	t.Run("fills zero values", func(t *testing.T) {
+		cfg := &PrunerConfig{}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(10000), cfg.MaxBlocks)
+		assert.Equal(t, 1000, cfg.DocsPerBlock)
+		assert.Equal(t, 60, cfg.IntervalSeconds)
+	})
+
+	t.Run("preserves non-zero values", func(t *testing.T) {
+		cfg := &PrunerConfig{MaxBlocks: 500, DocsPerBlock: 200, IntervalSeconds: 30}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(500), cfg.MaxBlocks)
+		assert.Equal(t, 200, cfg.DocsPerBlock)
+		assert.Equal(t, 30, cfg.IntervalSeconds)
+	})
+
+	t.Run("fills negative values", func(t *testing.T) {
+		cfg := &PrunerConfig{MaxBlocks: -1, DocsPerBlock: -1, IntervalSeconds: -1}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(10000), cfg.MaxBlocks)
+		assert.Equal(t, 1000, cfg.DocsPerBlock)
+		assert.Equal(t, 60, cfg.IntervalSeconds)
+	})
+}
+
+func TestSnapshotConfigSetDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    SnapshotConfig
+		expected SnapshotConfig
+	}{
+		{
+			name:     "empty config gets all defaults",
+			input:    SnapshotConfig{},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "preset values preserved",
+			input:    SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30},
+			expected: SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30},
+		},
+		{
+			name:     "zero blocks per file gets default",
+			input:    SnapshotConfig{BlocksPerFile: 0},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "negative blocks per file gets default",
+			input:    SnapshotConfig{BlocksPerFile: -5},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "zero interval seconds gets default",
+			input:    SnapshotConfig{IntervalSeconds: 0},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "negative interval seconds gets default",
+			input:    SnapshotConfig{IntervalSeconds: -10},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "enabled true unaffected",
+			input:    SnapshotConfig{Enabled: true},
+			expected: SnapshotConfig{Enabled: true, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "enabled false unaffected",
+			input:    SnapshotConfig{Enabled: false},
+			expected: SnapshotConfig{Enabled: false, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := tt.input
+			cfg.SetDefaults()
+			assert.Equal(t, tt.expected, cfg)
+		})
+	}
 }

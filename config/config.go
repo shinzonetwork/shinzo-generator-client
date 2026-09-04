@@ -9,8 +9,6 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"gopkg.in/yaml.v3"
 )
 
@@ -105,15 +103,68 @@ type LoggerConfig struct {
 	Development bool `yaml:"development"`
 }
 
+// PrunerConfig represents pruner configuration for removing old documents.
+type PrunerConfig struct {
+	Enabled         bool  `yaml:"enabled"`
+	MaxBlocks       int64 `yaml:"max_blocks"`      // Number of blocks to retain
+	DocsPerBlock    int   `yaml:"docs_per_block"`  // Average docs per block (~1057 on Ethereum mainnet)
+	PruneThreshold  int64 `yaml:"prune_threshold"` // Deprecated: kept for backward compatibility, unused by pruner
+	IntervalSeconds int   `yaml:"interval_seconds"`
+	PruneHistory    bool  `yaml:"prune_history"`
+	// MaxBlocksPerCycle caps how many blocks one cycle may delete. A cycle's wall time scales with
+	// what it deletes, so without a cap a large backlog produces a cycle long enough that the queue
+	// cannot be checkpointed for hours. Zero leaves a cycle unbounded.
+	MaxBlocksPerCycle int64 `yaml:"max_blocks_per_cycle"`
+}
+
+// MaxDocs returns the effective maximum document count: max_blocks * docs_per_block.
+func (c *PrunerConfig) MaxDocs() int64 {
+	return c.MaxBlocks * int64(c.DocsPerBlock)
+}
+
+// SetDefaults fills in zero-value fields with sensible defaults.
+func (c *PrunerConfig) SetDefaults() {
+	if c.MaxBlocks <= 0 {
+		c.MaxBlocks = 10000
+	}
+	if c.DocsPerBlock <= 0 {
+		c.DocsPerBlock = 1000
+	}
+	if c.IntervalSeconds <= 0 {
+		c.IntervalSeconds = 60
+	}
+}
+
+// SnapshotConfig holds snapshot configuration.
+type SnapshotConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	Dir             string `yaml:"dir"`
+	BlocksPerFile   int64  `yaml:"blocks_per_file"`
+	IntervalSeconds int    `yaml:"interval_seconds"`
+}
+
+// SetDefaults applies default values for unset fields.
+func (c *SnapshotConfig) SetDefaults() {
+	if c.Dir == "" {
+		c.Dir = "./snapshots"
+	}
+	if c.BlocksPerFile <= 0 {
+		c.BlocksPerFile = 1000
+	}
+	if c.IntervalSeconds <= 0 {
+		c.IntervalSeconds = 60
+	}
+}
+
 // Config represents the main configuration structure.
 type Config struct {
-	Chain    ChainConfig     `yaml:"chain"`
-	DefraDB  DefraDBConfig   `yaml:"defradb"`
-	Geth     GethConfig      `yaml:"geth"`
-	Indexer  IndexerConfig   `yaml:"indexer"`
-	Pruner   pruner.Config   `yaml:"pruner"`
-	Snapshot snapshot.Config `yaml:"snapshot"`
-	Logger   LoggerConfig    `yaml:"logger"`
+	Chain    ChainConfig    `yaml:"chain"`
+	DefraDB  DefraDBConfig  `yaml:"defradb"`
+	Geth     GethConfig     `yaml:"geth"`
+	Indexer  IndexerConfig  `yaml:"indexer"`
+	Pruner   PrunerConfig   `yaml:"pruner"`
+	Snapshot SnapshotConfig `yaml:"snapshot"`
+	Logger   LoggerConfig   `yaml:"logger"`
 }
 
 // LoadConfig loads configuration from a YAML file and environment variables.

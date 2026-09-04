@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
@@ -76,78 +77,18 @@ func TestMain(m *testing.M) {
 }
 
 // ---------------------------------------------------------------------------
-// Config.SetDefaults
-// ---------------------------------------------------------------------------
-
-func TestConfigSetDefaults_EmptyConfig(t *testing.T) {
-	cfg := Config{}
-	cfg.SetDefaults()
-
-	assert.Equal(t, "./snapshots", cfg.Dir)
-	assert.Equal(t, int64(1000), cfg.BlocksPerFile)
-	assert.Equal(t, 60, cfg.IntervalSeconds)
-}
-
-func TestConfigSetDefaults_PresetValuesPreserved(t *testing.T) {
-	cfg := Config{
-		Dir:             "/custom/dir",
-		BlocksPerFile:   500,
-		IntervalSeconds: 30,
-	}
-	cfg.SetDefaults()
-
-	assert.Equal(t, "/custom/dir", cfg.Dir)
-	assert.Equal(t, int64(500), cfg.BlocksPerFile)
-	assert.Equal(t, 30, cfg.IntervalSeconds)
-}
-
-func TestConfigSetDefaults_ZeroBlocksPerFile(t *testing.T) {
-	cfg := Config{BlocksPerFile: 0}
-	cfg.SetDefaults()
-	assert.Equal(t, int64(1000), cfg.BlocksPerFile)
-}
-
-func TestConfigSetDefaults_NegativeBlocksPerFile(t *testing.T) {
-	cfg := Config{BlocksPerFile: -5}
-	cfg.SetDefaults()
-	assert.Equal(t, int64(1000), cfg.BlocksPerFile)
-}
-
-func TestConfigSetDefaults_ZeroIntervalSeconds(t *testing.T) {
-	cfg := Config{IntervalSeconds: 0}
-	cfg.SetDefaults()
-	assert.Equal(t, 60, cfg.IntervalSeconds)
-}
-
-func TestConfigSetDefaults_NegativeIntervalSeconds(t *testing.T) {
-	cfg := Config{IntervalSeconds: -10}
-	cfg.SetDefaults()
-	assert.Equal(t, 60, cfg.IntervalSeconds)
-}
-
-func TestConfigSetDefaults_EnabledFieldUnaffected(t *testing.T) {
-	cfg := Config{Enabled: true}
-	cfg.SetDefaults()
-	assert.True(t, cfg.Enabled)
-
-	cfg2 := Config{Enabled: false}
-	cfg2.SetDefaults()
-	assert.False(t, cfg2.Enabled)
-}
-
-// ---------------------------------------------------------------------------
 // New (constructor)
 // ---------------------------------------------------------------------------
 
 func TestNew_ReturnsNonNil(t *testing.T) {
-	cfg := &Config{Dir: "/tmp/test", BlocksPerFile: 100, IntervalSeconds: 10}
+	cfg := &config.SnapshotConfig{Dir: "/tmp/test", BlocksPerFile: 100, IntervalSeconds: 10}
 	s := New(cfg, nil, nil)
 
 	require.NotNil(t, s)
 }
 
 func TestNew_FieldsSetCorrectly(t *testing.T) {
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             "/tmp/snapshots",
 		BlocksPerFile:   500,
@@ -163,7 +104,7 @@ func TestNew_FieldsSetCorrectly(t *testing.T) {
 }
 
 func TestNew_StopChanIsOpen(t *testing.T) {
-	cfg := &Config{Dir: "/tmp/test"}
+	cfg := &config.SnapshotConfig{Dir: "/tmp/test"}
 	s := New(cfg, nil, nil)
 
 	// stopChan should be open (non-blocking select should not receive)
@@ -182,7 +123,7 @@ func TestNew_StopChanIsOpen(t *testing.T) {
 func newTestSnapshotter(t *testing.T) (*Snapshotter, string) {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := &Config{Dir: dir, BlocksPerFile: 1000, IntervalSeconds: 60}
+	cfg := &config.SnapshotConfig{Dir: dir, BlocksPerFile: 1000, IntervalSeconds: 60}
 	s := New(cfg, nil, nil)
 	return s, dir
 }
@@ -286,7 +227,7 @@ func TestListSnapshots_SortedByStartBlock(t *testing.T) {
 }
 
 func TestListSnapshots_DirectoryDoesNotExist(t *testing.T) {
-	cfg := &Config{Dir: "/nonexistent/path/snapshots"}
+	cfg := &config.SnapshotConfig{Dir: "/nonexistent/path/snapshots"}
 	s := New(cfg, nil, nil)
 	infos := s.ListSnapshots()
 	assert.Empty(t, infos)
@@ -355,7 +296,7 @@ func TestGetSnapshotPath_EmptyFilename(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetMetrics_InitialState(t *testing.T) {
-	cfg := &Config{Enabled: true, Dir: "/tmp/test"}
+	cfg := &config.SnapshotConfig{Enabled: true, Dir: "/tmp/test"}
 	s := New(cfg, nil, nil)
 
 	m := s.GetMetrics()
@@ -365,7 +306,7 @@ func TestGetMetrics_InitialState(t *testing.T) {
 }
 
 func TestGetMetrics_DisabledConfig(t *testing.T) {
-	cfg := &Config{Enabled: false, Dir: "/tmp/test"}
+	cfg := &config.SnapshotConfig{Enabled: false, Dir: "/tmp/test"}
 	s := New(cfg, nil, nil)
 
 	m := s.GetMetrics()
@@ -373,7 +314,7 @@ func TestGetMetrics_DisabledConfig(t *testing.T) {
 }
 
 func TestGetMetrics_AfterManualUpdate(t *testing.T) {
-	cfg := &Config{Enabled: true, Dir: "/tmp/test"}
+	cfg := &config.SnapshotConfig{Enabled: true, Dir: "/tmp/test"}
 	s := New(cfg, nil, nil)
 
 	// Simulate internal state changes
@@ -393,7 +334,7 @@ func TestGetMetrics_AfterManualUpdate(t *testing.T) {
 
 func TestStartStop_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "snapshots")
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             dir,
 		BlocksPerFile:   1000,
@@ -417,7 +358,7 @@ func TestStartStop_CreatesDirectory(t *testing.T) {
 
 func TestStartStop_CleanShutdown(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             dir,
 		BlocksPerFile:   1000,
@@ -448,7 +389,7 @@ func TestStartStop_CleanShutdown(t *testing.T) {
 
 func TestStartStop_ContextCancellation(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             dir,
 		BlocksPerFile:   1000,
@@ -480,7 +421,7 @@ func TestStartStop_ContextCancellation(t *testing.T) {
 
 func TestStart_ScanExistingSnapshots(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             dir,
 		BlocksPerFile:   1000,
@@ -1172,7 +1113,7 @@ func TestVerifySnapshot_SidecarPathDerivation(t *testing.T) {
 
 func TestScanExisting_NoFiles(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{Dir: dir}
+	cfg := &config.SnapshotConfig{Dir: dir}
 	s := New(cfg, nil, nil)
 	s.scanExisting()
 
@@ -1182,7 +1123,7 @@ func TestScanExisting_NoFiles(t *testing.T) {
 
 func TestScanExisting_FindsHighestBlock(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{Dir: dir}
+	cfg := &config.SnapshotConfig{Dir: dir}
 
 	files := []string{
 		"snapshot_1000_1999.kvsnap.gz",
@@ -1203,7 +1144,7 @@ func TestScanExisting_FindsHighestBlock(t *testing.T) {
 
 func TestScanExisting_MalformedFilesIgnored(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{Dir: dir}
+	cfg := &config.SnapshotConfig{Dir: dir}
 
 	err := os.WriteFile(filepath.Join(dir, "snapshot_abc_def.kvsnap.gz"), []byte("data"), 0o600)
 	require.NoError(t, err)
@@ -1552,7 +1493,7 @@ func TestCreateKVSnapshot_CreatesFile(t *testing.T) {
 	insertTestBlocks(t, td, 1000, 1002)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -1572,7 +1513,7 @@ func TestCreateKVSnapshot_HeaderValid(t *testing.T) {
 	insertTestBlocks(t, td, 2000, 2004)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -1619,7 +1560,7 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	insertTestBlocks(t, td1, 1000, 1004) // 5 blocks
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td1.Node, newTestChainFromNode(t, td1))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -1636,7 +1577,7 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	td2 := testutils.SetupTestDefraDB(t)
 
 	// Verify the second node has no blocks yet
-	s2 := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
+	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
 	_, err = s2.chain.GetLowestStoredBlockNumber(ctx)
 	require.Error(t, err, "empty DB should return document-not-found")
 
@@ -1662,7 +1603,7 @@ func TestCreateKVSnapshot_EmptyRange(t *testing.T) {
 	// Don't insert any blocks
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -1746,7 +1687,7 @@ func TestImportKV_InvalidMagic(t *testing.T) {
 func TestGetBlockSigMerkleRoots_EmptyDB(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots, count, err := s.getBlockSigMerkleRoots(ctx, 0, 1000)
 	require.NoError(t, err)
@@ -1758,7 +1699,7 @@ func TestGetBlockSigMerkleRoots_WithBlocks(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102) // 3 blocks, each creates a BlockSignature
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots, count, err := s.getBlockSigMerkleRoots(ctx, 100, 102)
 	require.NoError(t, err)
@@ -1773,7 +1714,7 @@ func TestGetBlockSigMerkleRoots_OutOfRange(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots, count, err := s.getBlockSigMerkleRoots(ctx, 500, 600)
 	require.NoError(t, err)
@@ -1802,7 +1743,7 @@ func TestQuerySnapshotSignatures_EmptyDB(t *testing.T) {
 func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	sig := &SnapshotSignatureData{
 		Version:           1,
@@ -1850,7 +1791,7 @@ func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
 func TestCreateSnapshotSignatureDoc_MultipleDocs(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	for i := range 3 {
 		sig := &SnapshotSignatureData{
@@ -1888,7 +1829,7 @@ func TestCreateSnapshotSignatureDoc_MultipleDocs(t *testing.T) {
 func TestCheckAndSnapshot_NoBlocks(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -1909,7 +1850,7 @@ func TestCheckAndSnapshot_InsufficientBlocks(t *testing.T) {
 	insertTestBlocks(t, td, 1000, 1004)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -1934,7 +1875,7 @@ func TestCheckAndSnapshot_SmallBlocksPerFile(t *testing.T) {
 
 	snapshotDir := t.TempDir()
 	// blocks_per_file=3: first aligned range at or above 3 is [3..5]
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 3}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 3}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -1969,7 +1910,7 @@ func TestCheckAndSnapshot_MultipleRounds(t *testing.T) {
 	insertTestBlocks(t, td, 10, 15)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 2}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 2}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -2012,7 +1953,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	insertTestBlocks(t, td1, 100, 104) // 5 blocks
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td1.Node, newTestChainFromNode(t, td1))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -2035,7 +1976,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	assert.Equal(t, int64(104), importResult.EndBlock)
 
 	// Verify the second node has the blocks
-	s2 := New(&Config{Dir: t.TempDir(), BlocksPerFile: 5}, td2.Node, newTestChainFromNode(t, td2))
+	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 5}, td2.Node, newTestChainFromNode(t, td2))
 	lowest, err := s2.chain.GetLowestStoredBlockNumber(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
@@ -2062,7 +2003,7 @@ func TestCreateKVSnapshot_WithTransactionsAndLogs(t *testing.T) {
 	insertTestBlocks(t, td, 500, 502)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -2103,7 +2044,7 @@ func TestCheckAndSnapshot_GapHandling(t *testing.T) {
 	insertTestBlocks(t, td, 1000, 1004)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -2565,7 +2506,7 @@ func TestSignMerkleRoot_Secp256k1(t *testing.T) {
 func TestSignSnapshotWithRoots_NoRoots(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	// No roots: should skip signing and return nil
 	err := s.signSnapshotWithRoots(ctx, "test.kvsnap.gz", 1000, 1999, nil, 0)
@@ -2578,7 +2519,7 @@ func TestSignSnapshotWithRoots_NoRoots(t *testing.T) {
 func TestSignSnapshotWithRoots_NoIdentity(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background() // No identity in context
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots := [][]byte{bytes.Repeat([]byte{0xAA}, 32)}
 
@@ -2590,7 +2531,7 @@ func TestSignSnapshotWithRoots_NoIdentity(t *testing.T) {
 
 func TestSignSnapshotWithRoots_WithIdentity(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeEd25519)
 	require.NoError(t, err)
@@ -2634,7 +2575,7 @@ func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
 	identCtx := defracontext.WithIdentity(context.Background(), fullIdent)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = identCtx // Set identity context for signing
 
@@ -2664,7 +2605,7 @@ func TestCheckAndSnapshot_GapSkipAhead(t *testing.T) {
 	insertTestBlocks(t, td, 20, 29)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -2707,7 +2648,7 @@ func TestCheckAndSnapshot_CreateSnapshotError(t *testing.T) {
 	err := os.MkdirAll(snapshotDir, 0o755) //nolint:gosec
 	require.NoError(t, err)
 
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -2735,7 +2676,7 @@ func TestStart_MkdirAllError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Try to create a directory under a file - should fail
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             filepath.Join(tmpFile, "snapshots"),
 		BlocksPerFile:   1000,
@@ -2757,7 +2698,7 @@ func TestCreateKVSnapshot_OsCreateError(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 100, 102)
 
-	cfg := &Config{Dir: "/nonexistent/path/that/does/not/exist", BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: "/nonexistent/path/that/does/not/exist", BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -2772,7 +2713,7 @@ func TestCreateKVSnapshot_OsCreateError(t *testing.T) {
 
 func TestLoop_StopsOnStopChan(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             dir,
 		BlocksPerFile:   1000,
@@ -2820,7 +2761,7 @@ func TestSignMerkleRoot_IdentityNotFull(t *testing.T) {
 func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	sig := &SnapshotSignatureData{
 		Version:           1,
@@ -2861,7 +2802,7 @@ func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
 func TestQuerySnapshotSignatures_EmptySnapshotFileSkipped(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	// Create a doc with empty snapshotFile - it should be skipped in results
 	sig := &SnapshotSignatureData{
@@ -2941,7 +2882,7 @@ func TestCreateKVSnapshot_TmpFileCleanedOnError(t *testing.T) {
 	err := os.MkdirAll(snapshotDir, 0o750)
 	require.NoError(t, err)
 
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -2980,7 +2921,7 @@ func TestCheckAndSnapshot_LowestNonZeroHighestZero(t *testing.T) {
 	// But we test the general flow where both are 0 (empty DB).
 	td := testutils.SetupTestDefraDB(t)
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -3001,7 +2942,7 @@ func TestCheckAndSnapshot_ContinuationFromLastSnapshot(t *testing.T) {
 	insertTestBlocks(t, td, 10, 19) // 10 blocks
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -3030,7 +2971,7 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 	insertTestBlocks(t, td1, 100, 109) // 10 blocks
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td1.Node, newTestChainFromNode(t, td1))
 	s.ctx = context.Background()
 	ctx := context.Background()
@@ -3049,7 +2990,7 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 	assert.Equal(t, int64(109), importResult.EndBlock)
 
 	// Verify
-	s2 := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
+	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
 	lowest, err := s2.chain.GetLowestStoredBlockNumber(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
@@ -3063,7 +3004,7 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestScanExisting_NonExistentDir(t *testing.T) {
-	cfg := &Config{Dir: "/nonexistent/path/snapshots"}
+	cfg := &config.SnapshotConfig{Dir: "/nonexistent/path/snapshots"}
 	s := New(cfg, nil, nil)
 	s.scanExisting()
 
@@ -3125,7 +3066,7 @@ func TestSnapshotter_FullLifecycle(t *testing.T) {
 	insertTestBlocks(t, td, 10, 14)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             snapshotDir,
 		BlocksPerFile:   5,
@@ -3160,7 +3101,7 @@ func TestCreateKVSnapshot_AllCollections(t *testing.T) {
 	insertTestBlocks(t, td, 300, 302)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -3203,7 +3144,7 @@ func TestGetBlockSigMerkleRoots_CoverParsing(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 400, 404)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	// Query the full range
 	roots, count, err := s.getBlockSigMerkleRoots(ctx, 400, 404)
@@ -3231,7 +3172,7 @@ func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots := make([][]byte, 5)
 	for i := range roots {
@@ -3327,7 +3268,7 @@ func TestCreateKVSnapshot_NoTmpFileOnSuccess(t *testing.T) {
 	insertTestBlocks(t, td, 800, 802)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -3350,7 +3291,7 @@ func TestCreateKVSnapshot_NoTmpFileOnSuccess(t *testing.T) {
 func TestLoop_ContextCancellation(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	dir := t.TempDir()
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             dir,
 		BlocksPerFile:   1000,
@@ -3398,7 +3339,7 @@ func TestLoop_ErrorLogging(t *testing.T) {
 		_ = os.Chmod(snapshotDir, 0o600) //nolint:mnd,errcheck
 	})
 
-	cfg := &Config{
+	cfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             snapshotDir,
 		BlocksPerFile:   5,
@@ -3445,7 +3386,7 @@ func TestCreateKVSnapshot_CleanupDeferOnError(t *testing.T) {
 	insertTestBlocks(t, td, 100, 102)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -3480,7 +3421,7 @@ func TestCreateKVSnapshot_ContinuesAfterSigRootsError(t *testing.T) {
 	insertTestBlocks(t, td, 900, 902)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background() // No identity, so signing will be skipped
 
@@ -3598,7 +3539,7 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 func TestGetBlockSigMerkleRoots_WithBlockSignatures(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	// Insert block signature documents with known merkle roots
 	mr1 := hex.EncodeToString(bytes.Repeat([]byte{0x11}, 32))
@@ -3625,7 +3566,7 @@ func TestGetBlockSigMerkleRoots_WithBlockSignatures(t *testing.T) {
 func TestGetBlockSigMerkleRoots_WithInvalidMerkleRootHex(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	// Insert a block signature with invalid hex in merkleRoot
 	insertBlockSignature(t, td, 200, "not_valid_hex_zzzzz")
@@ -3643,7 +3584,7 @@ func TestGetBlockSigMerkleRoots_WithInvalidMerkleRootHex(t *testing.T) {
 func TestGetBlockSigMerkleRoots_WithEmptyMerkleRoot(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	// Insert a block signature with empty merkleRoot
 	insertBlockSignature(t, td, 300, "")
@@ -3673,7 +3614,7 @@ func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
 	}
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -3723,7 +3664,7 @@ func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
 func TestSignSnapshotWithRoots_FullFlowWithBlockSigs(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	insertTestBlocks(t, td, 600, 602)
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	// Insert block signatures
 	roots := make([][]byte, 3)
@@ -3787,7 +3728,7 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 	identCtx := defracontext.WithIdentity(context.Background(), fullIdent)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = identCtx // Set identity context for signing
 
@@ -3844,7 +3785,7 @@ func TestSignSnapshotWithRoots_UnsupportedKeyType(t *testing.T) {
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256r1)
 	require.NoError(t, err)
 	ctx := defracontext.WithIdentity(context.Background(), fullIdent)
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots := [][]byte{bytes.Repeat([]byte{0xAA}, 32)}
 
@@ -3922,7 +3863,7 @@ func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {
 	identCtx := defracontext.WithIdentity(context.Background(), fullIdent)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = identCtx
 
@@ -3986,7 +3927,7 @@ func TestImportKV_CorruptKVData(t *testing.T) {
 func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	// Create two docs with blockSigMerkleRoots
 	for i := range 2 {
@@ -4057,7 +3998,7 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 func TestGetBlockSigMerkleRoots_ViaIdentityInsertedBlocks(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx, _ := insertTestBlocksWithIdentity(t, td, 100, 102)
-	s := New(&Config{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
+	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	roots, count, err := s.getBlockSigMerkleRoots(ctx, 100, 102)
 	require.NoError(t, err)
@@ -4079,7 +4020,7 @@ func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 	identCtx, _ := insertTestBlocksWithIdentity(t, td, 200, 204)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = identCtx
 
@@ -4133,7 +4074,7 @@ func TestCheckAndSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
 	identCtx, _ := insertTestBlocksWithIdentity(t, td, 50, 54)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = identCtx
 
@@ -4160,7 +4101,7 @@ func TestCheckAndSnapshot_ClosedNode(t *testing.T) {
 	insertTestBlocks(t, td, 100, 102)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 3}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 3}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -4180,7 +4121,7 @@ func TestCreateKVSnapshot_ExportError(t *testing.T) {
 	insertTestBlocks(t, td, 100, 102)
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, newTestChainFromNode(t, td))
 	s.ctx = context.Background()
 
@@ -4404,7 +4345,7 @@ func TestCheckAndSnapshot_UsesChainBlockRange(t *testing.T) {
 	}
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 5}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 5}
 	s := New(cfg, td.Node, mc)
 	s.ctx = context.Background()
 
@@ -4438,7 +4379,7 @@ func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
 	}
 
 	snapshotDir := t.TempDir()
-	cfg := &Config{Dir: snapshotDir, BlocksPerFile: 1000}
+	cfg := &config.SnapshotConfig{Dir: snapshotDir, BlocksPerFile: 1000}
 	s := New(cfg, td.Node, mc)
 	s.ctx = context.Background()
 
@@ -4467,7 +4408,7 @@ func TestNew_ResolvesSignatureCollectionsViaSuffixMatch(t *testing.T) {
 		},
 	}
 
-	s := New(&Config{Dir: t.TempDir()}, nil, mc)
+	s := New(&config.SnapshotConfig{Dir: t.TempDir()}, nil, mc)
 
 	assert.Equal(t, "CustomChain__Testnet__BlockSignature", s.blockSigCollection)
 	assert.Equal(t, "CustomChain__Testnet__SnapshotSignature", s.snapshotSigCollection)

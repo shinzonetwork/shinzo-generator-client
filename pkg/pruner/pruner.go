@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -17,13 +18,13 @@ import (
 )
 
 // BlockRangeReader provides block-range queries and collection metadata.
-// It is a subset of chain.Chain; any chain.Chain implementer satisfies it.
+// It is a subset of chains.Chain; any chains.Chain implementer satisfies it.
 //
-// Defined locally (rather than importing pkg/chain.Chain) to break an import
-// cycle: pkg/pruner → pkg/chain → config → pkg/pruner (config embeds
-// pruner.Config). Go's structural interfaces mean chain.Adapter,
-// testutils.MockChain, and any other chain.Chain implementer satisfy
-// BlockRangeReader without an explicit implements clause.
+// Defined locally (rather than importing pkg/chains.Chain) to keep the pruner's
+// dependency surface narrow per the Interface Segregation Principle. pkg/chains
+// imports config (for AdapterFactory), and config defines PrunerConfig directly,
+// so no import cycle exists — the local interface is a design choice, not a
+// cycle-breaking necessity.
 type BlockRangeReader interface {
 	GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
 	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
@@ -55,7 +56,7 @@ var ErrNoValidBlocks = errors.New("blocks exist but none have a valid block numb
 //
 // When no queue is set or the queue is underfilled, falls back to filter-based pruning.
 type Pruner struct {
-	cfg                *Config
+	cfg                *config.PrunerConfig
 	defraNode          *node.Node
 	chain              BlockRangeReader
 	blockCollection    string
@@ -84,7 +85,7 @@ type Metrics struct {
 // NewPruner creates a new Pruner instance.
 // The chain parameter provides block-range queries and collection names;
 // any chain.Chain implementer satisfies the local BlockRangeReader interface.
-func NewPruner(cfg *Config, defraNode *node.Node, chain BlockRangeReader) *Pruner {
+func NewPruner(cfg *config.PrunerConfig, defraNode *node.Node, chain BlockRangeReader) *Pruner {
 	p := &Pruner{
 		cfg:       cfg,
 		defraNode: defraNode,

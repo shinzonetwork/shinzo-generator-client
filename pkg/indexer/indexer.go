@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -61,11 +61,26 @@ const (
 // defaultListenAddress is the default P2P listen address for the embedded DefraDB node.
 const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 
+// lifecycleAdapter is the narrow consumer-side interface the indexer uses to
+// wire lifecycle-adjacent surfaces into the adapter. It embeds chains.Adapter
+// and adds SetDocIDTracker off the chains.Adapter interface so pkg/chains does not import pkg/defra.
+// *chains.EVMAdapter satisfies this interface via structural typing — no source
+// change on the adapter side. A future Cosmos adapter either implements it
+// (if it wants tracker wiring) or the indexer's initServices gracefully skips
+// the wire when the runtime type assertion fails (see call site).
+type lifecycleAdapter interface {
+	chains.Adapter
+
+	// SetDocIDTracker wires the pruner's DocIDTracker into the adapter's
+	// blockHandler.
+	SetDocIDTracker(tracker defra.DocIDTrackerInterface)
+}
+
 // ChainIndexer is the main indexer that processes blockchain blocks.
 type ChainIndexer struct {
 	cfg                       *config.Config
 	collections               *constants.CollectionNames
-	adapter                   chain.Adapter // TODO: receive via adapterFactory field instead.
+	adapter                   lifecycleAdapter // TODO: receive via adapterFactory field instead.
 	shouldIndex               bool
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
@@ -118,7 +133,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	}, nil
 }
 
-// chainPrefixFromConfig returns the collection name prefix for the configured chain.
+// chainPrefixFromConfig returns the collection name prefix for the configured chains.
 // Falls back to the default Ethereum mainnet prefix for backward compatibility.
 func chainPrefixFromConfig(cfg *config.Config) string {
 	if cfg == nil {
@@ -154,15 +169,19 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, chainPrefixFromConfig(cfg))
 
-	// TODO: replace chain.NewAdapter(cfg) with i.adapterFactory(cfg)
+	// TODO: replace chains.NewAdapter(cfg) with i.adapterFactory(cfg)
 	// once the adapterFactory field is added (when a second chain package exists).
 	// The factory itself moves to per-chain packages (pkg/chain/evm, pkg/chain/cosmos);
-	// pkg/chain keeps only the Adapter interface. The binary determines the chain.
-	adapter, err := chain.NewAdapter(cfg)
+	// pkg/chain keeps only the Adapter interface. The binary determines the chains.
+	adapter, err := chains.NewAdapter(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create chain adapter: %w", err)
 	}
-	i.adapter = adapter
+	lifecycleAdpl, ok := adapter.(lifecycleAdapter)
+	if !ok {
+		return fmt.Errorf("chain adapter %T does not expose lifecycle wiring required by the indexer", adapter)
+	}
+	i.adapter = lifecycleAdpl
 
 	ctx, err = i.initDefra(ctx, cfg, defraStarted)
 	if err != nil {
@@ -241,7 +260,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 }
 
 // resolveStartHeight determines the block number to start indexing from.
-func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config, chain chain.Chain) (int64, error) {
+func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config, chain chains.Chain) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
 	var pruneQueue *pruner.IndexerQueue
@@ -310,7 +329,7 @@ func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
 }
 
 // initServices starts the health server, pruner, and snapshotter if configured.
-func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter chain.Adapter) error {
+func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter chains.Adapter) error {
 	if cfg.Indexer.HealthServerPort > 0 {
 		if err := i.initHealthServer(cfg); err != nil {
 			return err
@@ -330,7 +349,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, ada
 			logger.Sugar.Infof("Restored %d entries from prune queue file", restored)
 		}
 		i.pruner.SetQueue(pruneQueue)
-		adapter.SetDocIDTracker(&indexerQueueTracker{
+		i.adapter.SetDocIDTracker(&indexerQueueTracker{
 			queue:       pruneQueue,
 			collections: i.collections,
 		})
@@ -399,7 +418,7 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 // runConcurrentIndexing runs the indexer with concurrent block processing.
 func (i *ChainIndexer) runConcurrentIndexing(
 	ctx context.Context,
-	chain chain.Chain,
+	chain chains.Chain,
 	startBlock int64,
 	cfg *config.Config,
 ) error {

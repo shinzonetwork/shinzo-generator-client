@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -22,7 +23,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestNewPruner(t *testing.T) {
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 1000, IntervalSeconds: 60}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 1000, IntervalSeconds: 60}
 
 	t.Run("nil chain", func(t *testing.T) {
 		p := NewPruner(cfg, nil, nil)
@@ -45,7 +46,7 @@ func TestNewPruner(t *testing.T) {
 }
 
 func TestPrunerSetQueue(t *testing.T) {
-	cfg := &Config{Enabled: true}
+	cfg := &config.PrunerConfig{Enabled: true}
 	p := NewPruner(cfg, nil, nil)
 	assert.Nil(t, p.queue)
 
@@ -55,7 +56,7 @@ func TestPrunerSetQueue(t *testing.T) {
 }
 
 func TestPrunerStart_Disabled(t *testing.T) {
-	cfg := &Config{Enabled: false}
+	cfg := &config.PrunerConfig{Enabled: false}
 	p := NewPruner(cfg, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	err := p.Start(ctx)
@@ -66,7 +67,7 @@ func TestPrunerStart_Disabled(t *testing.T) {
 }
 
 func TestPrunerStart_NilNode(t *testing.T) {
-	cfg := &Config{Enabled: true}
+	cfg := &config.PrunerConfig{Enabled: true}
 	p := NewPruner(cfg, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -78,7 +79,7 @@ func TestPrunerStart_NilNode(t *testing.T) {
 }
 
 func TestPrunerGetMetrics(t *testing.T) {
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p := NewPruner(cfg, nil, nil)
 
 	metrics := p.GetMetrics()
@@ -89,7 +90,7 @@ func TestPrunerGetMetrics(t *testing.T) {
 }
 
 func TestPrunerStop_NotRunning(t *testing.T) {
-	cfg := &Config{Enabled: true}
+	cfg := &config.PrunerConfig{Enabled: true}
 	p := NewPruner(cfg, nil, nil)
 
 	// Should be a no-op without panicking
@@ -99,7 +100,7 @@ func TestPrunerStop_NotRunning(t *testing.T) {
 }
 
 func TestPrunerStop_WithQueue(t *testing.T) {
-	cfg := &Config{Enabled: false}
+	cfg := &config.PrunerConfig{Enabled: false}
 	p := NewPruner(cfg, nil, nil)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
@@ -113,7 +114,7 @@ func TestPrunerStop_WithQueue(t *testing.T) {
 
 func TestRunPrune_NilQueue(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p, _ := newTestPruner(cfg, n)
 	assert.Nil(t, p.queue)
 	// runPrune with nil queue calls filterBasedPrune which needs a node
@@ -124,7 +125,7 @@ func TestRunPrune_NilQueue(t *testing.T) {
 
 func TestRunPrune_WithIndexerQueue(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p, _ := newTestPruner(cfg, n)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
@@ -155,7 +156,7 @@ func queueBlocks(t *testing.T, q *IndexerQueue, n int64) {
 // backlog grows instead of scaling with it.
 func TestRunIndexerQueuePrune_BoundsWorkPerCycle(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
 	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
@@ -174,7 +175,7 @@ func TestRunIndexerQueuePrune_BoundsWorkPerCycle(t *testing.T) {
 func TestRunIndexerQueuePrune_CheckpointsBelowRetentionTarget(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
-	cfg := &Config{Enabled: true, MaxBlocks: 100, MaxBlocksPerCycle: 2}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, MaxBlocksPerCycle: 2}
 	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	_, err := q.LoadFromFile(path)
@@ -200,7 +201,7 @@ func TestRunIndexerQueuePrune_CheckpointsBelowRetentionTarget(t *testing.T) {
 func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
-	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
 	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	// LoadFromFile binds the queue to the path Save writes to.
@@ -222,7 +223,7 @@ func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
 
 func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p, _ := newTestPruner(cfg, n)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
@@ -236,7 +237,7 @@ func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
 
 func TestStartAndStop_WithRealNode(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
 	p, _ := newTestPruner(cfg, n)
 
 	// Set an indexer queue so pruneLoop does not nil-deref on queue type assert
@@ -260,7 +261,7 @@ func TestStartAndStop_WithRealNode(t *testing.T) {
 func TestPruneLoop_TickerFires(t *testing.T) {
 	n := startTestNode(t)
 	// Use 1-second interval so the ticker fires quickly
-	cfg := &Config{Enabled: true, MaxBlocks: 1000, DocsPerBlock: 10, IntervalSeconds: 1}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1000, DocsPerBlock: 10, IntervalSeconds: 1}
 	p, _ := newTestPruner(cfg, n)
 
 	q := NewIndexerQueue()
@@ -280,7 +281,7 @@ func TestPruneLoop_TickerFires(t *testing.T) {
 
 func TestPruneLoop_StopsOnContextCancel(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 1}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 1}
 	p, _ := newTestPruner(cfg, n)
 
 	q := NewIndexerQueue()
@@ -299,7 +300,7 @@ func TestPruneLoop_StopsOnContextCancel(t *testing.T) {
 
 func TestPruneLoop_StopsOnStopChan(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 1}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 1}
 	p, _ := newTestPruner(cfg, n)
 
 	q := NewIndexerQueue()
@@ -316,7 +317,7 @@ func TestPruneLoop_StopsOnStopChan(t *testing.T) {
 
 func TestStop_WithQueueSave(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
 	p, _ := newTestPruner(cfg, n)
 
 	tmpDir := t.TempDir()
@@ -347,7 +348,7 @@ func TestRunPrune_Dispatching(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("nil queue calls filterBasedPrune", func(t *testing.T) {
-		cfg := &Config{Enabled: true, MaxBlocks: 1000}
+		cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1000}
 		p, _ := newTestPruner(cfg, n)
 		// No queue set, so runPrune calls filterBasedPrune
 		err := p.runPrune(ctx)
@@ -355,7 +356,7 @@ func TestRunPrune_Dispatching(t *testing.T) {
 	})
 
 	t.Run("indexer queue dispatch", func(t *testing.T) {
-		cfg := &Config{Enabled: true, MaxBlocks: 1000}
+		cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1000}
 		p, _ := newTestPruner(cfg, n)
 		q := NewIndexerQueue()
 		p.SetQueue(q)
@@ -366,7 +367,7 @@ func TestRunPrune_Dispatching(t *testing.T) {
 
 func TestGetBlockRange(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -392,7 +393,7 @@ func TestGetBlockRange(t *testing.T) {
 }
 
 func TestGetBlockRange_CorruptDataReturnsErrNoValidBlocks(t *testing.T) {
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	mock := &testutils.MockChain{
 		GetLowestStoredBlockNumberFn: func(_ context.Context) (int64, error) {
 			return 0, defra.ErrBlockNumberCorrupt
@@ -406,7 +407,7 @@ func TestGetBlockRange_CorruptDataReturnsErrNoValidBlocks(t *testing.T) {
 
 func TestPurgeByDocIDs(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
 	p, tc := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -440,7 +441,7 @@ func TestPurgeByDocIDs(t *testing.T) {
 
 func TestPurgeByDocIDs_InvalidDocID(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
 	p, tc := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -464,7 +465,7 @@ func TestPurgeByDocIDs_InvalidDocID(t *testing.T) {
 
 func TestPruneBlockRange(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -487,7 +488,7 @@ func TestPruneBlockRange(t *testing.T) {
 
 func TestFilterBasedPrune(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -514,7 +515,7 @@ func TestFilterBasedPrune(t *testing.T) {
 
 func TestFilterBasedPrune_WithinLimit(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -529,7 +530,7 @@ func TestFilterBasedPrune_WithinLimit(t *testing.T) {
 
 func TestStartupCleanup(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -552,7 +553,7 @@ func TestStartupCleanup(t *testing.T) {
 
 func TestStartupCleanup_WithinLimit(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -567,7 +568,7 @@ func TestStartupCleanup_WithinLimit(t *testing.T) {
 
 func TestPurgeFromDrainResult(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
 	p, tc := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -595,7 +596,7 @@ func TestPurgeFromDrainResult(t *testing.T) {
 
 func TestPurgeFromDrainResult_EmptyCollections(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -612,7 +613,7 @@ func TestPurgeFromDrainResult_EmptyCollections(t *testing.T) {
 func TestPurgeFromDrainResult_PurgeError(t *testing.T) {
 	t.Run("dependent_collection_error_propagates", func(t *testing.T) {
 		n := startTestNode(t)
-		cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+		cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
 		p, tc := newTestPruner(cfg, n)
 		ctx := context.Background()
 
@@ -639,7 +640,7 @@ func TestPurgeFromDrainResult_PurgeError(t *testing.T) {
 
 	t.Run("block_collection_error_is_reported", func(t *testing.T) {
 		n := startTestNode(t)
-		cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+		cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
 		p, _ := newTestPruner(cfg, n)
 		ctx := context.Background()
 
@@ -658,7 +659,7 @@ func TestPurgeFromDrainResult_PurgeError(t *testing.T) {
 
 func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -680,7 +681,7 @@ func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {
 
 func TestRunIndexerQueuePrune_BelowThreshold_WithNode(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
@@ -695,7 +696,7 @@ func TestRunIndexerQueuePrune_BelowThreshold_WithNode(t *testing.T) {
 func TestRunPrune_DefaultQueueType(t *testing.T) {
 	// Test the default case in runPrune switch by using a custom Queue implementation
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 1000}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1000}
 	p, _ := newTestPruner(cfg, n)
 
 	// Use a mock queue that is neither IndexerQueue nor EventQueue
@@ -714,7 +715,7 @@ func (m *mockQueue) Save() error { return nil }
 
 func TestStop_WithQueueSaveError(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
 	p, _ := newTestPruner(cfg, n)
 
 	// Use a mock queue that returns an error on Save
@@ -742,7 +743,7 @@ func (m *mockQueueSaveError) Save() error { return fmt.Errorf("save failed") }
 
 func TestStartStop_Concurrent(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
 
 	var wg sync.WaitGroup
 	for range 5 {
@@ -762,7 +763,7 @@ func TestStartStop_Concurrent(t *testing.T) {
 }
 
 func TestGetMetrics_Concurrent(t *testing.T) {
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	p := NewPruner(cfg, nil, nil)
 
 	var wg sync.WaitGroup

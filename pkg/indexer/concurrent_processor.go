@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
 const (
-	// BlockNotFoundRetryDelay is the delay before retrying when a block is not yet available on chain.
+	// BlockNotFoundRetryDelay is the delay before retrying when a block is not yet available on chains.
 	BlockNotFoundRetryDelay = 3 * time.Second
 
 	// DispatchThrottleDelay is the delay when the processor is too far ahead of committed blocks.
@@ -29,7 +29,7 @@ type BlockResult struct {
 
 // ConcurrentBlockProcessor processes multiple blocks concurrently.
 type ConcurrentBlockProcessor struct {
-	chain           chain.Chain
+	chain           chains.Chain
 	workers         int
 	blocksPerMinute int
 	resultChan      chan *BlockResult
@@ -40,7 +40,7 @@ type ConcurrentBlockProcessor struct {
 
 // NewConcurrentBlockProcessor creates a new concurrent processor.
 func NewConcurrentBlockProcessor(
-	chain chain.Chain,
+	chain chains.Chain,
 	workers int,
 	blocksPerMinute int,
 ) *ConcurrentBlockProcessor {
