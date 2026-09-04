@@ -23,7 +23,7 @@ type MockConverter struct {
 	mu sync.Mutex
 
 	// Optional overrides. When nil the method returns its zero value.
-	ConvertFn                     func(ctx context.Context, rawBlock any, vp chains.CollectionVersionProvider) ([]chains.DocumentGroup, string, error)
+	ConvertFn                     func(ctx context.Context, rawBlock any) (chains.ConversionResult, error)
 	GetSchemaFn                   func() (string, error)
 	GetCollectionsFn              func() []string
 	CollectionsFn                 func() chains.Collections
@@ -45,14 +45,14 @@ type MockConverter struct {
 var _ chains.Converter = (*MockConverter)(nil)
 
 // Convert records the rawBlock and delegates to ConvertFn.
-func (m *MockConverter) Convert(ctx context.Context, rawBlock any, vp chains.CollectionVersionProvider) ([]chains.DocumentGroup, string, error) {
+func (m *MockConverter) Convert(ctx context.Context, rawBlock any) (chains.ConversionResult, error) {
 	m.mu.Lock()
 	m.ConvertCalls = append(m.ConvertCalls, rawBlock)
 	m.mu.Unlock()
 	if m.ConvertFn != nil {
-		return m.ConvertFn(ctx, rawBlock, vp)
+		return m.ConvertFn(ctx, rawBlock)
 	}
-	return nil, "", ErrMockConvertFnNotSet
+	return chains.ConversionResult{}, ErrMockConvertFnNotSet
 }
 
 // GetSchema records the call and delegates to GetSchemaFn.

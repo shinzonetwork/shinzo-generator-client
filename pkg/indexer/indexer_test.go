@@ -2514,10 +2514,6 @@ func TestGetPeerInfo_DeduplicationBranch(t *testing.T) {
 	assert.NotNil(t, info.PeerInfo)
 }
 
-// ---------------------------------------------------------------------------
-// fetchAndProcessBlock — context cancel during CreateBlockBatch retry
-// ---------------------------------------------------------------------------
-
 // ----------------------------------------------------------------------------.
 // openBrowser — test the "default" (linux) case on non-darwin platforms.
 // The function switches on runtime.GOOS. On macOS, only darwin branch runs.
@@ -3749,9 +3745,8 @@ func TestSignMessages_SignWithDefraKeysSucceeds_P2PKeysFails(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // fetchAndProcessBlock — transaction conflict retry path (lines 328-337)
-// We need to trigger IsErrTransactionConflict from CreateBlockBatch.
-// We can do this by running two concurrent processors that try to create,
-// the same block at the same time.
+// We trigger IsErrTransactionConflict by running two concurrent processors
+// that try to create the same block at the same time.
 // ---------------------------------------------------------------------------.
 
 func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {

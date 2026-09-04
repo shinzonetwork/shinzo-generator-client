@@ -28,6 +28,7 @@ import (
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
+	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,19 +47,21 @@ const (
 
 // testChain adapts *defra.BlockHandler to satisfy BlockRangeReader.
 type testChain struct {
-	handler *defra.BlockHandler
+	handler   *defra.BlockHandler
+	node      *node.Node
+	converter chains.Converter
 }
 
 func (tc *testChain) GetLowestStoredBlockNumber(ctx context.Context) (int64, error) {
-	return tc.handler.GetLowestBlockNumber(ctx)
+	return tc.converter.GetLowestStoredBlockNumber(ctx, tc.node)
 }
 
 func (tc *testChain) GetHighestStoredBlockNumber(ctx context.Context) (int64, error) {
-	return tc.handler.GetHighestBlockNumber(ctx)
+	return tc.converter.GetHighestStoredBlockNumber(ctx, tc.node)
 }
 
 func (tc *testChain) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error) {
-	return tc.handler.GetDocIDsByBlockRange(ctx, from, to)
+	return tc.converter.GetDocIDsByBlockRange(ctx, tc.node, from, to)
 }
 
 func (tc *testChain) GetCollections() []string {
@@ -72,9 +75,9 @@ func (tc *testChain) Collections() chains.Collections {
 // newTestChainFromNode creates a testChain wrapping a fresh BlockHandler for the given node.
 func newTestChainFromNode(t *testing.T, td *testutils.TestDefraDB) *testChain {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, evm.NewCollectionNames("Ethereum__Mainnet"))
+	handler, err := defra.NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
-	return &testChain{handler: handler}
+	return &testChain{handler: handler, node: td.Node, converter: evm.NewConverter(nil)}
 }
 
 func TestMain(m *testing.M) {
@@ -1474,7 +1477,7 @@ func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
 // Returns the block handler for further use.
 func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) *defra.BlockHandler {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, evm.NewCollectionNames("Ethereum__Mainnet"))
+	handler, err := defra.NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -1484,7 +1487,8 @@ func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBl
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		_, err := handler.CreateBlockBatch(ctx, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		result, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
 	return handler
@@ -3978,7 +3982,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 
 func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, startBlock, endBlock int64) (context.Context, *defra.BlockHandler) {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000, evm.NewCollectionNames("Ethereum__Mainnet"))
+	handler, err := defra.NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	fullIdent, err := identity.Generate(crypto.KeyTypeSecp256k1)
@@ -3991,7 +3995,8 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		_, err := handler.CreateBlockBatch(ctx, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		result, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
 	return ctx, handler
