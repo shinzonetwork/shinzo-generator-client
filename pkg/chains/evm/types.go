@@ -1,4 +1,4 @@
-package types
+package evm
 
 // AccessListEntry represents an access list entry for EIP-2930 transactions.
 type AccessListEntry struct {
@@ -85,36 +85,4 @@ type Log struct {
 	BlockHash        string   `json:"blockHash"`
 	LogIndex         int      `json:"logIndex"`
 	Removed          bool     `json:"removed"`
-}
-
-// Response represents a GraphQL response containing document IDs.
-type Response struct {
-	Data map[string][]struct {
-		DocID string `json:"_docID"` // the document ID of the item in the collection
-	} `json:"data"` // the data returned from the query
-}
-
-// Request represents a GraphQL request with a type and query.
-type Request struct {
-	Type  string `json:"type"`
-	Query string `json:"query"`
-}
-
-// DefraDoc wraps a document stored in DefraDB.
-type DefraDoc struct {
-	JSON any `json:"json"`
-}
-
-// UpdateTransactionStruct holds the data needed to update a transaction's block association.
-type UpdateTransactionStruct struct {
-	BlockId string `json:"blockId"` //nolint:revive // legacy JSON field name maintained for compatibility
-	TxHash  string `json:"txHash"`
-}
-
-// UpdateLogStruct holds the data needed to update a log's block and transaction association.
-type UpdateLogStruct struct {
-	BlockId  string `json:"blockId"` //nolint:revive // legacy JSON field name maintained for compatibility
-	TxId     string `json:"txId"`    //nolint:revive // legacy JSON field name maintained for compatibility
-	TxHash   string `json:"txHash"`
-	LogIndex string `json:"logIndex"`
 }

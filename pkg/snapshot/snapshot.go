@@ -18,22 +18,6 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// BlockRangeReader provides block-range queries and collection metadata.
-// It is a subset of chains.Chain; any chains.Chain implementer satisfies it.
-//
-// Defined locally (rather than importing pkg/chains.Chain) to keep the
-// snapshotter's dependency surface narrow per the Interface Segregation
-// Principle. pkg/chains imports config (for AdapterFactory), and config defines
-// SnapshotConfig directly, so no import cycle exists — the local interface is
-// a design choice, not a cycle-breaking necessity.
-type BlockRangeReader interface {
-	GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
-	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
-	GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error)
-	GetCollections() []string
-	Collections() chains.Collections
-}
-
 // queryChunkSize is the number of blocks queried per GraphQL request.
 // to avoid memory pressure from large result sets.
 const (
@@ -63,11 +47,11 @@ type Metrics struct {
 type Snapshotter struct {
 	cfg       *config.SnapshotConfig
 	defraNode *node.Node
-	chain     BlockRangeReader
+	converter chains.Converter
 	ctx       context.Context //nolint:containedctx // stored from Start(), carries identity for signing
 
 	// blockSigCollection and snapshotSigCollection are the chain-specific
-	// collection names resolved from BlockRangeReader.GetCollections() by New().
+	// collection names resolved from converter.Collections() by New().
 	blockSigCollection    string
 	snapshotSigCollection string
 
@@ -78,19 +62,19 @@ type Snapshotter struct {
 	wg                sync.WaitGroup
 }
 
-// New creates a new Snapshotter. The chain argument supplies block-range
+// New creates a new Snapshotter. The converter supplies block-range
 // queries and resolves chain-specific collection names; it may be nil for
 // tests that never invoke checkAndSnapshot.
-func New(cfg *config.SnapshotConfig, defraNode *node.Node, chain BlockRangeReader) *Snapshotter {
+func New(cfg *config.SnapshotConfig, defraNode *node.Node, converter chains.Converter) *Snapshotter {
 	s := &Snapshotter{
 		cfg:       cfg,
 		defraNode: defraNode,
-		chain:     chain,
+		converter: converter,
 		stopChan:  make(chan struct{}),
 	}
-	if chain != nil {
-		cols := chain.Collections()
-		s.blockSigCollection, _ = cols.GetCollection(chains.TypeBlockSignature)
+	if converter != nil {
+		cols := converter.Collections()
+		s.blockSigCollection = converter.SignatureCollection()
 		s.snapshotSigCollection, _ = cols.GetCollection(chains.TypeSnapshotSignature)
 		if s.blockSigCollection == "" || s.snapshotSigCollection == "" {
 			logger.Sugar.Warnf("Snapshot: could not resolve signature collections from chain (blockSig=%q, snapshotSig=%q); signing will be skipped",
@@ -244,11 +228,11 @@ func (s *Snapshotter) loop(ctx context.Context) {
 }
 
 func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
-	if s.chain == nil {
+	if s.converter == nil {
 		return nil
 	}
 
-	lowest, err := s.chain.GetLowestStoredBlockNumber(ctx)
+	lowest, err := s.converter.GetLowestStoredBlockNumber(ctx, s.defraNode)
 	if err != nil {
 		if errors.IsErrNotFound(err) {
 			return nil
@@ -259,7 +243,7 @@ func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
 	if lowest == 0 {
 		return nil
 	}
-	highest, err := s.chain.GetHighestStoredBlockNumber(ctx)
+	highest, err := s.converter.GetHighestStoredBlockNumber(ctx, s.defraNode)
 	if err != nil {
 		if errors.IsErrNotFound(err) {
 			return nil

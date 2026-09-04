@@ -1,4 +1,4 @@
-package rpc
+package evm
 
 import (
 	"context"
@@ -8,12 +8,10 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -33,12 +31,6 @@ const ethGetTransactionReceipt = "eth_getTransactionReceipt"
 
 // ethGetBlockReceipts is used in multiple tests, so define it as a constant for easy updates if needed.
 const ethGetBlockReceipts = "eth_getBlockReceipts"
-
-func TestMain(m *testing.M) {
-	logger.InitConsoleOnly(true)
-	code := m.Run()
-	os.Exit(code)
-}
 
 // --- mock JSON-RPC server ---
 
@@ -785,22 +777,22 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 		case ethGetBlockByNumber:
 			// Return a full block header with all required fields
 			return map[string]any{
-				constants.NumberFieldValue: "0x64",
-				"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"nonce":                    "0x0000000000000000",
-				"sha3Uncles":               "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
-				"transactionsRoot":         "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
-				"miner":                    "0x0000000000000000000000000000000000000000",
-				"difficulty":               "0x0",
-				"extraData":                "0x",
-				"gasLimit":                 "0x1000000",
-				"gasUsed":                  "0x0",
-				"timestamp":                "0x0",
-				"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
+				constants.NumberFieldValue:         "0x64",
+				"hash":                             "0x0000000000000000000000000000000000000000000000000000000000000001",
+				constants.ParentHashKeyValue:       "0x0000000000000000000000000000000000000000000000000000000000000000",
+				constants.NonceKeyValue:            "0x0000000000000000",
+				constants.Sha3UnclesKeyValue:       "0x0000000000000000000000000000000000000000000000000000000000000000",
+				constants.LogsBloomKeyValue:        "0x" + fmt.Sprintf("%0512x", 0),
+				constants.TransactionsRootKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000000",
+				constants.StateRootKeyValue:        "0x0000000000000000000000000000000000000000000000000000000000000000",
+				constants.ReceiptsRootKeyValue:     "0x0000000000000000000000000000000000000000000000000000000000000000",
+				constants.MinerKeyValue:            "0x0000000000000000000000000000000000000000",
+				constants.DifficultyKeyValue:       "0x0",
+				constants.ExtraDataKeyValue:        "0x",
+				constants.GasLimitKeyValue:         "0x1000000",
+				constants.GasUsedKeyValue:          "0x0",
+				constants.TimestampKeyValue:        "0x0",
+				constants.MixHashKeyValue:          "0x0000000000000000000000000000000000000000000000000000000000000000",
 			}, nil
 		default:
 			return "0x1", nil
@@ -845,25 +837,25 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 	// Empty trie root hash — must match empty transaction list
 	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 	block := map[string]any{
-		constants.NumberFieldValue: number,
-		"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"nonce":                    "0x0000000000000000",
-		"sha3Uncles":               "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
-		"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot":         emptyTrieRoot,
-		"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"miner":                    "0x0000000000000000000000000000000000000000",
-		"difficulty":               "0x0",
-		"totalDifficulty":          "0x0",
-		"extraData":                "0x",
-		"size":                     "0x100",
-		"gasLimit":                 "0x1000000",
-		"gasUsed":                  "0x5208",
-		"timestamp":                "0x60000000",
-		"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":                   []any{},
+		constants.NumberFieldValue:         number,
+		"hash":                             "0x0000000000000000000000000000000000000000000000000000000000000001",
+		constants.ParentHashKeyValue:       "0x0000000000000000000000000000000000000000000000000000000000000000",
+		constants.NonceKeyValue:            "0x0000000000000000",
+		constants.Sha3UnclesKeyValue:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		constants.LogsBloomKeyValue:        "0x" + fmt.Sprintf("%0512x", 0),
+		constants.TransactionsRootKeyValue: emptyTrieRoot,
+		constants.StateRootKeyValue:        "0x0000000000000000000000000000000000000000000000000000000000000000",
+		constants.ReceiptsRootKeyValue:     "0x0000000000000000000000000000000000000000000000000000000000000000",
+		constants.MinerKeyValue:            "0x0000000000000000000000000000000000000000",
+		constants.DifficultyKeyValue:       "0x0",
+		"totalDifficulty":                  "0x0",
+		constants.ExtraDataKeyValue:        "0x",
+		"size":                             "0x100",
+		constants.GasLimitKeyValue:         "0x1000000",
+		constants.GasUsedKeyValue:          "0x5208",
+		constants.TimestampKeyValue:        "0x60000000",
+		constants.MixHashKeyValue:          "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":                           []any{},
 	}
 	if txs != nil {
 		block["transactions"] = txs
@@ -923,20 +915,20 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 		switch method {
 		case ethGetTransactionReceipt:
 			return map[string]any{
-				"transactionHash":           "0x0000000000000000000000000000000000000000000000000000000000000abc",
-				"transactionIndex":          "0x0",
-				constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":               "0x64",
-				"from":                      "0x0000000000000000000000000000000000000001",
-				"to":                        "0x0000000000000000000000000000000000000002",
-				"cumulativeGasUsed":         "0x5208",
-				"gasUsed":                   "0x5208",
-				"contractAddress":           nil,
-				"logs":                      []any{},
-				"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
-				"status":                    "0x1",
-				"effectiveGasPrice":         "0x4a817c800",
-				"type":                      "0x0",
+				"transactionHash":                   "0x0000000000000000000000000000000000000000000000000000000000000abc",
+				constants.TransactionIndexKeyValue:  "0x0",
+				constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
+				"blockNumber":                       "0x64",
+				"from":                              "0x0000000000000000000000000000000000000001",
+				"to":                                "0x0000000000000000000000000000000000000002",
+				constants.CumulativeGasUsedKeyValue: "0x5208",
+				constants.GasUsedKeyValue:           "0x5208",
+				"contractAddress":                   nil,
+				"logs":                              []any{},
+				constants.LogsBloomKeyValue:         "0x" + fmt.Sprintf("%0512x", 0),
+				constants.StatusKeyValue:            "0x1",
+				constants.EffectiveGasPriceKeyValue: "0x4a817c800",
+				constants.TypeKeyValue:              "0x0",
 			}, nil
 		default:
 			return "0x1", nil
@@ -983,17 +975,17 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
-					"transactionHash":           "0x0000000000000000000000000000000000000000000000000000000000000abc",
-					"transactionIndex":          "0x0",
-					constants.BlockHashKeyValue: "0x0000000000000000000000000000000000000000000000000000000000000001",
-					"blockNumber":               "0x64",
-					"cumulativeGasUsed":         "0x5208",
-					"gasUsed":                   "0x5208",
-					"logs":                      []any{},
-					"logsBloom":                 "0x" + fmt.Sprintf("%0512x", 0),
-					"status":                    "0x1",
-					"effectiveGasPrice":         "0x4a817c800",
-					"type":                      "0x0",
+					"transactionHash":                   "0x0000000000000000000000000000000000000000000000000000000000000abc",
+					constants.TransactionIndexKeyValue:  "0x0",
+					constants.BlockHashKeyValue:         "0x0000000000000000000000000000000000000000000000000000000000000001",
+					"blockNumber":                       "0x64",
+					constants.CumulativeGasUsedKeyValue: "0x5208",
+					constants.GasUsedKeyValue:           "0x5208",
+					"logs":                              []any{},
+					constants.LogsBloomKeyValue:         "0x" + fmt.Sprintf("%0512x", 0),
+					constants.StatusKeyValue:            "0x1",
+					constants.EffectiveGasPriceKeyValue: "0x4a817c800",
+					constants.TypeKeyValue:              "0x0",
 				},
 			}, nil
 		default:

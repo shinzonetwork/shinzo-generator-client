@@ -11,7 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,130 @@ func TestNewFetcher(t *testing.T) {
 	f := NewFetcher(client, 8)
 	assert.NotNil(t, f.client)
 	assert.Equal(t, 8, f.receiptWorkers)
+}
+
+// ---------------------------------------------------------------------------
+// NewFetcherFromConfig
+// ---------------------------------------------------------------------------
+
+func TestNewFetcherFromConfig(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name           string
+		cfg            *config.Config
+		wantErr        bool
+		wantReceipt    int
+		wantNodeURL    string
+		wantAPIKey     string
+		wantAPIKeyType string
+	}{
+		{
+			name:    "NilConfig",
+			cfg:     nil,
+			wantErr: true,
+		},
+		{
+			name: "DefaultReceiptWorkers",
+			cfg: &config.Config{
+				Chain:   config.ChainConfig{Name: "Ethereum", Network: "Mainnet"},
+				Geth:    config.GethConfig{NodeURL: "http://localhost:8545"},
+				Indexer: config.IndexerConfig{},
+			},
+			wantReceipt: 16,
+			wantNodeURL: "http://localhost:8545",
+		},
+		{
+			name: "CustomReceiptWorkers",
+			cfg: &config.Config{
+				Chain:   config.ChainConfig{Name: "Ethereum", Network: "Mainnet"},
+				Geth:    config.GethConfig{NodeURL: "http://localhost:8545", APIKey: "secret", APIKeyType: "X-Api-Key"},
+				Indexer: config.IndexerConfig{ReceiptWorkers: 4},
+			},
+			wantReceipt:    4,
+			wantNodeURL:    "http://localhost:8545",
+			wantAPIKey:     "secret",
+			wantAPIKeyType: "X-Api-Key",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f, err := NewFetcherFromConfig(tc.cfg)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, f)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotNil(t, f)
+			assert.Equal(t, tc.wantReceipt, f.receiptWorkers)
+			assert.Equal(t, tc.wantNodeURL, f.nodeURL)
+			assert.Equal(t, tc.wantAPIKey, f.apiKey)
+			assert.Equal(t, tc.wantAPIKeyType, f.apiKeyType)
+			assert.Nil(t, f.client, "should not have a connected client")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Connect
+// ---------------------------------------------------------------------------
+
+func TestFetcher_Connect(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		setup func() *Fetcher
+	}{
+		{
+			name:  "NoOpWhenClientAlreadySet",
+			setup: func() *Fetcher { return NewFetcher(&fakeRPCClient{}, 8) },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := tc.setup()
+			err := f.Connect(context.Background())
+			require.NoError(t, err)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Nil-client guards
+// ---------------------------------------------------------------------------
+
+func TestFetcher_NotConnectedGuards(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		fn   func(f *Fetcher) error
+	}{
+		{
+			name: "FetchBlock",
+			fn:   func(f *Fetcher) error { _, err := f.FetchBlock(context.Background(), 1); return err },
+		},
+		{
+			name: "FetchHighestBlockNumber",
+			fn:   func(f *Fetcher) error { _, err := f.FetchHighestBlockNumber(context.Background()); return err },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := &Fetcher{}
+			err := tc.fn(f)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Connect")
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +211,7 @@ func TestFetcher_FetchBlock_BatchSuccess(t *testing.T) {
 
 	client := &fakeRPCClient{
 		block:         block,
-		batchReceipts: []*types.TransactionReceipt{receipt},
+		batchReceipts: []*TransactionReceipt{receipt},
 	}
 	f := NewFetcher(client, 8)
 
@@ -110,7 +235,7 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 
 	client := &fakeRPCClient{
 		block:         block,
-		batchReceipts: []*types.TransactionReceipt{},
+		batchReceipts: []*TransactionReceipt{},
 	}
 	f := NewFetcher(client, 8)
 
@@ -133,7 +258,7 @@ func TestFetcher_FetchBlock_BlockNotFound(t *testing.T) {
 
 	calls := 0
 	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*types.Block, error) {
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
 			return nil, stderrors.New("block not found")
 		},
@@ -155,7 +280,7 @@ func TestFetcher_FetchBlock_RPCRetrySuccess(t *testing.T) {
 
 	calls := 0
 	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*types.Block, error) {
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
 			if calls < 2 {
 				return nil, stderrors.New("connection reset")
@@ -183,7 +308,7 @@ func TestFetcher_FetchBlock_RPCRetryExhausted(t *testing.T) {
 
 	calls := 0
 	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*types.Block, error) {
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
 			return nil, stderrors.New("connection refused")
 		},
@@ -206,7 +331,7 @@ func TestFetcher_FetchBlock_ContextAlreadyCanceled(t *testing.T) {
 
 	calls := 0
 	client := &fakeRPCClient{
-		blockFn: func(_ context.Context, _ *big.Int) (*types.Block, error) {
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
 			return fakeBlock(1), nil
 		},
@@ -234,8 +359,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 	cases := []struct {
 		name         string
 		blockNum     int64
-		txs          []types.Transaction
-		txReceiptFn  func(_ context.Context, _ string) (*types.TransactionReceipt, error)
+		txs          []Transaction
+		txReceiptFn  func(_ context.Context, _ string) (*TransactionReceipt, error)
 		wantReceipts int
 	}{
 		{
@@ -245,8 +370,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 		{
 			name:     "IndividualSuccess",
 			blockNum: 100000,
-			txs:      []types.Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 				return fakeReceipt(txHash, 100000), nil
 			},
 			wantReceipts: 1,
@@ -254,8 +379,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 		{
 			name:     "IndividualFail",
 			blockNum: 100001,
-			txs:      []types.Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 				return nil, fmt.Errorf("receipt not available")
 			},
 			wantReceipts: 0,
@@ -263,8 +388,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 		{
 			name:     "IndividualReceiptSuccess",
 			blockNum: 0xccc0,
-			txs:      []types.Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 				return fakeReceipt(txHash, 0xccc0), nil
 			},
 			wantReceipts: 1,
@@ -338,7 +463,7 @@ func TestFetcher_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 			client := &fakeRPCClient{
 				block:    block,
 				batchErr: fmt.Errorf("not supported"),
-				txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+				txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 					time.Sleep(tc.txSleep)
 					if tc.returnError {
 						return nil, fmt.Errorf("timeout")
@@ -360,7 +485,7 @@ func TestFetcher_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 func TestFetcher_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) {
 	t.Parallel()
 
-	txs := make([]types.Transaction, 3)
+	txs := make([]Transaction, 3)
 	for i := range 3 {
 		txs[i] = fakeTx(fmt.Sprintf("0x%064x", i+1))
 	}
@@ -370,7 +495,7 @@ func TestFetcher_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) 
 	client := &fakeRPCClient{
 		block:    block,
 		batchErr: fmt.Errorf("not supported"),
-		txReceiptFn: func(_ context.Context, _ string) (*types.TransactionReceipt, error) {
+		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 			select {
 			case firstReceiptCalled <- struct{}{}:
 			default:
@@ -426,4 +551,48 @@ func TestFetcher_Close_NilClient(t *testing.T) {
 
 	f := &Fetcher{}
 	require.NoError(t, f.Close())
+}
+
+// ---------------------------------------------------------------------------
+// MockFetcher Connect
+// ---------------------------------------------------------------------------
+
+func TestMockFetcher_Connect(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		setupFn func(m *testutils.MockFetcher)
+		wantErr bool
+		errSub  string
+	}{
+		{
+			name:    "Default",
+			setupFn: func(_ *testutils.MockFetcher) {},
+		},
+		{
+			name: "CustomFn",
+			setupFn: func(m *testutils.MockFetcher) {
+				m.ConnectFn = func(_ context.Context) error { return stderrors.New("dial failed") }
+			},
+			wantErr: true,
+			errSub:  "dial failed",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := &testutils.MockFetcher{}
+			tc.setupFn(m)
+			err := m.Connect(context.Background())
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSub)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, 1, m.ConnectCalls)
+		})
+	}
 }

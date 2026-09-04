@@ -3,7 +3,6 @@ package schema_test
 import (
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
@@ -13,7 +12,7 @@ import (
 func TestListCollections(t *testing.T) {
 	t.Parallel()
 
-	entries := schema.ListCollections(chains.NewStubCollections("Arbitrum__Sepolia"))
+	entries := schema.ListCollections(evm.NewCollectionNames("Arbitrum__Sepolia"))
 
 	expectedNames := []string{"block", "blockSignature", "snapshotSignature", "transaction", "accessListEntry", "log"}
 	expectedTypeNames := []string{
@@ -36,7 +35,7 @@ func TestListCollections(t *testing.T) {
 func TestListCollections_DefaultPrefix(t *testing.T) {
 	t.Parallel()
 
-	entries := schema.ListCollections(chains.NewStubCollections(evm.DefaultCollectionPrefix))
+	entries := schema.ListCollections(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	expectedTypeNames := evm.SchemaApplyOrder()
 	assert.Len(t, entries, len(expectedTypeNames))
@@ -49,7 +48,7 @@ func TestListCollections_DefaultPrefix(t *testing.T) {
 func TestPrecomputeCollectionSDLs_DefaultPrefix(t *testing.T) {
 	t.Parallel()
 
-	cache, err := schema.PrecomputeCollectionSDLs(chains.NewStubCollections(evm.DefaultCollectionPrefix))
+	cache, err := schema.PrecomputeCollectionSDLs(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, cache)
@@ -64,7 +63,7 @@ func TestPrecomputeCollectionSDLs_DefaultPrefix(t *testing.T) {
 func TestPrecomputeCollectionSDLs_KeysMatchValidCollections(t *testing.T) {
 	t.Parallel()
 
-	cache, err := schema.PrecomputeCollectionSDLs(chains.NewStubCollections("Ethereum__Mainnet"))
+	cache, err := schema.PrecomputeCollectionSDLs(evm.NewCollectionNames("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	for _, name := range []string{"block", "transaction", "log"} {
@@ -78,7 +77,7 @@ func TestPrecomputeCollectionSDLs_PrefixReplacement(t *testing.T) {
 	t.Parallel()
 
 	prefix := "Arbitrum__Sepolia"
-	cache, err := schema.PrecomputeCollectionSDLs(chains.NewStubCollections(prefix))
+	cache, err := schema.PrecomputeCollectionSDLs(evm.NewCollectionNames(prefix))
 	require.NoError(t, err)
 
 	sdl, ok := cache["block"]

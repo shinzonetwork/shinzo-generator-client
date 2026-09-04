@@ -24,7 +24,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
@@ -45,39 +44,10 @@ const (
 	testSnapshotSignatureCollection = evm.DefaultCollectionPrefix + "__SnapshotSignature"
 )
 
-// testChain adapts *defra.BlockHandler to satisfy BlockRangeReader.
-type testChain struct {
-	handler   *defra.BlockHandler
-	node      *node.Node
-	converter chains.Converter
-}
-
-func (tc *testChain) GetLowestStoredBlockNumber(ctx context.Context) (int64, error) {
-	return tc.converter.GetLowestStoredBlockNumber(ctx, tc.node)
-}
-
-func (tc *testChain) GetHighestStoredBlockNumber(ctx context.Context) (int64, error) {
-	return tc.converter.GetHighestStoredBlockNumber(ctx, tc.node)
-}
-
-func (tc *testChain) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error) {
-	return tc.converter.GetDocIDsByBlockRange(ctx, tc.node, from, to)
-}
-
-func (tc *testChain) GetCollections() []string {
-	return evm.NewCollectionNames(evm.DefaultCollectionPrefix).AllCollections()
-}
-
-func (tc *testChain) Collections() chains.Collections {
-	return evm.NewCollectionNames(evm.DefaultCollectionPrefix)
-}
-
-// newTestChainFromNode creates a testChain wrapping a fresh BlockHandler for the given node.
-func newTestChainFromNode(t *testing.T, td *testutils.TestDefraDB) *testChain {
+// newTestChainFromNode returns a chains.Converter for the given test node.
+func newTestChainFromNode(t *testing.T, _ *testutils.TestDefraDB) chains.Converter {
 	t.Helper()
-	handler, err := defra.NewBlockHandler(td.Node, 1000)
-	require.NoError(t, err)
-	return &testChain{handler: handler, node: td.Node, converter: evm.NewConverter(nil)}
+	return evm.NewConverter(nil)
 }
 
 func TestMain(m *testing.M) {
@@ -1393,9 +1363,9 @@ func deterministicHash(seed string) string {
 	return "0x" + hex.EncodeToString(h[:])
 }
 
-// testBlock creates a *types.Block with a hex-encoded block number.
-func testBlock(hexNumber string) *types.Block {
-	return &types.Block{
+// testBlock creates a *evm.Block with a hex-encoded block number.
+func testBlock(hexNumber string) *evm.Block {
+	return &evm.Block{
 		Hash:             deterministicHash("block-" + hexNumber),
 		Number:           hexNumber,
 		Timestamp:        "1640995200",
@@ -1418,9 +1388,9 @@ func testBlock(hexNumber string) *types.Block {
 	}
 }
 
-// testTransaction creates a *types.Transaction with a deterministic hash.
-func testTransaction(seed, blockNumber string) *types.Transaction {
-	return &types.Transaction{
+// testTransaction creates a *evm.Transaction with a deterministic hash.
+func testTransaction(seed, blockNumber string) *evm.Transaction {
+	return &evm.Transaction{
 		Hash:              deterministicHash("tx-" + seed),
 		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 		BlockNumber:       blockNumber,
@@ -1443,10 +1413,10 @@ func testTransaction(seed, blockNumber string) *types.Transaction {
 	}
 }
 
-// testReceipt creates a *types.TransactionReceipt with one log.
-func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
+// testReceipt creates a *evm.TransactionReceipt with one log.
+func testReceipt(txSeed, blockNumberHex string) *evm.TransactionReceipt {
 	txHash := deterministicHash("tx-" + txSeed)
-	return &types.TransactionReceipt{
+	return &evm.TransactionReceipt{
 		TransactionHash:   txHash,
 		TransactionIndex:  "0",
 		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -1456,7 +1426,7 @@ func testReceipt(txSeed, blockNumberHex string) *types.TransactionReceipt {
 		CumulativeGasUsed: "21000",
 		GasUsed:           "21000",
 		Status:            "0x1",
-		Logs: []types.Log{
+		Logs: []evm.Log{
 			{
 				Address:          "0x0000000000000000000000000000000000000003",
 				Topics:           []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
@@ -1487,7 +1457,11 @@ func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBl
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		result, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+			Block:        block,
+			Transactions: []*evm.Transaction{tx},
+			Receipts:     []*evm.TransactionReceipt{receipt},
+		})
 		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
@@ -1588,7 +1562,7 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 
 	// Verify the second node has no blocks yet
 	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
-	_, err = s2.chain.GetLowestStoredBlockNumber(ctx)
+	_, err = s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
 	require.Error(t, err, "empty DB should return document-not-found")
 
 	// Import the snapshot into the second node
@@ -1599,11 +1573,11 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	assert.Equal(t, int64(1004), importResult.EndBlock)
 
 	// Verify blocks exist in the second node
-	lowest, err := s2.chain.GetLowestStoredBlockNumber(ctx)
+	lowest, err := s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1000), lowest, "second node should have block 1000 after import")
 
-	highest, err := s2.chain.GetHighestStoredBlockNumber(ctx)
+	highest, err := s2.converter.GetHighestStoredBlockNumber(ctx, s2.defraNode)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1004), highest, "second node should have block 1004 after import")
 }
@@ -1987,16 +1961,16 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 
 	// Verify the second node has the blocks
 	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 5}, td2.Node, newTestChainFromNode(t, td2))
-	lowest, err := s2.chain.GetLowestStoredBlockNumber(ctx)
+	lowest, err := s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
 
-	highest, err := s2.chain.GetHighestStoredBlockNumber(ctx)
+	highest, err := s2.converter.GetHighestStoredBlockNumber(ctx, s2.defraNode)
 	require.NoError(t, err)
 	assert.Equal(t, int64(104), highest)
 
 	// Also verify we can query doc IDs in the imported node
-	docIDsByCol, err := s2.chain.GetDocIDsByBlockRange(ctx, 100, 104)
+	docIDsByCol, err := s2.converter.GetDocIDsByBlockRange(ctx, s2.defraNode, 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, docIDsByCol[testBlockCollection], 5, "should find 5 block doc IDs after import")
 
@@ -3001,10 +2975,10 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 
 	// Verify
 	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
-	lowest, err := s2.chain.GetLowestStoredBlockNumber(ctx)
+	lowest, err := s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
-	highest, err := s2.chain.GetHighestStoredBlockNumber(ctx)
+	highest, err := s2.converter.GetHighestStoredBlockNumber(ctx, s2.defraNode)
 	require.NoError(t, err)
 	assert.Equal(t, int64(109), highest)
 }
@@ -3995,7 +3969,11 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		result, _ := testutils.BuildEVMGroups(evm.NewCollectionNames("Ethereum__Mainnet"), block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+			Block:        block,
+			Transactions: []*evm.Transaction{tx},
+			Receipts:     []*evm.TransactionReceipt{receipt},
+		})
 		_, err = handler.Store(ctx, result)
 		require.NoError(t, err, "failed to insert block %d", i)
 	}
@@ -4334,20 +4312,20 @@ var (
 	_ = insertTestBlocks
 	_ = defra.NewBlockHandler
 	_ = logger.Sugar
-	_ types.Block
+	_ evm.Block
 )
 
 // ---------------------------------------------------------------------------
-// Step 5 assertion tests: verify chain interface usage via testutils.MockChain
+// Step 5 assertion tests: verify chain interface usage via testutils.MockConverter
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_UsesChainBlockRange(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
-	mc := &testutils.MockChain{
-		GetLowestStoredBlockNumberFn:  func(_ context.Context) (int64, error) { return 100, nil },
-		GetHighestStoredBlockNumberFn: func(_ context.Context) (int64, error) { return 104, nil },
-		GetDocIDsByBlockRangeFn: func(_ context.Context, _, _ int64) (map[string][]string, error) {
+	mc := &testutils.MockConverter{
+		GetLowestStoredBlockNumberFn:  func(_ context.Context, _ *node.Node) (int64, error) { return 100, nil },
+		GetHighestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) { return 104, nil },
+		GetDocIDsByBlockRangeFn: func(_ context.Context, _ *node.Node, _, _ int64) (map[string][]string, error) {
 			return map[string][]string{}, nil
 		},
 		GetCollectionsFn: func() []string {
@@ -4375,13 +4353,13 @@ func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
 	insertTestBlocks(t, td, 100, 102)
 
 	realChain := newTestChainFromNode(t, td)
-	realDocIDs, err := realChain.GetDocIDsByBlockRange(context.Background(), 100, 102)
+	realDocIDs, err := realChain.GetDocIDsByBlockRange(context.Background(), td.Node, 100, 102)
 	require.NoError(t, err)
 
-	mc := &testutils.MockChain{
-		GetLowestStoredBlockNumberFn:  func(_ context.Context) (int64, error) { return 100, nil },
-		GetHighestStoredBlockNumberFn: func(_ context.Context) (int64, error) { return 102, nil },
-		GetDocIDsByBlockRangeFn: func(_ context.Context, _, _ int64) (map[string][]string, error) {
+	mc := &testutils.MockConverter{
+		GetLowestStoredBlockNumberFn:  func(_ context.Context, _ *node.Node) (int64, error) { return 100, nil },
+		GetHighestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) { return 102, nil },
+		GetDocIDsByBlockRangeFn: func(_ context.Context, _ *node.Node, _, _ int64) (map[string][]string, error) {
 			return realDocIDs, nil
 		},
 		GetCollectionsFn: func() []string {
@@ -4406,10 +4384,11 @@ func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
 }
 
 func TestNew_ResolvesSignatureCollectionsViaSuffixMatch(t *testing.T) {
-	mc := &testutils.MockChain{
+	mc := &testutils.MockConverter{
 		CollectionsFn: func() chains.Collections {
-			return chains.NewStubCollections("CustomChain__Testnet")
+			return evm.NewCollectionNames("CustomChain__Testnet")
 		},
+		SignatureCollectionFn: func() string { return "CustomChain__Testnet__BlockSignature" },
 	}
 
 	s := New(&config.SnapshotConfig{Dir: t.TempDir()}, nil, mc)

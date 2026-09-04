@@ -21,11 +21,13 @@ type MockFetcher struct {
 	mu sync.Mutex
 
 	// Optional overrides. When nil the method returns its zero value.
+	ConnectFn                 func(ctx context.Context) error
 	FetchBlockFn              func(ctx context.Context, height int64) (any, error)
 	FetchHighestBlockNumberFn func(ctx context.Context) (int64, error)
 	CloseFn                   func() error
 
 	// Call recording.
+	ConnectCalls                 int
 	FetchBlockCalls              []int64
 	FetchHighestBlockNumberCalls int
 	CloseCalls                   int
@@ -33,6 +35,17 @@ type MockFetcher struct {
 
 // Compile-time guarantee that MockFetcher implements chains.Fetcher.
 var _ chains.Fetcher = (*MockFetcher)(nil)
+
+// Connect records the call and delegates to ConnectFn.
+func (m *MockFetcher) Connect(ctx context.Context) error {
+	m.mu.Lock()
+	m.ConnectCalls++
+	m.mu.Unlock()
+	if m.ConnectFn != nil {
+		return m.ConnectFn(ctx)
+	}
+	return nil
+}
 
 // FetchBlock records the height and delegates to FetchBlockFn.
 func (m *MockFetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
