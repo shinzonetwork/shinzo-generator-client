@@ -82,7 +82,7 @@ integration-test:
 	@echo ""
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
-		go test -tags live -v ./integration/live/ -timeout=20s; \
+		go test -v ./integration/live/ -timeout=20s; \
 	else \
 		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
 	fi
