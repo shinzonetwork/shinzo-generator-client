@@ -27,6 +27,12 @@ import (
 
 var errNoIdentity = stderrors.New("no identity available for signing") //nolint:gochecknoglobals
 
+// ErrBlockNumberCorrupt indicates that a block document exists in the store
+// but its "number" field is missing or has an unparseable type. It must NOT
+// contain "not found" so pkgerrors.IsErrNotFound returns false — this ensures
+// the pruner distinguishes corruption (hard error) from an empty DB (no-op).
+var ErrBlockNumberCorrupt = stderrors.New("block exists but has invalid or unparseable number field") //nolint:gochecknoglobals
+
 // blockDB abstracts the DB operations used by BlockHandler for testability.
 type blockDB interface {
 	NewTxn(readOnly bool) (client.Txn, error)
@@ -1484,7 +1490,7 @@ func (h *BlockHandler) queryBlockNumber(ctx context.Context, order, opName strin
 		var ok bool
 		block, ok = arr[0].(map[string]any)
 		if !ok {
-			return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "invalid format")
+			return 0, fmt.Errorf("%s: %w", opName, ErrBlockNumberCorrupt)
 		}
 	case []map[string]any:
 		if len(arr) == 0 {
@@ -1504,5 +1510,5 @@ func (h *BlockHandler) queryBlockNumber(ctx context.Context, order, opName strin
 		return int64(v), nil
 	}
 
-	return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "invalid number type")
+	return 0, fmt.Errorf("%s: %w", opName, ErrBlockNumberCorrupt)
 }

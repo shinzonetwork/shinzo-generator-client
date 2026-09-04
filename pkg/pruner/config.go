@@ -1,9 +1,5 @@
 package pruner
 
-import (
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-)
-
 // Config represents pruner configuration for removing old documents.
 type Config struct {
 	Enabled         bool  `yaml:"enabled"`
@@ -16,31 +12,6 @@ type Config struct {
 	// what it deletes, so without a cap a large backlog produces a cycle long enough that the queue
 	// cannot be checkpointed for hours. Zero leaves a cycle unbounded.
 	MaxBlocksPerCycle int64 `yaml:"max_blocks_per_cycle"`
-}
-
-// CollectionConfig defines which collections to prune and how.
-type CollectionConfig struct {
-	// BlockCollection is the name of the block collection (e.g. "Ethereum__Mainnet__Block").
-	BlockCollection string
-	// BlockNumberField is the field name for block number in the block collection (e.g. "number").
-	BlockNumberField string
-	// DependentCollections are collections that reference blocks via "blockNumber" field,
-	// listed in deletion order (deleted before the block collection).
-	DependentCollections []string
-}
-
-// DefaultCollectionConfig returns the default Ethereum mainnet collection config.
-func DefaultCollectionConfig() CollectionConfig {
-	return CollectionConfig{
-		BlockCollection:  constants.CollectionBlock,
-		BlockNumberField: constants.NumberFieldValue,
-		DependentCollections: []string{
-			constants.CollectionBlockSignature,
-			constants.CollectionAccessListEntry,
-			constants.CollectionLog,
-			constants.CollectionTransaction,
-		},
-	}
 }
 
 // MaxDocs returns the effective maximum document count: max_blocks * docs_per_block.

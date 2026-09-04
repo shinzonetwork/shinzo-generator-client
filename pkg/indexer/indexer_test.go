@@ -1164,7 +1164,7 @@ func TestGetPrunerMetrics_WithPruner(t *testing.T) {
 	p := pruner.NewPruner(&pruner.Config{
 		Enabled:   true,
 		MaxBlocks: 1000,
-	}, td.Node)
+	}, td.Node, nil)
 
 	indexer := &ChainIndexer{pruner: p}
 	metrics := indexer.GetPrunerMetrics()
@@ -1214,7 +1214,7 @@ func TestStopIndexing_WithPruner(t *testing.T) {
 	p := pruner.NewPruner(&pruner.Config{
 		Enabled:   true,
 		MaxBlocks: 1000,
-	}, td.Node)
+	}, td.Node, nil)
 
 	indexer := &ChainIndexer{
 		shouldIndex: true,
@@ -2014,7 +2014,7 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 	p := pruner.NewPruner(&pruner.Config{
 		Enabled:   true,
 		MaxBlocks: 1000,
-	}, td.Node)
+	}, td.Node, adapter)
 
 	// Create snapshotter.
 	snapDir := t.TempDir()
@@ -3197,7 +3197,7 @@ func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 		MaxBlocks:      100,
 		PruneThreshold: 10,
 	}
-	p := pruner.NewPruner(prunerCfg, td.Node)
+	p := pruner.NewPruner(prunerCfg, td.Node, nil)
 	p.SetQueue(pruner.NewIndexerQueue())
 
 	snapshotDir := t.TempDir()
