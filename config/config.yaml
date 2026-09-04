@@ -72,5 +72,10 @@ snapshot:
   blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
   interval_seconds: 30      # How often to check and create snapshots
 converter:
-  lowest_block_query_limit: 1  # Row window for lowest-block number query
-  #>1 skips purge residue (env: CONVERTER_LOWEST_BLOCK_QUERY_LIMIT)
+  lowest_block_query_limit: 1   # Row window for the lowest-block number query (env: CONVERTER_LOWEST_BLOCK_QUERY_LIMIT).
+  # ⚠ >1 makes the query skip purge residue: block rows left behind by DefraDB purges
+  # whose number field is missing or unparseable. Without it, a single residue row fails
+  # every snapshot/prune tick with "block exists but has invalid or unparseable number field".
+  # Keep at 1 unless you encounter that error; then set it above the count of consecutive
+  # residue rows (20 covers observed incidents). The current DefraDB no longer produces
+  # residue (primary-key purge fix), so >1 only matters for stores written before the bump.
