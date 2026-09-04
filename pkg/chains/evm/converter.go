@@ -32,10 +32,6 @@ const (
 	// highestBlockQueryLimit keeps the tip query at a single row: corruption
 	// at the highest block indicates a writer bug, not purge residue.
 	highestBlockQueryLimit = 1
-
-	// lowestBlockQueryLimit scans a window of rows so purge residue with a
-	// missing or unparsable number is skipped instead of failing every tick.
-	lowestBlockQueryLimit = 1
 )
 
 // chainPrefixFromConfig derives the collection prefix (e.g. "Ethereum__Mainnet")
@@ -173,6 +169,15 @@ func (c *Converter) maxDocsPerTxn() int {
 	return 1000 //nolint:mnd
 }
 
+// lowestBlockQueryLimit returns the configured row-window size for the
+// lowest-block number query (converter.lowest_block_query_limit).
+func (c *Converter) lowestBlockQueryLimit() int {
+	if c.cfg != nil && c.cfg.Converter.LowestBlockQueryLimit > 0 {
+		return c.cfg.Converter.LowestBlockQueryLimit
+	}
+	return config.DefaultLowestBlockQueryLimit
+}
+
 func (c *Converter) txBatchSize(defaultBatch int) int {
 	if c.cfg != nil && c.cfg.Indexer.MaxTxDocsPerBatch > 0 {
 		return c.cfg.Indexer.MaxTxDocsPerBatch
@@ -286,7 +291,7 @@ func (c *Converter) GetHighestStoredBlockNumber(ctx context.Context, n *node.Nod
 
 // GetLowestStoredBlockNumber implements chains.Converter.
 func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
-	return c.queryBlockNumber(ctx, n, "ASC", "GetLowestStoredBlockNumber", lowestBlockQueryLimit)
+	return c.queryBlockNumber(ctx, n, "ASC", "GetLowestStoredBlockNumber", c.lowestBlockQueryLimit())
 }
 
 // GetDocIDsByBlockRange implements chains.Converter. It returns document IDs

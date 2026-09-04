@@ -462,6 +462,43 @@ func TestQueryBlockNumber_CustomLimits(t *testing.T) {
 	}
 }
 
+// TestLowestBlockQueryLimit_ConfigPaths pins the helper's fallback contract:
+// nil and unset configs fall back to the exported default; a configured
+// window is honored. The config-level SetDefaults only normalizes configs
+// that pass through LoadConfig, so the helper guards these paths itself.
+func TestLowestBlockQueryLimit_ConfigPaths(t *testing.T) {
+	t.Parallel()
+
+	configured := testConfig()
+	configured.Converter.LowestBlockQueryLimit = 7
+
+	assert.Equal(t, config.DefaultLowestBlockQueryLimit,
+		NewConverter(nil).lowestBlockQueryLimit(), "nil config falls back to default")
+	assert.Equal(t, config.DefaultLowestBlockQueryLimit,
+		NewConverter(testConfig()).lowestBlockQueryLimit(), "unset config falls back to default")
+	assert.Equal(t, 7,
+		NewConverter(configured).lowestBlockQueryLimit(), "configured value is honored")
+}
+
+// TestGetLowestStoredBlockNumber_ConfigWindow proves the configured window is
+// plumbed from config into the lowest-block query end to end.
+func TestGetLowestStoredBlockNumber_ConfigWindow(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Converter.LowestBlockQueryLimit = 2
+	c := NewConverter(cfg)
+	td := testutils.SetupTestDefraDB(t)
+	ctx := context.Background()
+
+	for _, num := range []int64{100, 101, 102, 103, 104} {
+		storeTestBlockDoc(ctx, t, td, c, num)
+	}
+
+	got, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), got)
+}
+
 // ---------------------------------------------------------------------------
 // MockConverter
 // ---------------------------------------------------------------------------

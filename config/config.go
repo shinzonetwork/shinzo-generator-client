@@ -18,6 +18,11 @@ const CollectionName = "shinzo"
 // DefaultChainAdapter is the default and currently only supported chain adapter type.
 const DefaultChainAdapter = "evm"
 
+// DefaultLowestBlockQueryLimit is the default row window for the lowest-block
+// number query when converter.lowest_block_query_limit is unset. A window > 1
+// lets the query skip purge residue with a missing or unparsable number.
+const DefaultLowestBlockQueryLimit = 1
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	BootstrapPeers      []string `yaml:"bootstrap_peers"`
@@ -156,15 +161,32 @@ func (c *SnapshotConfig) SetDefaults() {
 	}
 }
 
+// ConverterConfig represents chain converter configuration.
+type ConverterConfig struct {
+	// LowestBlockQueryLimit is the row-window size for the lowest-block
+	// number query. Purge residue can leave rows with a missing or
+	// unparseable number; a window > 1 lets the scan skip them.
+	// Default 1 = legacy single-row query.
+	LowestBlockQueryLimit int `yaml:"lowest_block_query_limit"`
+}
+
+// SetDefaults applies default values for unset fields.
+func (c *ConverterConfig) SetDefaults() {
+	if c.LowestBlockQueryLimit <= 0 {
+		c.LowestBlockQueryLimit = DefaultLowestBlockQueryLimit
+	}
+}
+
 // Config represents the main configuration structure.
 type Config struct {
-	Chain    ChainConfig    `yaml:"chain"`
-	DefraDB  DefraDBConfig  `yaml:"defradb"`
-	Geth     GethConfig     `yaml:"geth"`
-	Indexer  IndexerConfig  `yaml:"indexer"`
-	Pruner   PrunerConfig   `yaml:"pruner"`
-	Snapshot SnapshotConfig `yaml:"snapshot"`
-	Logger   LoggerConfig   `yaml:"logger"`
+	Chain     ChainConfig     `yaml:"chain"`
+	DefraDB   DefraDBConfig   `yaml:"defradb"`
+	Geth      GethConfig      `yaml:"geth"`
+	Indexer   IndexerConfig   `yaml:"indexer"`
+	Pruner    PrunerConfig    `yaml:"pruner"`
+	Snapshot  SnapshotConfig  `yaml:"snapshot"`
+	Converter ConverterConfig `yaml:"converter"`
+	Logger    LoggerConfig    `yaml:"logger"`
 }
 
 // LoadConfig loads configuration from a YAML file and environment variables.
@@ -233,6 +255,9 @@ func applyDefaults(cfg *Config) {
 
 	// Snapshot defaults.
 	cfg.Snapshot.SetDefaults()
+
+	// Converter defaults.
+	cfg.Converter.SetDefaults()
 }
 
 // validateConfig validates the configuration.
@@ -267,6 +292,7 @@ func applyEnvOverrides(cfg *Config) {
 	applySchemaEnvOverrides(cfg)
 	applyPrunerEnvOverrides(cfg)
 	applySnapshotEnvOverrides(cfg)
+	applyConverterEnvOverrides(cfg)
 
 	if loggerDebug := os.Getenv("LOGGER_DEBUG"); loggerDebug != "" {
 		if debug, err := strconv.ParseBool(loggerDebug); err == nil {
@@ -479,6 +505,15 @@ func applySnapshotEnvOverrides(cfg *Config) {
 	if snapshotInterval := os.Getenv("SNAPSHOT_INTERVAL_SECONDS"); snapshotInterval != "" {
 		if n, err := strconv.Atoi(snapshotInterval); err == nil {
 			cfg.Snapshot.IntervalSeconds = n
+		}
+	}
+}
+
+// applyConverterEnvOverrides applies converter environment variable overrides.
+func applyConverterEnvOverrides(cfg *Config) {
+	if v := os.Getenv("CONVERTER_LOWEST_BLOCK_QUERY_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Converter.LowestBlockQueryLimit = n
 		}
 	}
 }

@@ -71,3 +71,6 @@ snapshot:
   dir: "./.defra/snapshots" # Directory to store snapshot files
   blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
   interval_seconds: 30      # How often to check and create snapshots
+converter:
+  lowest_block_query_limit: 1  # Row window for lowest-block number query
+  #>1 skips purge residue (env: CONVERTER_LOWEST_BLOCK_QUERY_LIMIT)
