@@ -1187,7 +1187,7 @@ func TestStopIndexing_WithSnapshotter(t *testing.T) {
 		BlocksPerFile:   1000,
 		IntervalSeconds: 3600,
 	}
-	s := snapshot.New(snapCfg, nil)
+	s := snapshot.New(snapCfg, nil, nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -2024,7 +2024,7 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 		BlocksPerFile:   1000,
 		IntervalSeconds: 3600,
 	}
-	s := snapshot.New(snapCfg, nil)
+	s := snapshot.New(snapCfg, nil, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	err := s.Start(ctx)
@@ -3206,7 +3206,7 @@ func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 		Dir:             snapshotDir,
 		BlocksPerFile:   100,
 		IntervalSeconds: 3600,
-	}, td.Node)
+	}, td.Node, nil)
 
 	indexer := &ChainIndexer{
 		defraNode:   td.Node,
