@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,24 +51,24 @@ func TestApplyWithBackend_MonolithicSuccess(t *testing.T) {
 	backend := &mockBackend{}
 	ctx := context.Background()
 
-	err := applyWithBackend(ctx, backend, "")
+	err := applyWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, backend.callCount(), "monolithic success should make exactly 1 call")
-	assert.Contains(t, backend.getCalls()[0], constants.DefaultCollectionPrefix+"__Block")
+	assert.Contains(t, backend.getCalls()[0], evm.DefaultCollectionPrefix+"__Block")
 }
 
 func TestApplyWithBackend_MonolithicSuccess_CustomPrefix(t *testing.T) {
 	backend := &mockBackend{}
 	ctx := context.Background()
 
-	err := applyWithBackend(ctx, backend, "Arbitrum__Mainnet")
+	err := applyWithBackend(ctx, backend, evm.NewCollectionNames("Arbitrum__Mainnet"))
 	require.NoError(t, err)
 
 	calls := backend.getCalls()
 	require.Len(t, calls, 1)
 	assert.Contains(t, calls[0], "Arbitrum__Mainnet__Block")
-	assert.NotContains(t, calls[0], constants.DefaultCollectionPrefix)
+	assert.NotContains(t, calls[0], evm.DefaultCollectionPrefix)
 }
 
 func TestApplyWithBackend_MonolithicOtherError(t *testing.T) {
@@ -79,7 +79,7 @@ func TestApplyWithBackend_MonolithicOtherError(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	err := applyWithBackend(ctx, backend, "")
+	err := applyWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "connection refused")
 	assert.Contains(t, err.Error(), "failed to apply schema")
@@ -98,10 +98,10 @@ func TestApplyWithBackend_FallbackToPerFile(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	err := applyWithBackend(ctx, backend, "")
+	err := applyWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
-	files, err := schema.ListCollectionFiles()
+	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
 	callCount := backend.callCount()
@@ -127,7 +127,7 @@ func TestApplyWithBackend_FallbackPerFileSkipAlreadyExists(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	err := applyWithBackend(ctx, backend, "")
+	err := applyWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err, "should tolerate already-existing collections")
 }
 
@@ -147,7 +147,7 @@ func TestApplyWithBackend_FallbackPerFileHardError(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	err := applyWithBackend(ctx, backend, "")
+	err := applyWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "network error")
 	assert.Contains(t, err.Error(), "failed to apply collection schema")
@@ -157,10 +157,10 @@ func TestApplyPerFileWithBackend_AllSucceed(t *testing.T) {
 	backend := &mockBackend{}
 	ctx := context.Background()
 
-	err := applyPerFileWithBackend(ctx, backend, constants.DefaultCollectionPrefix)
+	err := applyPerFileWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
-	files, err := schema.ListCollectionFiles()
+	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
 	calls := backend.getCalls()
@@ -180,10 +180,10 @@ func TestApplyPerFileWithBackend_SkipAlreadyExists(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	err := applyPerFileWithBackend(ctx, backend, constants.DefaultCollectionPrefix)
+	err := applyPerFileWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err, "should skip already-existing collections and succeed")
 
-	files, _ := schema.ListCollectionFiles()
+	files, _ := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	assert.Equal(t, len(files), backend.callCount(),
 		"should attempt all files even when some already exist")
 }
@@ -201,7 +201,7 @@ func TestApplyPerFileWithBackend_HardErrorAborts(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	err := applyPerFileWithBackend(ctx, backend, constants.DefaultCollectionPrefix)
+	err := applyPerFileWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "network error")
 	assert.Contains(t, err.Error(), "failed to apply collection schema")
@@ -211,14 +211,14 @@ func TestApplyPerFileWithBackend_CustomPrefix(t *testing.T) {
 	backend := &mockBackend{}
 	ctx := context.Background()
 
-	err := applyPerFileWithBackend(ctx, backend, "Arbitrum__Mainnet")
+	err := applyPerFileWithBackend(ctx, backend, evm.NewCollectionNames("Arbitrum__Mainnet"))
 	require.NoError(t, err)
 
 	calls := backend.getCalls()
 	for _, call := range calls {
 		assert.Contains(t, call, "Arbitrum__Mainnet__",
 			"custom prefix should appear in SDL")
-		assert.NotContains(t, call, constants.DefaultCollectionPrefix,
+		assert.NotContains(t, call, evm.DefaultCollectionPrefix,
 			"default prefix should not appear with custom prefix")
 	}
 }
@@ -293,17 +293,17 @@ func TestHTTPBackend_ContextCancellation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestApplyWithBackend_EmptyPrefixResolvesToDefault(t *testing.T) {
+func TestApplyWithBackend_DefaultPrefix(t *testing.T) {
 	backend := &mockBackend{}
 	ctx := context.Background()
 
-	err := applyWithBackend(ctx, backend, "")
+	err := applyWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
 	calls := backend.getCalls()
 	require.NotEmpty(t, calls)
-	assert.Contains(t, calls[0], constants.DefaultCollectionPrefix+"__Block",
-		"empty prefix should resolve to default prefix in monolithic SDL")
+	assert.Contains(t, calls[0], evm.DefaultCollectionPrefix+"__Block",
+		"default prefix should appear in monolithic SDL")
 }
 
 func TestHTTPBackend_RequestBodyContainsSDL(t *testing.T) {
@@ -347,7 +347,7 @@ func TestApplyWithBackend_PreservesNonAlreadyExistsError(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	err := applyWithBackend(ctx, backend, "")
+	err := applyWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, originalErr, "original error should be wrapped")
 	assert.Contains(t, err.Error(), "failed to apply schema")

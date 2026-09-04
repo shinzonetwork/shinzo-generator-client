@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
@@ -21,7 +23,7 @@ const (
 func newHealthServerWithSchema(t *testing.T, sdl string) *HealthServer {
 	t.Helper()
 	hs := NewHealthServer(0, nil, "")
-	require.NoError(t, hs.EnableSchemaEndpoint(sdl, testNetwork, NoOpAuthenticator{}))
+	require.NoError(t, hs.EnableSchemaEndpoint(sdl, chains.NewStubCollections(testNetwork), NoOpAuthenticator{}))
 	return hs
 }
 
@@ -154,7 +156,7 @@ func TestCollectionsListHandler(t *testing.T) {
 				assert.Equal(t, testNetwork, resp.Network)
 				assert.NotEmpty(t, resp.Collections)
 
-				expectedEntries := schema.ListCollections(testNetwork)
+				expectedEntries := schema.ListCollections(evm.NewCollectionNames(testNetwork))
 				assert.Equal(t, len(expectedEntries), len(resp.Collections))
 				for i, entry := range resp.Collections {
 					assert.Equal(t, expectedEntries[i].Name, entry.Name)
@@ -170,7 +172,7 @@ func TestCollectionsListHandler(t *testing.T) {
 func TestSchemaEndpoint_AuthWiring(t *testing.T) {
 	t.Parallel()
 	hs := NewHealthServer(0, nil, "")
-	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, testNetwork, NewBearerAuthenticator([]string{"secret"})))
+	require.NoError(t, hs.EnableSchemaEndpoint(testSDL, chains.NewStubCollections(testNetwork), NewBearerAuthenticator([]string{"secret"})))
 
 	routes := []struct {
 		name string

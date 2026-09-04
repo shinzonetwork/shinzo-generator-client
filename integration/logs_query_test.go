@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 )
 
@@ -27,7 +28,7 @@ func TestGetAllTransactionLogs(t *testing.T) {
 	t.Parallel()
 	txHash := getArbitraryTransactionHash(t)
 	result := MakeQuery(t, logsQueryPath, "GetAllTransactionLogs", map[string]any{"txHash": txHash})
-	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
+	logList, ok := result["data"].(map[string]any)[evm.CollectionLog].([]any)
 	if !ok {
 		t.Errorf("No logs returned for txHash %v: %v", txHash, result)
 		return
@@ -60,7 +61,7 @@ func getArbitraryBlock(t *testing.T) map[string]any {
 		t.Fatalf("Invalid data format in GraphQL response: %v", result)
 	}
 
-	blocks, ok := data[constants.CollectionBlock].([]any)
+	blocks, ok := data[evm.CollectionBlock].([]any)
 	if !ok || len(blocks) == 0 {
 		t.Fatalf("No blocks returned")
 	}
@@ -81,7 +82,7 @@ func TestGetAllBlockLogs(t *testing.T) {
 		t.Fatalf("Block hash missing or empty in block: %v", block)
 	}
 	result := MakeQuery(t, logsQueryPath, "GetAllBlockLogs", map[string]any{constants.BlockHashKeyValue: blockHash})
-	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
+	logList, ok := result["data"].(map[string]any)[evm.CollectionLog].([]any)
 	if !ok {
 		t.Errorf("No logs returned for blockHash %v: %v", blockHash, result)
 		return
@@ -103,7 +104,7 @@ func TestGetAllLogsByTopic(t *testing.T) {
 	t.Parallel()
 	topic := getArbitraryTopic(t)
 	result := MakeQuery(t, logsQueryPath, "GetAllLogsByTopic", map[string]any{"topic": topic})
-	logList, ok := result["data"].(map[string]any)[constants.CollectionLog].([]any)
+	logList, ok := result["data"].(map[string]any)[evm.CollectionLog].([]any)
 	if !ok {
 		t.Errorf("No logs returned for topic %v: %v", topic, result)
 		return

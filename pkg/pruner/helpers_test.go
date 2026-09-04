@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -106,6 +107,12 @@ func (tc *testChain) GetCollections() []string {
 	return []string{testBlockColName, testTxColName}
 }
 
+// Collections returns a StubCollections with the "Test" prefix so the pruner
+// can resolve collection names via the chains.Collections interface.
+func (tc *testChain) Collections() chains.Collections {
+	return chains.NewStubCollections("Test")
+}
+
 func (tc *testChain) queryBlockNumber(ctx context.Context, query string) (int64, error) {
 	result := tc.node.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
@@ -157,10 +164,10 @@ func newTestChain(n *node.Node) *testChain {
 }
 
 // newTestPruner creates a Pruner wired to a testChain and overrides the
-// resolved block-collection name. testChain.GetCollections() returns
-// "TestBlock"/"TestTx" which don't match the "__Block"/"__BlockSignature"
-// suffixes resolveCollectionNames expects, so we set the field directly
-// (accessible because tests are in package pruner).
+// resolved block-collection name. testChain.Collections() returns
+// StubCollections("Test") whose block name is "Test__Block", but the test
+// schema uses "TestBlock" — so we override the field directly (accessible
+// because tests are in package pruner).
 // Returns the testChain as well for tests that need direct chain queries.
 func newTestPruner(cfg *config.PrunerConfig, n *node.Node) (*Pruner, *testChain) {
 	tc := newTestChain(n)

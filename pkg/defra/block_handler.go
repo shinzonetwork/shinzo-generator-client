@@ -12,6 +12,7 @@ import (
 	"time"
 
 	cid "github.com/ipfs/go-cid"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
@@ -68,14 +69,14 @@ type DocIDTrackerInterface interface {
 
 // BlockHandler manages the creation and storage of blocks, transactions, and logs in DefraDB.
 type BlockHandler struct {
-	db              blockDB                    // DB interface (from defraNode.DB).
-	maxDocsPerTxn   int                        // Threshold for single-txn vs batched block creation.
-	maxTxBatchSize  int                        // Per-collection batch size for transactions (0 = use maxDocsPerTxn).
-	maxLogBatchSize int                        // Per-collection batch size for logs (0 = use maxDocsPerTxn).
-	maxALEBatchSize int                        // Per-collection batch size for ALEs (0 = use maxDocsPerTxn).
-	docIDTracker    DocIDTrackerInterface      // Optional tracker for docIDs.
-	collections     *constants.CollectionNames // Chain-specific collection names.
-	nodeIdentity    identity.Identity          // Node identity for signing.
+	db              blockDB               // DB interface (from defraNode.DB).
+	maxDocsPerTxn   int                   // Threshold for single-txn vs batched block creation.
+	maxTxBatchSize  int                   // Per-collection batch size for transactions (0 = use maxDocsPerTxn).
+	maxLogBatchSize int                   // Per-collection batch size for logs (0 = use maxDocsPerTxn).
+	maxALEBatchSize int                   // Per-collection batch size for ALEs (0 = use maxDocsPerTxn).
+	docIDTracker    DocIDTrackerInterface // Optional tracker for docIDs.
+	collections     chains.Collections    // Chain-specific collection names.
+	nodeIdentity    identity.Identity     // Node identity for signing.
 
 	// Injectable functions for testability (set to defaults in NewBlockHandler).
 	signBatchFn      func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error)
@@ -101,7 +102,7 @@ type aleEntry struct {
 
 // NewBlockHandler creates a BlockHandler that uses direct DB calls.
 // maxDocsPerTxn is the threshold for single-txn vs batched block creation.
-func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *constants.CollectionNames) (*BlockHandler, error) {
+func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections chains.Collections) (*BlockHandler, error) {
 	if defraNode == nil {
 		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
 			"defraNode is nil", "", nil)
@@ -110,7 +111,8 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *const
 		maxDocsPerTxn = 1000 //nolint:mnd
 	}
 	if collections == nil {
-		collections = constants.NewCollectionNames(constants.DefaultCollectionPrefix)
+		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
+			"collections is nil", "", nil)
 	}
 	h := &BlockHandler{
 		db:             defraNode.DB,
@@ -124,6 +126,14 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, collections *const
 	h.collectDocCIDsFn = h.defaultCollectDocCIDs
 	h.blockExistsFn = h.defaultBlockExists
 	return h, nil
+}
+
+func extractCollection(collections chains.Collections, role string) string {
+	name, err := collections.GetCollection(role)
+	if err != nil {
+		panic(fmt.Sprintf("programmer error: %v", err))
+	}
+	return name
 }
 
 // SetBatchSizes sets per-collection batch sizes for transactions, logs, and ALEs.
@@ -156,7 +166,8 @@ func (h *BlockHandler) aleBatchSize() int {
 }
 
 func (h *BlockHandler) defaultBlockExists(ctx context.Context, blockNumber int64) (bool, error) {
-	query := `query { ` + h.collections.Block + `(filter: {number: {_eq: ` + strconv.FormatInt(blockNumber, 10) + `}}) { _docID } }`
+	blockCol := extractCollection(h.collections, "block")
+	query := `query { ` + blockCol + `(filter: {number: {_eq: ` + strconv.FormatInt(blockNumber, 10) + `}}) { _docID } }`
 	result := h.db.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
 		return false, fmt.Errorf("block exists check failed: %w", result.GQL.Errors[0])
@@ -165,7 +176,7 @@ func (h *BlockHandler) defaultBlockExists(ctx context.Context, blockNumber int64
 	if !ok {
 		return false, nil
 	}
-	switch results := data[h.collections.Block].(type) {
+	switch results := data[blockCol].(type) {
 	case []any:
 		return len(results) > 0, nil
 	case []map[string]any:
@@ -293,10 +304,10 @@ func (h *BlockHandler) defaultCollectDocCIDs(ctx context.Context, docIDs []strin
 	idsJSON := buildDocIDJSONArray(docIDs)
 
 	colNames := []string{
-		h.collections.Block,
-		h.collections.Transaction,
-		h.collections.Log,
-		h.collections.AccessListEntry,
+		extractCollection(h.collections, "block"),
+		extractCollection(h.collections, "transaction"),
+		extractCollection(h.collections, "log"),
+		extractCollection(h.collections, "accessListEntry"),
 	}
 
 	var allCIDs []cid.Cid
@@ -432,23 +443,23 @@ type singleTxnCollections struct {
 
 // getSingleTxnCollections fetches all required collections within a transaction.
 func (h *BlockHandler) getSingleTxnCollections(ctx context.Context, txn client.Txn) (*singleTxnCollections, error) {
-	colBlock, err := txn.GetCollectionByName(ctx, h.collections.Block)
+	colBlock, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "block"))
 	if err != nil {
 		return nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get block collection", err)
 	}
-	colTx, err := txn.GetCollectionByName(ctx, h.collections.Transaction)
+	colTx, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "transaction"))
 	if err != nil {
 		return nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get tx collection", err)
 	}
-	colLog, err := txn.GetCollectionByName(ctx, h.collections.Log)
+	colLog, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "log"))
 	if err != nil {
 		return nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get log collection", err)
 	}
-	colALE, err := txn.GetCollectionByName(ctx, h.collections.AccessListEntry)
+	colALE, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "accessListEntry"))
 	if err != nil {
 		return nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get ALE collection", err)
 	}
-	colBlockSig, err := txn.GetCollectionByName(ctx, h.collections.BlockSignature)
+	colBlockSig, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "blockSignature"))
 	if err != nil {
 		return nil, errors.NewQueryFailed("defra", "createBlockSingleTransaction", "failed to get block signature collection", err)
 	}
@@ -791,25 +802,25 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 func (h *BlockHandler) collectExistingBlockDocIDs(ctx context.Context, blockNumber int64) ([]string, error) {
 	var allDocIDs []string
 
-	blockDocIDs, err := h.queryCollectionDocIDs(ctx, h.collections.Block, constants.NumberFieldValue, blockNumber, blockNumber)
+	blockDocIDs, err := h.queryCollectionDocIDs(ctx, extractCollection(h.collections, "block"), constants.NumberFieldValue, blockNumber, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("query block docIDs: %w", err)
 	}
 	allDocIDs = append(allDocIDs, blockDocIDs...)
 
-	txDocIDs, err := h.queryCollectionDocIDs(ctx, h.collections.Transaction, constants.BlockNumberKeyValue, blockNumber, blockNumber)
+	txDocIDs, err := h.queryCollectionDocIDs(ctx, extractCollection(h.collections, "transaction"), constants.BlockNumberKeyValue, blockNumber, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("query tx docIDs: %w", err)
 	}
 	allDocIDs = append(allDocIDs, txDocIDs...)
 
-	logDocIDs, err := h.queryCollectionDocIDs(ctx, h.collections.Log, constants.BlockNumberKeyValue, blockNumber, blockNumber)
+	logDocIDs, err := h.queryCollectionDocIDs(ctx, extractCollection(h.collections, "log"), constants.BlockNumberKeyValue, blockNumber, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("query log docIDs: %w", err)
 	}
 	allDocIDs = append(allDocIDs, logDocIDs...)
 
-	aleDocIDs, err := h.queryCollectionDocIDs(ctx, h.collections.AccessListEntry, constants.BlockNumberKeyValue, blockNumber, blockNumber)
+	aleDocIDs, err := h.queryCollectionDocIDs(ctx, extractCollection(h.collections, "accessListEntry"), constants.BlockNumberKeyValue, blockNumber, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("query ale docIDs: %w", err)
 	}
@@ -832,11 +843,11 @@ func (h *BlockHandler) GetDocIDsByBlockRange(ctx context.Context, from, to int64
 		name  string
 		field string
 	}{
-		{h.collections.Block, constants.NumberFieldValue},
-		{h.collections.Transaction, constants.BlockNumberKeyValue},
-		{h.collections.Log, constants.BlockNumberKeyValue},
-		{h.collections.AccessListEntry, constants.BlockNumberKeyValue},
-		{h.collections.BlockSignature, constants.BlockNumberKeyValue},
+		{extractCollection(h.collections, "block"), constants.NumberFieldValue},
+		{extractCollection(h.collections, "transaction"), constants.BlockNumberKeyValue},
+		{extractCollection(h.collections, "log"), constants.BlockNumberKeyValue},
+		{extractCollection(h.collections, "accessListEntry"), constants.BlockNumberKeyValue},
+		{extractCollection(h.collections, "blockSignature"), constants.BlockNumberKeyValue},
 	}
 
 	result := make(map[string][]string)
@@ -981,7 +992,7 @@ func (h *BlockHandler) signBlockOverCIDs(ctx context.Context, blockNumber int64,
 		return "", fmt.Errorf("failed to create signing transaction: %w", err) //nolint: err113
 	}
 
-	colBlockSig, err := sigTxn.GetCollectionByName(ctx, h.collections.BlockSignature)
+	colBlockSig, err := sigTxn.GetCollectionByName(ctx, extractCollection(h.collections, "blockSignature"))
 	if err != nil {
 		sigTxn.Discard()
 		return "", fmt.Errorf("failed to get block signature collection: %w", err) //nolint: err113
@@ -1121,7 +1132,7 @@ func (h *BlockHandler) createBlockDocument(ctx context.Context, block *types.Blo
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to create transaction", err)
 	}
 
-	colBlock, err := txn.GetCollectionByName(ctx, h.collections.Block)
+	colBlock, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "block"))
 	if err != nil {
 		txn.Discard()
 		return "", errors.NewQueryFailed("defra", "createBlockBatched", "failed to get block collection", err)
@@ -1225,7 +1236,7 @@ func (h *BlockHandler) createTransactionBatch(ctx context.Context, blockInt int6
 	if err != nil {
 		return nil, fmt.Errorf("create txn for tx batch: %w", err)
 	}
-	colTx, err := txn.GetCollectionByName(ctx, h.collections.Transaction)
+	colTx, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "transaction"))
 	if err != nil {
 		txn.Discard()
 		return nil, fmt.Errorf("get tx collection: %w", err)
@@ -1323,7 +1334,7 @@ func (h *BlockHandler) createLogBatch(ctx context.Context, blockInt int64, block
 	if err != nil {
 		return nil, fmt.Errorf("create txn for log batch: %w", err)
 	}
-	colLog, err := txn.GetCollectionByName(ctx, h.collections.Log)
+	colLog, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "log"))
 	if err != nil {
 		txn.Discard()
 		return nil, fmt.Errorf("get log collection: %w", err)
@@ -1412,7 +1423,7 @@ func (h *BlockHandler) createALEBatch(ctx context.Context, blockInt int64, batch
 	if err != nil {
 		return nil, fmt.Errorf("create txn for ALE batch: %w", err)
 	}
-	colALE, err := txn.GetCollectionByName(ctx, h.collections.AccessListEntry)
+	colALE, err := txn.GetCollectionByName(ctx, extractCollection(h.collections, "accessListEntry"))
 	if err != nil {
 		txn.Discard()
 		return nil, fmt.Errorf("get ALE collection: %w", err)
@@ -1469,7 +1480,8 @@ func (h *BlockHandler) GetLowestBlockNumber(ctx context.Context) (int64, error) 
 // queryBlockNumber runs the single-row block-number query with the given
 // ordering ("DESC" or "ASC") and tags all errors with opName.
 func (h *BlockHandler) queryBlockNumber(ctx context.Context, order, opName string) (int64, error) {
-	query := `query {` + h.collections.Block + ` (order: {number: ` + order + `}, limit: 1) { number }}`
+	blockCol := extractCollection(h.collections, "block")
+	query := `query {` + blockCol + ` (order: {number: ` + order + `}, limit: 1) { number }}`
 
 	result := h.db.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
@@ -1478,14 +1490,14 @@ func (h *BlockHandler) queryBlockNumber(ctx context.Context, order, opName strin
 
 	data, ok := result.GQL.Data.(map[string]any)
 	if !ok {
-		return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "no data")
+		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no data")
 	}
 
 	var block map[string]any
-	switch arr := data[h.collections.Block].(type) {
+	switch arr := data[blockCol].(type) {
 	case []any:
 		if len(arr) == 0 {
-			return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "no blocks")
+			return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
 		}
 		var ok bool
 		block, ok = arr[0].(map[string]any)
@@ -1494,11 +1506,11 @@ func (h *BlockHandler) queryBlockNumber(ctx context.Context, order, opName strin
 		}
 	case []map[string]any:
 		if len(arr) == 0 {
-			return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "no blocks")
+			return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
 		}
 		block = arr[0]
 	default:
-		return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "no blocks")
+		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
 	}
 
 	switch v := block[constants.NumberFieldValue].(type) {

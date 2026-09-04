@@ -3,6 +3,8 @@ package testutils
 import (
 	"context"
 	"sync"
+
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
 // BlockRange records a (from, to) block range passed to GetDocIDsByBlockRange.
@@ -32,6 +34,7 @@ type MockChain struct {
 	GetDocIDsByBlockRangeFn       func(ctx context.Context, from, to int64) (map[string][]string, error)
 	GetSchemaFn                   func() (string, error)
 	GetCollectionsFn              func() []string
+	CollectionsFn                 func() chains.Collections
 
 	// Call recording.
 	FetchAndStoreBlockCalls          []int64
@@ -41,6 +44,7 @@ type MockChain struct {
 	GetDocIDsByBlockRangeCalls       []BlockRange
 	GetSchemaCalls                   int
 	GetCollectionsCalls              int
+	CollectionsCalls                 int
 }
 
 // FetchAndStoreBlock records the height and delegates to FetchAndStoreBlockFn.
@@ -118,4 +122,16 @@ func (m *MockChain) GetCollections() []string {
 		return m.GetCollectionsFn()
 	}
 	return nil
+}
+
+// Collections records the call and delegates to CollectionsFn.
+// Returns chains.NewStubCollections("Ethereum__Mainnet") by default.
+func (m *MockChain) Collections() chains.Collections {
+	m.mu.Lock()
+	m.CollectionsCalls++
+	m.mu.Unlock()
+	if m.CollectionsFn != nil {
+		return m.CollectionsFn()
+	}
+	return chains.NewStubCollections("Ethereum__Mainnet")
 }

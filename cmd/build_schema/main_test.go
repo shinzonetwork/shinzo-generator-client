@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +17,7 @@ func TestRun_DefaultSchema(t *testing.T) {
 	require.NoError(t, run([]string{"build_schema"}, &buf))
 	sdl := buf.String()
 	assert.NotEmpty(t, sdl)
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		assert.Contains(t, sdl, typeName)
 	}
 }
@@ -28,7 +28,7 @@ func TestRun_WithPrefix(t *testing.T) {
 	require.NoError(t, run([]string{"build_schema", "--prefix", "Arbitrum__Mainnet"}, &buf))
 	sdl := buf.String()
 	assert.NotEmpty(t, sdl)
-	assert.NotContains(t, sdl, constants.DefaultCollectionPrefix)
+	assert.NotContains(t, sdl, evm.DefaultCollectionPrefix)
 	assert.Contains(t, sdl, "Arbitrum__Mainnet__Block")
 }
 
@@ -38,7 +38,7 @@ func TestRun_PrefixReplacesAllCollectionTypes(t *testing.T) {
 	prefix := "Optimism__Mainnet"
 	require.NoError(t, run([]string{"build_schema", "--prefix", prefix}, &buf))
 	sdl := buf.String()
-	collections := constants.NewCollectionNames(prefix)
+	collections := evm.NewCollectionNames(prefix)
 	for _, name := range collections.AllCollections() {
 		assert.Contains(t, sdl, name)
 	}
@@ -54,7 +54,7 @@ func TestRun_OutputMatchesGetSchema(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	require.NoError(t, run([]string{"build_schema"}, &buf))
-	expected, err := schema.GetSchema()
+	expected, err := schema.LoadSchemaSDL(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 	assert.Equal(t, expected, buf.String())
 }
@@ -64,7 +64,7 @@ func TestRun_OutputWithPrefixMatchesGetSchemaForChain(t *testing.T) {
 	prefix := "Arbitrum__Mainnet"
 	var buf bytes.Buffer
 	require.NoError(t, run([]string{"build_schema", "--prefix", prefix}, &buf))
-	expected, err := schema.GetSchemaForChain(prefix)
+	expected, err := schema.GetSchemaForChain(evm.NewCollectionNames(prefix))
 	require.NoError(t, err)
 	assert.Equal(t, expected, buf.String())
 }
@@ -101,7 +101,7 @@ func TestRun_ListFiles(t *testing.T) {
 	output := strings.TrimSpace(buf.String())
 	assert.NotEmpty(t, output)
 	lines := strings.Split(output, "\n")
-	expected, err := schema.ListCollectionFiles()
+	expected, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 	assert.Equal(t, expected, lines)
 }

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
@@ -26,15 +27,15 @@ type collectionsResponse struct {
 //
 // It returns an error if the per-collection SDL cache cannot be precomputed, so
 // startup fails fast instead of serving a degraded set of collections.
-func (hs *HealthServer) EnableSchemaEndpoint(sdl string, network string, auth Authenticator) error {
-	collectionH, err := collectionHandler(network)
+func (hs *HealthServer) EnableSchemaEndpoint(sdl string, c chains.Collections, auth Authenticator) error {
+	collectionH, err := collectionHandler(c)
 	if err != nil {
-		return fmt.Errorf("precompute collection SDLs for network %s: %w", network, err)
+		return fmt.Errorf("precompute collection SDLs for network %s: %w", c.Prefix(), err)
 	}
-	handler := newSchemaHandler(sdl, network)
+	handler := newSchemaHandler(sdl, c.Prefix())
 	hs.mux.HandleFunc("GET /api/v1/schema", authMiddleware(auth, handler, slog.Default()))
 	hs.mux.HandleFunc("GET /api/v1/schema/{collection}", authMiddleware(auth, collectionH, slog.Default()))
-	hs.mux.HandleFunc("GET /api/v1/schema/collections", authMiddleware(auth, collectionsListHandler(network), slog.Default()))
+	hs.mux.HandleFunc("GET /api/v1/schema/collections", authMiddleware(auth, collectionsListHandler(c), slog.Default()))
 	return nil
 }
 
@@ -53,7 +54,7 @@ func newSchemaHandler(sdl string, network string) http.HandlerFunc {
 
 // collectionsListHandler returns an http.HandlerFunc that serves the list of collections as JSON.
 // HEAD requests receive headers but no body.
-func collectionsListHandler(prefix string) http.HandlerFunc {
+func collectionsListHandler(c chains.Collections) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", constants.ContentTypeJSON)
 		w.Header().Set("Cache-Control", constants.CacheControlSchema)
@@ -61,8 +62,8 @@ func collectionsListHandler(prefix string) http.HandlerFunc {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(collectionsResponse{
-			Network:     prefix,
-			Collections: schema.ListCollections(prefix),
+			Network:     c.Prefix(),
+			Collections: schema.ListCollections(c),
 		})
 	}
 }
@@ -74,11 +75,12 @@ func collectionsListHandler(prefix string) http.HandlerFunc {
 //
 // It returns an error if the precomputation of collection SDLs fails, so the
 // caller can fail fast at registration rather than serving a degraded cache.
-func collectionHandler(prefix string) (http.HandlerFunc, error) {
-	sdlCache, err := schema.PrecomputeCollectionSDLs(prefix)
+func collectionHandler(c chains.Collections) (http.HandlerFunc, error) {
+	sdlCache, err := schema.PrecomputeCollectionSDLs(c)
 	if err != nil {
 		return nil, fmt.Errorf("precompute collection SDLs: %w", err)
 	}
+	prefix := c.Prefix()
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("collection")
 		sdl, ok := sdlCache[name]

@@ -74,12 +74,15 @@ type lifecycleAdapter interface {
 	// SetDocIDTracker wires the pruner's DocIDTracker into the adapter's
 	// blockHandler.
 	SetDocIDTracker(tracker defra.DocIDTrackerInterface)
+
+	// Collections returns the Collections interface for the configured
+	// chain, providing access to collection names, prefix, and schema metadata.
+	Collections() chains.Collections
 }
 
 // ChainIndexer is the main indexer that processes blockchain blocks.
 type ChainIndexer struct {
 	cfg                       *config.Config
-	collections               *constants.CollectionNames
 	adapter                   lifecycleAdapter // TODO: receive via adapterFactory field instead.
 	shouldIndex               bool
 	isStarted                 bool
@@ -126,28 +129,10 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	}
 	return &ChainIndexer{
 		cfg:                       cfg,
-		collections:               constants.NewCollectionNames(chainPrefixFromConfig(cfg)),
 		shouldIndex:               false,
 		isStarted:                 false,
 		hasIndexedAtLeastOneBlock: false,
 	}, nil
-}
-
-// chainPrefixFromConfig returns the collection name prefix for the configured chains.
-// Falls back to the default Ethereum mainnet prefix for backward compatibility.
-func chainPrefixFromConfig(cfg *config.Config) string {
-	if cfg == nil {
-		return constants.DefaultCollectionPrefix
-	}
-	name := cfg.Chain.Name
-	network := cfg.Chain.Network
-	if name == "" {
-		name = "Ethereum"
-	}
-	if network == "" {
-		network = "Mainnet"
-	}
-	return fmt.Sprintf("%s__%s", name, network)
 }
 
 // StartIndexing initializes dependencies and starts concurrent block indexing.
@@ -166,13 +151,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	if logger.Sugar == nil {
 		logger.Init(cfg.Logger.Development)
 	}
-
-	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, chainPrefixFromConfig(cfg))
-
-	// TODO: replace chains.NewAdapter(cfg) with i.adapterFactory(cfg)
-	// once the adapterFactory field is added (when a second chain package exists).
-	// The factory itself moves to per-chain packages (pkg/chain/evm, pkg/chain/cosmos);
-	// pkg/chain keeps only the Adapter interface. The binary determines the chains.
+	// TODO: Add logger message here if adapter creation takes too long
 	adapter, err := chains.NewAdapter(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create chain adapter: %w", err)
@@ -182,6 +161,8 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 		return fmt.Errorf("chain adapter %T does not expose lifecycle wiring required by the indexer", adapter)
 	}
 	i.adapter = lifecycleAdpl
+
+	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, i.adapter.Collections().Prefix())
 
 	ctx, err = i.initDefra(ctx, cfg, defraStarted)
 	if err != nil {
@@ -200,7 +181,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) error {
 	i.shouldIndex = true
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
-	if err := i.initServices(ctx, cfg, adapter); err != nil {
+	if err := i.initServices(ctx, cfg); err != nil {
 		return err
 	}
 
@@ -224,7 +205,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		}
 
 		defraNode, networkHandler, err := defradb.StartDefraInstance(cfg,
-			defradb.NewSchemaApplierFromDir(chainPrefixFromConfig(cfg)), nil, replicationFilter, i.adapter.GetCollections()...)
+			defradb.NewSchemaApplierFromDir(i.adapter.Collections()), nil, replicationFilter, i.adapter.GetCollections()...)
 		if err != nil {
 			return ctx, fmt.Errorf("failed to start DefraDB instance: %w", err)
 		}
@@ -247,7 +228,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		if err := defra.WaitForDefraDB(cfg.DefraDB.URL); err != nil {
 			return ctx, err
 		}
-		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, chainPrefixFromConfig(cfg)); err != nil {
+		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, i.adapter.Collections()); err != nil {
 			return ctx, fmt.Errorf("failed to apply schema to external DefraDB: %w", err)
 		}
 	}
@@ -329,7 +310,7 @@ func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
 }
 
 // initServices starts the health server, pruner, and snapshotter if configured.
-func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, adapter chains.Adapter) error {
+func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) error {
 	if cfg.Indexer.HealthServerPort > 0 {
 		if err := i.initHealthServer(cfg); err != nil {
 			return err
@@ -337,7 +318,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, ada
 	}
 
 	if cfg.Pruner.Enabled && i.defraNode != nil {
-		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, adapter)
+		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, i.adapter)
 		pruneQueue := pruner.NewIndexerQueue()
 		// Binds the queue to its file before anything tracks into it. Save is a no-op until this
 		// runs, so without it the queue is never written and never survives a restart.
@@ -351,7 +332,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, ada
 		i.pruner.SetQueue(pruneQueue)
 		i.adapter.SetDocIDTracker(&indexerQueueTracker{
 			queue:       pruneQueue,
-			collections: i.collections,
+			collections: i.adapter.Collections(),
 		})
 		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 		if err := i.pruner.Start(ctx); err != nil {
@@ -360,7 +341,7 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, ada
 	}
 
 	if cfg.Snapshot.Enabled && i.defraNode != nil {
-		i.snapshotter = snapshot.New(&cfg.Snapshot, i.defraNode, adapter)
+		i.snapshotter = snapshot.New(&cfg.Snapshot, i.defraNode, i.adapter)
 		if err := i.snapshotter.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start snapshotter: %v", err)
 		}
@@ -392,12 +373,12 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	prefix := chainPrefixFromConfig(cfg)
+	prefix := i.adapter.Collections().Prefix()
 	sdl, err := i.adapter.GetSchema()
 	if err != nil {
 		return fmt.Errorf("load schema for chain %s: %w", prefix, err)
 	}
-	if err := i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth); err != nil {
+	if err := i.healthServer.EnableSchemaEndpoint(sdl, i.adapter.Collections(), auth); err != nil {
 		return fmt.Errorf("enable schema endpoint: %w", err)
 	}
 	go func() {
@@ -743,14 +724,22 @@ func newAuthenticator(mode string, keys []string) (server.Authenticator, error) 
 // indexerQueueTracker adapts pruner's IndexerQueue to the local DocIDTrackerInterface.
 type indexerQueueTracker struct {
 	queue       *pruner.IndexerQueue
-	collections *constants.CollectionNames
+	collections chains.Collections
+}
+
+func extractCollection(c chains.Collections, role string) string {
+	name, err := c.GetCollection(role)
+	if err != nil {
+		panic(fmt.Sprintf("programmer error: %v", err))
+	}
+	return name
 }
 
 func (t *indexerQueueTracker) TrackBlock(_ context.Context, blockNumber int64, result *defra.BlockCreationResult) error {
 	otherDocIDs := map[string][]string{
-		t.collections.Transaction:     result.TransactionIDs,
-		t.collections.Log:             result.LogIDs,
-		t.collections.AccessListEntry: result.AccessListIDs,
+		extractCollection(t.collections, "transaction"):     result.TransactionIDs,
+		extractCollection(t.collections, "log"):             result.LogIDs,
+		extractCollection(t.collections, "accessListEntry"): result.AccessListIDs,
 	}
 	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, otherDocIDs, result.BlockSignatureID)
 }

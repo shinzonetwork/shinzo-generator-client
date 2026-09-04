@@ -1,15 +1,16 @@
-package types
+package types_test
 
 import (
 	"encoding/json"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 func TestTransactionReceiptJSONMarshaling(t *testing.T) {
 	t.Parallel()
-	receipt := TransactionReceipt{
+	receipt := types.TransactionReceipt{
 		TransactionHash:   "0x1234567890abcdef",
 		TransactionIndex:  "0",
 		BlockHash:         "0xabcdef1234567890",
@@ -20,7 +21,7 @@ func TestTransactionReceiptJSONMarshaling(t *testing.T) {
 		GasUsed:           "21000",
 		ContractAddress:   "0xcontract",
 		Status:            "0x1",
-		Logs:              []Log{},
+		Logs:              []types.Log{},
 	}
 
 	// Test marshaling
@@ -30,7 +31,7 @@ func TestTransactionReceiptJSONMarshaling(t *testing.T) {
 	}
 
 	// Test unmarshaling
-	var unmarshaled TransactionReceipt
+	var unmarshaled types.TransactionReceipt
 	err = json.Unmarshal(data, &unmarshaled)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal TransactionReceipt: %v", err)
@@ -47,7 +48,7 @@ func TestTransactionReceiptJSONMarshaling(t *testing.T) {
 
 func TestBlockJSONMarshaling(t *testing.T) {
 	t.Parallel()
-	block := Block{
+	block := types.Block{
 		Hash:             "0x1234567890abcdef",
 		Number:           "12345",
 		Timestamp:        "1600000000",
@@ -63,7 +64,7 @@ func TestBlockJSONMarshaling(t *testing.T) {
 		TransactionsRoot: "0xtxroot",
 		ReceiptsRoot:     "0xreceiptsroot",
 		ExtraData:        "extra",
-		Transactions:     []Transaction{},
+		Transactions:     []types.Transaction{},
 	}
 
 	// Test marshaling
@@ -73,7 +74,7 @@ func TestBlockJSONMarshaling(t *testing.T) {
 	}
 
 	// Test unmarshaling
-	var unmarshaled Block
+	var unmarshaled types.Block
 	err = json.Unmarshal(data, &unmarshaled)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal Block: %v", err)
@@ -90,7 +91,7 @@ func TestBlockJSONMarshaling(t *testing.T) {
 
 func TestTransactionJSONMarshaling(t *testing.T) {
 	t.Parallel()
-	tx := Transaction{
+	tx := types.Transaction{
 		Hash:             "0xtxhash",
 		BlockHash:        "0xblockhash",
 		BlockNumber:      "12345",
@@ -103,7 +104,7 @@ func TestTransactionJSONMarshaling(t *testing.T) {
 		Nonce:            "1",
 		TransactionIndex: 0,
 		Status:           true,
-		Logs:             []Log{},
+		Logs:             []types.Log{},
 	}
 
 	// Test marshaling
@@ -113,7 +114,7 @@ func TestTransactionJSONMarshaling(t *testing.T) {
 	}
 
 	// Test unmarshaling
-	var unmarshaled Transaction
+	var unmarshaled types.Transaction
 	err = json.Unmarshal(data, &unmarshaled)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal Transaction: %v", err)
@@ -130,7 +131,7 @@ func TestTransactionJSONMarshaling(t *testing.T) {
 
 func TestLogJSONMarshaling(t *testing.T) {
 	t.Parallel()
-	log := Log{
+	log := types.Log{
 		Address:          "0xcontract",
 		Topics:           []string{"0xtopic1", "0xtopic2"},
 		Data:             "0xlogdata",
@@ -149,7 +150,7 @@ func TestLogJSONMarshaling(t *testing.T) {
 	}
 
 	// Test unmarshaling
-	var unmarshaled Log
+	var unmarshaled types.Log
 	err = json.Unmarshal(data, &unmarshaled)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal Log: %v", err)
@@ -169,7 +170,7 @@ func TestLogJSONMarshaling(t *testing.T) {
 
 func TestRequestJSONMarshaling(t *testing.T) {
 	t.Parallel()
-	request := Request{
+	request := types.Request{
 		Type:  "query",
 		Query: "{ Block { number } }",
 	}
@@ -181,7 +182,7 @@ func TestRequestJSONMarshaling(t *testing.T) {
 	}
 
 	// Test unmarshaling
-	var unmarshaled Request
+	var unmarshaled types.Request
 	err = json.Unmarshal(data, &unmarshaled)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal Request: %v", err)
@@ -198,11 +199,11 @@ func TestRequestJSONMarshaling(t *testing.T) {
 
 func TestResponseJSONMarshaling(t *testing.T) {
 	t.Parallel()
-	response := Response{
+	response := types.Response{
 		Data: map[string][]struct {
 			DocID string `json:"_docID"`
 		}{
-			constants.CollectionBlock: {
+			evm.CollectionBlock: {
 				{DocID: "doc-id-1"},
 				{DocID: "doc-id-2"},
 			},
@@ -216,25 +217,25 @@ func TestResponseJSONMarshaling(t *testing.T) {
 	}
 
 	// Test unmarshaling
-	var unmarshaled Response
+	var unmarshaled types.Response
 	err = json.Unmarshal(data, &unmarshaled)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal Response: %v", err)
 	}
 
 	// Verify data integrity
-	if len(unmarshaled.Data[constants.CollectionBlock]) != 2 {
-		t.Errorf("Expected 2 Block entries, got %d", len(unmarshaled.Data[constants.CollectionBlock]))
+	if len(unmarshaled.Data[evm.CollectionBlock]) != 2 {
+		t.Errorf("Expected 2 Block entries, got %d", len(unmarshaled.Data[evm.CollectionBlock]))
 	}
-	if unmarshaled.Data[constants.CollectionBlock][0].DocID != "doc-id-1" {
-		t.Errorf("DocID mismatch: got %s, want %s", unmarshaled.Data[constants.CollectionBlock][0].DocID, "doc-id-1")
+	if unmarshaled.Data[evm.CollectionBlock][0].DocID != "doc-id-1" {
+		t.Errorf("DocID mismatch: got %s, want %s", unmarshaled.Data[evm.CollectionBlock][0].DocID, "doc-id-1")
 	}
 }
 
 func TestUpdateStructsJSONMarshaling(t *testing.T) {
 	t.Parallel()
 	// Test UpdateTransactionStruct
-	updateTx := UpdateTransactionStruct{
+	updateTx := types.UpdateTransactionStruct{
 		BlockId: "block-id-123",
 		TxHash:  "0xtxhash123",
 	}
@@ -244,7 +245,7 @@ func TestUpdateStructsJSONMarshaling(t *testing.T) {
 		t.Fatalf("Failed to marshal UpdateTransactionStruct: %v", err)
 	}
 
-	var unmarshaledTx UpdateTransactionStruct
+	var unmarshaledTx types.UpdateTransactionStruct
 	err = json.Unmarshal(data, &unmarshaledTx)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal UpdateTransactionStruct: %v", err)
@@ -255,7 +256,7 @@ func TestUpdateStructsJSONMarshaling(t *testing.T) {
 	}
 
 	// Test UpdateLogStruct
-	updateLog := UpdateLogStruct{
+	updateLog := types.UpdateLogStruct{
 		BlockId:  "block-id-123",
 		TxId:     "tx-id-456",
 		TxHash:   "0xtxhash123",
@@ -267,7 +268,7 @@ func TestUpdateStructsJSONMarshaling(t *testing.T) {
 		t.Fatalf("Failed to marshal UpdateLogStruct: %v", err)
 	}
 
-	var unmarshaledLog UpdateLogStruct
+	var unmarshaledLog types.UpdateLogStruct
 	err = json.Unmarshal(data, &unmarshaledLog)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal UpdateLogStruct: %v", err)

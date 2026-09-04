@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
 var (
-	// ErrEmptyPrefix is returned when a chain prefix is required but not provided.
+	// ErrEmptyPrefix is retained for backward compatibility; it is no longer
+	// returned by any function in this package.
 	ErrEmptyPrefix = errors.New("prefix must not be empty")
 
 	// ErrUnknownCollectionType is returned when SchemaApplyOrder contains a type
@@ -22,6 +23,10 @@ var (
 	ErrEmptyCollectionFile = errors.New("collection file is empty")
 )
 
+// embeddedPrefix is the literal prefix baked into the embedded .graphql files.
+// The loader swaps this with collections.Prefix() at load time.
+const embeddedPrefix = "Ethereum__Mainnet"
+
 //go:embed collections/*.graphql
 var collectionFS embed.FS
 
@@ -31,13 +36,13 @@ type CollectionEntry struct {
 	TypeName string `json:"type_name"`
 }
 
-// ListCollectionFiles returns ordered .graphql filenames from
-// constants.SchemaApplyOrder, suitable for per-file AddSchema calls.
-func ListCollectionFiles() ([]string, error) {
-	order := constants.SchemaApplyOrder()
+// ListCollectionFiles returns ordered .graphql filenames from the given
+// chain's SchemaApplyOrder, suitable for per-file AddSchema calls.
+func ListCollectionFiles(collections chains.Collections) ([]string, error) {
+	order := collections.SchemaApplyOrder()
 	files := make([]string, len(order))
 	for i, typeName := range order {
-		f := constants.CollectionFileForType(typeName)
+		f := collections.CollectionFileForType(typeName)
 		if f == "" {
 			return nil, fmt.Errorf("%w: %s", ErrUnknownCollectionType, typeName)
 		}
@@ -61,34 +66,26 @@ func LoadCollectionSDL(filename string) (string, error) {
 }
 
 // LoadCollectionSDLForChain reads a single collection .graphql file and
-// replaces the default prefix with the provided one.
-func LoadCollectionSDLForChain(filename, prefix string) (string, error) {
-	if prefix == "" {
-		return "", ErrEmptyPrefix
-	}
+// replaces the embedded prefix with the chain's prefix.
+func LoadCollectionSDLForChain(collections chains.Collections, filename string) (string, error) {
 	raw, err := LoadCollectionSDL(filename)
 	if err != nil {
 		return "", err
 	}
-	return strings.ReplaceAll(raw, constants.DefaultCollectionPrefix, prefix), nil
+	return strings.ReplaceAll(raw, embeddedPrefix, collections.Prefix()), nil
 }
 
 // ListCollections returns all collections in schema dependency order,
-// using the provided prefix to build fully-qualified type names.
-func ListCollections(prefix string) []CollectionEntry {
-	order := constants.SchemaApplyOrder()
+// using the chain's own prefix to build fully-qualified type names.
+func ListCollections(collections chains.Collections) []CollectionEntry {
+	order := collections.SchemaApplyOrder()
 	entries := make([]CollectionEntry, 0, len(order))
 	for _, typeName := range order {
-		filename := constants.CollectionFileForType(typeName)
+		filename := collections.CollectionFileForType(typeName)
 		stem := strings.TrimSuffix(filename, ".graphql")
-		// SchemaApplyOrder returns type names with the default chain prefix
-		// (e.g. "Ethereum__Mainnet__Block"). Strip the default prefix to get
-		// the collection suffix ("Block"), then re-apply the caller's prefix
-		// so the result is e.g. "Arbitrum__Block".
-		suffix := strings.TrimPrefix(typeName, constants.DefaultCollectionPrefix+"__")
 		entries = append(entries, CollectionEntry{
 			Name:     stem,
-			TypeName: prefix + "__" + suffix,
+			TypeName: typeName,
 		})
 	}
 	return entries
@@ -101,17 +98,17 @@ func ListCollections(prefix string) []CollectionEntry {
 // It returns an error if any collection file cannot be loaded or have its
 // prefix replaced, so callers fail fast at startup instead of silently serving
 // a degraded cache.
-func PrecomputeCollectionSDLs(prefix string) (map[string]string, error) {
+func PrecomputeCollectionSDLs(collections chains.Collections) (map[string]string, error) {
 	cache := make(map[string]string)
-	for _, typeName := range constants.SchemaApplyOrder() {
-		filename := constants.CollectionFileForType(typeName)
+	for _, typeName := range collections.SchemaApplyOrder() {
+		filename := collections.CollectionFileForType(typeName)
 		if filename == "" {
 			continue
 		}
 		stem := strings.TrimSuffix(filename, ".graphql")
-		sdl, err := LoadCollectionSDLForChain(filename, prefix)
+		sdl, err := LoadCollectionSDLForChain(collections, filename)
 		if err != nil {
-			return nil, fmt.Errorf("load collection SDL %s for prefix %s: %w", filename, prefix, err)
+			return nil, fmt.Errorf("load collection SDL %s for prefix %s: %w", filename, collections.Prefix(), err)
 		}
 		cache[stem] = sdl
 	}
@@ -119,9 +116,10 @@ func PrecomputeCollectionSDLs(prefix string) (map[string]string, error) {
 }
 
 // LoadSchemaSDL reads all collections/*.graphql files in dependency order
-// and concatenates them into a single SDL document.
-func LoadSchemaSDL() (string, error) {
-	files, err := ListCollectionFiles()
+// and concatenates them into a single SDL document (no prefix swap — returns
+// raw embeddedPrefix content).
+func LoadSchemaSDL(collections chains.Collections) (string, error) {
+	files, err := ListCollectionFiles(collections)
 	if err != nil {
 		return "", err
 	}
@@ -140,15 +138,12 @@ func LoadSchemaSDL() (string, error) {
 }
 
 // LoadSchemaSDLForChain reads all collection files in dependency order and
-// concatenates them into a single SDL document with the default collection
-// prefix replaced by the provided one.
-func LoadSchemaSDLForChain(prefix string) (string, error) {
-	if prefix == "" {
-		return "", ErrEmptyPrefix
-	}
-	sdl, err := LoadSchemaSDL()
+// concatenates them into a single SDL document with the embedded prefix
+// replaced by the chain's prefix.
+func LoadSchemaSDLForChain(collections chains.Collections) (string, error) {
+	sdl, err := LoadSchemaSDL(collections)
 	if err != nil {
 		return "", err
 	}
-	return strings.ReplaceAll(sdl, constants.DefaultCollectionPrefix, prefix), nil
+	return strings.ReplaceAll(sdl, embeddedPrefix, collections.Prefix()), nil
 }
