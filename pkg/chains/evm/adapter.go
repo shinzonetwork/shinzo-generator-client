@@ -3,7 +3,6 @@ package evm
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"sync"
 	"time"
 
@@ -13,23 +12,13 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// Retry / signing constants. These mirror pkg/indexer/concurrent_processor.go
-// so the adapter's behaviour is identical to the existing processor while the
-// hot path still uses the processor (Steps 2-5 will rewire the callers).
+// Adapter-specific constants. Fetch-related constants (rpcErrorRetryBaseDelay,
+// maxRPCRetries) live in fetcher.go; maxRPCRetries is shared via the same package.
 const (
-	// rpcErrorRetryBaseDelay is the base delay for retrying RPC errors
-	// (multiplied by attempt number).
-	rpcErrorRetryBaseDelay = 500 * time.Millisecond
-
-	// maxRPCRetries is the maximum number of retries for non-"not found" RPC
-	// errors.
-	maxRPCRetries = 3
-
 	// transactionConflictRetryBaseDelay is the base delay for retrying
 	// transaction conflicts.
 	transactionConflictRetryBaseDelay = 50 * time.Millisecond
@@ -37,18 +26,13 @@ const (
 	// signingQueueSize is the buffer size for the background block signing
 	// channel.
 	signingQueueSize = 64
-)
 
-// rpcClient abstracts the subset of *rpc.EthereumClient methods used by the
-// adapter. It exists so tests can inject a lightweight fake without dialing a
-// real RPC endpoint. *rpc.EthereumClient satisfies this interface.
-type rpcClient interface {
-	GetLatestBlockNumber(ctx context.Context) (*big.Int, error)
-	GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*types.Block, error)
-	GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*types.TransactionReceipt, error)
-	GetTransactionReceipt(ctx context.Context, txHash string) (*types.TransactionReceipt, error)
-	Close() error
-}
+	// defaultChainName is the fallback chain name when config is empty.
+	defaultChainName = "Ethereum"
+
+	// defaultNetwork is the fallback network name when config is empty.
+	defaultNetwork = "Mainnet"
+)
 
 // signingJob holds the data needed to sign an existing block in the background.
 type signingJob struct {
@@ -73,15 +57,16 @@ type signingJob struct {
 // Before Init only GetSchema and GetCollections are valid; every other method
 // returns ErrAdapterNotInitialized.
 type Adapter struct {
-	client         rpcClient
-	blockHandler   *defra.BlockHandler
-	collections    *CollectionNames
-	receiptWorkers int
-	signingChan    chan signingJob
-	node           *node.Node
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	cfg            *config.Config
+	*Fetcher
+
+	blockHandler *defra.BlockHandler
+	converter    *Converter
+	collections  *CollectionNames
+	signingChan  chan signingJob
+	node         *node.Node
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	cfg          *config.Config
 }
 
 // Compile-time guarantee that Adapter implements Chain.
@@ -106,6 +91,7 @@ func NewAdapter(cfg *config.Config) (*Adapter, error) {
 func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 	prefix := chainPrefixFromConfig(cfg)
 	collections := NewCollectionNames(prefix)
+	converter := NewConverter(cfg)
 
 	receiptWorkers := 0
 	if cfg != nil {
@@ -116,11 +102,11 @@ func newAdapter(cfg *config.Config, client rpcClient) *Adapter {
 	}
 
 	return &Adapter{
-		client:         client,
-		collections:    collections,
-		receiptWorkers: receiptWorkers,
-		signingChan:    make(chan signingJob, signingQueueSize),
-		cfg:            cfg,
+		Fetcher:     NewFetcher(client, receiptWorkers),
+		converter:   converter,
+		collections: collections,
+		signingChan: make(chan signingJob, signingQueueSize),
+		cfg:         cfg,
 	}
 }
 
@@ -133,10 +119,10 @@ func chainPrefixFromConfig(cfg *config.Config) string {
 	name := cfg.Chain.Name
 	network := cfg.Chain.Network
 	if name == "" {
-		name = "Ethereum"
+		name = defaultChainName
 	}
 	if network == "" {
-		network = "Mainnet"
+		network = defaultNetwork
 	}
 	return fmt.Sprintf("%s__%s", name, network)
 }
@@ -194,10 +180,7 @@ func (a *Adapter) Close() error {
 		a.signingChan = nil
 	}
 	a.wg.Wait()
-	if a.client != nil {
-		return a.client.Close()
-	}
-	return nil
+	return a.Fetcher.Close()
 }
 
 // FetchAndStoreBlock implements Chain.
@@ -205,99 +188,15 @@ func (a *Adapter) FetchAndStoreBlock(ctx context.Context, height int64) (string,
 	if a.blockHandler == nil {
 		return "", chains.ErrAdapterNotInitialized
 	}
-	block, err := a.fetchBlockWithRetry(ctx, height)
+	raw, err := a.FetchBlock(ctx, height)
 	if err != nil {
 		return "", err
 	}
-	transactions, receipts := a.fetchTransactionsAndReceipts(ctx, block, height)
-	return a.createBlockBatchWithRetry(ctx, block, height, transactions, receipts)
-}
-
-// fetchBlockWithRetry fetches a block by number. When the block is not yet
-// available on chain the error is returned as-is (it matches errors.IsErrNotFound)
-// so the caller can decide to retry. Other RPC errors are retried up to
-// maxRPCRetries times with linear backoff.
-func (a *Adapter) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*types.Block, error) {
-	otherErrors := 0
-	for {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-
-		block, err := a.client.GetBlockByNumber(ctx, big.NewInt(blockNum))
-		if err == nil {
-			return block, nil
-		}
-
-		if errors.IsErrNotFound(err) {
-			// Block not yet available; surface the not-found error so the
-			// caller (block processor) can apply its own retry policy.
-			return nil, err
-		}
-
-		otherErrors++
-		if otherErrors >= maxRPCRetries {
-			return nil, fmt.Errorf("failed to fetch block: %w", err)
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Duration(otherErrors) * rpcErrorRetryBaseDelay):
-		}
+	bundle, ok := raw.(*BlockBundle)
+	if !ok {
+		return "", fmt.Errorf("unexpected fetch result type %T", raw)
 	}
-}
-
-// fetchTransactionsAndReceipts builds the transaction pointer slice and fetches
-// receipts, falling back to individual fetches when the batch call fails.
-func (a *Adapter) fetchTransactionsAndReceipts(ctx context.Context, block *types.Block, blockNum int64) ([]*types.Transaction, []*types.TransactionReceipt) {
-	transactions := make([]*types.Transaction, len(block.Transactions))
-	for i := range block.Transactions {
-		transactions[i] = &block.Transactions[i]
-	}
-
-	batchReceipts, batchErr := a.client.GetBlockReceipts(ctx, big.NewInt(blockNum))
-	if batchErr == nil {
-		return transactions, batchReceipts
-	}
-
-	if ctx.Err() == nil {
-		logger.Sugar.Debugf("Block %d: eth_getBlockReceipts not available, falling back to individual fetches: %v", blockNum, batchErr)
-	}
-
-	receipts := make([]*types.TransactionReceipt, len(block.Transactions))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, a.receiptWorkers)
-
-	for i, tx := range block.Transactions {
-		wg.Add(1)
-		go func(idx int, txHash string) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				return
-			}
-			receipt, err := a.client.GetTransactionReceipt(ctx, txHash)
-			if err != nil {
-				if ctx.Err() == nil {
-					logger.Sugar.Warnf("Failed to fetch receipt for tx %s: %v", txHash, err)
-				}
-				return
-			}
-			receipts[idx] = receipt
-		}(i, tx.Hash)
-	}
-	wg.Wait()
-
-	validReceipts := make([]*types.TransactionReceipt, 0, len(receipts))
-	for _, r := range receipts {
-		if r != nil {
-			validReceipts = append(validReceipts, r)
-		}
-	}
-
-	return transactions, validReceipts
+	return a.createBlockBatchWithRetry(ctx, bundle.Block, height, bundle.Transactions, bundle.Receipts)
 }
 
 // createBlockBatchWithRetry persists the block batch via the BlockHandler. When
@@ -344,21 +243,12 @@ func (a *Adapter) createBlockBatchWithRetry(ctx context.Context, block *types.Bl
 	return "", nil
 }
 
-// FetchHighestBlockNumber implements Chain.
-func (a *Adapter) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
-	n, err := a.client.GetLatestBlockNumber(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get latest block number: %w", err)
-	}
-	return n.Int64(), nil
-}
-
 // GetHighestStoredBlockNumber implements Chain.
 func (a *Adapter) GetHighestStoredBlockNumber(ctx context.Context) (int64, error) {
 	if a.blockHandler == nil {
 		return 0, chains.ErrAdapterNotInitialized
 	}
-	return a.blockHandler.GetHighestBlockNumber(ctx)
+	return a.converter.GetHighestStoredBlockNumber(ctx, a.node)
 }
 
 // GetLowestStoredBlockNumber implements Chain.
@@ -366,7 +256,7 @@ func (a *Adapter) GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
 	if a.blockHandler == nil {
 		return 0, chains.ErrAdapterNotInitialized
 	}
-	return a.blockHandler.GetLowestBlockNumber(ctx)
+	return a.converter.GetLowestStoredBlockNumber(ctx, a.node)
 }
 
 // GetDocIDsByBlockRange implements Chain. It returns document IDs for every
@@ -380,17 +270,17 @@ func (a *Adapter) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (ma
 	if a.blockHandler == nil {
 		return nil, chains.ErrAdapterNotInitialized
 	}
-	return a.blockHandler.GetDocIDsByBlockRange(ctx, from, to)
+	return a.converter.GetDocIDsByBlockRange(ctx, a.node, from, to)
 }
 
 // GetSchema implements Chain.
 func (a *Adapter) GetSchema() (string, error) {
-	return schema.GetSchemaForChain(a.collections)
+	return a.converter.GetSchema()
 }
 
 // GetCollections implements Chain.
 func (a *Adapter) GetCollections() []string {
-	return a.collections.AllCollections()
+	return a.converter.GetCollections()
 }
 
 // Collections returns the Collections interface for the configured chain.
