@@ -20,7 +20,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chain"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -1014,9 +1014,9 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 	}))
 }
 
-// newTestEVMAdapter creates an EVMAdapter wired to the given mock RPC server
+// newTestAdapter creates an Adapter wired to the given mock RPC server
 // and test DefraDB node. The adapter's Close is registered for test cleanup.
-func newTestEVMAdapter(t *testing.T, td *testutils.TestDefraDB, rpcServerURL string, receiptWorkers int) *chain.EVMAdapter {
+func newTestAdapter(t *testing.T, td *testutils.TestDefraDB, rpcServerURL string, receiptWorkers int) *evm.Adapter {
 	t.Helper()
 	cfg := &config.Config{
 		Chain: config.ChainConfig{
@@ -1035,7 +1035,7 @@ func newTestEVMAdapter(t *testing.T, td *testutils.TestDefraDB, rpcServerURL str
 			MaxALEDocsPerBatch: 100,
 		},
 	}
-	adapter, err := chain.NewEVMAdapter(cfg)
+	adapter, err := evm.NewAdapter(cfg)
 	require.NoError(t, err)
 	require.NoError(t, adapter.Init(context.Background(), td.Node))
 	t.Cleanup(func() { _ = adapter.Close() })
@@ -1161,7 +1161,7 @@ func TestGetPrunerMetrics_WithPruner(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	p := pruner.NewPruner(&pruner.Config{
+	p := pruner.NewPruner(&config.PrunerConfig{
 		Enabled:   true,
 		MaxBlocks: 1000,
 	}, td.Node, nil)
@@ -1181,7 +1181,7 @@ func TestStopIndexing_WithSnapshotter(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	dir := t.TempDir()
-	snapCfg := &snapshot.Config{
+	snapCfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             dir,
 		BlocksPerFile:   1000,
@@ -1211,7 +1211,7 @@ func TestStopIndexing_WithPruner(t *testing.T) {
 	logger.InitConsoleOnly(true)
 
 	td := testutils.SetupTestDefraDB(t)
-	p := pruner.NewPruner(&pruner.Config{
+	p := pruner.NewPruner(&config.PrunerConfig{
 		Enabled:   true,
 		MaxBlocks: 1000,
 	}, td.Node, nil)
@@ -1273,7 +1273,7 @@ func TestFetchAndProcessBlock_RPCError(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -1295,7 +1295,7 @@ func TestFetchAndProcessBlock_ContextCancelled(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -1333,7 +1333,7 @@ func TestProcessBlocks_ContextCancel(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -1382,7 +1382,7 @@ func TestProcessBlocks_WithRateLimit_ContextCancel(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	// Rate limit to 600 blocks/min = 10/sec.
 	p := NewConcurrentBlockProcessor(adapter, 1, 600)
@@ -1481,13 +1481,13 @@ func TestStartIndexing_Embedded_FullIntegration(t *testing.T) {
 			HealthServerPort: 0, // disabled
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  500,
 			IntervalSeconds: 3600,
 		},
-		Snapshot: snapshot.Config{
+		Snapshot: config.SnapshotConfig{
 			Enabled:         true,
 			Dir:             filepath.Join(tmpDir, "snapshots"),
 			BlocksPerFile:   1000,
@@ -1678,7 +1678,7 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	indexer := &ChainIndexer{
 		cfg: &config.Config{
@@ -1774,7 +1774,7 @@ func TestFetchAndProcessBlock_NotFoundThenSuccess(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -1812,7 +1812,7 @@ func TestFetchAndProcessBlock_OtherRPCErrorRetry(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -1841,7 +1841,7 @@ func TestFetchAndProcessBlock_TransactionConflict(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -1873,7 +1873,7 @@ func TestFetchAndProcessBlock_ContextCancelledDuringNotFound(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -1904,7 +1904,7 @@ func TestFetchAndProcessBlock_ContextCancelledDuringOtherRetry(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -1995,7 +1995,7 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	// Create chain adapter (EVMAdapter) wired to a mock RPC server.
+	// Create chain adapter (Adapter) wired to a mock RPC server.
 	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
@@ -2007,18 +2007,18 @@ func TestStopIndexing_WithAllComponents(t *testing.T) {
 		}
 	})
 	defer rpcServer.Close()
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 	require.NotNil(t, adapter)
 
 	// Create pruner.
-	p := pruner.NewPruner(&pruner.Config{
+	p := pruner.NewPruner(&config.PrunerConfig{
 		Enabled:   true,
 		MaxBlocks: 1000,
 	}, td.Node, adapter)
 
 	// Create snapshotter.
 	snapDir := t.TempDir()
-	snapCfg := &snapshot.Config{
+	snapCfg := &config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             snapDir,
 		BlocksPerFile:   1000,
@@ -2086,7 +2086,7 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	// Use only 1 worker so the tooFarAhead check (workers*2=2) triggers quickly.
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
@@ -2123,7 +2123,7 @@ func TestProcessBlocks_WithNilCallback(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -2163,7 +2163,7 @@ func TestProcessBlocks_FailedBlockInSequence(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -2348,7 +2348,7 @@ func TestProcessBlocks_CancelDuringRateLimit(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	// Very low rate limit (1 block/min) so cancellation hits during wait.
 	p := NewConcurrentBlockProcessor(adapter, 1, 1)
@@ -2387,7 +2387,7 @@ func TestProcessBlocks_CancelDuringTooFarAhead(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -2608,7 +2608,7 @@ func TestFetchAndProcessBlock_SigningQueueFull(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -2752,13 +2752,13 @@ func TestStartIndexing_WithHealthPrunerSnapshotter(t *testing.T) {
 			HealthServerPort: 19876, // enable health server.
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  100,
 			IntervalSeconds: 60,
 		},
-		Snapshot: snapshot.Config{
+		Snapshot: config.SnapshotConfig{
 			Enabled:         true,
 			Dir:             snapshotDir,
 			BlocksPerFile:   1000,
@@ -2850,13 +2850,13 @@ func TestStartIndexing_ConcurrentWithSubsystems(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  100,
 			IntervalSeconds: 60,
 		},
-		Snapshot: snapshot.Config{
+		Snapshot: config.SnapshotConfig{
 			Enabled:         true,
 			Dir:             snapshotDir,
 			BlocksPerFile:   1000,
@@ -2999,7 +2999,7 @@ func TestProcessBlocks_ExistingBlockPath(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	processor := NewConcurrentBlockProcessor(
 		adapter, // chain.
@@ -3192,7 +3192,7 @@ func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 
 	td := testutils.SetupTestDefraDB(t)
 
-	prunerCfg := &pruner.Config{
+	prunerCfg := &config.PrunerConfig{
 		Enabled:        true,
 		MaxBlocks:      100,
 		PruneThreshold: 10,
@@ -3201,7 +3201,7 @@ func TestStopIndexing_WithPrunerAndSnapshotter(t *testing.T) {
 	p.SetQueue(pruner.NewIndexerQueue())
 
 	snapshotDir := t.TempDir()
-	s := snapshot.New(&snapshot.Config{
+	s := snapshot.New(&config.SnapshotConfig{
 		Enabled:         true,
 		Dir:             snapshotDir,
 		BlocksPerFile:   100,
@@ -3246,7 +3246,7 @@ func TestProcessBlocks_BlockFetchExhaustion(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	processor := NewConcurrentBlockProcessor(
 		adapter, // chain.
@@ -3284,7 +3284,7 @@ func TestFetchAndProcessBlock_ContextCancelMainLoop(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	processor := NewConcurrentBlockProcessor(
 		adapter, // chain.
@@ -3377,7 +3377,7 @@ func TestStartIndexing_ResumeFromQueue(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  100,
@@ -3766,7 +3766,7 @@ func TestFetchAndProcessBlock_TransactionConflictRetry(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	// Create two processors that share the same adapter.
 	p1 := NewConcurrentBlockProcessor(adapter, 1, 0)
@@ -4145,7 +4145,7 @@ func TestStartIndexing_PruneQueueLoadError(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		Pruner: pruner.Config{
+		Pruner: config.PrunerConfig{
 			Enabled:         true,
 			MaxBlocks:       1000,
 			PruneThreshold:  100,
@@ -4207,7 +4207,7 @@ func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	// First, insert the block to make subsequent inserts trigger "already exists".
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
@@ -4236,7 +4236,7 @@ func TestProcessBlocks_ImmediateCancel(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	p := NewConcurrentBlockProcessor(adapter, 1, 0)
 
@@ -4263,7 +4263,7 @@ func TestProcessBlocks_ImmediateCancelWithRateLimit(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	// Rate limited processor
 	p := NewConcurrentBlockProcessor(adapter, 1, 30)
@@ -4858,7 +4858,7 @@ func TestFetchAndProcessBlock_ConflictRetryCtxCancel(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	// Run many concurrent processors on the same block to maximize,
 	// the chance of hitting a transaction conflict (not already-exists).
@@ -4969,7 +4969,7 @@ func TestStartIndexing_SnapshotterStartError(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		Snapshot: snapshot.Config{
+		Snapshot: config.SnapshotConfig{
 			Enabled:         true,
 			Dir:             filepath.Join(filepath.Clean(invalidSnapshotPath), "nested"), // under a file → MkdirAll fails.
 			BlocksPerFile:   1000,
@@ -5144,7 +5144,7 @@ func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
 	})
 	defer rpcServer.Close()
 
-	adapter := newTestEVMAdapter(t, td, rpcServer.URL, 2)
+	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

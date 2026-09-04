@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -517,7 +518,7 @@ func TestSnapshotsListHandler_NilSnapshotter(t *testing.T) {
 func TestSnapshotsListHandler_EmptyList(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
@@ -555,7 +556,7 @@ func TestSnapshotDownloadHandler_NilSnapshotter(t *testing.T) {
 func TestSnapshotDownloadHandler_EmptyFilename(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
@@ -570,7 +571,7 @@ func TestSnapshotDownloadHandler_EmptyFilename(t *testing.T) {
 func TestSnapshotDownloadHandler_FileNotFound(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
@@ -588,7 +589,7 @@ func TestSnapshotDownloadHandler_FileFound(t *testing.T) {
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
 	_ = os.WriteFile(testFile, []byte("test snapshot data"), 0o600)
 
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
@@ -821,7 +822,7 @@ func TestSnapshotsListHandler_WithDefraNode_QueryError(t *testing.T) {
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
 	_ = os.WriteFile(testFile, []byte("data"), 0o600)
 
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
 	hs.defraNode = &node.Node{}
@@ -849,7 +850,7 @@ func TestSnapshotDownloadHandler_FileDeletedBeforeOpen(t *testing.T) {
 	testFile := filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz")
 	_ = os.WriteFile(testFile, []byte("data"), 0o600)
 
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
 
@@ -871,7 +872,7 @@ func TestSnapshotDownloadHandler_FileOpenError(t *testing.T) {
 	testFile := filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz")
 	_ = os.WriteFile(testFile, []byte("data"), 0o600)
 
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
 
@@ -904,7 +905,7 @@ func TestSnapshotImportHandler_NilSnapshotter(t *testing.T) {
 func TestSnapshotImportHandler_MissingFileParam(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
@@ -920,7 +921,7 @@ func TestSnapshotImportHandler_MissingFileParam(t *testing.T) {
 func TestSnapshotImportHandler_FileNotFound(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
@@ -971,7 +972,7 @@ func TestSnapshotImportHandler_ImportError(t *testing.T) {
 	// We catch the panic to verify the handler reaches the ImportKV call.
 	tempDir := t.TempDir()
 	filename := writeTestKVSnapshot(t, tempDir, 0, 100)
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
@@ -1004,7 +1005,7 @@ func TestSnapshotDownloadHandler_CopyError(t *testing.T) {
 	testFile := filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz")
 	_ = os.WriteFile(testFile, []byte("test snapshot data"), 0o600)
 
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
@@ -1025,7 +1026,7 @@ func TestSnapshotImportHandler_InvalidGzipFile(t *testing.T) {
 	testFile := filepath.Join(tempDir, filename)
 	_ = os.WriteFile(testFile, []byte("not gzip data"), 0o600)
 
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
@@ -1050,7 +1051,7 @@ func TestSnapshotsListHandler_WithFiles(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tempDir, "snapshot_0_100.kvsnap.gz"), []byte("data1"), 0o600)
 	_ = os.WriteFile(filepath.Join(tempDir, "snapshot_100_200.kvsnap.gz"), []byte("data2"), 0o600)
 
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
 	// No defraNode → sigs map stays nil, loop still executes
@@ -1079,7 +1080,7 @@ func TestSnapshotsListHandler_QuerySigError(t *testing.T) {
 	tempDir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(tempDir, "snapshot_0_50.kvsnap.gz"), []byte("data"), 0o600)
 
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 	hs := NewHealthServer(0, nil, "")
 	hs.SetSnapshotter(s)
 	hs.defraNode = &node.Node{} // non-nil so the query branch is entered
@@ -1106,7 +1107,7 @@ func TestSnapshotImportHandler_Success(t *testing.T) {
 
 	tempDir := t.TempDir()
 	filename := writeTestKVSnapshot(t, tempDir, 0, 100)
-	s := snapshot.New(&snapshot.Config{Dir: tempDir}, nil, nil)
+	s := snapshot.New(&config.SnapshotConfig{Dir: tempDir}, nil, nil)
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = defraNode
