@@ -73,6 +73,67 @@ func TestGetHighestBlockNumber(t *testing.T) {
 	_ = getLatestBlockNumber(t) // Just check we can get it.
 }
 
+// Helper to get the lowest block number.
+func getLowestBlockNumber(t *testing.T) int {
+	result := MakeQuery(t, blockQueryPath, "GetLowestBlockNumber", nil)
+
+	if result == nil {
+		t.Fatalf("GraphQL query returned nil result")
+	}
+
+	data, ok := result["data"]
+	if !ok {
+		t.Fatalf("No 'data' field in GraphQL response: %v", result)
+	}
+
+	if data == nil {
+		t.Fatalf("GraphQL 'data' field is nil: %v", result)
+	}
+
+	dataMap, ok := data.(map[string]any)
+	if !ok {
+		t.Fatalf("GraphQL 'data' field is not a map: %v", data)
+	}
+
+	blockField, ok := dataMap[constants.CollectionBlock]
+	if !ok {
+		t.Fatalf("No '%s' field in GraphQL data: %v", constants.CollectionBlock, dataMap)
+	}
+
+	blockList, ok := blockField.([]any)
+	if !ok {
+		t.Fatalf("Block field is not an array: %v", blockField)
+	}
+
+	if len(blockList) == 0 {
+		t.Fatalf("No blocks returned from DefraDB - database may be empty")
+	}
+
+	num, ok := blockList[0].(map[string]any)["number"]
+	if !ok {
+		t.Fatalf("Block missing number field: %v", blockList[0])
+	}
+	n, ok := num.(float64)
+	if !ok {
+		t.Fatalf("Block number is not a number: %v", num)
+	}
+	return int(n)
+}
+
+func TestGetLowestBlockNumber(t *testing.T) {
+	t.Parallel()
+	lowest := getLowestBlockNumber(t)
+	highest := getLatestBlockNumber(t)
+
+	// Mock data inserts blocks 1000001 and 1000002.
+	if lowest != 1000001 {
+		t.Errorf("lowest block = %d, want 1000001", lowest)
+	}
+	if lowest >= highest {
+		t.Errorf("lowest block %d should be less than highest block %d", lowest, highest)
+	}
+}
+
 func TestGetLatestBlocks(t *testing.T) {
 	t.Parallel()
 	result := MakeQuery(t, blockQueryPath, "GetLatestBlocks", nil)

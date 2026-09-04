@@ -1387,36 +1387,50 @@ func (h *BlockHandler) createALEBatch(ctx context.Context, blockInt int64, batch
 
 // GetHighestBlockNumber returns the highest block number stored in DefraDB.
 func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error) {
-	query := `query {` + h.collections.Block + ` (order: {number: DESC}, limit: 1) { number }}`
+	return h.queryBlockNumber(ctx, "DESC", "GetHighestBlockNumber")
+}
+
+// GetLowestBlockNumber returns the lowest block number stored in DefraDB.
+// It mirrors GetHighestBlockNumber but orders ascending and selects the first
+// row. It returns an error matching errors.IsErrNotFound when no blocks are
+// stored.
+func (h *BlockHandler) GetLowestBlockNumber(ctx context.Context) (int64, error) {
+	return h.queryBlockNumber(ctx, "ASC", "GetLowestBlockNumber")
+}
+
+// queryBlockNumber runs the single-row block-number query with the given
+// ordering ("DESC" or "ASC") and tags all errors with opName.
+func (h *BlockHandler) queryBlockNumber(ctx context.Context, order, opName string) (int64, error) {
+	query := `query {` + h.collections.Block + ` (order: {number: ` + order + `}, limit: 1) { number }}`
 
 	result := h.db.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
-		return 0, errors.NewQueryFailed("defra", "GetHighestBlockNumber", query, result.GQL.Errors[0])
+		return 0, errors.NewQueryFailed("defra", opName, query, result.GQL.Errors[0])
 	}
 
 	data, ok := result.GQL.Data.(map[string]any)
 	if !ok {
-		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", h.collections.Block, "no data")
+		return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "no data")
 	}
 
 	var block map[string]any
 	switch arr := data[h.collections.Block].(type) {
 	case []any:
 		if len(arr) == 0 {
-			return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", h.collections.Block, "no blocks")
+			return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "no blocks")
 		}
 		var ok bool
 		block, ok = arr[0].(map[string]any)
 		if !ok {
-			return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", h.collections.Block, "invalid format")
+			return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "invalid format")
 		}
 	case []map[string]any:
 		if len(arr) == 0 {
-			return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", h.collections.Block, "no blocks")
+			return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "no blocks")
 		}
 		block = arr[0]
 	default:
-		return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", h.collections.Block, "no blocks")
+		return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "no blocks")
 	}
 
 	switch v := block[constants.NumberFieldValue].(type) {
@@ -1428,5 +1442,5 @@ func (h *BlockHandler) GetHighestBlockNumber(ctx context.Context) (int64, error)
 		return int64(v), nil
 	}
 
-	return 0, errors.NewDocumentNotFound("defra", "GetHighestBlockNumber", h.collections.Block, "invalid number type")
+	return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "invalid number type")
 }

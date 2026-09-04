@@ -423,6 +423,55 @@ func TestGetHighestBlockNumber_NonSequential(t *testing.T) {
 	assert.Equal(t, int64(500), highest)
 }
 
+func TestGetLowestBlockNumber(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		blocks      []string
+		wantErr     bool
+		errContains string
+		wantLowest  int64
+		wantHighest *int64
+	}{
+		{"EmptyDB", nil, true, "not found", 0, nil},
+		{"SingleBlock", []string{"0x64"}, false, "", 100, nil},
+		{"AfterInserts", []string{"0xC8", "0x64"}, false, "", 100, nil},
+		{"NonSequential", []string{"0x1F4", "0x64", "0x12C"}, false, "", 100, nil},
+		{"LessThanHighest", []string{"0x3E8", "0x64", "0x12C"}, false, "", 100, new(int64(1000))},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			td := testutils.SetupTestDefraDB(t)
+			handler, err := NewBlockHandler(td.Node, 1000, nil)
+			require.NoError(t, err)
+
+			for _, num := range tc.blocks {
+				_, err = handler.CreateBlockBatch(context.Background(), mockBlock(num), nil, nil)
+				require.NoError(t, err)
+			}
+
+			lowest, err := handler.GetLowestBlockNumber(context.Background())
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errContains)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantLowest, lowest)
+
+			if tc.wantHighest != nil {
+				highest, err := handler.GetHighestBlockNumber(context.Background())
+				require.NoError(t, err)
+				assert.Equal(t, *tc.wantHighest, highest)
+				assert.Less(t, lowest, highest)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Multiple transactions with no receipts (no logs)
 // ---------------------------------------------------------------------------
