@@ -61,7 +61,6 @@ type Chain interface {
 	// The returned map is keyed by collection name. SnapshotSignature docIDs are
 	// intentionally excluded (the snapshotter owns those); BlockSignature
 	// docIDs are included.
-	// TODO: Implement For EVM Adapter
 	GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error)
 
 	// GetSchema returns the GraphQL SDL for the configured chain, with

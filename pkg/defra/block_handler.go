@@ -784,27 +784,26 @@ func (h *BlockHandler) CreateBlockSignatureForExistingBlock(
 // collectExistingBlockDocIDs queries the DB for all docIDs associated with the given block number.
 func (h *BlockHandler) collectExistingBlockDocIDs(ctx context.Context, blockNumber int64) ([]string, error) {
 	var allDocIDs []string
-	blockNumStr := strconv.FormatInt(blockNumber, 10)
 
-	blockDocIDs, err := h.queryDocIDsByBlockNumber(ctx, h.collections.Block, "number", blockNumStr)
+	blockDocIDs, err := h.queryCollectionDocIDs(ctx, h.collections.Block, constants.NumberFieldValue, blockNumber, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("query block docIDs: %w", err)
 	}
 	allDocIDs = append(allDocIDs, blockDocIDs...)
 
-	txDocIDs, err := h.queryDocIDsByBlockNumber(ctx, h.collections.Transaction, "blockNumber", blockNumStr)
+	txDocIDs, err := h.queryCollectionDocIDs(ctx, h.collections.Transaction, constants.BlockNumberKeyValue, blockNumber, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("query tx docIDs: %w", err)
 	}
 	allDocIDs = append(allDocIDs, txDocIDs...)
 
-	logDocIDs, err := h.queryDocIDsByBlockNumber(ctx, h.collections.Log, "blockNumber", blockNumStr)
+	logDocIDs, err := h.queryCollectionDocIDs(ctx, h.collections.Log, constants.BlockNumberKeyValue, blockNumber, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("query log docIDs: %w", err)
 	}
 	allDocIDs = append(allDocIDs, logDocIDs...)
 
-	aleDocIDs, err := h.queryDocIDsByBlockNumber(ctx, h.collections.AccessListEntry, "blockNumber", blockNumStr)
+	aleDocIDs, err := h.queryCollectionDocIDs(ctx, h.collections.AccessListEntry, constants.BlockNumberKeyValue, blockNumber, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("query ale docIDs: %w", err)
 	}
@@ -813,35 +812,98 @@ func (h *BlockHandler) collectExistingBlockDocIDs(ctx context.Context, blockNumb
 	return allDocIDs, nil
 }
 
-// queryDocIDsByBlockNumber queries a collection for docIDs filtered by a block number field.
-func (h *BlockHandler) queryDocIDsByBlockNumber(ctx context.Context, colName, filterField, value string) ([]string, error) {
-	query := `query { ` + colName + `(filter: {` + filterField + `: {_eq: ` + value + `}}) { _docID } }`
-	result := h.db.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return nil, result.GQL.Errors[0]
+// GetDocIDsByBlockRange queries all relevant collections for document IDs
+// whose block-number field falls in [from, to] inclusive. Returns docIDs
+// grouped by collection name. SnapshotSignature is excluded; BlockSignature
+// is included.
+//
+// Queries use chunked _geq/_leq GraphQL range filters, matching the
+// snapshotter's approach (pkg/snapshot/kv_snapshot.go). This works on
+// locally-indexed data; P2P-replicated data may require a different
+// strategy (see pruner).
+func (h *BlockHandler) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error) {
+	collections := []struct {
+		name  string
+		field string
+	}{
+		{h.collections.Block, constants.NumberFieldValue},
+		{h.collections.Transaction, constants.BlockNumberKeyValue},
+		{h.collections.Log, constants.BlockNumberKeyValue},
+		{h.collections.AccessListEntry, constants.BlockNumberKeyValue},
+		{h.collections.BlockSignature, constants.BlockNumberKeyValue},
 	}
-	data, ok := result.GQL.Data.(map[string]any)
-	if !ok {
-		return nil, nil
+
+	result := make(map[string][]string)
+	for _, col := range collections {
+		docIDs, err := h.queryCollectionDocIDs(ctx, col.name, col.field, from, to)
+		if err != nil {
+			return nil, fmt.Errorf("query docIDs for %s: %w", col.name, err)
+		}
+		if len(docIDs) > 0 {
+			result[col.name] = docIDs
+		}
 	}
-	var docIDs []string
-	switch results := data[colName].(type) {
-	case []any:
-		for _, r := range results {
-			if m, ok := r.(map[string]any); ok {
-				if id, ok := m["_docID"].(string); ok {
-					docIDs = append(docIDs, id)
-				}
+	return result, nil
+}
+
+// queryCollectionDocIDs queries a single collection for all document IDs
+// whose block-number field falls in [from, to] inclusive. It uses chunked
+// _geq/_leq GraphQL range filters, matching the snapshotter's queryDocIDs
+// pattern. When from == to, a single _geq/_leq query is issued (equivalent
+// to _eq).
+func (h *BlockHandler) queryCollectionDocIDs(ctx context.Context, colName, field string, from, to int64) ([]string, error) {
+	var allDocIDs []string
+	const chunkSize = 100
+
+	for chunkStart := from; chunkStart <= to; chunkStart += chunkSize {
+		chunkEnd := chunkStart + chunkSize - 1
+		chunkEnd = min(chunkEnd, to)
+
+		query := fmt.Sprintf(
+			`query { %s(filter: {%s: {_geq: %d, _leq: %d}}) { _docID } }`,
+			colName, field, chunkStart, chunkEnd,
+		)
+
+		result := h.db.ExecRequest(ctx, query)
+		if len(result.GQL.Errors) > 0 {
+			return nil, fmt.Errorf("query %s [%d-%d]: %w", colName, chunkStart, chunkEnd, result.GQL.Errors[0])
+		}
+
+		data, ok := result.GQL.Data.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		raw := data[colName]
+		if raw == nil {
+			continue
+		}
+
+		var docs []any
+		switch typed := raw.(type) {
+		case []any:
+			docs = typed
+		case []map[string]any:
+			docs = make([]any, len(typed))
+			for i, d := range typed {
+				docs[i] = d
+			}
+		default:
+			continue
+		}
+
+		for _, doc := range docs {
+			m, ok := doc.(map[string]any)
+			if !ok {
+				continue
+			}
+			if docID, ok := m["_docID"].(string); ok {
+				allDocIDs = append(allDocIDs, docID)
 			}
 		}
-	case []map[string]any:
-		for _, m := range results {
-			if id, ok := m["_docID"].(string); ok {
-				docIDs = append(docIDs, id)
-			}
-		}
 	}
-	return docIDs, nil
+
+	return allDocIDs, nil
 }
 
 // waitForCIDs collects the CIDs for allDocIDs, retrying while they are still arriving (P2P data

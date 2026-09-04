@@ -269,7 +269,7 @@ func TestEVMAdapter_FetchHighestBlockNumber(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GetHighest/GetLowestStoredBlockNumber delegation (to BlockHandler)
+// GetHighest/GetLowestStoredBlockNumber/GetDocIDsByBlockRange delegation (to BlockHandler)
 // ---------------------------------------------------------------------------
 
 func TestEVMAdapter_StoredBlockNumberDelegation(t *testing.T) {
@@ -305,6 +305,15 @@ func TestEVMAdapter_StoredBlockNumberDelegation(t *testing.T) {
 	lowest, err := a.GetLowestStoredBlockNumber(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
+
+	// GetDocIDsByBlockRange delegates to BlockHandler and returns the stored
+	// Block document for block 100. fakeBlock has no transactions, so only the
+	// Block collection is populated. No identity context means no BlockSignature.
+	docIDs, err := a.GetDocIDsByBlockRange(context.Background(), 100, 100)
+	require.NoError(t, err)
+	assert.Contains(t, docIDs, "Ethereum__Mainnet__Block")
+	assert.Len(t, docIDs["Ethereum__Mainnet__Block"], 1)
+	assert.NotContains(t, docIDs, "Ethereum__Mainnet__SnapshotSignature")
 
 	// Tip still delegates to the fake client.
 	tip, err := a.FetchHighestBlockNumber(context.Background())

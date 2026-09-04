@@ -17,6 +17,9 @@ import (
 // CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
 
+// DefaultChainAdapter is the default and currently only supported chain adapter type.
+const DefaultChainAdapter = "evm"
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	BootstrapPeers      []string `yaml:"bootstrap_peers"`
@@ -58,11 +61,12 @@ func (d *DefraDBConfig) Host() string {
 	return d.URL
 }
 
-// ChainConfig represents the EVM chain being indexed.
+// ChainConfig represents the chain being indexed.
 type ChainConfig struct {
 	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
 	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
 	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
+	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -150,6 +154,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Chain.Network == "" {
 		cfg.Chain.Network = "Mainnet"
 	}
+	if cfg.Chain.Adapter == "" {
+		cfg.Chain.Adapter = DefaultChainAdapter
+	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
 	}
@@ -179,6 +186,10 @@ func applyDefaults(cfg *Config) {
 
 // validateConfig validates the configuration.
 func validateConfig(cfg *Config) error {
+	if cfg.Chain.Adapter != DefaultChainAdapter {
+		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", cfg.Chain.Adapter, DefaultChainAdapter)
+	}
+
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
 	}
@@ -286,6 +297,9 @@ func applyChainEnvOverrides(cfg *Config) {
 	}
 	if shinzoHubHost := os.Getenv("SHINZOHUB_REST_BASE"); shinzoHubHost != "" {
 		cfg.Chain.Hub = shinzoHubHost
+	}
+	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
+		cfg.Chain.Adapter = chainAdapter
 	}
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL

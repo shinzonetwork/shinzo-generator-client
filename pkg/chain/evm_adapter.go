@@ -369,19 +369,18 @@ func (a *EVMAdapter) GetLowestStoredBlockNumber(ctx context.Context) (int64, err
 	return a.blockHandler.GetLowestBlockNumber(ctx)
 }
 
-// GetDocIDsByBlockRange implements Chain. SnapshotSignature is excluded;
-// BlockSignature is included.
+// GetDocIDsByBlockRange implements Chain. It returns document IDs for every
+// collection whose block-number field falls in [from, to] inclusive.
+// SnapshotSignature is excluded; BlockSignature is included.
 //
-// NOTE: This method is a stub pending a DefraDB query mechanism that supports
-// range filters (the initial _gte/_lte GQL approach is not supported by
-// DefraDB). It will be implemented in a later step once the query strategy is
-// resolved (e.g. per-block _eq queries, document scans, or a DefraDB API
-// enhancement).
-func (a *EVMAdapter) GetDocIDsByBlockRange(_ context.Context, _, _ int64) (map[string][]string, error) {
+// Delegates to BlockHandler, which uses chunked _geq/_leq GraphQL range
+// filters on the indexer's local DefraDB instance — the same approach the
+// snapshotter uses (pkg/snapshot/kv_snapshot.go).
+func (a *EVMAdapter) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error) {
 	if a.blockHandler == nil {
 		return nil, ErrAdapterNotInitialized
 	}
-	return nil, fmt.Errorf("not yet implemented")
+	return a.blockHandler.GetDocIDsByBlockRange(ctx, from, to)
 }
 
 // GetSchema implements Chain.
@@ -402,5 +401,3 @@ func (a *EVMAdapter) SetDocIDTracker(tracker defra.DocIDTrackerInterface) {
 		a.blockHandler.SetDocIDTracker(tracker)
 	}
 }
-
-// TODO: Implement GetDocIDsByBlockRange For EVM Adapter
