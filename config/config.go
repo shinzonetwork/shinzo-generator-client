@@ -140,12 +140,19 @@ func (c *PrunerConfig) SetDefaults() {
 	}
 }
 
+// DefaultMaxSnapshots is the default number of snapshot files retained when max_snapshots is unset.
+const DefaultMaxSnapshots = 100
+
 // SnapshotConfig holds snapshot configuration.
 type SnapshotConfig struct {
 	Enabled         bool   `yaml:"enabled"`
 	Dir             string `yaml:"dir"`
 	BlocksPerFile   int64  `yaml:"blocks_per_file"`
 	IntervalSeconds int    `yaml:"interval_seconds"`
+	// MaxSnapshots is the number of newest snapshot files to retain; older files
+	// (and their companion signature docs) are purged. 0 = DefaultMaxSnapshots,
+	// -1 = unlimited (no purge).
+	MaxSnapshots int `yaml:"max_snapshots"`
 }
 
 // SetDefaults applies default values for unset fields.
@@ -158,6 +165,9 @@ func (c *SnapshotConfig) SetDefaults() {
 	}
 	if c.IntervalSeconds <= 0 {
 		c.IntervalSeconds = 60
+	}
+	if c.MaxSnapshots == 0 {
+		c.MaxSnapshots = DefaultMaxSnapshots
 	}
 }
 
@@ -281,6 +291,25 @@ func validateConfig(cfg *Config) error {
 	if !cfg.DefraDB.Embedded && strings.TrimSpace(cfg.DefraDB.URL) == "" {
 		return fmt.Errorf("external DefraDB requires a non-empty url")
 	}
+
+	if cfg.Snapshot.MaxSnapshots < -1 {
+		return fmt.Errorf("max_snapshots must be >= -1 (0 = default %d, -1 = unlimited)", DefaultMaxSnapshots)
+	}
+
+	// Snapshot coverage must span the pruner retention window so blocks purged
+	// from DefraDB remain recoverable from on-disk snapshots. Skipped when the
+	// pruner is disabled (no retention window to cover), the snapshotter is
+	// disabled (no snapshots to cover it), or max_snapshots is unlimited (-1).
+	if cfg.Snapshot.Enabled && cfg.Pruner.Enabled && cfg.Snapshot.MaxSnapshots > 0 {
+		coverage := int64(cfg.Snapshot.MaxSnapshots) * cfg.Snapshot.BlocksPerFile
+		if coverage < cfg.Pruner.MaxBlocks {
+			return fmt.Errorf(
+				"snapshot coverage (max_snapshots=%d * blocks_per_file=%d = %d) must be >= pruner max_blocks=%d: increase max_snapshots or blocks_per_file, lower max_blocks, or set max_snapshots: -1",
+				cfg.Snapshot.MaxSnapshots, cfg.Snapshot.BlocksPerFile, coverage, cfg.Pruner.MaxBlocks,
+			)
+		}
+	}
+
 	return nil
 }
 
@@ -505,6 +534,11 @@ func applySnapshotEnvOverrides(cfg *Config) {
 	if snapshotInterval := os.Getenv("SNAPSHOT_INTERVAL_SECONDS"); snapshotInterval != "" {
 		if n, err := strconv.Atoi(snapshotInterval); err == nil {
 			cfg.Snapshot.IntervalSeconds = n
+		}
+	}
+	if snapshotMaxSnapshots := os.Getenv("SNAPSHOT_MAX_SNAPSHOTS"); snapshotMaxSnapshots != "" {
+		if n, err := strconv.Atoi(snapshotMaxSnapshots); err == nil {
+			cfg.Snapshot.MaxSnapshots = n
 		}
 	}
 }

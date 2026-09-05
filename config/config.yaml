@@ -70,7 +70,10 @@ snapshot:
   enabled: true             # Set to true to enable automatic snapshots before pruning
   dir: "./.defra/snapshots" # Directory to store snapshot files
   blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
-  interval_seconds: 30      # How often to check and create snapshots
+  interval_seconds: 30 
+  max_snapshots: 100        # Keep the N newest snapshot files
+  # Older files (and their signature docs) are purged. -1 = unlimited (env: SNAPSHOT_MAX_SNAPSHOTS). 
+  # Must satisfy: max_snapshots * blocks_per_file >= pruner.max_blocks     # How often to check and create snapshots
 converter:
   lowest_block_query_limit: 1   # Row window for the lowest-block number query (env: CONVERTER_LOWEST_BLOCK_QUERY_LIMIT).
   # ⚠ >1 makes the query skip purge residue: block rows left behind by DefraDB purges
