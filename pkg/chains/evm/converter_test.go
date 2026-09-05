@@ -2,8 +2,10 @@ package evm
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -324,6 +326,177 @@ func TestGetDocIDsByBlockRange_Empty(t *testing.T) {
 	result, err := c.GetDocIDsByBlockRange(context.Background(), td.Node, 1, 100)
 	require.NoError(t, err)
 	assert.Empty(t, result)
+}
+
+func TestGetStoredBlockNumbers_WithBlocks(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	c := NewConverter(cfg)
+	td := testutils.SetupTestDefraDB(t)
+	ctx := context.Background()
+
+	for _, num := range []int64{100, 101, 102} {
+		storeTestBlockDoc(ctx, t, td, c, num)
+	}
+
+	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), lowest)
+
+	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(102), highest)
+}
+
+// TestGetLowestStoredBlockNumber_AfterPurge is the regression test for the
+// 2026-09-02 incident: a PurgeByDocIDs residue left a dangling row behind, so
+// the ASC lowest-block query kept returning a row whose number field was
+// unparseable ("block exists but has invalid or unparseable number field").
+// After purging the lowest blocks, the query must return the next stored
+// block without error.
+func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	c := NewConverter(cfg)
+	td := testutils.SetupTestDefraDB(t)
+	ctx := context.Background()
+
+	for _, num := range []int64{100, 101, 102, 103, 104} {
+		storeTestBlockDoc(ctx, t, td, c, num)
+	}
+
+	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), lowest)
+
+	docIDs, err := c.queryCollectionDocIDs(ctx, td.Node, c.collections.Block, constants.NumberFieldValue, 100, 101)
+	require.NoError(t, err)
+	require.Len(t, docIDs, 2)
+
+	col, err := td.Node.DB.GetCollectionByName(ctx, c.collections.Block)
+	require.NoError(t, err)
+
+	purgeIDs := make([]client.DocID, 0, len(docIDs))
+	for _, id := range docIDs {
+		docID, err := client.NewDocIDFromString(id)
+		require.NoError(t, err)
+		purgeIDs = append(purgeIDs, docID)
+	}
+	require.NoError(t, col.PurgeByDocIDs(ctx, purgeIDs, true))
+
+	lowest, err = c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(102), lowest)
+
+	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(104), highest)
+}
+
+func TestParseBlockNumberRow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		row   map[string]any
+		want  int64
+		valid bool
+	}{
+		{"float64", map[string]any{constants.NumberFieldValue: float64(100)}, 100, true},
+		{"int64", map[string]any{constants.NumberFieldValue: int64(101)}, 101, true},
+		{"int", map[string]any{constants.NumberFieldValue: int(102)}, 102, true},
+		{"nil", map[string]any{constants.NumberFieldValue: nil}, 0, false},
+		{"missing", map[string]any{}, 0, false},
+		{"string", map[string]any{constants.NumberFieldValue: "0x64"}, 0, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, valid := parseBlockNumberRow(tc.row)
+			assert.Equal(t, tc.valid, valid)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestQueryBlockNumber_CustomLimits pins the parameterized query limit: every
+// supported limit must build valid GraphQL, honor the ordering, and stay safe
+// when the limit exceeds the number of stored blocks.
+func TestQueryBlockNumber_CustomLimits(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	c := NewConverter(cfg)
+	td := testutils.SetupTestDefraDB(t)
+	ctx := context.Background()
+
+	for _, num := range []int64{100, 101, 102, 103, 104} {
+		storeTestBlockDoc(ctx, t, td, c, num)
+	}
+
+	tests := []struct {
+		order string
+		limit int
+		want  int64
+	}{
+		{"ASC", 1, 100},
+		{"ASC", 2, 100},
+		{"ASC", 3, 100},
+		{"ASC", 7, 100},
+		{"ASC", 20, 100},
+		{"ASC", 50, 100},
+		{"DESC", 1, 104},
+		{"DESC", 3, 104},
+		{"DESC", 7, 104},
+		{"DESC", 20, 104},
+		{"DESC", 50, 104},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("%s_limit%d", tc.order, tc.limit), func(t *testing.T) {
+			t.Parallel()
+			got, err := c.queryBlockNumber(ctx, td.Node, tc.order, "TestQueryBlockNumber_CustomLimits", tc.limit)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestLowestBlockQueryLimit_ConfigPaths pins the helper's fallback contract:
+// nil and unset configs fall back to the exported default; a configured
+// window is honored. The config-level SetDefaults only normalizes configs
+// that pass through LoadConfig, so the helper guards these paths itself.
+func TestLowestBlockQueryLimit_ConfigPaths(t *testing.T) {
+	t.Parallel()
+
+	configured := testConfig()
+	configured.Converter.LowestBlockQueryLimit = 7
+
+	assert.Equal(t, config.DefaultLowestBlockQueryLimit,
+		NewConverter(nil).lowestBlockQueryLimit(), "nil config falls back to default")
+	assert.Equal(t, config.DefaultLowestBlockQueryLimit,
+		NewConverter(testConfig()).lowestBlockQueryLimit(), "unset config falls back to default")
+	assert.Equal(t, 7,
+		NewConverter(configured).lowestBlockQueryLimit(), "configured value is honored")
+}
+
+// TestGetLowestStoredBlockNumber_ConfigWindow proves the configured window is
+// plumbed from config into the lowest-block query end to end.
+func TestGetLowestStoredBlockNumber_ConfigWindow(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Converter.LowestBlockQueryLimit = 2
+	c := NewConverter(cfg)
+	td := testutils.SetupTestDefraDB(t)
+	ctx := context.Background()
+
+	for _, num := range []int64{100, 101, 102, 103, 104} {
+		storeTestBlockDoc(ctx, t, td, c, num)
+	}
+
+	got, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), got)
 }
 
 // ---------------------------------------------------------------------------
