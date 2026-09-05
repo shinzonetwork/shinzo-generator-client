@@ -24,9 +24,10 @@ type rpcClient interface {
 }
 
 // BlockBundle is the concrete return type of Fetcher.FetchBlock. It bundles
-// the raw block data with its transactions and receipts. The type is
-// unexported because it is only referenced within the evm package: the converter
-// type-asserts it, and the indexer always works with the `any` return value.
+// the raw block data with its transactions and receipts. The type is exported
+// so other packages can construct it directly in tests (converter fixtures in
+// pkg/defra and pkg/snapshot); in production it stays behind the `any` return
+// of FetchBlock and is type-asserted only by the converter in this package.
 type BlockBundle struct {
 	Block        *Block
 	Transactions []*Transaction
