@@ -259,6 +259,70 @@ func TestConvert_SignatureCollectionName(t *testing.T) {
 	assert.Equal(t, "Optimism__Mainnet__BlockSignature", result.SignatureCollection)
 }
 
+// TestConvert_GroupFieldContract pins the DocumentGroup contract the generic
+// BlockHandler relies on: every group carries a non-empty BlockNumField, and
+// the block group (Groups[0]) carries a non-empty BlockHashField. Non-block
+// groups keep BlockHashField empty (see chains.DocumentGroup).
+func TestConvert_GroupFieldContract(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		bundle        *BlockBundle
+		wantMinGroups int
+	}{
+		{
+			name:          "block only",
+			bundle:        &BlockBundle{Block: fakeBlock(7)},
+			wantMinGroups: 1,
+		},
+		{
+			name: "block with tx, receipt, and log",
+			bundle: func() *BlockBundle {
+				txHash := fakeHash("tx-cf")
+				tx := fakeTx(txHash)
+				tx.BlockNumber = "0x7"
+				block := fakeBlockWithTxs(7, tx)
+				receipt := fakeReceipt(txHash, 7)
+				receipt.Logs = []Log{
+					{
+						Address:         "0x0000000000000000000000000000000000000003",
+						Data:            "0x",
+						BlockNumber:     "0x7",
+						BlockHash:       block.Hash,
+						TransactionHash: txHash,
+						LogIndex:        0,
+					},
+				}
+				return &BlockBundle{
+					Block:        block,
+					Transactions: []*Transaction{&tx},
+					Receipts:     []*TransactionReceipt{receipt},
+				}
+			}(),
+			wantMinGroups: 3,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := NewConverter(testConfig())
+
+			result, err := c.Convert(context.Background(), tc.bundle)
+			require.NoError(t, err)
+			require.GreaterOrEqual(t, len(result.Groups), tc.wantMinGroups)
+
+			for i, g := range result.Groups {
+				assert.NotEmpty(t, g.BlockNumField,
+					"group %d (%s) must populate BlockNumField", i, g.Collection)
+			}
+			assert.NotEmpty(t, result.Groups[0].BlockHashField,
+				"block group must populate BlockHashField")
+		})
+	}
+}
+
 func TestConvert_WithAccessListEntries(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
