@@ -11,7 +11,6 @@ import (
 
 	cid "github.com/ipfs/go-cid"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -277,7 +276,7 @@ func (h *BlockHandler) Store(
 	if err != nil {
 		return nil, fmt.Errorf("invalid block number: %w", err)
 	}
-	blockHash, _ := blockData[constants.HashKeyValue].(string)
+	blockHash, _ := blockData[blockGroup.BlockHashField].(string)
 
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
@@ -566,7 +565,8 @@ func (h *BlockHandler) createDocsInTxn(
 // The result.Groups identify which collections to query (typically the same
 // groups produced by Convert, minus the signature group).
 // result.SignatureCollection names the collection where the block signature
-// document will be stored.
+// document will be stored. Every group must carry a non-empty BlockNumField —
+// an empty one fails fast instead of issuing a malformed query.
 func (h *BlockHandler) SignExisting(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -580,11 +580,10 @@ func (h *BlockHandler) SignExisting(
 	var allDocIDs []string
 	var collectionNames []string
 	for _, g := range result.Groups {
-		field := g.BlockNumField
-		if field == "" {
-			field = constants.BlockNumberKeyValue
+		if g.BlockNumField == "" {
+			return "", fmt.Errorf("group %s has empty BlockNumField", g.Collection) //nolint:err113
 		}
-		docIDs, err := h.queryCollectionDocIDs(ctx, g.Collection, field, blockNumber, blockNumber)
+		docIDs, err := h.queryCollectionDocIDs(ctx, g.Collection, g.BlockNumField, blockNumber, blockNumber)
 		if err != nil {
 			return "", fmt.Errorf("query docIDs for %s: %w", g.Collection, err) //nolint:err113
 		}
@@ -603,15 +602,15 @@ func (h *BlockHandler) SignExisting(
 // buildBlockSignatureDocument creates a client.Document for a block signature.
 func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig *node.BatchSignature, blockHash string, blockNumber int64, col client.Collection, sortedCIDStrings []string) (*client.Document, error) {
 	data := map[string]any{
-		constants.BlockNumberKeyValue: blockNumber,
-		constants.BlockHashKeyValue:   blockHash,
-		"merkleRoot":                  hex.EncodeToString(blockSig.MerkleRoot),
-		"cidCount":                    blockSig.CIDCount,
-		"cids":                        sortedCIDStrings,
-		"signatureType":               blockSig.Header.Type,
-		"signatureIdentity":           string(blockSig.Header.Identity),
-		"signatureValue":              hex.EncodeToString(blockSig.Value),
-		"createdAt":                   time.Now().UTC().Format(time.RFC3339),
+		"blockNumber":       blockNumber,
+		"blockHash":         blockHash,
+		"merkleRoot":        hex.EncodeToString(blockSig.MerkleRoot),
+		"cidCount":          blockSig.CIDCount,
+		"cids":              sortedCIDStrings,
+		"signatureType":     blockSig.Header.Type,
+		"signatureIdentity": string(blockSig.Header.Identity),
+		"signatureValue":    hex.EncodeToString(blockSig.Value),
+		"createdAt":         time.Now().UTC().Format(time.RFC3339),
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }

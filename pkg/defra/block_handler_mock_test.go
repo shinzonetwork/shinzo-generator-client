@@ -680,8 +680,8 @@ func TestExistingSig_CIDRetry_IncompleteCoverageMessage(t *testing.T) {
 			// the failure message reports the count with the attempt it was observed on.
 			result := chains.ConversionResult{
 				Groups: []chains.DocumentGroup{
-					{Collection: colBlock},
-					{Collection: colTransaction},
+					{Collection: colBlock, BlockNumField: "blockNumber"},
+					{Collection: colTransaction, BlockNumField: "blockNumber"},
 				},
 				SignatureCollection: colBlockSignature,
 			}
@@ -692,6 +692,30 @@ func TestExistingSig_CIDRetry_IncompleteCoverageMessage(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.wantMsg)
 		})
 	}
+}
+
+func TestExistingSig_EmptyBlockNumFieldFailsFast(t *testing.T) {
+	t.Parallel()
+	queries := 0
+	db := &mockBlockDB{
+		execReqFn: func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+			queries++
+			return &client.RequestResult{}
+		},
+	}
+	h := newMockHandler(t, db)
+	result := chains.ConversionResult{
+		Groups: []chains.DocumentGroup{
+			{Collection: colBlock},
+		},
+		SignatureCollection: colBlockSignature,
+	}
+
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty BlockNumField")
+	assert.Contains(t, err.Error(), colBlock)
+	assert.Zero(t, queries, "no query may be issued for a contract-violating group")
 }
 
 // =========================================================================
