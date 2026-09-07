@@ -251,8 +251,10 @@ func toInt64(v any) (int64, error) {
 // access-list entries, etc.) from the ConversionResult. It writes the block
 // document first, then writes the remaining groups in order, resolving
 // cross-document link fields (_blockID, _transactionID) via the
-// chain-provided LinkStamper. The block signature is created over the
-// collected CIDs when signing identity is available.
+// chain-provided LinkStamper. Stamping failures are collected as batch errors,
+// which suppress the block signature and surface in Store's returned error.
+// The block signature is created over the collected CIDs when signing identity
+// is available.
 func (h *BlockHandler) Store(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -284,17 +286,15 @@ func (h *BlockHandler) Store(
 		return nil, err
 	}
 
-	if result.LinkStamper != nil {
-		result.LinkStamper.StampLinks(result.Groups, blockGroup.Collection, blockGroup.Docs, []string{blockID})
-	}
-
 	allDocIDs := []string{blockID}
 	otherDocIDs := map[string][]string{}
 	var batchErrors []error
 
+	stampGroupLinks(result, blockGroup, []string{blockID}, &batchErrors)
+
 	for _, g := range result.Groups[1:] {
-		if result.LinkStamper != nil {
-			result.LinkStamper.StampLinks(result.Groups, g.Collection, g.Docs, nil)
+		if !stampGroupLinks(result, g, nil, &batchErrors) {
+			continue
 		}
 
 		ids, err := h.writeGroup(ctx, blockInt, g)
@@ -302,9 +302,7 @@ func (h *BlockHandler) Store(
 			batchErrors = append(batchErrors, err)
 		}
 
-		if result.LinkStamper != nil {
-			result.LinkStamper.StampLinks(result.Groups, g.Collection, g.Docs, ids)
-		}
+		stampGroupLinks(result, g, ids, &batchErrors)
 
 		otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
 		allDocIDs = append(allDocIDs, ids...)
@@ -332,6 +330,26 @@ func (h *BlockHandler) Store(
 	}
 
 	return creationResult, nil
+}
+
+// stampGroupLinks stamps a group's documents via the conversion result's
+// LinkStamper, when one is configured. A stamping failure is recorded in
+// batchErrors and reported as false so callers can skip the affected group;
+// a nil stamper is a no-op.
+func stampGroupLinks(
+	result chains.ConversionResult,
+	group chains.DocumentGroup,
+	docIDs []string,
+	batchErrors *[]error,
+) bool {
+	if result.LinkStamper == nil {
+		return true
+	}
+	if err := result.LinkStamper.StampLinks(result.Groups, group.Collection, group.Docs, docIDs); err != nil {
+		*batchErrors = append(*batchErrors, err)
+		return false
+	}
+	return true
 }
 
 // writeGroup writes a DocumentGroup's docs in batches, returning all docIDs.
