@@ -618,24 +618,34 @@ func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig
 
 // waitForCIDs collects the CIDs for allDocIDs, retrying while they are still arriving (P2P data
 // can lag). It returns the CIDs only once every document has one; partial coverage is an error so
-// a signature is never made over a subset of the block.
+// a signature is never made over a subset of the block. Backoff waits are cancellable: a cancelled
+// ctx stops the loop within one backoff tick (no further queries are issued) and returns ctx.Err().
 func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDocIDs []string, collectionNames []string) ([]cid.Cid, error) {
 	maxRetries := h.maxCIDRetries
 	var lastCIDCount int
+	var lastCountAttempt int
 	var lastErr error
 
 	for attempt := range maxRetries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		cids, err := h.collectDocCIDsFn(ctx, allDocIDs, collectionNames)
 		if err != nil {
 			lastErr = err
 			logger.Sugar.Warnf("Block %d: CID query failed (attempt %d/%d): %v", blockNumber, attempt+1, maxRetries, err)
 			if attempt < maxRetries-1 {
-				time.Sleep(h.retryBackoffFn(attempt))
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(h.retryBackoffFn(attempt)):
+				}
 			}
 			continue
 		}
 
 		lastCIDCount = len(cids)
+		lastCountAttempt = attempt + 1
 		if len(cids) >= len(allDocIDs) {
 			return cids, nil
 		}
@@ -644,7 +654,11 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 		if attempt < maxRetries-1 {
 			logger.Sugar.Debugf("Block %d: waiting for P2P data (%d/%d CIDs, attempt %d/%d)",
 				blockNumber, len(cids), len(allDocIDs), attempt+1, maxRetries)
-			time.Sleep(h.retryBackoffFn(attempt))
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(h.retryBackoffFn(attempt)):
+			}
 		}
 	}
 
@@ -652,8 +666,8 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 		return nil, fmt.Errorf("no CIDs found for block %d after %d retries (%d docs): %w", //nolint:err113
 			blockNumber, maxRetries, len(allDocIDs), lastErr)
 	}
-	return nil, fmt.Errorf("incomplete CID coverage for block %d after %d retries (%d/%d docs): %w", //nolint:err113
-		blockNumber, maxRetries, lastCIDCount, len(allDocIDs), lastErr)
+	return nil, fmt.Errorf("incomplete CID coverage for block %d after %d retries (%d/%d docs as of attempt %d/%d): %w", //nolint:err113
+		blockNumber, maxRetries, lastCIDCount, len(allDocIDs), lastCountAttempt, maxRetries, lastErr)
 }
 
 // signBlockOverCIDs signs the block over cids and stores the signature, returning its document id.
@@ -757,7 +771,11 @@ func (h *BlockHandler) writeBatchWithRetry(ctx context.Context, blockInt int64, 
 			return err
 		}
 		logger.Sugar.Infof("Block %d: %s batch conflict, retrying (attempt %d/%d)", blockInt, kind, attempt+1, maxBatchRetries)
-		time.Sleep(time.Duration(attempt+1) * batchConflictRetryDelay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * batchConflictRetryDelay):
+		}
 	}
 	return nil
 }
