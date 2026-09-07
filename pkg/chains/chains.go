@@ -177,27 +177,37 @@ type DocumentGroup struct {
 }
 
 // LinkStamper resolves cross-document link fields (_blockID, _transactionID)
-// after AddDocument assigns persistent docIDs. It mutates the groups' doc
-// maps in-place. Called by BlockHandler.Store in group order (block → tx →
-// log → ALE) so the stamper can build internal lookup maps as each group
-// is written.
+// around document writes. BlockHandler.Store runs every group — the block
+// group included — through the same uniform protocol: StampBeforeWrite, then
+// the write, then RecordDocIDs, in group order (block → tx → log → ALE) so
+// the stamper can build internal lookup maps as each group is written.
 //
-// StampLinks is dual-mode: BlockHandler.Store calls it once per group with
-// nil writtenDocIDs before the group is written (pre-write stamping of links
-// derivable from already-written groups) and again with the assigned docIDs
-// after the write (post-write registration of lookup state such as the
-// block docID and txHash→docID mappings).
+// StampBeforeWrite mutates the docs in-place, stamping link fields derivable
+// from already-recorded state (e.g. the block docID registered by the block
+// group's RecordDocIDs). RecordDocIDs never mutates docs — it harvests the
+// write's assigned docIDs into lookup state (the block docID, txHash→docID
+// mappings) consumed by later groups' StampBeforeWrite.
 //
-// Error contract: StampLinks returns an error for malformed input (missing,
-// non-string, or empty link keys), for link state that is not yet resolvable
-// (e.g. stamping before a block docID was registered), and for an unknown
-// writtenCollection. A writtenDocIDs slice shorter than writtenDocs is a
-// routine partial write — not an error: createDocBatch returns partial IDs
-// on batch failure and re-indexed blocks return none at all (the docs
-// already exist). Implementations must never register or stamp an empty
-// string as a link value.
+// Error contract (both methods): malformed input (missing, non-string, or
+// empty link keys), link state that is not yet resolvable (e.g. stamping
+// before a block docID was registered), and an unknown collection.
+// Implementations must never register or stamp an empty string as a link
+// value.
 type LinkStamper interface {
-	StampLinks(groups []DocumentGroup, writtenCollection string, writtenDocs []map[string]any, writtenDocIDs []string) error
+	// StampBeforeWrite stamps link fields derivable from already-recorded
+	// state into docs, in-place, before they are written.
+	StampBeforeWrite(collection string, docs []map[string]any) error
+
+	// RecordDocIDs records the write's assigned docIDs as lookup state for
+	// later groups, without mutating docs.
+	//
+	// Partial-write contract: an ids slice shorter than docs is a routine
+	// partial write — not an error. Batches that fail partway return the
+	// partial IDs, and re-indexed blocks return none at all (the docs
+	// already exist). Registration is skipped for uncovered docs: a debug
+	// log per skipped doc when some IDs are present, fully silent when none
+	// are. Short input never errors and never panics.
+	RecordDocIDs(collection string, docs []map[string]any, ids []string) error
 }
 
 // ConversionResult is the output of Converter.Convert — it bundles the
