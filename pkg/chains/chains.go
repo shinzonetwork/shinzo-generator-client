@@ -181,8 +181,23 @@ type DocumentGroup struct {
 // maps in-place. Called by BlockHandler.Store in group order (block → tx →
 // log → ALE) so the stamper can build internal lookup maps as each group
 // is written.
+//
+// StampLinks is dual-mode: BlockHandler.Store calls it once per group with
+// nil writtenDocIDs before the group is written (pre-write stamping of links
+// derivable from already-written groups) and again with the assigned docIDs
+// after the write (post-write registration of lookup state such as the
+// block docID and txHash→docID mappings).
+//
+// Error contract: StampLinks returns an error for malformed input (missing,
+// non-string, or empty link keys), for link state that is not yet resolvable
+// (e.g. stamping before a block docID was registered), and for an unknown
+// writtenCollection. A writtenDocIDs slice shorter than writtenDocs is a
+// routine partial write — not an error: createDocBatch returns partial IDs
+// on batch failure and re-indexed blocks return none at all (the docs
+// already exist). Implementations must never register or stamp an empty
+// string as a link value.
 type LinkStamper interface {
-	StampLinks(groups []DocumentGroup, writtenCollection string, writtenDocs []map[string]any, writtenDocIDs []string)
+	StampLinks(groups []DocumentGroup, writtenCollection string, writtenDocs []map[string]any, writtenDocIDs []string) error
 }
 
 // ConversionResult is the output of Converter.Convert — it bundles the
