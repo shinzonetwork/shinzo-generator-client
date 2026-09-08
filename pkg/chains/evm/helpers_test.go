@@ -8,8 +8,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/sourcenetwork/defradb/client"
+	"github.com/stretchr/testify/require"
+
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
 func testConfig() *config.Config {
@@ -93,6 +97,26 @@ func fakeReceipt(txHash string, blockNum int64) *TransactionReceipt {
 		GasUsed:           "0x5208",
 		Status:            "0x1",
 	}
+}
+
+// storeTestBlockDoc writes a single block document through the same write
+// path used in production (buildBlockData → NewDocFromMap → AddDocument).
+func storeTestBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter, num int64) string {
+	t.Helper()
+
+	txn, err := td.Node.DB.NewTxn(false)
+	require.NoError(t, err)
+
+	col, err := txn.GetCollectionByName(ctx, c.collections.Block)
+	require.NoError(t, err)
+
+	doc, err := client.NewDocFromMap(ctx, c.buildBlockData(fakeBlock(num), num), col.Version())
+	require.NoError(t, err)
+
+	require.NoError(t, col.AddDocument(ctx, doc))
+	require.NoError(t, txn.Commit())
+
+	return doc.ID().String()
 }
 
 type fakeRPCClient struct {

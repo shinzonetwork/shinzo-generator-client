@@ -26,7 +26,11 @@ type TestDefraDB struct {
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDB(t *testing.T) *TestDefraDB {
-	sdl, err := schema.LoadSchemaSDL(chains.NewStubCollections("Ethereum__Mainnet"))
+	collections, err := chains.NewCollections(nil)
+	if err != nil {
+		t.Fatalf("failed to create collections: %v", err)
+	}
+	sdl, err := schema.LoadSchemaSDL(collections)
 	if err != nil {
 		t.Fatalf("GetSchema: %v", err)
 	}

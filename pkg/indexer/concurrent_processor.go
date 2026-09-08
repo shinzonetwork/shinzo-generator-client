@@ -25,11 +25,9 @@ const (
 
 	// MaxRPCRetries is the maximum number of retries for non-"not found" RPC
 	// errors.
-	// ! TODO: Duplicated across fetcher. Can cause up to 13.5 seconds delays. Revisit use.
 	MaxRPCRetries = 3
 
 	// RPCErrorRetryBaseDelay is the base delay for retrying RPC errors.
-	// ! TODO: Duplicated across fetcher. Can cause up to 13.5 seconds delays. Revisit use.
 	RPCErrorRetryBaseDelay = 500 * time.Millisecond
 )
 

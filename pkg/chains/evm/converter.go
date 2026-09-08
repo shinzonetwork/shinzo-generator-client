@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
@@ -26,6 +28,10 @@ const (
 
 	// defaultNetwork is the fallback network name when config is empty.
 	defaultNetwork = "Mainnet"
+
+	// highestBlockQueryLimit keeps the tip query at a single row: corruption
+	// at the highest block indicates a writer bug, not purge residue.
+	highestBlockQueryLimit = 1
 )
 
 // chainPrefixFromConfig derives the collection prefix (e.g. "Ethereum__Mainnet")
@@ -163,6 +169,15 @@ func (c *Converter) maxDocsPerTxn() int {
 	return 1000 //nolint:mnd
 }
 
+// lowestBlockQueryLimit returns the configured row-window size for the
+// lowest-block number query (converter.lowest_block_query_limit).
+func (c *Converter) lowestBlockQueryLimit() int {
+	if c.cfg != nil && c.cfg.Converter.LowestBlockQueryLimit > 0 {
+		return c.cfg.Converter.LowestBlockQueryLimit
+	}
+	return config.DefaultLowestBlockQueryLimit
+}
+
 func (c *Converter) txBatchSize(defaultBatch int) int {
 	if c.cfg != nil && c.cfg.Indexer.MaxTxDocsPerBatch > 0 {
 		return c.cfg.Indexer.MaxTxDocsPerBatch
@@ -271,12 +286,12 @@ func (c *Converter) SignatureCollection() string {
 
 // GetHighestStoredBlockNumber implements chains.Converter.
 func (c *Converter) GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
-	return c.queryBlockNumber(ctx, n, "DESC", "GetHighestStoredBlockNumber")
+	return c.queryBlockNumber(ctx, n, "DESC", "GetHighestStoredBlockNumber", highestBlockQueryLimit)
 }
 
 // GetLowestStoredBlockNumber implements chains.Converter.
 func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
-	return c.queryBlockNumber(ctx, n, "ASC", "GetLowestStoredBlockNumber")
+	return c.queryBlockNumber(ctx, n, "ASC", "GetLowestStoredBlockNumber", c.lowestBlockQueryLimit())
 }
 
 // GetDocIDsByBlockRange implements chains.Converter. It returns document IDs
@@ -418,11 +433,13 @@ func (c *Converter) BuildBlockSignatureData(
 
 // --- Progress query helpers ---
 
-// queryBlockNumber runs the single-row block-number query with the given
-// ordering ("DESC" or "ASC") and tags all errors with opName.
-func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string) (int64, error) {
+// queryBlockNumber runs the block-number query with the given ordering
+// ("DESC" or "ASC") and row limit, returning the first row whose number
+// field is parseable. Rows with a missing or unparsable number (e.g. purge
+// residue) are skipped and reported; all errors are tagged with opName.
+func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
 	blockCol := c.collections.Block
-	query := `query {` + blockCol + ` (order: {number: ` + order + `}, limit: 1) { number }}`
+	query := `query {` + blockCol + ` (order: {number: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { number _docID }}`
 
 	result := n.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
@@ -434,36 +451,60 @@ func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, o
 		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no data")
 	}
 
-	var block map[string]any
+	var rows []any
 	switch arr := data[blockCol].(type) {
 	case []any:
-		if len(arr) == 0 {
-			return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
-		}
-		var ok bool
-		block, ok = arr[0].(map[string]any)
-		if !ok {
-			return 0, fmt.Errorf("%s: %w", opName, errBlockNumberCorrupt)
-		}
+		rows = arr
 	case []map[string]any:
-		if len(arr) == 0 {
-			return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
+		rows = make([]any, len(arr))
+		for i, m := range arr {
+			rows[i] = m
 		}
-		block = arr[0]
 	default:
 		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
 	}
 
-	switch v := block[constants.NumberFieldValue].(type) {
-	case float64:
-		return int64(v), nil
-	case int64:
-		return v, nil
-	case int:
-		return int64(v), nil
+	if len(rows) == 0 {
+		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
 	}
 
-	return 0, fmt.Errorf("%s: %w", opName, errBlockNumberCorrupt)
+	var skipped []string
+	for _, r := range rows {
+		block, ok := r.(map[string]any)
+		if !ok {
+			skipped = append(skipped, fmt.Sprintf("row=%#v", r))
+			continue
+		}
+		num, ok := parseBlockNumberRow(block)
+		if ok {
+			if len(skipped) > 0 {
+				logger.Sugar.Warnf("%s: skipped %d corrupt block row(s): %s",
+					opName, len(skipped), strings.Join(skipped, "; "))
+			}
+			return num, nil
+		}
+		docID, _ := block["_docID"].(string)
+		raw := block[constants.NumberFieldValue]
+		skipped = append(skipped, fmt.Sprintf("docID=%s number=%T(%v)", docID, raw, raw))
+	}
+
+	return 0, fmt.Errorf("%s: %w (all %d rows corrupt: %s)",
+		opName, errBlockNumberCorrupt, len(rows), strings.Join(skipped, "; "))
+}
+
+// parseBlockNumberRow extracts the block number from a block query row. It
+// reports false when the number field is missing or has an unparseable type.
+func parseBlockNumberRow(block map[string]any) (int64, bool) {
+	switch v := block[constants.NumberFieldValue].(type) {
+	case float64:
+		return int64(v), true
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	default:
+		return 0, false
+	}
 }
 
 // queryCollectionDocIDs queries a single collection for all document IDs
@@ -522,10 +563,4 @@ func (c *Converter) queryCollectionDocIDs(ctx context.Context, n *node.Node, col
 	}
 
 	return allDocIDs, nil
-}
-
-func init() {
-	chains.RegisterConverterFactory("evm", func(cfg *config.Config) (chains.Converter, error) {
-		return NewConverter(cfg), nil
-	})
 }

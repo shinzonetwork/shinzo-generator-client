@@ -707,3 +707,54 @@ func TestSnapshotConfigSetDefaults(t *testing.T) {
 		})
 	}
 }
+
+func TestConverterConfigSetDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    ConverterConfig
+		expected ConverterConfig
+	}{
+		{
+			name:     "empty config gets default",
+			input:    ConverterConfig{},
+			expected: ConverterConfig{LowestBlockQueryLimit: 1},
+		},
+		{
+			name:     "preset value preserved",
+			input:    ConverterConfig{LowestBlockQueryLimit: 7},
+			expected: ConverterConfig{LowestBlockQueryLimit: 7},
+		},
+		{
+			name:     "negative value gets default",
+			input:    ConverterConfig{LowestBlockQueryLimit: -5},
+			expected: ConverterConfig{LowestBlockQueryLimit: 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := tt.input
+			cfg.SetDefaults()
+			assert.Equal(t, tt.expected, cfg)
+		})
+	}
+}
+
+func TestApplyEnvOverrides_ConverterConfig(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("CONVERTER_LOWEST_BLOCK_QUERY_LIMIT", "7")
+	applyEnvOverrides(cfg)
+
+	assert.Equal(t, 7, cfg.Converter.LowestBlockQueryLimit, "Converter.LowestBlockQueryLimit")
+}
+
+func TestApplyEnvOverrides_ConverterConfig_InvalidValue(t *testing.T) {
+	cfg := &Config{Converter: ConverterConfig{LowestBlockQueryLimit: 1}}
+	t.Setenv("CONVERTER_LOWEST_BLOCK_QUERY_LIMIT", "not_a_number")
+	applyEnvOverrides(cfg)
+
+	assert.Equal(t, 1, cfg.Converter.LowestBlockQueryLimit, "invalid env value should be ignored, preset preserved")
+}
