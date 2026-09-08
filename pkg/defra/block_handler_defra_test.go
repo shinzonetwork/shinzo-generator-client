@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
@@ -112,7 +113,7 @@ func TestNewBlockHandler_WithNode(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 	require.NotNil(t, handler)
 	assert.Equal(t, 1000, handler.maxDocsPerTxn)
@@ -122,12 +123,12 @@ func TestNewBlockHandler_DefaultMaxDocsWithNode(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 0, nil)
+	handler, err := NewBlockHandler(td.Node, 0, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 	require.NotNil(t, handler)
 	assert.Equal(t, 1000, handler.maxDocsPerTxn, "maxDocsPerTxn should default to 1000 when 0")
 
-	handler2, err := NewBlockHandler(td.Node, -5, nil)
+	handler2, err := NewBlockHandler(td.Node, -5, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 	require.NotNil(t, handler2)
 	assert.Equal(t, 1000, handler2.maxDocsPerTxn, "maxDocsPerTxn should default to 1000 when negative")
@@ -151,7 +152,7 @@ func TestGetPort_WithNode(t *testing.T) {
 func TestCreateBlockBatch_SingleTxn_BlockOnly(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x64") // 100
@@ -163,7 +164,7 @@ func TestCreateBlockBatch_SingleTxn_BlockOnly(t *testing.T) {
 func TestCreateBlockBatch_SingleTxn_WithTransaction(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0xC8") // 200
@@ -178,7 +179,7 @@ func TestCreateBlockBatch_SingleTxn_WithTransaction(t *testing.T) {
 func TestCreateBlockBatch_SingleTxn_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x12C") // 300
@@ -199,7 +200,7 @@ func TestCreateBlockBatch_SingleTxn_WithAccessList(t *testing.T) {
 func TestCreateBlockBatch_NilBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	_, err = handler.CreateBlockBatch(context.Background(), nil, nil, nil)
@@ -209,7 +210,7 @@ func TestCreateBlockBatch_NilBlock(t *testing.T) {
 func TestCreateBlockBatch_InvalidBlockNumber(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("invalid")
@@ -220,7 +221,7 @@ func TestCreateBlockBatch_InvalidBlockNumber(t *testing.T) {
 func TestCreateBlockBatch_DuplicateBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x190") // 400
@@ -244,7 +245,7 @@ func TestCreateBlockBatch_NilDefraNode(t *testing.T) {
 func TestCreateBlockBatch_WithDocIDTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -269,7 +270,7 @@ func TestCreateBlockBatch_WithDocIDTracker(t *testing.T) {
 func TestCreateBlockBatch_NilTransaction(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x258") // 600
@@ -285,7 +286,7 @@ func TestCreateBlockBatch_NilTransaction(t *testing.T) {
 func TestCreateBlockBatch_NilReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x2BC") // 700
@@ -306,7 +307,7 @@ func TestCreateBlockBatch_BatchedMode(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	// Set very low maxDocsPerTxn to force batched mode
-	handler, err := NewBlockHandler(td.Node, 2, nil)
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x320") // 800
@@ -323,7 +324,7 @@ func TestCreateBlockBatch_BatchedMode(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_WithTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil)
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -350,7 +351,7 @@ func TestCreateBlockBatch_BatchedMode_WithTracker(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_DuplicateBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil)
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x3E8") // 1000
@@ -373,7 +374,7 @@ func TestCreateBlockBatch_BatchedMode_DuplicateBlock(t *testing.T) {
 func TestGetHighestBlockNumber_EmptyDB(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	_, err = handler.GetHighestBlockNumber(context.Background())
@@ -383,7 +384,7 @@ func TestGetHighestBlockNumber_EmptyDB(t *testing.T) {
 func TestGetHighestBlockNumber_AfterInserts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	// Insert block 100
@@ -408,7 +409,7 @@ func TestGetHighestBlockNumber_AfterInserts(t *testing.T) {
 func TestGetHighestBlockNumber_NonSequential(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	// Insert blocks in non-sequential order
@@ -446,7 +447,7 @@ func TestGetLowestBlockNumber(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			td := testutils.SetupTestDefraDB(t)
-			handler, err := NewBlockHandler(td.Node, 1000, nil)
+			handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 			require.NoError(t, err)
 
 			for _, num := range tc.blocks {
@@ -480,7 +481,7 @@ func TestGetLowestBlockNumber(t *testing.T) {
 func TestCreateBlockBatch_MultipleTransactionsNoReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x44C") // 1100
@@ -499,7 +500,7 @@ func TestCreateBlockBatch_MultipleTransactionsNoReceipts(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched
 	require.NoError(t, err)
 
 	block := mockBlock("0x4B0") // 1200
@@ -541,7 +542,7 @@ func ctxWithIdentity(t *testing.T) context.Context {
 func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_BlockOnly(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -554,7 +555,7 @@ func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_BlockOnly(t *testing.T) 
 func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_FullBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -576,7 +577,7 @@ func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_FullBlock(t *testing.T) 
 func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -601,7 +602,7 @@ func TestCreateBlockBatch_SingleTxn_WithSigningIdentity_AndTracker(t *testing.T)
 func TestCreateBlockBatch_SingleTxn_DuplicateWithIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -622,7 +623,7 @@ func TestCreateBlockBatch_SingleTxn_DuplicateWithIdentity(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_WithSigningIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched mode
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched mode
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -640,7 +641,7 @@ func TestCreateBlockBatch_BatchedMode_WithSigningIdentity(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched mode
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched mode
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -679,7 +680,7 @@ func TestCreateBlockBatch_BatchedMode_WithSigningIdentity_AndTracker(t *testing.
 func TestCreateBlockBatch_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched mode
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched mode
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -729,7 +730,7 @@ func TestCreateBlockBatch_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.
 func TestCreateBlockBatch_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched mode
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched mode
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -753,7 +754,7 @@ func TestCreateBlockBatch_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_NilTransactionsInBatch(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched
 	require.NoError(t, err)
 
 	block := mockBlock("0x7D0") // 2000
@@ -774,7 +775,7 @@ func TestCreateBlockBatch_BatchedMode_NilTransactionsInBatch(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_NilReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched
 	require.NoError(t, err)
 
 	block := mockBlock("0x834") // 2100
@@ -795,7 +796,7 @@ func TestCreateBlockBatch_BatchedMode_NilReceipts(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_ManyLogs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched
 	require.NoError(t, err)
 
 	block := mockBlock("0x898") // 2200
@@ -869,7 +870,7 @@ func TestCreateBlockSignatureForExistingBlock_NilDefraNode(t *testing.T) {
 func TestCreateBlockSignatureForExistingBlock_Success(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	// Create a block WITHOUT identity (simulates P2P replication where block arrives
@@ -893,7 +894,7 @@ func TestCreateBlockSignatureForExistingBlock_Success(t *testing.T) {
 func TestCreateBlockSignatureForExistingBlock_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x960") // 2400
@@ -922,7 +923,7 @@ func TestCreateBlockSignatureForExistingBlock_WithAccessList(t *testing.T) {
 func TestCreateBlockSignatureForExistingBlock_NilTransactionsAndReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0x9C4") // 2500
@@ -943,7 +944,7 @@ func TestCreateBlockSignatureForExistingBlock_NilTransactionsAndReceipts(t *test
 func TestCreateBlockSignatureForExistingBlock_NilTxInList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0xA28") // 2600
@@ -966,7 +967,7 @@ func TestCreateBlockSignatureForExistingBlock_NilTxInList(t *testing.T) {
 func TestCreateBlockSignatureForExistingBlock_NoIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	// Create a block first without identity
@@ -990,7 +991,7 @@ func TestCreateBlockSignatureForExistingBlock_NoIdentity(t *testing.T) {
 func TestGetHighestBlockNumber_SingleBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0xAF0") // 2800
@@ -1005,7 +1006,7 @@ func TestGetHighestBlockNumber_SingleBlock(t *testing.T) {
 func TestGetHighestBlockNumber_LargeBlockNumber(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	// Use a large block number to ensure int64 handling works
@@ -1025,7 +1026,7 @@ func TestGetHighestBlockNumber_LargeBlockNumber(t *testing.T) {
 func TestCreateBlockBatch_SingleTxn_TxWithNoMatchingReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	block := mockBlock("0xB54") // 2900
@@ -1045,7 +1046,7 @@ func TestCreateBlockBatch_SingleTxn_TxWithNoMatchingReceipt(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched
 	require.NoError(t, err)
 
 	block := mockBlock("0xBB8") // 3000
@@ -1066,7 +1067,7 @@ func TestCreateBlockBatch_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_ManyAccessListEntries(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2, nil) // force batched
+	handler, err := NewBlockHandler(td.Node, 2, chains.NewStubCollections("Ethereum__Mainnet")) // force batched
 	require.NoError(t, err)
 
 	block := mockBlock("0xC1C") // 3100
@@ -1099,7 +1100,7 @@ func TestCreateBlockBatch_BatchedMode_ManyAccessListEntries(t *testing.T) {
 func TestCreateBlockBatch_BatchedMode_TransactionsMultipleBatches(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1, nil) // force batched with batchSize=1
+	handler, err := NewBlockHandler(td.Node, 1, chains.NewStubCollections("Ethereum__Mainnet")) // force batched with batchSize=1
 	require.NoError(t, err)
 
 	block := mockBlock("0xCE4") // 3300
@@ -1125,7 +1126,7 @@ func TestCreateBlockBatch_BatchedMode_TransactionsMultipleBatches(t *testing.T) 
 func TestGetHighestBlockNumber_ThreeBlocksDescOrder(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000, nil)
+	handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 	require.NoError(t, err)
 
 	blocks := []struct {
@@ -1239,7 +1240,7 @@ func TestGetDocIDsByBlockRange(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			td := testutils.SetupTestDefraDB(t)
-			handler, err := NewBlockHandler(td.Node, 1000, nil)
+			handler, err := NewBlockHandler(td.Node, 1000, chains.NewStubCollections("Ethereum__Mainnet"))
 			require.NoError(t, err)
 
 			ctx := ctxWithIdentity(t)

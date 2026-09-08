@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -34,8 +35,8 @@ func TestNewPruner(t *testing.T) {
 
 	t.Run("with chain resolves collection names", func(t *testing.T) {
 		mock := &testutils.MockChain{
-			GetCollectionsFn: func() []string {
-				return []string{"Test__Block", "Test__BlockSignature", "Test__Transaction"}
+			CollectionsFn: func() chains.Collections {
+				return chains.NewStubCollections("Test")
 			},
 		}
 		p := NewPruner(cfg, nil, mock)

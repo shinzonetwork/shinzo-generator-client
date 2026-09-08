@@ -809,7 +809,7 @@ func TestApplySchemaViaHTTP_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, callCount, "monolithic path should make exactly 1 POST")
 }
@@ -822,14 +822,14 @@ func TestApplySchemaViaHTTP_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "500")
 }
 
 func TestApplySchemaViaHTTP_ConnectionRefused(t *testing.T) {
 	t.Parallel()
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), "http://127.0.0.1:1", constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), "http://127.0.0.1:1", evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	assert.Error(t, err)
 }
 
@@ -853,7 +853,7 @@ func TestApplySchemaViaHTTP_AlreadyExistsFallsBackToPerFile(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, constants.DefaultCollectionPrefix)
+	err := defradb.ApplyCollectionSchemasViaHTTP(context.Background(), server.URL, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	assert.NoError(t, err)
 	assert.Greater(t, callCount, 1, "should fall back to per-file after monolithic already-exists")
 }
@@ -1085,7 +1085,7 @@ func fakeDocID(seed int) string {
 func TestTrackBlock_Success(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(1),
@@ -1103,7 +1103,7 @@ func TestTrackBlock_Success(t *testing.T) {
 func TestTrackBlock_MultipleBlocks(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
 	for i := int64(100); i < 105; i++ {
 		result := &defra.BlockCreationResult{
@@ -1119,7 +1119,7 @@ func TestTrackBlock_MultipleBlocks(t *testing.T) {
 func TestTrackBlock_EmptyResult(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID: fakeDocID(1),
@@ -1133,7 +1133,7 @@ func TestTrackBlock_EmptyResult(t *testing.T) {
 func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(1),
@@ -1143,14 +1143,14 @@ func TestTrackBlock_PassesCorrectCollectionNames(t *testing.T) {
 		BlockSignatureID: fakeDocID(5),
 	}
 
-	// The tracker maps to constants.CollectionTransaction, CollectionLog, CollectionAccessListEntry.
+	// The tracker maps to evm.CollectionTransaction, CollectionLog, CollectionAccessListEntry.
 	err := tracker.TrackBlock(context.Background(), 100, result)
 	require.NoError(t, err)
 
 	// Verify the constants are used (they should match what pruner expects).
-	assert.NotEmpty(t, constants.CollectionTransaction)
-	assert.NotEmpty(t, constants.CollectionLog)
-	assert.NotEmpty(t, constants.CollectionAccessListEntry)
+	assert.NotEmpty(t, evm.CollectionTransaction)
+	assert.NotEmpty(t, evm.CollectionLog)
+	assert.NotEmpty(t, evm.CollectionAccessListEntry)
 }
 
 // ---------------------------------------------------------------------------.
@@ -2225,7 +2225,7 @@ func TestGetDefraDBPort_Consistency(t *testing.T) {
 func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
 	t.Parallel()
 	queue := pruner.NewIndexerQueue()
-	tracker := &indexerQueueTracker{queue: queue, collections: constants.NewCollectionNames(constants.DefaultCollectionPrefix)}
+	tracker := &indexerQueueTracker{queue: queue, collections: evm.NewCollectionNames(evm.DefaultCollectionPrefix)}
 
 	result := &defra.BlockCreationResult{
 		BlockID:          fakeDocID(100),
@@ -2240,9 +2240,9 @@ func TestIndexerQueueTracker_CorrectCollections(t *testing.T) {
 	assert.Equal(t, 1, queue.Len())
 
 	// Verify collection names contain expected substrings.
-	assert.Contains(t, constants.CollectionTransaction, "Transaction")
-	assert.Contains(t, constants.CollectionLog, "Log")
-	assert.Contains(t, constants.CollectionAccessListEntry, "AccessListEntry")
+	assert.Contains(t, evm.CollectionTransaction, "Transaction")
+	assert.Contains(t, evm.CollectionLog, "Log")
+	assert.Contains(t, evm.CollectionAccessListEntry, "AccessListEntry")
 }
 
 // ---------------------------------------------------------------------------.
@@ -3329,7 +3329,7 @@ func TestStartIndexing_ResumeFromQueue(t *testing.T) {
 	queue := pruner.NewIndexerQueue()
 	for i := int64(90000); i <= 90010; i++ {
 		_ = queue.TrackBlockDocIDs(i, fakeDocID(int(i)), map[string][]string{
-			constants.CollectionTransaction: {fakeDocID(int(i) + 10000)},
+			evm.CollectionTransaction: {fakeDocID(int(i) + 10000)},
 		}, fakeDocID(int(i)+20000))
 	}
 	queueFilePath := filepath.Join(tmpDir, "prune_queue.gob")
@@ -5139,16 +5139,9 @@ func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
 		cfg:       cfg,
 	}
 
-	rpcServer := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
-		return "0x1", nil
-	})
-	defer rpcServer.Close()
-
-	adapter := newTestAdapter(t, td, rpcServer.URL, 2)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	err := indexer.initServices(ctx, cfg, adapter)
+	err := indexer.initServices(ctx, cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "schema auth configuration")
 	assert.ErrorIs(t, err, ErrMTLSNotImplemented)

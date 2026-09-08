@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/crypto"
@@ -396,10 +396,10 @@ func TestClientApplyCollectionSchemas(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = client.Stop(ctx) }()
 
-	err = client.ApplyCollectionSchemas(ctx, "")
+	err = client.ApplyCollectionSchemas(ctx, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
-	for _, typeName := range constants.DefaultCollections() {
+	for _, typeName := range evm.DefaultCollections() {
 		result := client.GetNode().DB.ExecRequest(ctx,
 			`query { __type(name: "`+typeName+`") { name } }`)
 		assert.Empty(t, result.GQL.Errors, "should find collection %s without errors", typeName)
@@ -421,10 +421,10 @@ func TestClientApplyCollectionSchemasWithCustomPrefix(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = client.Stop(ctx) }()
 
-	err = client.ApplyCollectionSchemas(ctx, "Arbitrum__Mainnet")
+	err = client.ApplyCollectionSchemas(ctx, evm.NewCollectionNames("Arbitrum__Mainnet"))
 	require.NoError(t, err)
 
-	collections := constants.NewCollectionNames("Arbitrum__Mainnet")
+	collections := evm.NewCollectionNames("Arbitrum__Mainnet")
 	for _, typeName := range collections.AllCollections() {
 		result := client.GetNode().DB.ExecRequest(ctx,
 			`query { __type(name: "`+typeName+`") { name } }`)
@@ -441,7 +441,7 @@ func TestClientApplyCollectionSchemasBeforeStartFails(t *testing.T) {
 
 	ctx := context.Background()
 
-	err = client.ApplyCollectionSchemas(ctx, "")
+	err = client.ApplyCollectionSchemas(ctx, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "must be started")
 }

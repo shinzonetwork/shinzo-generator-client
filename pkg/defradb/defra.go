@@ -13,6 +13,7 @@ import (
 
 	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	indexerErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -639,15 +640,15 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 }
 
 // ApplyCollectionSchemas applies the embedded collection schemas to the
-// started node using the provided chain prefix. If chainPrefix is empty,
-// the default prefix is used. See ApplyCollectionSchemas for details on
-// the monolithic-first strategy and additive-only guarantee.
-func (c *Client) ApplyCollectionSchemas(ctx context.Context, chainPrefix string) error {
+// started node using the given chain's collection names.
+// See ApplyCollectionSchemas for details on the monolithic-first strategy
+// and additive-only guarantee.
+func (c *Client) ApplyCollectionSchemas(ctx context.Context, collections chains.Collections) error {
 	if c.node == nil {
 		return fmt.Errorf("client must be started before applying schema")
 	}
 
-	return ApplyCollectionSchemas(ctx, c.node, chainPrefix)
+	return ApplyCollectionSchemas(ctx, c.node, collections)
 }
 
 // GetNode returns the underlying DefraDB node.
