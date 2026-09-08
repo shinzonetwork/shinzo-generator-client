@@ -599,11 +599,18 @@ func (h *BlockHandler) SignExisting(
 	return h.signBlockOverCIDs(ctx, blockNumber, blockHash, len(allDocIDs), cids, result.SignatureCollection)
 }
 
+// Field names of the block-signature document, matching the
+// blockSignature collection SDL.
+const (
+	sigFieldBlockNumber = "blockNumber"
+	sigFieldBlockHash   = "blockHash"
+)
+
 // buildBlockSignatureDocument creates a client.Document for a block signature.
 func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig *node.BatchSignature, blockHash string, blockNumber int64, col client.Collection, sortedCIDStrings []string) (*client.Document, error) {
 	data := map[string]any{
-		"blockNumber":       blockNumber,
-		"blockHash":         blockHash,
+		sigFieldBlockNumber: blockNumber,
+		sigFieldBlockHash:   blockHash,
 		"merkleRoot":        hex.EncodeToString(blockSig.MerkleRoot),
 		"cidCount":          blockSig.CIDCount,
 		"cids":              sortedCIDStrings,
