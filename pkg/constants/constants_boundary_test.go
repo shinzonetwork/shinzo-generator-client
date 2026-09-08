@@ -1,4 +1,4 @@
-package constants_test
+package constants
 
 import (
 	"fmt"
