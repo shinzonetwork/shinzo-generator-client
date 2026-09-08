@@ -50,8 +50,7 @@ func TestNetworkErrorConstructors(t *testing.T) {
 				t.Errorf("Retryable() = %v, want %v", tt.err.Retryable(), tt.retryable)
 			}
 
-			var netErr *NetworkError
-			if !errors.As(tt.err, &netErr) {
+			if _, ok := errors.AsType[*NetworkError](tt.err); !ok {
 				t.Error("expected error to be *NetworkError")
 			}
 
@@ -111,8 +110,7 @@ func TestDataErrorConstructors(t *testing.T) {
 				t.Errorf("Retryable() = %v, want %v", tt.err.Retryable(), tt.retryable)
 			}
 
-			var dataErr *DataError
-			if !errors.As(tt.err, &dataErr) {
+			if _, ok := errors.AsType[*DataError](tt.err); !ok {
 				t.Error("expected error to be *DataError")
 			}
 		})
@@ -159,8 +157,7 @@ func TestStorageErrorConstructors(t *testing.T) {
 				t.Errorf("Retryable() = %v, want %v", tt.err.Retryable(), tt.retryable)
 			}
 
-			var storageErr *StorageError
-			if !errors.As(tt.err, &storageErr) {
+			if _, ok := errors.AsType[*StorageError](tt.err); !ok {
 				t.Error("expected error to be *StorageError")
 			}
 		})
@@ -202,8 +199,7 @@ func TestSystemErrorConstructors(t *testing.T) {
 				t.Errorf("Retryable() = %v, want %v", tt.err.Retryable(), tt.retryable)
 			}
 
-			var sysErr *SystemError
-			if !errors.As(tt.err, &sysErr) {
+			if _, ok := errors.AsType[*SystemError](tt.err); !ok {
 				t.Error("expected error to be *SystemError")
 			}
 		})

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
@@ -17,6 +18,19 @@ const (
 
 	// DispatchThrottleDelay is the delay when the processor is too far ahead of committed blocks.
 	DispatchThrottleDelay = 100 * time.Millisecond
+
+	// transactionConflictRetryBaseDelay is the base delay for retrying
+	// transaction conflicts on store.
+	transactionConflictRetryBaseDelay = 50 * time.Millisecond
+
+	// MaxRPCRetries is the maximum number of retries for non-"not found" RPC
+	// errors.
+	// ! TODO: Duplicated across fetcher. Can cause up to 13.5 seconds delays. Revisit use.
+	MaxRPCRetries = 3
+
+	// RPCErrorRetryBaseDelay is the base delay for retrying RPC errors.
+	// ! TODO: Duplicated across fetcher. Can cause up to 13.5 seconds delays. Revisit use.
+	RPCErrorRetryBaseDelay = 500 * time.Millisecond
 )
 
 // BlockResult holds the result of processing a block.
@@ -27,9 +41,19 @@ type BlockResult struct {
 	Error    error
 }
 
+// BlockStorer is the store-side interface used by the processor. The concrete
+// *defra.BlockHandler satisfies it; the interface enables pure unit tests with
+// a mock.
+type BlockStorer interface {
+	Store(ctx context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error)
+	SignExisting(ctx context.Context, result chains.ConversionResult, blockHash string, blockNumber int64) (string, error)
+}
+
 // ConcurrentBlockProcessor processes multiple blocks concurrently.
 type ConcurrentBlockProcessor struct {
-	chain           chains.Chain
+	fetcher         chains.Fetcher
+	converter       chains.Converter
+	blockHandler    BlockStorer
 	workers         int
 	blocksPerMinute int
 	resultChan      chan *BlockResult
@@ -40,12 +64,16 @@ type ConcurrentBlockProcessor struct {
 
 // NewConcurrentBlockProcessor creates a new concurrent processor.
 func NewConcurrentBlockProcessor(
-	chain chains.Chain,
+	fetcher chains.Fetcher,
+	converter chains.Converter,
+	blockHandler BlockStorer,
 	workers int,
 	blocksPerMinute int,
 ) *ConcurrentBlockProcessor {
 	return &ConcurrentBlockProcessor{
-		chain:           chain,
+		fetcher:         fetcher,
+		converter:       converter,
+		blockHandler:    blockHandler,
 		workers:         workers,
 		blocksPerMinute: blocksPerMinute,
 		resultChan:      make(chan *BlockResult, workers*DefaultWorkersAhead),
@@ -179,39 +207,115 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 	}
 }
 
-// fetchAndProcessBlock calls chain.FetchAndStoreBlock. The adapter retries
-// non-not-found RPC errors internally (up to maxRPCRetries with linear
-// backoff); the processor only handles not-found with infinite retry
-// (block may not be mined yet). This avoids double-retry (previously
-// 3×3=9 attempts).
+// fetchAndProcessBlock fetches, converts, and stores a block with retry
+// classification:
+//   - fetch not-found: infinite retry with BlockNotFoundRetryDelay
+//   - fetch other errors: up to MaxRPCRetries with linear backoff
+//   - convert: no retry (pure computation)
+//   - store: up to MaxRPCRetries on transaction conflicts; ErrAlreadyExists
+//     triggers a fire-and-forget SignExisting goroutine
 func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blockNum int64) *BlockResult {
-	result := &BlockResult{BlockNum: blockNum}
+	raw, err := p.fetchBlockWithRetry(ctx, blockNum)
+	if err != nil {
+		return &BlockResult{BlockNum: blockNum, Error: err}
+	}
 
+	result, err := p.converter.Convert(ctx, raw)
+	if err != nil {
+		return &BlockResult{BlockNum: blockNum, Error: fmt.Errorf("convert block: %w", err)}
+	}
+
+	return p.storeWithRetry(ctx, blockNum, result)
+}
+
+// fetchBlockWithRetry fetches a block from the fetcher with retry
+// classification:
+//   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
+//   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
+func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
+	otherErrors := 0
 	for {
 		if ctx.Err() != nil {
-			result.Error = ctx.Err()
-			return result
+			return nil, ctx.Err()
 		}
 
-		blockID, err := p.chain.FetchAndStoreBlock(ctx, blockNum)
+		raw, err := p.fetcher.FetchBlock(ctx, blockNum)
 		if err == nil {
-			result.BlockID = blockID
-			result.Success = true
-			return result
+			return raw, nil
 		}
 
 		if errors.IsErrNotFound(err) {
 			logger.Sugar.Infof("Block %d not available yet, waiting...", blockNum)
 			select {
 			case <-ctx.Done():
-				result.Error = ctx.Err()
-				return result
+				return nil, ctx.Err()
 			case <-time.After(BlockNotFoundRetryDelay):
 			}
 			continue
 		}
 
-		result.Error = fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
-		return result
+		otherErrors++
+		if otherErrors >= MaxRPCRetries {
+			return nil, fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(otherErrors) * RPCErrorRetryBaseDelay):
+		}
 	}
+}
+
+// storeWithRetry persists a ConversionResult via the block handler. On
+// ErrAlreadyExists it spawns a fire-and-forget SignExisting goroutine and
+// returns success. Transaction conflicts are retried up to MaxRPCRetries
+// times with transactionConflictRetryBaseDelay backoff.
+func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum int64, result chains.ConversionResult) *BlockResult {
+	blockHash := extractBlockHash(result.Groups)
+
+	for attempt := range MaxRPCRetries {
+		if ctx.Err() != nil {
+			return &BlockResult{BlockNum: blockNum, Error: ctx.Err()}
+		}
+
+		res, err := p.blockHandler.Store(ctx, result)
+		if err == nil {
+			return &BlockResult{BlockNum: blockNum, BlockID: res.BlockID, Success: true}
+		}
+
+		if errors.IsErrAlreadyExists(err) {
+			go func() {
+				if _, sErr := p.blockHandler.SignExisting(ctx, result, blockHash, blockNum); sErr != nil {
+					logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, sErr)
+				}
+			}()
+			return &BlockResult{BlockNum: blockNum, Success: true}
+		}
+
+		if errors.IsErrTransactionConflict(err) && attempt < MaxRPCRetries-1 {
+			logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", blockNum, attempt+1, MaxRPCRetries)
+			select {
+			case <-ctx.Done():
+				return &BlockResult{BlockNum: blockNum, Error: ctx.Err()}
+			case <-time.After(time.Duration(attempt+1) * transactionConflictRetryBaseDelay):
+			}
+			continue
+		}
+
+		return &BlockResult{BlockNum: blockNum, Error: fmt.Errorf("failed to store block: %w", err)}
+	}
+	return &BlockResult{BlockNum: blockNum, Error: fmt.Errorf("failed to store block %d: exhausted retries", blockNum)}
+}
+
+// extractBlockHash finds the block group (the one with BlockHashField != "")
+// and returns its block hash value. Returns "" if no block group is found.
+func extractBlockHash(groups []chains.DocumentGroup) string {
+	for _, g := range groups {
+		if g.BlockHashField != "" && len(g.Docs) > 0 {
+			if hash, ok := g.Docs[0][g.BlockHashField].(string); ok {
+				return hash
+			}
+		}
+	}
+	return ""
 }

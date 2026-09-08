@@ -8,6 +8,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
@@ -35,24 +36,36 @@ const (
 	testTxColName    = "TestTx"
 )
 
-// testChain implements BlockRangeReader against a real DefraDB node,
+// testChain implements chains.Converter against a real DefraDB node,
 // using GQL queries to fetch block ranges and docIDs. It mirrors the
 // pattern used by BlockHandler but with test-schema collection names.
 type testChain struct {
 	node *node.Node
 }
 
-func (tc *testChain) GetLowestStoredBlockNumber(ctx context.Context) (int64, error) {
+func (tc *testChain) Convert(_ context.Context, _ any) (chains.ConversionResult, error) {
+	return chains.ConversionResult{}, nil
+}
+
+func (tc *testChain) GetSchema() (string, error) {
+	return testSchema, nil
+}
+
+func (tc *testChain) SignatureCollection() string {
+	return "Test__BlockSignature"
+}
+
+func (tc *testChain) GetLowestStoredBlockNumber(ctx context.Context, _ *node.Node) (int64, error) {
 	query := fmt.Sprintf(`query { %s (order: {number: ASC}, limit: 1) { number }}`, testBlockColName)
 	return tc.queryBlockNumber(ctx, query)
 }
 
-func (tc *testChain) GetHighestStoredBlockNumber(ctx context.Context) (int64, error) {
+func (tc *testChain) GetHighestStoredBlockNumber(ctx context.Context, _ *node.Node) (int64, error) {
 	query := fmt.Sprintf(`query { %s (order: {number: DESC}, limit: 1) { number }}`, testBlockColName)
 	return tc.queryBlockNumber(ctx, query)
 }
 
-func (tc *testChain) GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error) {
+func (tc *testChain) GetDocIDsByBlockRange(ctx context.Context, _ *node.Node, from, to int64) (map[string][]string, error) {
 	result := make(map[string][]string)
 
 	for _, col := range []struct {
@@ -110,7 +123,7 @@ func (tc *testChain) GetCollections() []string {
 // Collections returns a StubCollections with the "Test" prefix so the pruner
 // can resolve collection names via the chains.Collections interface.
 func (tc *testChain) Collections() chains.Collections {
-	return chains.NewStubCollections("Test")
+	return evm.NewCollectionNames("Test")
 }
 
 func (tc *testChain) queryBlockNumber(ctx context.Context, query string) (int64, error) {

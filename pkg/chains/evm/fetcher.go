@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 // Fetch-related retry constants. maxRPCRetries is also referenced by
@@ -31,9 +31,9 @@ const (
 // real RPC endpoint. *rpc.EthereumClient satisfies this interface.
 type rpcClient interface {
 	GetLatestBlockNumber(ctx context.Context) (*big.Int, error)
-	GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*types.Block, error)
-	GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*types.TransactionReceipt, error)
-	GetTransactionReceipt(ctx context.Context, txHash string) (*types.TransactionReceipt, error)
+	GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error)
+	GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*TransactionReceipt, error)
+	GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
 	Close() error
 }
 
@@ -43,9 +43,9 @@ type rpcClient interface {
 // type-asserts it now, the converter will type-assert it in Phase C, and the
 // indexer always works with the `any` return value.
 type BlockBundle struct {
-	Block        *types.Block
-	Transactions []*types.Transaction
-	Receipts     []*types.TransactionReceipt
+	Block        *Block
+	Transactions []*Transaction
+	Receipts     []*TransactionReceipt
 }
 
 // Fetcher is the RPC I/O layer for EVM chains. It fetches raw block data
@@ -57,6 +57,15 @@ type BlockBundle struct {
 type Fetcher struct {
 	client         rpcClient
 	receiptWorkers int
+
+	// Connection-config fields populated by NewFetcherFromConfig. When
+	// non-empty, Connect(ctx) dials the RPC endpoint using these values.
+	// The low-level NewFetcher constructor sets client directly and leaves
+	// these blank, making Connect a no-op.
+	nodeURL    string
+	wsURL      string
+	apiKey     string
+	apiKeyType string
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -72,10 +81,47 @@ func NewFetcher(client rpcClient, receiptWorkers int) *Fetcher {
 	}
 }
 
+// NewFetcherFromConfig creates a Fetcher from the given config without dialing
+// the RPC endpoint. Call Connect(ctx) to establish the connection before using
+// FetchBlock/FetchHighestBlockNumber.
+func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
+	if cfg == nil {
+		return nil, errors.NewConfigurationError("chain", "NewFetcherFromConfig", "config is nil", "", nil)
+	}
+	receiptWorkers := cfg.Indexer.ReceiptWorkers
+	if receiptWorkers <= 0 {
+		receiptWorkers = 16 //nolint:mnd
+	}
+	return &Fetcher{
+		nodeURL:        cfg.Geth.NodeURL,
+		wsURL:          cfg.Geth.WsURL,
+		apiKey:         cfg.Geth.APIKey,
+		apiKeyType:     cfg.Geth.APIKeyType,
+		receiptWorkers: receiptWorkers,
+	}, nil
+}
+
+// Connect dials the RPC endpoint using the connection-config fields. If the
+// fetcher was built via NewFetcher (pre-connected client), Connect is a no-op.
+func (f *Fetcher) Connect(_ context.Context) error {
+	if f.client != nil {
+		return nil
+	}
+	client, err := NewEthereumClient(f.nodeURL, f.wsURL, f.apiKey, f.apiKeyType) //nolint:contextcheck // NewEthereumClient does not accept a context yet
+	if err != nil {
+		return fmt.Errorf("create ethereum client: %w", err)
+	}
+	f.client = client
+	return nil
+}
+
 // FetchBlock implements chains.Fetcher. It retrieves the block at the given
 // height along with its transactions and receipts, returning them bundled in a
 // *BlockBundle (typed as any per the interface).
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
+	if f.client == nil {
+		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
+	}
 	block, err := f.fetchBlockWithRetry(ctx, height)
 	if err != nil {
 		return nil, err
@@ -91,6 +137,9 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 // FetchHighestBlockNumber implements chains.Fetcher. It queries the RPC
 // endpoint for the latest block number.
 func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
+	if f.client == nil {
+		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchHighestBlockNumber")
+	}
 	n, err := f.client.GetLatestBlockNumber(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block number: %w", err)
@@ -110,7 +159,7 @@ func (f *Fetcher) Close() error {
 // available on chain the error is returned as-is (it matches
 // errors.IsErrNotFound) so the caller can decide to retry. Other RPC errors
 // are retried up to maxRPCRetries times with linear backoff.
-func (f *Fetcher) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*types.Block, error) {
+func (f *Fetcher) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*Block, error) {
 	otherErrors := 0
 	for {
 		if ctx.Err() != nil {
@@ -142,8 +191,8 @@ func (f *Fetcher) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*typ
 
 // fetchTransactionsAndReceipts builds the transaction pointer slice and fetches
 // receipts, falling back to individual fetches when the batch call fails.
-func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *types.Block, blockNum int64) ([]*types.Transaction, []*types.TransactionReceipt) {
-	transactions := make([]*types.Transaction, len(block.Transactions))
+func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt) {
+	transactions := make([]*Transaction, len(block.Transactions))
 	for i := range block.Transactions {
 		transactions[i] = &block.Transactions[i]
 	}
@@ -157,7 +206,7 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *types
 		logger.Sugar.Debugf("Block %d: eth_getBlockReceipts not available, falling back to individual fetches: %v", blockNum, batchErr)
 	}
 
-	receipts := make([]*types.TransactionReceipt, len(block.Transactions))
+	receipts := make([]*TransactionReceipt, len(block.Transactions))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.receiptWorkers)
 
@@ -183,7 +232,7 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *types
 	}
 	wg.Wait()
 
-	validReceipts := make([]*types.TransactionReceipt, 0, len(receipts))
+	validReceipts := make([]*TransactionReceipt, 0, len(receipts))
 	for _, r := range receipts {
 		if r != nil {
 			validReceipts = append(validReceipts, r)
@@ -191,4 +240,10 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *types
 	}
 
 	return transactions, validReceipts
+}
+
+func init() {
+	chains.RegisterFetcherFactory("evm", func(cfg *config.Config) (chains.Fetcher, error) {
+		return NewFetcherFromConfig(cfg)
+	})
 }

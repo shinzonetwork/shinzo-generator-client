@@ -21,13 +21,6 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// ErrAdapterNotInitialized is returned by methods that require a DefraDB-backed
-// BlockHandler when the adapter has not been initialised via Init.
-//
-// Per the lifecycle contract only GetSchema and GetCollections are valid before
-// Init is called; every other method enforces this guard.
-var ErrAdapterNotInitialized = stderrors.New("chain adapter not initialized: Init must be called before use")
-
 // ErrUnknownCollection is returned by Collections.GetCollection when the given
 // role string does not map to a known collection.
 var ErrUnknownCollection = stderrors.New("unknown collection")
@@ -41,108 +34,6 @@ const (
 	TypeAccessListEntry   = "accessListEntry"
 	TypeLog               = "log"
 )
-
-// Chain is the chain-agnostic interface implemented by each chain backend
-// adapter.
-//
-// All methods are safe to call concurrently after Init has completed.
-type Chain interface {
-	// FetchAndStoreBlock fetches the block and its receipts at the given height
-	// from the chain and persists them via the configured BlockHandler.
-	//
-	// It returns the DefraDB docID of the newly created block document. When the
-	// block already exists in DefraDB a background signing job is enqueued, the
-	// method returns nil, and the returned docID is empty (no new document was
-	// created).
-	//
-	// When the block is not yet available on chain the returned error matches
-	// errors.IsErrNotFound so the caller (e.g. the block processor) can retry.
-	FetchAndStoreBlock(ctx context.Context, height int64) (string, error)
-
-	// FetchHighestBlockNumber returns the latest block number known to the
-	// chain (the on-chain tip), querying the RPC endpoint directly.
-	FetchHighestBlockNumber(ctx context.Context) (int64, error)
-
-	// GetHighestStoredBlockNumber returns the highest block number currently
-	// persisted in DefraDB.
-	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
-
-	// GetLowestStoredBlockNumber returns the lowest block number currently
-	// persisted in DefraDB. Useful for pruning windows.
-	GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
-
-	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
-	// collection whose block-number field falls within [from, to] inclusive.
-	//
-	// The returned map is keyed by collection name. SnapshotSignature docIDs are
-	// intentionally excluded (the snapshotter owns those); BlockSignature
-	// docIDs are included.
-	GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error)
-
-	// GetSchema returns the GraphQL SDL for the configured chain, with
-	// collection names adapted to the chain's prefix.
-	GetSchema() (string, error)
-
-	// GetCollections returns the names of all collections for the configured
-	// chain in dependency-safe order.
-	GetCollections() []string
-}
-
-// Adapter extends Chain with the lifecycle methods needed only by the indexer
-// orchestrator. Pruner, snapshotter, and the concurrent block processor depend
-// solely on Chain — their interfaces stay narrow per the Interface Segregation
-// Principle.
-//
-// *EVMAdapter satisfies Adapter via structural typing.
-type Adapter interface {
-	Chain
-
-	// Init connects to the chain RPC endpoint and prepares the adapter for
-	// block processing. Must be called exactly once after DefraDB is started
-	// and before any fetch/store methods are invoked.
-	Init(ctx context.Context, node *node.Node) error
-
-	// Close releases the adapter's RPC connection and background resources.
-	// Safe to call multiple times.
-	Close() error
-}
-
-// AdapterFactory is the constructor signature each chain family registers
-// under cfg.Chain.Adapter (e.g. "evm", future "cosmos").
-type AdapterFactory func(*config.Config) (Adapter, error)
-
-// adapterRegistry maps adapter names to their factory functions.
-// Populated by each chain package's init() via RegisterAdapter.
-var adapterRegistry = map[string]AdapterFactory{} //nolint:gochecknoglobals
-
-// RegisterAdapter registers a chain-family factory under the given name.
-// Called from each chain package's init(). Safe to call multiple times per
-// name (last wins; tests re-register freely).
-func RegisterAdapter(name string, f AdapterFactory) {
-	adapterRegistry[name] = f
-}
-
-// NewAdapter constructs the chain adapter for the configured chain backend.
-//
-// Dispatch is via the init-time adapter registry: each chain package (e.g.
-// pkg/chains/evm) calls RegisterAdapter in its init(), and the binary
-// blank-imports the package so the registration runs. pkg/chains never
-// imports any chain subpackage, keeping the dependency graph acyclic.
-//
-// pkg/indexer calls this instead of a concrete constructor directly so the
-// indexer names only the chain-agnostic Adapter interface and this factory —
-// never a chain-specific constructor symbol.
-func NewAdapter(cfg *config.Config) (Adapter, error) {
-	name := cfg.Chain.Adapter
-	if name == "" {
-		name = "evm"
-	}
-	f, ok := adapterRegistry[name]
-	if !ok {
-		return nil, fmt.Errorf("%w: unknown chain adapter %q", ErrAdapterNotInitialized, name)
-	}
-	return f(cfg)
-}
 
 // Collections is the chain-agnostic abstraction over a chain family's named
 // collection set. Each chain family (EVM, future Cosmos) implements it so the
@@ -178,6 +69,13 @@ type Collections interface {
 // FetchBlock is safe to call concurrently across different heights; the
 // orchestration layer is responsible for parallel fan-out.
 type Fetcher interface {
+	// Connect dials the chain RPC endpoint using the provided context for
+	// timeout/cancellation. Called after construction (NewFetcherFromConfig)
+	// and before any FetchBlock/FetchHighestBlockNumber calls. If the fetcher
+	// was built with a pre-connected client (e.g. via NewFetcher for tests),
+	// Connect is a no-op.
+	Connect(ctx context.Context) error
+
 	// FetchBlock retrieves the raw block data at the given height from the
 	// chain RPC endpoint. The concrete return type is chain-specific (e.g.
 	// an EVM block bundle); callers type-assert or pass it to a Converter.
@@ -227,6 +125,13 @@ type Converter interface {
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
 	GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
+
+	// SignatureCollection returns the collection name used for block
+	// signatures (e.g. "Ethereum__Mainnet__BlockSignature") without requiring
+	// a ConversionResult. Used by pruner/snapshot to resolve the block
+	// signature collection and by the processor's storeWithRetry when
+	// calling SignExisting.
+	SignatureCollection() string
 }
 
 // DocumentGroup is a batch of documents destined for a single collection.
@@ -242,6 +147,12 @@ type DocumentGroup struct {
 	// (e.g. "number" for block docs, "blockNumber" for tx/log/ale docs).
 	// Used by BlockHandler.SignExisting to query stored docIDs by block number.
 	BlockNumField string
+
+	// BlockHashField is the field name in each doc that holds the block hash
+	// (e.g. "hash" for block docs). Empty for groups that don't carry a block
+	// hash (tx/log/ale). Used by generic extractBlockHash to find the block
+	// hash without chain-specific collection-name knowledge.
+	BlockHashField string
 }
 
 // LinkStamper resolves cross-document link fields (_blockID, _transactionID)
@@ -260,4 +171,63 @@ type ConversionResult struct {
 	Groups              []DocumentGroup
 	SignatureCollection string
 	LinkStamper         LinkStamper
+}
+
+// FetcherFactory is the constructor signature for chain-specific Fetcher
+// implementations. Each chain family registers one under
+// cfg.Chain.Adapter (e.g. "evm").
+type FetcherFactory func(cfg *config.Config) (Fetcher, error)
+
+// ConverterFactory is the constructor signature for chain-specific Converter
+// implementations. Each chain family registers one under
+// cfg.Chain.Adapter (e.g. "evm").
+type ConverterFactory func(cfg *config.Config) (Converter, error)
+
+var (
+	fetcherFactoryRegistry   = map[string]FetcherFactory{}   //nolint:gochecknoglobals
+	converterFactoryRegistry = map[string]ConverterFactory{} //nolint:gochecknoglobals
+)
+
+// RegisterFetcherFactory registers a Fetcher factory under the given name.
+// Called from each chain package's init().
+func RegisterFetcherFactory(name string, factory FetcherFactory) {
+	fetcherFactoryRegistry[name] = factory
+}
+
+// RegisterConverterFactory registers a Converter factory under the given name.
+// Called from each chain package's init().
+func RegisterConverterFactory(name string, factory ConverterFactory) {
+	converterFactoryRegistry[name] = factory
+}
+
+// NewFetcher constructs the chain fetcher for the configured chain backend.
+// Dispatch is via the factory registry: each chain package (e.g.
+// pkg/chains/evm) calls RegisterFetcherFactory in its init(), and the
+// binary blank-imports the package so the registration runs.
+func NewFetcher(cfg *config.Config) (Fetcher, error) {
+	name := cfg.Chain.Adapter
+	if name == "" {
+		name = "evm"
+	}
+	factory, ok := fetcherFactoryRegistry[name]
+	if !ok {
+		return nil, fmt.Errorf("fetcher factory %q not registered", name)
+	}
+	return factory(cfg)
+}
+
+// NewConverter constructs the chain converter for the configured chain backend.
+// Dispatch is via the factory registry: each chain package (e.g.
+// pkg/chains/evm) calls RegisterConverterFactory in its init(), and the
+// binary blank-imports the package so the registration runs.
+func NewConverter(cfg *config.Config) (Converter, error) {
+	name := cfg.Chain.Adapter
+	if name == "" {
+		name = "evm"
+	}
+	factory, ok := converterFactoryRegistry[name]
+	if !ok {
+		return nil, fmt.Errorf("converter factory %q not registered", name)
+	}
+	return factory(cfg)
 }

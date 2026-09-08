@@ -12,7 +12,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -20,6 +19,31 @@ import (
 // errBlockNumberCorrupt indicates that a block document exists in the store
 // but its "number" field is missing or has an unparseable type.
 var errBlockNumberCorrupt = fmt.Errorf("block exists but has invalid or unparseable number field")
+
+const (
+	// defaultChainName is the fallback chain name when config is empty.
+	defaultChainName = "Ethereum"
+
+	// defaultNetwork is the fallback network name when config is empty.
+	defaultNetwork = "Mainnet"
+)
+
+// chainPrefixFromConfig derives the collection prefix (e.g. "Ethereum__Mainnet")
+// from the chain config, applying the same defaults as the existing indexer.
+func chainPrefixFromConfig(cfg *config.Config) string {
+	if cfg == nil {
+		return DefaultCollectionPrefix
+	}
+	name := cfg.Chain.Name
+	network := cfg.Chain.Network
+	if name == "" {
+		name = defaultChainName
+	}
+	if network == "" {
+		network = defaultNetwork
+	}
+	return fmt.Sprintf("%s__%s", name, network)
+}
 
 // Converter is the EVM chain-specific knowledge layer. It implements
 // chains.Converter by transforming raw block data (BlockBundle) into
@@ -90,10 +114,11 @@ func (c *Converter) Convert(
 
 	groups := []chains.DocumentGroup{
 		{
-			Collection:    c.collections.Block,
-			Docs:          []map[string]any{blockData},
-			BatchSize:     defaultBatch,
-			BlockNumField: constants.NumberFieldValue,
+			Collection:     c.collections.Block,
+			Docs:           []map[string]any{blockData},
+			BatchSize:      defaultBatch,
+			BlockNumField:  constants.NumberFieldValue,
+			BlockHashField: constants.HashKeyValue,
 		},
 	}
 	if len(txDocs) > 0 {
@@ -172,8 +197,8 @@ func (c *Converter) buildTransactionDocs(bundle *BlockBundle) []map[string]any {
 }
 
 // buildReceiptMap indexes receipts by transaction hash for log iteration.
-func (c *Converter) buildReceiptMap(receipts []*types.TransactionReceipt) map[string]*types.TransactionReceipt {
-	m := make(map[string]*types.TransactionReceipt)
+func (c *Converter) buildReceiptMap(receipts []*TransactionReceipt) map[string]*TransactionReceipt {
+	m := make(map[string]*TransactionReceipt)
 	for _, receipt := range receipts {
 		if receipt != nil {
 			m[receipt.TransactionHash] = receipt
@@ -183,7 +208,7 @@ func (c *Converter) buildReceiptMap(receipts []*types.TransactionReceipt) map[st
 }
 
 // buildLogDocs builds data maps for all logs found in the receipts.
-func (c *Converter) buildLogDocs(txs []*types.Transaction, receiptMap map[string]*types.TransactionReceipt) []map[string]any {
+func (c *Converter) buildLogDocs(txs []*Transaction, receiptMap map[string]*TransactionReceipt) []map[string]any {
 	var docs []map[string]any
 	for _, tx := range txs {
 		if tx == nil {
@@ -204,7 +229,7 @@ func (c *Converter) buildLogDocs(txs []*types.Transaction, receiptMap map[string
 // It also returns a parallel slice of parent transaction hashes (one per doc)
 // used by the LinkStamper to resolve _transactionID links without requiring a
 // transactionHash field on the ALE schema.
-func (c *Converter) buildALEDocs(txs []*types.Transaction, blockInt int64) ([]map[string]any, []string) {
+func (c *Converter) buildALEDocs(txs []*Transaction, blockInt int64) ([]map[string]any, []string) {
 	var docs []map[string]any
 	var parentRefs []string
 	for _, tx := range txs {
@@ -233,6 +258,15 @@ func (c *Converter) GetCollections() []string {
 // Collections implements chains.Converter.
 func (c *Converter) Collections() chains.Collections {
 	return c.collections
+}
+
+// SignatureCollection implements chains.Converter. It returns the collection
+// name used for block signatures (e.g. "Ethereum__Mainnet__BlockSignature")
+// without requiring a ConversionResult. Used by pruner/snapshot to resolve
+// the block signature collection and by the processor's storeWithRetry when
+// calling SignExisting.
+func (c *Converter) SignatureCollection() string {
+	return c.collections.BlockSignature
 }
 
 // GetHighestStoredBlockNumber implements chains.Converter.
@@ -276,76 +310,76 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 // --- Build helpers (data maps only; Document creation deferred to BlockHandler.Store) ---
 
 // buildBlockData builds the data map for a block document.
-func (c *Converter) buildBlockData(block *types.Block, blockInt int64) map[string]any {
+func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any {
 	return map[string]any{
-		constants.HashKeyValue:     block.Hash,
-		constants.NumberFieldValue: blockInt,
-		"timestamp":                block.Timestamp,
-		"parentHash":               block.ParentHash,
-		"difficulty":               block.Difficulty,
-		"totalDifficulty":          block.TotalDifficulty,
-		"gasUsed":                  block.GasUsed,
-		"gasLimit":                 block.GasLimit,
-		"baseFeePerGas":            block.BaseFeePerGas,
-		"nonce":                    block.Nonce,
-		"miner":                    block.Miner,
-		"size":                     block.Size,
-		"stateRoot":                block.StateRoot,
-		"sha3Uncles":               block.Sha3Uncles,
-		"transactionsRoot":         block.TransactionsRoot,
-		"receiptsRoot":             block.ReceiptsRoot,
-		"logsBloom":                block.LogsBloom,
-		"extraData":                block.ExtraData,
-		"mixHash":                  block.MixHash,
-		"uncles":                   block.Uncles,
+		constants.HashKeyValue:             block.Hash,
+		constants.NumberFieldValue:         blockInt,
+		constants.TimestampKeyValue:        block.Timestamp,
+		constants.ParentHashKeyValue:       block.ParentHash,
+		constants.DifficultyKeyValue:       block.Difficulty,
+		"totalDifficulty":                  block.TotalDifficulty,
+		constants.GasUsedKeyValue:          block.GasUsed,
+		constants.GasLimitKeyValue:         block.GasLimit,
+		"baseFeePerGas":                    block.BaseFeePerGas,
+		constants.NonceKeyValue:            block.Nonce,
+		constants.MinerKeyValue:            block.Miner,
+		"size":                             block.Size,
+		constants.StateRootKeyValue:        block.StateRoot,
+		constants.Sha3UnclesKeyValue:       block.Sha3Uncles,
+		constants.TransactionsRootKeyValue: block.TransactionsRoot,
+		constants.ReceiptsRootKeyValue:     block.ReceiptsRoot,
+		constants.LogsBloomKeyValue:        block.LogsBloom,
+		constants.ExtraDataKeyValue:        block.ExtraData,
+		constants.MixHashKeyValue:          block.MixHash,
+		"uncles":                           block.Uncles,
 	}
 }
 
 // buildTransactionData builds the data map for a transaction document.
 // Link fields (_blockID) are NOT set here; BlockHandler.Store resolves them
 // after AddDocument assigns the block's persistent docID.
-func (c *Converter) buildTransactionData(tx *types.Transaction) map[string]any {
+func (c *Converter) buildTransactionData(tx *Transaction) map[string]any {
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	return map[string]any{
-		constants.HashKeyValue:        tx.Hash,
-		constants.BlockNumberKeyValue: txBlockNum,
-		constants.BlockHashKeyValue:   tx.BlockHash,
-		"transactionIndex":            tx.TransactionIndex,
-		"from":                        tx.From,
-		"to":                          tx.To,
-		"value":                       tx.Value,
-		"gas":                         tx.Gas,
-		"gasPrice":                    tx.GasPrice,
-		"maxFeePerGas":                tx.MaxFeePerGas,
-		"maxPriorityFeePerGas":        tx.MaxPriorityFeePerGas,
-		"input":                       tx.Input,
-		"nonce":                       tx.Nonce,
-		"type":                        tx.Type,
-		"chainId":                     tx.ChainID,
-		"v":                           tx.V,
-		"r":                           tx.R,
-		"s":                           tx.S,
-		"cumulativeGasUsed":           tx.CumulativeGasUsed,
-		"effectiveGasPrice":           tx.EffectiveGasPrice,
-		"status":                      tx.Status,
+		constants.HashKeyValue:              tx.Hash,
+		constants.BlockNumberKeyValue:       txBlockNum,
+		constants.BlockHashKeyValue:         tx.BlockHash,
+		constants.TransactionIndexKeyValue:  tx.TransactionIndex,
+		"from":                              tx.From,
+		"to":                                tx.To,
+		"value":                             tx.Value,
+		"gas":                               tx.Gas,
+		"gasPrice":                          tx.GasPrice,
+		"maxFeePerGas":                      tx.MaxFeePerGas,
+		"maxPriorityFeePerGas":              tx.MaxPriorityFeePerGas,
+		"input":                             tx.Input,
+		constants.NonceKeyValue:             tx.Nonce,
+		constants.TypeKeyValue:              tx.Type,
+		"chainId":                           tx.ChainID,
+		"v":                                 tx.V,
+		"r":                                 tx.R,
+		"s":                                 tx.S,
+		constants.CumulativeGasUsedKeyValue: tx.CumulativeGasUsed,
+		constants.EffectiveGasPriceKeyValue: tx.EffectiveGasPrice,
+		constants.StatusKeyValue:            tx.Status,
 	}
 }
 
 // buildLogData builds the data map for a log document.
 // Link fields (_blockID, _transactionID) are NOT set here; BlockHandler.Store
 // resolves them after AddDocument assigns the block and tx docIDs.
-func (c *Converter) buildLogData(logEntry *types.Log) map[string]any {
+func (c *Converter) buildLogData(logEntry *Log) map[string]any {
 	logBlockNum, _ := utils.HexToInt(logEntry.BlockNumber)
 	return map[string]any{
-		constants.AddressKeyValue:         logEntry.Address,
-		"topics":                          logEntry.Topics,
-		"data":                            logEntry.Data,
-		constants.BlockNumberKeyValue:     logBlockNum,
-		constants.TransactionHashKeyValue: logEntry.TransactionHash,
-		"transactionIndex":                logEntry.TransactionIndex,
-		constants.BlockHashKeyValue:       logEntry.BlockHash,
-		"logIndex":                        logEntry.LogIndex,
-		"removed":                         fmt.Sprintf("%v", logEntry.Removed),
+		constants.AddressKeyValue:          logEntry.Address,
+		"topics":                           logEntry.Topics,
+		"data":                             logEntry.Data,
+		constants.BlockNumberKeyValue:      logBlockNum,
+		constants.TransactionHashKeyValue:  logEntry.TransactionHash,
+		constants.TransactionIndexKeyValue: logEntry.TransactionIndex,
+		constants.BlockHashKeyValue:        logEntry.BlockHash,
+		"logIndex":                         logEntry.LogIndex,
+		"removed":                          fmt.Sprintf("%v", logEntry.Removed),
 	}
 }
 
@@ -353,7 +387,7 @@ func (c *Converter) buildLogData(logEntry *types.Log) map[string]any {
 // Link fields (_transactionID) are NOT set here; the LinkStamper resolves
 // them after AddDocument assigns the tx docID, using the parent refs
 // parallel array passed to newEvmLinkStamper.
-func (c *Converter) buildALEData(ale *types.AccessListEntry, blockNumber int64) map[string]any {
+func (c *Converter) buildALEData(ale *AccessListEntry, blockNumber int64) map[string]any {
 	return map[string]any{
 		constants.AddressKeyValue:     ale.Address,
 		constants.BlockNumberKeyValue: blockNumber,
@@ -488,4 +522,10 @@ func (c *Converter) queryCollectionDocIDs(ctx context.Context, n *node.Node, col
 	}
 
 	return allDocIDs, nil
+}
+
+func init() {
+	chains.RegisterConverterFactory("evm", func(cfg *config.Config) (chains.Converter, error) {
+		return NewConverter(cfg), nil
+	})
 }

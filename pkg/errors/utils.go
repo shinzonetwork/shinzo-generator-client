@@ -55,8 +55,7 @@ func IsErrUnsupportedTxType(err error) bool {
 
 // IsRetryable checks if an error can be retried.
 func IsRetryable(err error) bool {
-	var indexerErr IndexerError
-	if errors.As(err, &indexerErr) {
+	if indexerErr, ok := errors.AsType[IndexerError](err); ok {
 		return indexerErr.Retryable() != NonRetryable
 	}
 	return false
@@ -64,8 +63,7 @@ func IsRetryable(err error) bool {
 
 // IsRetryableWithBackoff checks if error requires exponential backoff.
 func IsRetryableWithBackoff(err error) bool {
-	var indexerErr IndexerError
-	if errors.As(err, &indexerErr) {
+	if indexerErr, ok := errors.AsType[IndexerError](err); ok {
 		return indexerErr.Retryable() == RetryableWithBackoff
 	}
 	return false
@@ -73,8 +71,7 @@ func IsRetryableWithBackoff(err error) bool {
 
 // IsCritical checks if error is critical severity.
 func IsCritical(err error) bool {
-	var indexerErr IndexerError
-	if errors.As(err, &indexerErr) {
+	if indexerErr, ok := errors.AsType[IndexerError](err); ok {
 		return indexerErr.Severity() == Critical
 	}
 	return false
@@ -100,8 +97,7 @@ func IsStorageError(err error) bool {
 
 // GetErrorCode extracts error code from IndexerError, returns "UNKNOWN" for other errors.
 func GetErrorCode(err error) string {
-	var indexerErr IndexerError
-	if errors.As(err, &indexerErr) {
+	if indexerErr, ok := errors.AsType[IndexerError](err); ok {
 		return indexerErr.Code()
 	}
 	return "UNKNOWN"
@@ -136,8 +132,7 @@ func WrapError(err error, component, operation string) IndexerError {
 	}
 
 	// If already an IndexerError, return as-is.
-	var indexerErr IndexerError
-	if errors.As(err, &indexerErr) {
+	if indexerErr, ok := errors.AsType[IndexerError](err); ok {
 		return indexerErr
 	}
 
@@ -150,8 +145,7 @@ func WrapError(err error, component, operation string) IndexerError {
 
 // LogContext extracts structured logging context from error.
 func LogContext(err error) map[string]any {
-	var indexerErr IndexerError
-	if errors.As(err, &indexerErr) {
+	if indexerErr, ok := errors.AsType[IndexerError](err); ok {
 		ctx := indexerErr.Context()
 		logCtx := map[string]any{
 			"error_code": indexerErr.Code(),

@@ -125,8 +125,7 @@ func initLogger(development, enableFiles bool) {
 
 // LogError logs an error with structured fields based on its type.
 func LogError(err error, message string, fields ...zap.Field) {
-	var indexerErr errors.IndexerError
-	if stderrors.As(err, &indexerErr) {
+	if indexerErr, ok := stderrors.AsType[errors.IndexerError](err); ok {
 		ctx := indexerErr.Context()
 		allFields := []zap.Field{
 			zap.String("error_code", indexerErr.Code()),

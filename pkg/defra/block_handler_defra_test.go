@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 // ---------------------------------------------------------------------------
@@ -30,8 +30,8 @@ func deterministicHash(seed string) string {
 	return "0x" + hex.EncodeToString(h[:])
 }
 
-func mockBlock(number string) *types.Block {
-	return &types.Block{
+func mockBlock(number string) *evm.Block {
+	return &evm.Block{
 		Hash:             deterministicHash("block-" + number),
 		Number:           number,
 		Timestamp:        "1640995200",
@@ -54,8 +54,8 @@ func mockBlock(number string) *types.Block {
 	}
 }
 
-func mockTransaction(hash string, blockNumber string) *types.Transaction {
-	return &types.Transaction{
+func mockTransaction(hash string, blockNumber string) *evm.Transaction {
+	return &evm.Transaction{
 		Hash:              hash,
 		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
 		BlockNumber:       blockNumber,
@@ -78,8 +78,8 @@ func mockTransaction(hash string, blockNumber string) *types.Transaction {
 	}
 }
 
-func mockReceipt(txHash string, blockNumber string) *types.TransactionReceipt {
-	return &types.TransactionReceipt{
+func mockReceipt(txHash string, blockNumber string) *evm.TransactionReceipt {
+	return &evm.TransactionReceipt{
 		TransactionHash:   txHash,
 		TransactionIndex:  "0",
 		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -89,7 +89,7 @@ func mockReceipt(txHash string, blockNumber string) *types.TransactionReceipt {
 		CumulativeGasUsed: "21000",
 		GasUsed:           "21000",
 		Status:            "0x1",
-		Logs: []types.Log{
+		Logs: []evm.Log{
 			{
 				Address:          "0x0000000000000000000000000000000000000003",
 				Topics:           []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
@@ -106,9 +106,13 @@ func mockReceipt(txHash string, blockNumber string) *types.TransactionReceipt {
 }
 
 // buildGroups is a test helper that converts raw EVM types into DocumentGroups.
-func buildGroups(t *testing.T, cols chains.Collections, block *types.Block, txs []*types.Transaction, receipts []*types.TransactionReceipt) chains.ConversionResult {
+func buildGroups(t *testing.T, block *evm.Block, txs []*evm.Transaction, receipts []*evm.TransactionReceipt) chains.ConversionResult {
 	t.Helper()
-	result, err := testutils.BuildEVMGroups(cols, block, txs, receipts)
+	result, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+		Block:        block,
+		Transactions: txs,
+		Receipts:     receipts,
+	})
 	require.NoError(t, err)
 	return result
 }
@@ -170,12 +174,12 @@ func TestGetPort_WithNode(t *testing.T) {
 func TestStore_BlockOnly(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	block := mockBlock("0x64") // 100
-	result := buildGroups(t, cols, block, nil, nil)
+	result := buildGroups(t, block, nil, nil)
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -184,7 +188,6 @@ func TestStore_BlockOnly(t *testing.T) {
 func TestStore_WithTransaction(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -192,7 +195,7 @@ func TestStore_WithTransaction(t *testing.T) {
 	tx := mockTransaction("0xabc1000000000000000000000000000000000000000000000000000000000001", "200")
 	receipt := mockReceipt("0xabc1000000000000000000000000000000000000000000000000000000000001", "0xC8")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -201,13 +204,12 @@ func TestStore_WithTransaction(t *testing.T) {
 func TestStore_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	block := mockBlock("0x12C") // 300
 	tx := mockTransaction("0xabc2000000000000000000000000000000000000000000000000000000000002", "300")
-	tx.AccessList = []types.AccessListEntry{
+	tx.AccessList = []evm.AccessListEntry{
 		{
 			Address:     "0x0000000000000000000000000000000000000010",
 			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
@@ -215,7 +217,7 @@ func TestStore_WithAccessList(t *testing.T) {
 	}
 	receipt := mockReceipt("0xabc2000000000000000000000000000000000000000000000000000000000002", "0x12C")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -223,32 +225,34 @@ func TestStore_WithAccessList(t *testing.T) {
 
 func TestStore_NilBlock(t *testing.T) {
 	t.Parallel()
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
-	_, err := testutils.BuildEVMGroups(cols, nil, nil, nil)
+	_, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+		Block: nil,
+	})
 	require.Error(t, err)
 }
 
 func TestStore_InvalidBlockNumber(t *testing.T) {
 	t.Parallel()
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
 	block := mockBlock("invalid")
-	_, err := testutils.BuildEVMGroups(cols, block, nil, nil)
+	_, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+		Block: block,
+	})
 	require.Error(t, err)
 }
 
 func TestStore_DuplicateBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	block := mockBlock("0x190") // 400
-	result := buildGroups(t, cols, block, nil, nil)
+	result := buildGroups(t, block, nil, nil)
 	_, err = handler.Store(context.Background(), result)
 	require.NoError(t, err)
 
-	result2 := buildGroups(t, cols, block, nil, nil)
+	result2 := buildGroups(t, block, nil, nil)
 	_, err = handler.Store(context.Background(), result2)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
@@ -264,7 +268,7 @@ func TestStore_NilDefraNode(t *testing.T) {
 func TestStore_WithDocIDTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -275,7 +279,7 @@ func TestStore_WithDocIDTracker(t *testing.T) {
 	tx := mockTransaction("0xabc3000000000000000000000000000000000000000000000000000000000003", "500")
 	receipt := mockReceipt("0xabc3000000000000000000000000000000000000000000000000000000000003", "0x1F4")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -290,15 +294,15 @@ func TestStore_WithDocIDTracker(t *testing.T) {
 func TestStore_NilTransaction(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	block := mockBlock("0x258") // 600
-	txs := []*types.Transaction{nil, mockTransaction("0xabc4000000000000000000000000000000000000000000000000000000000004", "600")}
+	txs := []*evm.Transaction{nil, mockTransaction("0xabc4000000000000000000000000000000000000000000000000000000000004", "600")}
 	receipt := mockReceipt("0xabc4000000000000000000000000000000000000000000000000000000000004", "0x258")
 
-	result := buildGroups(t, cols, block, txs, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, txs, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -307,15 +311,15 @@ func TestStore_NilTransaction(t *testing.T) {
 func TestStore_NilReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	block := mockBlock("0x2BC") // 700
 	tx := mockTransaction("0xabc5000000000000000000000000000000000000000000000000000000000005", "700")
-	receipts := []*types.TransactionReceipt{nil}
+	receipts := []*evm.TransactionReceipt{nil}
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, receipts)
+	result := buildGroups(t, block, []*evm.Transaction{tx}, receipts)
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -328,7 +332,7 @@ func TestStore_NilReceipt(t *testing.T) {
 func TestStore_BatchedMode(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -338,7 +342,7 @@ func TestStore_BatchedMode(t *testing.T) {
 	receipt1 := mockReceipt("0xabc6000000000000000000000000000000000000000000000000000000000006", "0x320")
 	receipt2 := mockReceipt("0xabc7000000000000000000000000000000000000000000000000000000000007", "0x320")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1, tx2}, []*types.TransactionReceipt{receipt1, receipt2})
+	result := buildGroups(t, block, []*evm.Transaction{tx1, tx2}, []*evm.TransactionReceipt{receipt1, receipt2})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -347,7 +351,7 @@ func TestStore_BatchedMode(t *testing.T) {
 func TestStore_BatchedMode_WithTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -360,7 +364,7 @@ func TestStore_BatchedMode_WithTracker(t *testing.T) {
 	receipt1 := mockReceipt("0xabc8000000000000000000000000000000000000000000000000000000000008", "0x384")
 	receipt2 := mockReceipt("0xabc9000000000000000000000000000000000000000000000000000000000009", "0x384")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1, tx2}, []*types.TransactionReceipt{receipt1, receipt2})
+	result := buildGroups(t, block, []*evm.Transaction{tx1, tx2}, []*evm.TransactionReceipt{receipt1, receipt2})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -375,7 +379,7 @@ func TestStore_BatchedMode_WithTracker(t *testing.T) {
 func TestStore_BatchedMode_DuplicateBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -383,11 +387,11 @@ func TestStore_BatchedMode_DuplicateBlock(t *testing.T) {
 	tx1 := mockTransaction("0xabca000000000000000000000000000000000000000000000000000000000010", "1000")
 	receipt1 := mockReceipt("0xabca000000000000000000000000000000000000000000000000000000000010", "0x3E8")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1}, []*types.TransactionReceipt{receipt1})
+	result := buildGroups(t, block, []*evm.Transaction{tx1}, []*evm.TransactionReceipt{receipt1})
 	_, err = handler.Store(context.Background(), result)
 	require.NoError(t, err)
 
-	result2 := buildGroups(t, cols, block, []*types.Transaction{tx1}, []*types.TransactionReceipt{receipt1})
+	result2 := buildGroups(t, block, []*evm.Transaction{tx1}, []*evm.TransactionReceipt{receipt1})
 	_, err = handler.Store(context.Background(), result2)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
@@ -400,7 +404,6 @@ func TestStore_BatchedMode_DuplicateBlock(t *testing.T) {
 func TestStore_MultipleTransactionsNoReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -408,7 +411,7 @@ func TestStore_MultipleTransactionsNoReceipts(t *testing.T) {
 	tx1 := mockTransaction("0xabcb000000000000000000000000000000000000000000000000000000000011", "1100")
 	tx2 := mockTransaction("0xabcc000000000000000000000000000000000000000000000000000000000012", "1100")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1, tx2}, nil)
+	result := buildGroups(t, block, []*evm.Transaction{tx1, tx2}, nil)
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -421,13 +424,13 @@ func TestStore_MultipleTransactionsNoReceipts(t *testing.T) {
 func TestStore_BatchedMode_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
 	block := mockBlock("0x4B0") // 1200
 	tx := mockTransaction("0xabcd000000000000000000000000000000000000000000000000000000000013", "1200")
-	tx.AccessList = []types.AccessListEntry{
+	tx.AccessList = []evm.AccessListEntry{
 		{
 			Address:     "0x0000000000000000000000000000000000000020",
 			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000002"},
@@ -439,7 +442,7 @@ func TestStore_BatchedMode_WithAccessList(t *testing.T) {
 	}
 	receipt := mockReceipt("0xabcd000000000000000000000000000000000000000000000000000000000013", "0x4B0")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -463,13 +466,13 @@ func ctxWithIdentity(t *testing.T) context.Context {
 func TestStore_WithSigningIdentity_BlockOnly(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
 	block := mockBlock("0x514") // 1300
-	result := buildGroups(t, cols, block, nil, nil)
+	result := buildGroups(t, block, nil, nil)
 	res, err := handler.Store(ctx, result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -478,14 +481,14 @@ func TestStore_WithSigningIdentity_BlockOnly(t *testing.T) {
 func TestStore_WithSigningIdentity_FullBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
 	block := mockBlock("0x578") // 1400
 	tx := mockTransaction("0xaaa1000000000000000000000000000000000000000000000000000000000001", "1400")
-	tx.AccessList = []types.AccessListEntry{
+	tx.AccessList = []evm.AccessListEntry{
 		{
 			Address:     "0x0000000000000000000000000000000000000030",
 			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000004"},
@@ -493,7 +496,7 @@ func TestStore_WithSigningIdentity_FullBlock(t *testing.T) {
 	}
 	receipt := mockReceipt("0xaaa1000000000000000000000000000000000000000000000000000000000001", "0x578")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(ctx, result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -502,7 +505,7 @@ func TestStore_WithSigningIdentity_FullBlock(t *testing.T) {
 func TestStore_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -514,7 +517,7 @@ func TestStore_WithSigningIdentity_AndTracker(t *testing.T) {
 	tx := mockTransaction("0xaaa2000000000000000000000000000000000000000000000000000000000002", "1500")
 	receipt := mockReceipt("0xaaa2000000000000000000000000000000000000000000000000000000000002", "0x5DC")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(ctx, result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -528,17 +531,17 @@ func TestStore_WithSigningIdentity_AndTracker(t *testing.T) {
 func TestStore_DuplicateWithIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
 	block := mockBlock("0x640") // 1600
-	result := buildGroups(t, cols, block, nil, nil)
+	result := buildGroups(t, block, nil, nil)
 	_, err = handler.Store(ctx, result)
 	require.NoError(t, err)
 
-	result2 := buildGroups(t, cols, block, nil, nil)
+	result2 := buildGroups(t, block, nil, nil)
 	_, err = handler.Store(ctx, result2)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
@@ -551,7 +554,6 @@ func TestStore_DuplicateWithIdentity(t *testing.T) {
 func TestStore_BatchedMode_WithSigningIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -562,7 +564,7 @@ func TestStore_BatchedMode_WithSigningIdentity(t *testing.T) {
 	receipt1 := mockReceipt("0xbbb1000000000000000000000000000000000000000000000000000000000001", "0x6A4")
 	receipt2 := mockReceipt("0xbbb2000000000000000000000000000000000000000000000000000000000002", "0x6A4")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1, tx2}, []*types.TransactionReceipt{receipt1, receipt2})
+	result := buildGroups(t, block, []*evm.Transaction{tx1, tx2}, []*evm.TransactionReceipt{receipt1, receipt2})
 	res, err := handler.Store(ctx, result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -571,7 +573,7 @@ func TestStore_BatchedMode_WithSigningIdentity(t *testing.T) {
 func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -582,7 +584,7 @@ func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 	block := mockBlock("0x708") // 1800
 	tx1 := mockTransaction("0xbbb3000000000000000000000000000000000000000000000000000000000003", "1800")
 	tx2 := mockTransaction("0xbbb4000000000000000000000000000000000000000000000000000000000004", "1800")
-	tx1.AccessList = []types.AccessListEntry{
+	tx1.AccessList = []evm.AccessListEntry{
 		{
 			Address:     "0x0000000000000000000000000000000000000040",
 			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000005"},
@@ -591,7 +593,7 @@ func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 	receipt1 := mockReceipt("0xbbb3000000000000000000000000000000000000000000000000000000000003", "0x708")
 	receipt2 := mockReceipt("0xbbb4000000000000000000000000000000000000000000000000000000000004", "0x708")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1, tx2}, []*types.TransactionReceipt{receipt1, receipt2})
+	result := buildGroups(t, block, []*evm.Transaction{tx1, tx2}, []*evm.TransactionReceipt{receipt1, receipt2})
 	res, err := handler.Store(ctx, result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -608,7 +610,7 @@ func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -626,7 +628,7 @@ func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 	block := mockBlock("0x76C") // 1900
 	tx1 := mockTransaction("0xccc1000000000000000000000000000000000000000000000000000000000001", "1900")
 	tx2 := mockTransaction("0xccc2000000000000000000000000000000000000000000000000000000000002", "1900")
-	tx1.AccessList = []types.AccessListEntry{
+	tx1.AccessList = []evm.AccessListEntry{
 		{
 			Address:     "0x0000000000000000000000000000000000000050",
 			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000006"},
@@ -635,7 +637,7 @@ func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 	receipt1 := mockReceipt("0xccc1000000000000000000000000000000000000000000000000000000000001", "0x76C")
 	receipt2 := mockReceipt("0xccc2000000000000000000000000000000000000000000000000000000000002", "0x76C")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1, tx2}, []*types.TransactionReceipt{receipt1, receipt2})
+	result := buildGroups(t, block, []*evm.Transaction{tx1, tx2}, []*evm.TransactionReceipt{receipt1, receipt2})
 	res, err := handler.Store(ctx, result)
 	require.NoError(t, err)
 	require.NotEmpty(t, res.BlockID)
@@ -667,7 +669,7 @@ func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 func TestStore_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -676,11 +678,11 @@ func TestStore_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 	tx1 := mockTransaction("0xbbb5000000000000000000000000000000000000000000000000000000000005", "1900")
 	receipt1 := mockReceipt("0xbbb5000000000000000000000000000000000000000000000000000000000005", "0x76C")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1}, []*types.TransactionReceipt{receipt1})
+	result := buildGroups(t, block, []*evm.Transaction{tx1}, []*evm.TransactionReceipt{receipt1})
 	_, err = handler.Store(ctx, result)
 	require.NoError(t, err)
 
-	result2 := buildGroups(t, cols, block, []*types.Transaction{tx1}, []*types.TransactionReceipt{receipt1})
+	result2 := buildGroups(t, block, []*evm.Transaction{tx1}, []*evm.TransactionReceipt{receipt1})
 	_, err = handler.Store(ctx, result2)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
@@ -693,16 +695,16 @@ func TestStore_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 func TestStore_BatchedMode_NilTransactionsInBatch(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
 	block := mockBlock("0x7D0") // 2000
 	tx1 := mockTransaction("0xccc1000000000000000000000000000000000000000000000000000000000001", "2000")
 	receipt1 := mockReceipt("0xccc1000000000000000000000000000000000000000000000000000000000001", "0x7D0")
-	txs := []*types.Transaction{nil, tx1, nil}
+	txs := []*evm.Transaction{nil, tx1, nil}
 
-	result := buildGroups(t, cols, block, txs, []*types.TransactionReceipt{receipt1})
+	result := buildGroups(t, block, txs, []*evm.TransactionReceipt{receipt1})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -715,16 +717,16 @@ func TestStore_BatchedMode_NilTransactionsInBatch(t *testing.T) {
 func TestStore_BatchedMode_NilReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
 	block := mockBlock("0x834") // 2100
 	tx1 := mockTransaction("0xccc2000000000000000000000000000000000000000000000000000000000002", "2100")
 	tx2 := mockTransaction("0xccc3000000000000000000000000000000000000000000000000000000000003", "2100")
-	receipts := []*types.TransactionReceipt{nil}
+	receipts := []*evm.TransactionReceipt{nil}
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1, tx2}, receipts)
+	result := buildGroups(t, block, []*evm.Transaction{tx1, tx2}, receipts)
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -737,13 +739,13 @@ func TestStore_BatchedMode_NilReceipts(t *testing.T) {
 func TestStore_BatchedMode_ManyLogs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
 	block := mockBlock("0x898") // 2200
 	tx := mockTransaction("0xccc4000000000000000000000000000000000000000000000000000000000004", "2200")
-	receipt := &types.TransactionReceipt{
+	receipt := &evm.TransactionReceipt{
 		TransactionHash:   "0xccc4000000000000000000000000000000000000000000000000000000000004",
 		TransactionIndex:  "0",
 		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
@@ -753,7 +755,7 @@ func TestStore_BatchedMode_ManyLogs(t *testing.T) {
 		CumulativeGasUsed: "21000",
 		GasUsed:           "21000",
 		Status:            "0x1",
-		Logs: []types.Log{
+		Logs: []evm.Log{
 			{
 				Address:          "0x0000000000000000000000000000000000000003",
 				Topics:           []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
@@ -790,7 +792,7 @@ func TestStore_BatchedMode_ManyLogs(t *testing.T) {
 		},
 	}
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -811,7 +813,7 @@ func TestSignExisting_NilDefraNode(t *testing.T) {
 func TestSignExisting_Success(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -819,7 +821,7 @@ func TestSignExisting_Success(t *testing.T) {
 	tx := mockTransaction("0xddd1000000000000000000000000000000000000000000000000000000000001", "2300")
 	receipt := mockReceipt("0xddd1000000000000000000000000000000000000000000000000000000000001", "0x8FC")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	_, err = handler.Store(context.Background(), result)
 	require.NoError(t, err)
 
@@ -832,13 +834,13 @@ func TestSignExisting_Success(t *testing.T) {
 func TestSignExisting_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	block := mockBlock("0x960") // 2400
 	tx := mockTransaction("0xddd2000000000000000000000000000000000000000000000000000000000002", "2400")
-	tx.AccessList = []types.AccessListEntry{
+	tx.AccessList = []evm.AccessListEntry{
 		{
 			Address:     "0x0000000000000000000000000000000000000050",
 			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000006"},
@@ -846,7 +848,7 @@ func TestSignExisting_WithAccessList(t *testing.T) {
 	}
 	receipt := mockReceipt("0xddd2000000000000000000000000000000000000000000000000000000000002", "0x960")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	_, err = handler.Store(context.Background(), result)
 	require.NoError(t, err)
 
@@ -859,13 +861,13 @@ func TestSignExisting_WithAccessList(t *testing.T) {
 func TestSignExisting_NilTransactionsAndReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	block := mockBlock("0x9C4") // 2500
 
-	result := buildGroups(t, cols, block, nil, nil)
+	result := buildGroups(t, block, nil, nil)
 	_, err = handler.Store(context.Background(), result)
 	require.NoError(t, err)
 
@@ -878,7 +880,7 @@ func TestSignExisting_NilTransactionsAndReceipts(t *testing.T) {
 func TestSignExisting_NilTxInList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -886,12 +888,12 @@ func TestSignExisting_NilTxInList(t *testing.T) {
 	tx := mockTransaction("0xddd3000000000000000000000000000000000000000000000000000000000003", "2600")
 	receipt := mockReceipt("0xddd3000000000000000000000000000000000000000000000000000000000003", "0xA28")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	_, err = handler.Store(context.Background(), result)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
-	result2 := buildGroups(t, cols, block, []*types.Transaction{nil, tx}, []*types.TransactionReceipt{receipt})
+	result2 := buildGroups(t, block, []*evm.Transaction{nil, tx}, []*evm.TransactionReceipt{receipt})
 	sigDocID, err := handler.SignExisting(ctx, result2, block.Hash, 2600)
 	require.NoError(t, err)
 	assert.NotEmpty(t, sigDocID)
@@ -900,12 +902,12 @@ func TestSignExisting_NilTxInList(t *testing.T) {
 func TestSignExisting_NoIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
 	block := mockBlock("0xA8C") // 2700
-	result := buildGroups(t, cols, block, nil, nil)
+	result := buildGroups(t, block, nil, nil)
 	_, err = handler.Store(context.Background(), result)
 	require.NoError(t, err)
 
@@ -921,7 +923,7 @@ func TestSignExisting_NoIdentity(t *testing.T) {
 func TestStore_TxWithNoMatchingReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -929,7 +931,7 @@ func TestStore_TxWithNoMatchingReceipt(t *testing.T) {
 	tx := mockTransaction("0xeee1000000000000000000000000000000000000000000000000000000000001", "2900")
 	receipt := mockReceipt("0xeee2000000000000000000000000000000000000000000000000000000000099", "0xB54")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID, "block should be created even without matching receipt")
@@ -942,7 +944,7 @@ func TestStore_TxWithNoMatchingReceipt(t *testing.T) {
 func TestStore_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -951,7 +953,7 @@ func TestStore_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 	tx2 := mockTransaction("0xeee4000000000000000000000000000000000000000000000000000000000004", "3000")
 	receipt1 := mockReceipt("0xeee3000000000000000000000000000000000000000000000000000000000003", "0xBB8")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx1, tx2}, []*types.TransactionReceipt{receipt1})
+	result := buildGroups(t, block, []*evm.Transaction{tx1, tx2}, []*evm.TransactionReceipt{receipt1})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -964,13 +966,13 @@ func TestStore_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 func TestStore_BatchedMode_ManyAccessListEntries(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
 	block := mockBlock("0xC1C") // 3100
 	tx := mockTransaction("0xeee5000000000000000000000000000000000000000000000000000000000005", "3100")
-	tx.AccessList = []types.AccessListEntry{
+	tx.AccessList = []evm.AccessListEntry{
 		{
 			Address:     "0x0000000000000000000000000000000000000060",
 			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000007"},
@@ -986,7 +988,7 @@ func TestStore_BatchedMode_ManyAccessListEntries(t *testing.T) {
 	}
 	receipt := mockReceipt("0xeee5000000000000000000000000000000000000000000000000000000000005", "0xC1C")
 
-	result := buildGroups(t, cols, block, []*types.Transaction{tx}, []*types.TransactionReceipt{receipt})
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
@@ -999,7 +1001,7 @@ func TestStore_BatchedMode_ManyAccessListEntries(t *testing.T) {
 func TestStore_BatchedMode_TransactionsMultipleBatches(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	cols := chains.NewStubCollections("Ethereum__Mainnet")
+
 	handler, err := NewBlockHandler(td.Node, 1)
 	require.NoError(t, err)
 
@@ -1011,9 +1013,9 @@ func TestStore_BatchedMode_TransactionsMultipleBatches(t *testing.T) {
 	receipt2 := mockReceipt("0xfff2000000000000000000000000000000000000000000000000000000000002", "0xCE4")
 	receipt3 := mockReceipt("0xfff3000000000000000000000000000000000000000000000000000000000003", "0xCE4")
 
-	result := buildGroups(t, cols, block,
-		[]*types.Transaction{tx1, tx2, tx3},
-		[]*types.TransactionReceipt{receipt1, receipt2, receipt3},
+	result := buildGroups(t, block,
+		[]*evm.Transaction{tx1, tx2, tx3},
+		[]*evm.TransactionReceipt{receipt1, receipt2, receipt3},
 	)
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)

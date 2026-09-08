@@ -17,22 +17,6 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// BlockRangeReader provides block-range queries and collection metadata.
-// It is a subset of chains.Chain; any chains.Chain implementer satisfies it.
-//
-// Defined locally (rather than importing pkg/chains.Chain) to keep the pruner's
-// dependency surface narrow per the Interface Segregation Principle. pkg/chains
-// imports config (for AdapterFactory), and config defines PrunerConfig directly,
-// so no import cycle exists — the local interface is a design choice, not a
-// cycle-breaking necessity.
-type BlockRangeReader interface {
-	GetLowestStoredBlockNumber(ctx context.Context) (int64, error)
-	GetHighestStoredBlockNumber(ctx context.Context) (int64, error)
-	GetDocIDsByBlockRange(ctx context.Context, from, to int64) (map[string][]string, error)
-	GetCollections() []string
-	Collections() chains.Collections
-}
-
 // ErrNoBlocks indicates that the query succeeded but no blocks were found.
 var ErrNoBlocks = errors.New("no blocks found")
 
@@ -51,7 +35,7 @@ var ErrNoValidBlocks = errors.New("blocks exist but none have a valid block numb
 type Pruner struct {
 	cfg                *config.PrunerConfig
 	defraNode          *node.Node
-	chain              BlockRangeReader
+	converter          chains.Converter
 	blockCollection    string
 	blockSigCollection string
 	queue              Queue
@@ -76,19 +60,18 @@ type Metrics struct {
 }
 
 // NewPruner creates a new Pruner instance.
-// The chain parameter provides block-range queries and collection names;
-// any chain.Chain implementer satisfies the local BlockRangeReader interface.
-func NewPruner(cfg *config.PrunerConfig, defraNode *node.Node, chain BlockRangeReader) *Pruner {
+// The converter provides block-range queries and collection names.
+func NewPruner(cfg *config.PrunerConfig, defraNode *node.Node, converter chains.Converter) *Pruner {
 	p := &Pruner{
 		cfg:       cfg,
 		defraNode: defraNode,
-		chain:     chain,
+		converter: converter,
 		stopChan:  make(chan struct{}),
 	}
-	if chain != nil {
-		cols := chain.Collections()
+	if converter != nil {
+		cols := converter.Collections()
 		p.blockCollection, _ = cols.GetCollection(chains.TypeBlock)
-		p.blockSigCollection, _ = cols.GetCollection(chains.TypeBlockSignature)
+		p.blockSigCollection = converter.SignatureCollection()
 	}
 	return p
 }
@@ -363,7 +346,7 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
 		startBlock, endBlock, endBlock-startBlock+1)
 
-	docIDsByCollection, err := p.chain.GetDocIDsByBlockRange(ctx, startBlock, endBlock)
+	docIDsByCollection, err := p.converter.GetDocIDsByBlockRange(ctx, p.defraNode, startBlock, endBlock)
 	if err != nil {
 		return 0, fmt.Errorf("get docIDs by block range: %w", err)
 	}
@@ -458,10 +441,10 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 // Returns (0, 0, ErrNoBlocks) if the database has no blocks (chain returns
 // errors.IsErrNotFound on an empty DB).
 func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err error) {
-	if p.chain == nil {
+	if p.converter == nil {
 		return 0, 0, ErrNoBlocks
 	}
-	lowest, err = p.chain.GetLowestStoredBlockNumber(ctx)
+	lowest, err = p.converter.GetLowestStoredBlockNumber(ctx, p.defraNode)
 	if err != nil {
 		if pkgerrors.IsErrNotFound(err) {
 			return 0, 0, ErrNoBlocks
@@ -471,7 +454,7 @@ func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err 
 		}
 		return 0, 0, fmt.Errorf("get lowest block: %w", err)
 	}
-	highest, err = p.chain.GetHighestStoredBlockNumber(ctx)
+	highest, err = p.converter.GetHighestStoredBlockNumber(ctx, p.defraNode)
 	if err != nil {
 		if pkgerrors.IsErrNotFound(err) {
 			return 0, 0, ErrNoBlocks
