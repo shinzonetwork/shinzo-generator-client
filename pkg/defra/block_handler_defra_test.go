@@ -263,8 +263,8 @@ func TestCreateBlockBatch_WithDocIDTracker(t *testing.T) {
 	require.Len(t, tracker.trackedBlocks, 1)
 	assert.Equal(t, int64(500), tracker.trackedBlocks[0])
 	assert.Equal(t, blockID, tracker.trackedResults[0].BlockID)
-	assert.Len(t, tracker.trackedResults[0].TransactionIDs, 1)
-	assert.Len(t, tracker.trackedResults[0].LogIDs, 1)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(chains.NewStubCollections("Ethereum__Mainnet"), "transaction")], 1)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(chains.NewStubCollections("Ethereum__Mainnet"), "log")], 1)
 }
 
 func TestCreateBlockBatch_NilTransaction(t *testing.T) {
@@ -344,8 +344,8 @@ func TestCreateBlockBatch_BatchedMode_WithTracker(t *testing.T) {
 	require.Len(t, tracker.trackedBlocks, 1)
 	assert.Equal(t, int64(900), tracker.trackedBlocks[0])
 	assert.Equal(t, blockID, tracker.trackedResults[0].BlockID)
-	assert.Len(t, tracker.trackedResults[0].TransactionIDs, 2)
-	assert.Len(t, tracker.trackedResults[0].LogIDs, 2)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(chains.NewStubCollections("Ethereum__Mainnet"), "transaction")], 2)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(chains.NewStubCollections("Ethereum__Mainnet"), "log")], 2)
 }
 
 func TestCreateBlockBatch_BatchedMode_DuplicateBlock(t *testing.T) {
@@ -669,9 +669,9 @@ func TestCreateBlockBatch_BatchedMode_WithSigningIdentity_AndTracker(t *testing.
 	assert.Equal(t, int64(1800), tracker.trackedBlocks[0])
 	assert.Equal(t, blockID, tracker.trackedResults[0].BlockID)
 	assert.NotEmpty(t, tracker.trackedResults[0].BlockSignatureID, "BlockSignatureID should be set in batched mode with identity")
-	assert.Len(t, tracker.trackedResults[0].TransactionIDs, 2)
-	assert.Len(t, tracker.trackedResults[0].LogIDs, 2)
-	assert.Len(t, tracker.trackedResults[0].AccessListIDs, 1)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(chains.NewStubCollections("Ethereum__Mainnet"), "transaction")], 2)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(chains.NewStubCollections("Ethereum__Mainnet"), "log")], 2)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(chains.NewStubCollections("Ethereum__Mainnet"), "accessListEntry")], 1)
 }
 
 // The batched path signs over the CIDs the writes commit (via the in-context collector), not a

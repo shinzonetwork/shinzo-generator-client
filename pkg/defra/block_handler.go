@@ -54,12 +54,11 @@ func retryBackoff(attempt int) time.Duration {
 
 // BlockCreationResult holds the result of creating a block, including all docIDs.
 type BlockCreationResult struct {
-	BlockID          string
-	BlockNumber      int64
-	TransactionIDs   []string
-	LogIDs           []string
-	AccessListIDs    []string
-	BlockSignatureID string
+	BlockNumber              int64
+	BlockID                  string
+	BlockSignatureID         string
+	BlockSignatureCollection string
+	OtherDocIDs              map[string][]string // collection name → docIDs
 }
 
 // DocIDTrackerInterface defines the interface for tracking docIDs.
@@ -656,12 +655,15 @@ func (h *BlockHandler) trackSingleTxnDocIDs(ctx context.Context, blockInt int64,
 	}
 
 	result := &BlockCreationResult{
-		BlockID:          blockID,
-		BlockNumber:      blockInt,
-		TransactionIDs:   txIDs,
-		LogIDs:           logIDs,
-		AccessListIDs:    aleIDs,
-		BlockSignatureID: blockSigDocID,
+		BlockNumber:              blockInt,
+		BlockID:                  blockID,
+		BlockSignatureID:         blockSigDocID,
+		BlockSignatureCollection: extractCollection(h.collections, "blockSignature"),
+		OtherDocIDs: map[string][]string{
+			extractCollection(h.collections, "transaction"):     txIDs,
+			extractCollection(h.collections, "log"):             logIDs,
+			extractCollection(h.collections, "accessListEntry"): aleIDs,
+		},
 	}
 
 	if err := h.docIDTracker.TrackBlock(ctx, blockInt, result); err != nil {
@@ -1106,12 +1108,15 @@ func (h *BlockHandler) createBlockBatched(ctx context.Context, block *types.Bloc
 
 	if h.docIDTracker != nil {
 		result := &BlockCreationResult{
-			BlockID:          blockID,
-			BlockNumber:      blockInt,
-			TransactionIDs:   allTxIDs,
-			LogIDs:           allLogIDs,
-			AccessListIDs:    allALEIDs,
-			BlockSignatureID: blockSigDocID,
+			BlockNumber:              blockInt,
+			BlockID:                  blockID,
+			BlockSignatureID:         blockSigDocID,
+			BlockSignatureCollection: extractCollection(h.collections, "blockSignature"),
+			OtherDocIDs: map[string][]string{
+				extractCollection(h.collections, "transaction"):     allTxIDs,
+				extractCollection(h.collections, "log"):             allLogIDs,
+				extractCollection(h.collections, "accessListEntry"): allALEIDs,
+			},
 		}
 		if err := h.docIDTracker.TrackBlock(ctx, blockInt, result); err != nil {
 			logger.Sugar.Warnf("Failed to track docIDs for block %d: %v", blockInt, err)

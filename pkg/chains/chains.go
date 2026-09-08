@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -168,4 +169,79 @@ type Collections interface {
 	// "blockSignature", "snapshotSignature"). Returns ErrUnknownCollection
 	// when the type is not recognised.
 	GetCollection(typeName string) (string, error)
+}
+
+// ------ Phase 2 ------
+
+// Fetcher is the RPC I/O layer: fetches raw block data from the chain node.
+// Concrete implementations (e.g. EVMFetcher) live in chain-specific packages.
+//
+// FetchBlock is safe to call concurrently across different heights; the
+// orchestration layer is responsible for parallel fan-out.
+type Fetcher interface {
+	// FetchBlock retrieves the raw block data at the given height from the
+	// chain RPC endpoint. The concrete return type is chain-specific (e.g.
+	// an EVM block bundle); callers type-assert or pass it to a Converter.
+	FetchBlock(ctx context.Context, height int64) (any, error)
+
+	// FetchHighestBlockNumber returns the latest block number known to the
+	// chain (the on-chain tip), querying the RPC endpoint directly.
+	FetchHighestBlockNumber(ctx context.Context) (int64, error)
+
+	// Close releases the underlying RPC connection.
+	Close() error
+}
+
+// Converter is the chain-specific knowledge layer: schema generation,
+// block-to-document conversion, and progress queries.
+//
+// It never stores *node.Node — it receives it explicitly on each progress
+// call, keeping the Converter stateless and testable without a live DefraDB.
+type Converter interface {
+	// Convert transforms a raw block (returned by Fetcher.FetchBlock) into
+	// a set of DocumentGroups plus the name of the block-signature collection.
+	// The rawBlock parameter is typed as any to keep pkg/chains free of
+	// chain SDK imports; the concrete Converter type-asserts internally.
+	// The vp parameter supplies collection versions for in-memory docID
+	// computation used to set cross-document link fields (_blockID, etc.).
+	Convert(ctx context.Context, rawBlock any, vp CollectionVersionProvider) (groups []DocumentGroup, signatureCollection string, err error)
+
+	// GetSchema returns the GraphQL SDL for the configured chain, with
+	// collection names adapted to the chain's prefix.
+	GetSchema() (string, error)
+
+	// GetCollections returns the names of all collections for the configured
+	// chain in dependency-safe order.
+	GetCollections() []string
+
+	// Collections returns the Collections interface for collection-name
+	// resolution by role (reuses the Phase-1 interface).
+	Collections() Collections
+
+	// GetHighestStoredBlockNumber returns the highest block number currently
+	// persisted in DefraDB.
+	GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
+
+	// GetLowestStoredBlockNumber returns the lowest block number currently
+	// persisted in DefraDB. Useful for pruning windows.
+	GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
+
+	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
+	// collection whose block-number field falls within [from, to] inclusive.
+	GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
+}
+
+// DocumentGroup is a batch of documents destined for a single collection.
+// Converters produce []DocumentGroup from raw chain data; BlockHandler.Store
+// consumes them to persist in the appropriate collections.
+type DocumentGroup struct {
+	Collection string
+	Docs       []map[string]any
+}
+
+// CollectionVersionProvider resolves a collection name to its
+// client.CollectionVersion, used by Converters for in-memory DocID computation.
+// BlockHandler implements this so Converters never need a direct *node.Node.
+type CollectionVersionProvider interface {
+	CollectionVersion(ctx context.Context, name string) (client.CollectionVersion, error)
 }
