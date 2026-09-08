@@ -393,6 +393,75 @@ func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
 	assert.Equal(t, int64(104), highest)
 }
 
+// TestGetStoredBlockNumber_ResidueRows exercises the block-number queries
+// against numberless rows (purge residue / P2P replication): the `_geq: 0`
+// filter must exclude them so the queries return the next real block at the
+// default limit of 1 — structurally fixing the failure that previously
+// required a widened lowest_block_query_limit window — and a collection
+// holding only numberless rows must surface the corruption sentinel rather
+// than "not found", so the pruner hard-fails with ErrNoValidBlocks instead
+// of silently skipping pruning.
+func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		setup    func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter)
+		wantLow  int64
+		wantHigh int64
+		wantErr  bool
+	}{
+		{
+			name: "residue rows around valid blocks are skipped",
+			setup: func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter) {
+				storeResidueBlockDoc(ctx, t, td, c, 1)
+				for _, num := range []int64{100, 101, 102} {
+					storeTestBlockDoc(ctx, t, td, c, num)
+				}
+				storeResidueBlockDoc(ctx, t, td, c, 2)
+			},
+			wantLow:  100,
+			wantHigh: 102,
+		},
+		{
+			name: "only numberless rows yields the corruption sentinel",
+			setup: func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter) {
+				for i := range 3 {
+					storeResidueBlockDoc(ctx, t, td, c, int64(i))
+				}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := testConfig()
+			c := NewConverter(cfg)
+			td := testutils.SetupTestDefraDB(t)
+			ctx := context.Background()
+
+			tc.setup(ctx, t, td, c)
+
+			lowest, errLow := c.GetLowestStoredBlockNumber(ctx, td.Node)
+			highest, errHigh := c.GetHighestStoredBlockNumber(ctx, td.Node)
+
+			if tc.wantErr {
+				require.Error(t, errLow)
+				assert.ErrorIs(t, errLow, chains.ErrBlockNumberCorrupt)
+				require.Error(t, errHigh)
+				assert.ErrorIs(t, errHigh, chains.ErrBlockNumberCorrupt)
+				return
+			}
+			require.NoError(t, errLow)
+			assert.Equal(t, tc.wantLow, lowest)
+			require.NoError(t, errHigh)
+			assert.Equal(t, tc.wantHigh, highest)
+		})
+	}
+}
+
 func TestParseBlockNumberRow(t *testing.T) {
 	t.Parallel()
 

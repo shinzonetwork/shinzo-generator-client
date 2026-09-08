@@ -24,12 +24,6 @@ import (
 
 var errNoIdentity = stderrors.New("no identity available for signing") //nolint:gochecknoglobals
 
-// ErrBlockNumberCorrupt indicates that a block document exists in the store
-// but its "number" field is missing or has an unparseable type. It must NOT
-// contain "not found" so pkgerrors.IsErrNotFound returns false — this ensures
-// the pruner distinguishes corruption (hard error) from an empty DB (no-op).
-var ErrBlockNumberCorrupt = stderrors.New("block exists but has invalid or unparseable number field") //nolint:gochecknoglobals
-
 // blockDB abstracts the DB operations used by BlockHandler for testability.
 type blockDB interface {
 	NewTxn(readOnly bool) (client.Txn, error)

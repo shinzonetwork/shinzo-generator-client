@@ -28,6 +28,7 @@ type collectionsResponse struct {
 // It returns an error if the per-collection SDL cache cannot be precomputed, so
 // startup fails fast instead of serving a degraded set of collections.
 func (hs *HealthServer) EnableSchemaEndpoint(sdl string, c chains.Collections, auth Authenticator) error {
+	hs.collections = c
 	collectionH, err := collectionHandler(c)
 	if err != nil {
 		return fmt.Errorf("precompute collection SDLs for network %s: %w", c.Prefix(), err)

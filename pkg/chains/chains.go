@@ -35,6 +35,14 @@ var ErrChainFactoryNotRegistered = errors.New("chain factory not registered")
 // factory field is nil (partial registration).
 var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 
+// ErrBlockNumberCorrupt indicates that a block document exists in the store
+// but its "number" field is missing or has an unparseable type. It must NOT
+// contain "not found" so pkgerrors.IsErrNotFound returns false — consumers
+// (e.g. the pruner) distinguish corruption (hard error) from an empty DB
+// (benign no-op). Chain converters wrap it when a stored block-number query
+// cannot find any usable number.
+var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
+
 // Collection type constants used as arguments to GetCollection.
 const (
 	TypeBlock             = "block"

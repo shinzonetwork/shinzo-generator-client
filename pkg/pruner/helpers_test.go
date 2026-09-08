@@ -56,12 +56,14 @@ func (tc *testChain) SignatureCollection() string {
 }
 
 func (tc *testChain) GetLowestStoredBlockNumber(ctx context.Context, _ *node.Node) (int64, error) {
-	query := fmt.Sprintf(`query { %s (order: {number: ASC}, limit: 1) { number }}`, testBlockColName)
+	// Mirrors the evm converter's contract: the `_geq: 0` filter excludes
+	// numberless rows (purge residue) so they cannot fill the limit-1 window.
+	query := fmt.Sprintf(`query { %s (filter: {number: {_geq: 0}}, order: {number: ASC}, limit: 1) { number }}`, testBlockColName)
 	return tc.queryBlockNumber(ctx, query)
 }
 
 func (tc *testChain) GetHighestStoredBlockNumber(ctx context.Context, _ *node.Node) (int64, error) {
-	query := fmt.Sprintf(`query { %s (order: {number: DESC}, limit: 1) { number }}`, testBlockColName)
+	query := fmt.Sprintf(`query { %s (filter: {number: {_geq: 0}}, order: {number: DESC}, limit: 1) { number }}`, testBlockColName)
 	return tc.queryBlockNumber(ctx, query)
 }
 

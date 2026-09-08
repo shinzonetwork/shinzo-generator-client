@@ -10,7 +10,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
@@ -449,7 +448,7 @@ func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err 
 		if pkgerrors.IsErrNotFound(err) {
 			return 0, 0, ErrNoBlocks
 		}
-		if errors.Is(err, defra.ErrBlockNumberCorrupt) {
+		if errors.Is(err, chains.ErrBlockNumberCorrupt) {
 			return 0, 0, fmt.Errorf("get lowest block: %w", ErrNoValidBlocks)
 		}
 		return 0, 0, fmt.Errorf("get lowest block: %w", err)
@@ -459,7 +458,7 @@ func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err 
 		if pkgerrors.IsErrNotFound(err) {
 			return 0, 0, ErrNoBlocks
 		}
-		if errors.Is(err, defra.ErrBlockNumberCorrupt) {
+		if errors.Is(err, chains.ErrBlockNumberCorrupt) {
 			return 0, 0, fmt.Errorf("get highest block: %w", ErrNoValidBlocks)
 		}
 		return 0, 0, fmt.Errorf("get highest block: %w", err)

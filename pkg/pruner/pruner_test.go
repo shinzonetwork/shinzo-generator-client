@@ -12,7 +12,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
@@ -400,7 +399,7 @@ func TestGetBlockRange_CorruptDataReturnsErrNoValidBlocks(t *testing.T) {
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	mock := &testutils.MockConverter{
 		GetLowestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) {
-			return 0, defra.ErrBlockNumberCorrupt
+			return 0, chains.ErrBlockNumberCorrupt
 		},
 	}
 	p := NewPruner(cfg, nil, mock)

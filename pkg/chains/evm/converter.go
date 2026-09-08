@@ -18,10 +18,6 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// errBlockNumberCorrupt indicates that a block document exists in the store
-// but its "number" field is missing or has an unparseable type.
-var errBlockNumberCorrupt = fmt.Errorf("block exists but has invalid or unparseable number field")
-
 const (
 	// defaultChainName is the fallback chain name when config is empty.
 	defaultChainName = "Ethereum"
@@ -435,11 +431,16 @@ func (c *Converter) BuildBlockSignatureData(
 
 // queryBlockNumber runs the block-number query with the given ordering
 // ("DESC" or "ASC") and row limit, returning the first row whose number
-// field is parseable. Rows with a missing or unparsable number (e.g. purge
-// residue) are skipped and reported; all errors are tagged with opName.
+// field is parseable. The `_geq: 0` filter excludes rows whose number is
+// missing or null (purge residue): block numbers are non-negative, so every
+// real block including genesis is admitted, while numberless rows — which
+// sort ahead of real numbers under ASC — can never fill the query window.
+// Rows that still arrive unparseable are skipped and reported; all errors
+// are tagged with opName.
 func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
 	blockCol := c.collections.Block
-	query := `query {` + blockCol + ` (order: {number: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { number _docID }}`
+	field := constants.NumberFieldValue
+	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { ` + field + ` _docID }}`
 
 	result := n.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
@@ -465,9 +466,28 @@ func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, o
 	}
 
 	if len(rows) == 0 {
+		// The number filter hides rows without a number, so an empty result
+		// does not by itself mean the collection is empty. Distinguish the two
+		// cases: no documents at all is benign ("not found"), while documents
+		// without any usable number are corruption and must hard-fail so the
+		// pruner maps them to ErrNoValidBlocks instead of skipping pruning.
+		present, err := c.hasAnyBlockDocs(ctx, n, blockCol, opName)
+		if err != nil {
+			return 0, err
+		}
+		if present {
+			return 0, fmt.Errorf("%s: %w (no rows have a usable number field)", opName, chains.ErrBlockNumberCorrupt)
+		}
 		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
 	}
 
+	return firstUsableRow(rows, opName)
+}
+
+// firstUsableRow returns the block number of the first parseable row,
+// skipping and summarizing unparseable ones. It reports
+// chains.ErrBlockNumberCorrupt when no row in the window is usable.
+func firstUsableRow(rows []any, opName string) (int64, error) {
 	var skipped []string
 	for _, r := range rows {
 		block, ok := r.(map[string]any)
@@ -489,7 +509,30 @@ func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, o
 	}
 
 	return 0, fmt.Errorf("%s: %w (all %d rows corrupt: %s)",
-		opName, errBlockNumberCorrupt, len(rows), strings.Join(skipped, "; "))
+		opName, chains.ErrBlockNumberCorrupt, len(rows), strings.Join(skipped, "; "))
+}
+
+// hasAnyBlockDocs reports whether the collection holds any document,
+// including rows whose number field is missing.
+func (c *Converter) hasAnyBlockDocs(ctx context.Context, n *node.Node, blockCol, opName string) (bool, error) {
+	query := `query {` + blockCol + ` (limit: 1) { _docID }}`
+
+	result := n.DB.ExecRequest(ctx, query)
+	if len(result.GQL.Errors) > 0 {
+		return false, errors.NewQueryFailed("defra", opName, query, result.GQL.Errors[0])
+	}
+
+	data, ok := result.GQL.Data.(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	switch rows := data[blockCol].(type) {
+	case []any:
+		return len(rows) > 0, nil
+	case []map[string]any:
+		return len(rows) > 0, nil
+	}
+	return false, nil
 }
 
 // parseBlockNumberRow extracts the block number from a block query row. It

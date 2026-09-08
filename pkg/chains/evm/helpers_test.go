@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -111,6 +112,32 @@ func storeTestBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestDefr
 	require.NoError(t, err)
 
 	doc, err := client.NewDocFromMap(ctx, c.buildBlockData(fakeBlock(num), num), col.Version())
+	require.NoError(t, err)
+
+	require.NoError(t, col.AddDocument(ctx, doc))
+	require.NoError(t, txn.Commit())
+
+	return doc.ID().String()
+}
+
+// storeResidueBlockDoc writes a block document without a number field,
+// simulating the numberless rows left behind by purge residue or P2P
+// replication that the block-number queries must exclude. The seed keeps the
+// content unique — DefraDB derives DocIDs from document content, so identical
+// residue documents would collide on the same DocID.
+func storeResidueBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter, seed int64) string {
+	t.Helper()
+
+	txn, err := td.Node.DB.NewTxn(false)
+	require.NoError(t, err)
+
+	col, err := txn.GetCollectionByName(ctx, c.collections.Block)
+	require.NoError(t, err)
+
+	data := c.buildBlockData(fakeBlock(seed), seed)
+	delete(data, constants.NumberFieldValue)
+
+	doc, err := client.NewDocFromMap(ctx, data, col.Version())
 	require.NoError(t, err)
 
 	require.NoError(t, col.AddDocument(ctx, doc))
