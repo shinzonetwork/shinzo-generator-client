@@ -8,11 +8,11 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -36,11 +36,9 @@ const (
 
 // signingJob holds the data needed to sign an existing block in the background.
 type signingJob struct {
-	blockNum     int64
-	blockHash    string
-	block        *types.Block
-	transactions []*types.Transaction
-	receipts     []*types.TransactionReceipt
+	blockNum  int64
+	blockHash string
+	result    chains.ConversionResult
 }
 
 // Adapter is a Chain implementation backed by an EVM JSON-RPC endpoint and a
@@ -134,15 +132,10 @@ func (a *Adapter) Init(ctx context.Context, defraNode *node.Node) error {
 	if a.cfg == nil {
 		return errors.NewConfigurationError("chain", "Init", "config is nil", "", nil)
 	}
-	blockHandler, err := defra.NewBlockHandler(defraNode, a.cfg.Indexer.MaxDocsPerTxn, a.collections)
+	blockHandler, err := defra.NewBlockHandler(defraNode, a.cfg.Indexer.MaxDocsPerTxn)
 	if err != nil {
 		return fmt.Errorf("create block handler: %w", err)
 	}
-	blockHandler.SetBatchSizes(
-		a.cfg.Indexer.MaxTxDocsPerBatch,
-		a.cfg.Indexer.MaxLogDocsPerBatch,
-		a.cfg.Indexer.MaxALEDocsPerBatch,
-	)
 
 	a.blockHandler = blockHandler
 	a.node = defraNode
@@ -161,8 +154,8 @@ func (a *Adapter) signBlocks(ctx context.Context) {
 		if ctx.Err() != nil {
 			continue
 		}
-		if _, err := a.blockHandler.CreateBlockSignatureForExistingBlock(
-			ctx, job.blockNum, job.blockHash, job.block, job.transactions, job.receipts,
+		if _, err := a.blockHandler.SignExisting(
+			ctx, job.result, job.blockHash, job.blockNum,
 		); err != nil {
 			logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", job.blockNum, err)
 		}
@@ -192,35 +185,34 @@ func (a *Adapter) FetchAndStoreBlock(ctx context.Context, height int64) (string,
 	if err != nil {
 		return "", err
 	}
-	bundle, ok := raw.(*BlockBundle)
-	if !ok {
-		return "", fmt.Errorf("unexpected fetch result type %T", raw)
+	result, err := a.converter.Convert(ctx, raw)
+	if err != nil {
+		return "", fmt.Errorf("convert block: %w", err)
 	}
-	return a.createBlockBatchWithRetry(ctx, bundle.Block, height, bundle.Transactions, bundle.Receipts)
+	blockHash := extractBlockHashFromGroups(result.Groups, a.collections)
+	return a.storeBlockWithRetry(ctx, result, blockHash, height)
 }
 
-// createBlockBatchWithRetry persists the block batch via the BlockHandler. When
+// storeBlockWithRetry persists document groups via BlockHandler.Store. When
 // the block already exists a signing job is enqueued and nil is returned.
 // Transaction conflicts are retried up to maxRPCRetries times.
-func (a *Adapter) createBlockBatchWithRetry(ctx context.Context, block *types.Block, blockNum int64, transactions []*types.Transaction, receipts []*types.TransactionReceipt) (string, error) {
+func (a *Adapter) storeBlockWithRetry(ctx context.Context, result chains.ConversionResult, blockHash string, blockNum int64) (string, error) {
 	for attempt := range maxRPCRetries {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 
-		blockID, err := a.blockHandler.CreateBlockBatch(ctx, block, transactions, receipts)
+		res, err := a.blockHandler.Store(ctx, result)
 		if err == nil {
-			return blockID, nil
+			return res.BlockID, nil
 		}
 
 		if errors.IsErrAlreadyExists(err) {
 			select {
 			case a.signingChan <- signingJob{
-				blockNum:     blockNum,
-				blockHash:    block.Hash,
-				block:        block,
-				transactions: transactions,
-				receipts:     receipts,
+				blockNum:  blockNum,
+				blockHash: blockHash,
+				result:    result,
 			}:
 			default:
 				logger.Sugar.Warnf("Block %d: signing queue full, skipping block signature", blockNum)
@@ -238,9 +230,21 @@ func (a *Adapter) createBlockBatchWithRetry(ctx context.Context, block *types.Bl
 			continue
 		}
 
-		return "", fmt.Errorf("failed to create block batch: %w", err)
+		return "", fmt.Errorf("failed to store block: %w", err)
 	}
 	return "", nil
+}
+
+// extractBlockHashFromGroups finds the block group and returns its "hash" value.
+func extractBlockHashFromGroups(groups []chains.DocumentGroup, cols *CollectionNames) string {
+	for _, g := range groups {
+		if g.Collection == cols.Block && len(g.Docs) > 0 {
+			if hash, ok := g.Docs[0][constants.HashKeyValue].(string); ok {
+				return hash
+			}
+		}
+	}
+	return ""
 }
 
 // GetHighestStoredBlockNumber implements Chain.

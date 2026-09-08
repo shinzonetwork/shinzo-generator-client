@@ -38,3 +38,12 @@ const ContentTypeJSON = "application/json"
 
 // CacheControlSchema is the Cache-Control directive for schema responses.
 const CacheControlSchema = "no-cache"
+
+// HashKeyValue is the string value "hash" assigned to a key field.
+const HashKeyValue = "hash"
+
+// AddressKeyValue is the string value "address" assigned to a key field.
+const AddressKeyValue = "address"
+
+// TransactionHashKeyValue is the string value "transactionHash" assigned to a key field.
+const TransactionHashKeyValue = "transactionHash"

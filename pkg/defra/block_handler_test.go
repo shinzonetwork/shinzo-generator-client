@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 func TestNewBlockHandler_NilNode(t *testing.T) {
 	t.Parallel()
 	// Test that nil node returns error.
-	handler, err := NewBlockHandler(nil, 1000, nil)
+	handler, err := NewBlockHandler(nil, 1000)
 	if err == nil {
 		t.Error("Expected error for nil node, got nil")
 	}
@@ -172,10 +172,6 @@ func TestConvertHexToInt_UnhappyPaths(t *testing.T) {
 		})
 	}
 }
-
-// Note: Tests for CreateBlockBatch, GetHighestBlockNumber, and other methods
-// that require an embedded DefraDB node should be placed in integration tests
-// since they require a running DefraDB instance.
 
 // ---------------------------------------------------------------------------
 // retryBackoff tests
@@ -437,14 +433,14 @@ func TestNewBlockHandler_ZeroMaxDocs(t *testing.T) {
 	// by verifying both the nil-node error path and the default logic.
 
 	// With nil node, verify the error is returned regardless of maxDocsPerTxn
-	_, err := NewBlockHandler(nil, 0, nil)
-	require.Error(t, err, "NewBlockHandler(nil, 0, nil) should return error")
+	_, err := NewBlockHandler(nil, 0)
+	require.Error(t, err, "NewBlockHandler(nil, 0) should return error")
 
-	_, err = NewBlockHandler(nil, -1, nil)
-	require.Error(t, err, "NewBlockHandler(nil, -1, nil) should return error")
+	_, err = NewBlockHandler(nil, -1)
+	require.Error(t, err, "NewBlockHandler(nil, -1) should return error")
 
-	_, err = NewBlockHandler(nil, -100, nil)
-	require.Error(t, err, "NewBlockHandler(nil, -100, nil) should return error")
+	_, err = NewBlockHandler(nil, -100)
+	require.Error(t, err, "NewBlockHandler(nil, -100) should return error")
 }
 
 // ---------------------------------------------------------------------------

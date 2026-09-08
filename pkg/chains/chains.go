@@ -18,7 +18,6 @@ import (
 	"fmt"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -199,12 +198,11 @@ type Fetcher interface {
 // call, keeping the Converter stateless and testable without a live DefraDB.
 type Converter interface {
 	// Convert transforms a raw block (returned by Fetcher.FetchBlock) into
-	// a set of DocumentGroups plus the name of the block-signature collection.
+	// a ConversionResult containing DocumentGroups, the block-signature
+	// collection name, and a LinkStamper for cross-document link resolution.
 	// The rawBlock parameter is typed as any to keep pkg/chains free of
 	// chain SDK imports; the concrete Converter type-asserts internally.
-	// The vp parameter supplies collection versions for in-memory docID
-	// computation used to set cross-document link fields (_blockID, etc.).
-	Convert(ctx context.Context, rawBlock any, vp CollectionVersionProvider) (groups []DocumentGroup, signatureCollection string, err error)
+	Convert(ctx context.Context, rawBlock any) (ConversionResult, error)
 
 	// GetSchema returns the GraphQL SDL for the configured chain, with
 	// collection names adapted to the chain's prefix.
@@ -237,11 +235,29 @@ type Converter interface {
 type DocumentGroup struct {
 	Collection string
 	Docs       []map[string]any
+	// BatchSize is the max documents per write transaction for this group.
+	// When 0, the BlockHandler uses its default maxDocsPerTxn.
+	BatchSize int
+	// BlockNumField is the field name in each doc that holds the block number
+	// (e.g. "number" for block docs, "blockNumber" for tx/log/ale docs).
+	// Used by BlockHandler.SignExisting to query stored docIDs by block number.
+	BlockNumField string
 }
 
-// CollectionVersionProvider resolves a collection name to its
-// client.CollectionVersion, used by Converters for in-memory DocID computation.
-// BlockHandler implements this so Converters never need a direct *node.Node.
-type CollectionVersionProvider interface {
-	CollectionVersion(ctx context.Context, name string) (client.CollectionVersion, error)
+// LinkStamper resolves cross-document link fields (_blockID, _transactionID)
+// after AddDocument assigns persistent docIDs. It mutates the groups' doc
+// maps in-place. Called by BlockHandler.Store in group order (block → tx →
+// log → ALE) so the stamper can build internal lookup maps as each group
+// is written.
+type LinkStamper interface {
+	StampLinks(groups []DocumentGroup, writtenCollection string, writtenDocs []map[string]any, writtenDocIDs []string)
+}
+
+// ConversionResult is the output of Converter.Convert — it bundles the
+// document groups, the signature collection name, and the chain-specific
+// LinkStamper needed for link resolution during Store.
+type ConversionResult struct {
+	Groups              []DocumentGroup
+	SignatureCollection string
+	LinkStamper         LinkStamper
 }

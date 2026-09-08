@@ -216,7 +216,7 @@ func TestBlockHandlerErrorLogging(t *testing.T) {
 	testLogger := testutils.NewTestLogger(t)
 
 	// Create a block handler with nil node to trigger the error path.
-	_, err := NewBlockHandler(nil, 1000, nil)
+	_, err := NewBlockHandler(nil, 1000)
 	if err == nil {
 		t.Fatal("Expected error for nil node")
 	}
