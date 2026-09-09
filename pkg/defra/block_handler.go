@@ -248,13 +248,14 @@ func toInt64(v any) (int64, error) {
 }
 
 // Store persists a block and all its constituent documents (transactions, logs,
-// access-list entries, etc.) from the ConversionResult. It writes the block
-// document first, then writes the remaining groups in order, resolving
-// cross-document link fields (_blockID, _transactionID) via the
-// chain-provided LinkStamper. Stamping failures are collected as batch errors,
-// which suppress the block signature and surface in Store's returned error.
-// The block signature is created over the collected CIDs when signing identity
-// is available.
+// access-list entries, etc.) from the ConversionResult. Every group — the
+// block group included — follows the same uniform protocol: the chain-provided
+// LinkStamper stamps derivable link fields into the docs (StampBeforeWrite),
+// the group is written, and the write's docIDs are recorded as lookup state
+// for later groups (RecordDocIDs). Stamping and recording failures are
+// collected as batch errors, which suppress the block signature and surface
+// in Store's returned error. The block signature is created over the
+// collected CIDs when signing identity is available.
 func (h *BlockHandler) Store(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -264,36 +265,47 @@ func (h *BlockHandler) Store(
 			"store requires embedded DefraDB node", "", nil)
 	}
 	if len(result.Groups) == 0 {
-		return nil, fmt.Errorf("no document groups to store") //nolint:err113
+		return nil, fmt.Errorf("no document groups to store")
 	}
 
 	blockGroup := result.Groups[0]
 	if len(blockGroup.Docs) == 0 {
-		return nil, fmt.Errorf("no block document in groups") //nolint:err113
+		return nil, fmt.Errorf("no block document in groups")
 	}
 	blockData := blockGroup.Docs[0]
 	blockInt, err := toInt64(blockData[blockGroup.BlockNumField])
 	if err != nil {
-		return nil, fmt.Errorf("invalid block number: %w", err) //nolint:err113
+		return nil, fmt.Errorf("invalid block number: %w", err)
 	}
 	blockHash, _ := blockData[constants.HashKeyValue].(string)
 
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
 
+	// Block group — same protocol as every other group. Its stamp is
+	// field-wise a no-op (the block doc carries no link fields) and the
+	// recordDocIDs call below harvests the block docID. A stamp failure here
+	// is fatal: a stamper that cannot process the block collection cannot
+	// resolve any link in the block.
+	if err := stampBlockGroup(result, blockGroup); err != nil {
+		return nil, err
+	}
+
 	blockID, err := h.storeBlockDoc(ctx, blockData, blockGroup.Collection)
 	if err != nil {
 		return nil, err
 	}
 
-	allDocIDs := []string{blockID}
-	otherDocIDs := map[string][]string{}
-	var batchErrors []error
+	var (
+		allDocIDs   = []string{blockID}
+		otherDocIDs = map[string][]string{}
+		batchErrors []error
+	)
 
-	stampGroupLinks(result, blockGroup, []string{blockID}, &batchErrors)
+	recordDocIDs(result, blockGroup, []string{blockID}, &batchErrors)
 
 	for _, g := range result.Groups[1:] {
-		if !stampGroupLinks(result, g, nil, &batchErrors) {
+		if !stampBeforeWrite(result, g, &batchErrors) {
 			continue
 		}
 
@@ -302,7 +314,7 @@ func (h *BlockHandler) Store(
 			batchErrors = append(batchErrors, err)
 		}
 
-		stampGroupLinks(result, g, ids, &batchErrors)
+		recordDocIDs(result, g, ids, &batchErrors)
 
 		otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
 		allDocIDs = append(allDocIDs, ids...)
@@ -332,24 +344,60 @@ func (h *BlockHandler) Store(
 	return creationResult, nil
 }
 
-// stampGroupLinks stamps a group's documents via the conversion result's
-// LinkStamper, when one is configured. A stamping failure is recorded in
-// batchErrors and reported as false so callers can skip the affected group;
-// a nil stamper is a no-op.
-func stampGroupLinks(
+// stampBlockGroup stamps the block group before its write when the conversion
+// result carries a LinkStamper; a nil stamper is a no-op. Unlike the other
+// groups, a stamping failure here is fatal and returned as an error: a
+// stamper that cannot process the block collection cannot resolve any link
+// in the block.
+func stampBlockGroup(
 	result chains.ConversionResult,
 	group chains.DocumentGroup,
-	docIDs []string,
+) error {
+	if result.LinkStamper == nil {
+		return nil
+	}
+	if err := result.LinkStamper.StampBeforeWrite(group.Collection, group.Docs); err != nil {
+		return fmt.Errorf("stamp block group: %w", err) //nolint:err113
+	}
+	return nil
+}
+
+// stampBeforeWrite stamps a group's documents via the conversion result's
+// LinkStamper, when one is configured, before the group is written. A
+// stamping failure is recorded in batchErrors and reported as false so
+// callers can skip the affected group (unlinked docs are worse than absent
+// docs); a nil stamper is a no-op.
+func stampBeforeWrite(
+	result chains.ConversionResult,
+	group chains.DocumentGroup,
 	batchErrors *[]error,
 ) bool {
 	if result.LinkStamper == nil {
 		return true
 	}
-	if err := result.LinkStamper.StampLinks(result.Groups, group.Collection, group.Docs, docIDs); err != nil {
+	if err := result.LinkStamper.StampBeforeWrite(group.Collection, group.Docs); err != nil {
 		*batchErrors = append(*batchErrors, err)
 		return false
 	}
 	return true
+}
+
+// recordDocIDs records a written group's docIDs via the conversion result's
+// LinkStamper, when one is configured, so later groups can stamp links from
+// them. A recording failure is recorded in batchErrors; a nil stamper is a
+// no-op. The stamper never mutates the group's docs.
+func recordDocIDs(
+	result chains.ConversionResult,
+	group chains.DocumentGroup,
+	docIDs []string,
+	batchErrors *[]error,
+) {
+	if result.LinkStamper == nil {
+		return
+	}
+	if err := result.LinkStamper.RecordDocIDs(group.Collection, group.Docs, docIDs); err != nil {
+		*batchErrors = append(*batchErrors, err)
+	}
 }
 
 // writeGroup writes a DocumentGroup's docs in batches, returning all docIDs.
