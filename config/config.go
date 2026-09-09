@@ -78,6 +78,9 @@ type GethConfig struct {
 	WsURL      string `yaml:"ws_url"`
 	APIKey     string `yaml:"api_key"`
 	APIKeyType string `yaml:"api_key_type"`
+	// DialTimeoutSeconds bounds the startup RPC/WS dial phase when positive.
+	// 0 or negative = unbounded dial; the caller's context governs.
+	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
 }
 
 // IndexerConfig represents indexer configuration.
@@ -389,6 +392,11 @@ func applyChainEnvOverrides(cfg *Config) {
 	}
 	if gethAPIKeyType := os.Getenv("GETH_API_KEY_TYPE"); gethAPIKeyType != "" {
 		cfg.Geth.APIKeyType = gethAPIKeyType
+	}
+	if gethDialTimeout := os.Getenv("GETH_DIAL_TIMEOUT_SECONDS"); gethDialTimeout != "" {
+		if n, err := strconv.Atoi(gethDialTimeout); err == nil {
+			cfg.Geth.DialTimeoutSeconds = n
+		}
 	}
 }
 
