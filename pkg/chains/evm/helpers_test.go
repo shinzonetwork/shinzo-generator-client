@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -135,7 +134,7 @@ func storeResidueBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestD
 	require.NoError(t, err)
 
 	data := c.buildBlockData(fakeBlock(seed), seed)
-	delete(data, constants.NumberFieldValue)
+	delete(data, NumberFieldValue)
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
 	require.NoError(t, err)

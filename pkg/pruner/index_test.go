@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
@@ -42,11 +42,11 @@ func TestSchemaIndexesBlockNumberField(t *testing.T) {
 		collection string
 		field      string
 	}{
-		{blockCol, constants.NumberFieldValue},
-		{txCol, constants.BlockNumberKeyValue},
-		{logCol, constants.BlockNumberKeyValue},
-		{aleCol, constants.BlockNumberKeyValue},
-		{sigCol, constants.BlockNumberKeyValue},
+		{blockCol, evm.NumberFieldValue},
+		{txCol, evm.BlockNumberKeyValue},
+		{logCol, evm.BlockNumberKeyValue},
+		{aleCol, evm.BlockNumberKeyValue},
+		{sigCol, evm.BlockNumberKeyValue},
 	}
 
 	for _, c := range cases {

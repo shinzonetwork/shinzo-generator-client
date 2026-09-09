@@ -1069,25 +1069,25 @@ func (m *mockBlockStorer) SignExisting(ctx context.Context, result chains.Conver
 func fullBlockResponse(number string, txs []any) map[string]any {
 	emptyTrieRoot := testTransactionsRoot
 	block := map[string]any{
-		constants.NumberFieldValue: number,
-		"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"nonce":                    "0x0000000000000000",
-		"sha3Uncles":               testSha3Uncles,
-		"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot":         emptyTrieRoot,
-		"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"miner":                    "0x0000000000000000000000000000000000000000",
-		"difficulty":               "0x0",
-		"totalDifficulty":          "0x0",
-		"extraData":                "0x",
-		"size":                     "0x100",
-		"gasLimit":                 "0x1000000",
-		"gasUsed":                  "0x5208",
-		"timestamp":                "0x60000000",
-		"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":                   []any{},
+		evm.NumberFieldValue: number,
+		"hash":               "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"parentHash":         "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"nonce":              "0x0000000000000000",
+		"sha3Uncles":         testSha3Uncles,
+		"logsBloom":          "0x" + fmt.Sprintf("%0512x", 0),
+		"transactionsRoot":   emptyTrieRoot,
+		"stateRoot":          "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":       "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"miner":              "0x0000000000000000000000000000000000000000",
+		"difficulty":         "0x0",
+		"totalDifficulty":    "0x0",
+		"extraData":          "0x",
+		"size":               "0x100",
+		"gasLimit":           "0x1000000",
+		"gasUsed":            "0x5208",
+		"timestamp":          "0x60000000",
+		"mixHash":            "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":             []any{},
 	}
 	if txs != nil {
 		block["transactions"] = txs
@@ -2346,7 +2346,7 @@ func TestFullBlockResponse_WithTransactions(t *testing.T) {
 		},
 	}
 	block := fullBlockResponse("0x100", txs)
-	assert.Equal(t, "0x100", block[constants.NumberFieldValue])
+	assert.Equal(t, "0x100", block[evm.NumberFieldValue])
 	assert.NotNil(t, block["transactions"])
 	txList := block["transactions"].([]any)
 	assert.Len(t, txList, 1)
@@ -2355,7 +2355,7 @@ func TestFullBlockResponse_WithTransactions(t *testing.T) {
 func TestFullBlockResponse_NilTransactions(t *testing.T) {
 	t.Parallel()
 	block := fullBlockResponse("0x200", nil)
-	assert.Equal(t, "0x200", block[constants.NumberFieldValue])
+	assert.Equal(t, "0x200", block[evm.NumberFieldValue])
 	txList := block["transactions"].([]any)
 	assert.Len(t, txList, 0)
 }

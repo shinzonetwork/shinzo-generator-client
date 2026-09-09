@@ -603,8 +603,8 @@ func TestExtractBlockSigMerkleRoots_PlainJSONL(t *testing.T) {
 	mr2 := hexRoot("root2_data_bytes")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr1, constants.BlockNumberKeyValue: 1000}}),
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr2, constants.BlockNumberKeyValue: 1001}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr1, evm.BlockNumberKeyValue: 1000}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr2, evm.BlockNumberKeyValue: 1001}}),
 	}
 
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
@@ -662,7 +662,7 @@ func TestExtractBlockSigMerkleRoots_NonBlockSigEntriesSkipped(t *testing.T) {
 	mr := hexRoot("valid_root")
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{evm.NumberFieldValue: 1000}}),
 		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
 		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
 		mustJSON(t, map[string]any{"type": "log", "data": map[string]any{"logIndex": 0}}),
@@ -770,7 +770,7 @@ func TestExtractBlockSigMerkleRoots_MultipleValidRootsInOrder(t *testing.T) {
 	for i, mr := range mrs {
 		lines = append(lines, mustJSON(t, map[string]any{
 			"type": constants.BlockSignatureTypeValue,
-			"data": map[string]any{constants.MerkleRootKeyValue: mr, constants.BlockNumberKeyValue: 1000 + i},
+			"data": map[string]any{constants.MerkleRootKeyValue: mr, evm.BlockNumberKeyValue: 1000 + i},
 		}))
 	}
 
@@ -795,7 +795,7 @@ func TestVerifySnapshotWithSig_NoBlockSigsInSnapshot(t *testing.T) {
 
 	// Create a snapshot with no block_signature entries
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{evm.NumberFieldValue: 1000}}),
 		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
@@ -1026,7 +1026,7 @@ func TestVerifySnapshot_ValidSigFileButNoBlockSigs(t *testing.T) {
 
 	// Create a gzip'd JSONL file with no block_signature entries
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{evm.NumberFieldValue: 1000}}),
 	}
 	snapshotPath := writeGzipJSONLFile(t, dir, "snapshot_1000_1999.jsonl.gz", lines)
 
@@ -3517,11 +3517,11 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 	require.NoError(t, err)
 
 	data := map[string]any{
-		constants.BlockNumberKeyValue: blockNumber,
-		constants.BlockHashKeyValue:   deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
-		constants.MerkleRootKeyValue:  merkleRoot,
-		"cidCount":                    5,
-		"cids":                        []string{"cidA", "cidB"},
+		evm.BlockNumberKeyValue:      blockNumber,
+		evm.BlockHashKeyValue:        deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
+		constants.MerkleRootKeyValue: merkleRoot,
+		"cidCount":                   5,
+		"cids":                       []string{"cidA", "cidB"},
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())

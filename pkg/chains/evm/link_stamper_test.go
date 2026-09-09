@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,8 +21,8 @@ func TestStampBeforeWrite_Transaction(t *testing.T) {
 	s.blockID = "block-doc-id-1"
 
 	txDocs := []map[string]any{
-		{constants.HashKeyValue: "0xtx1"},
-		{constants.HashKeyValue: "0xtx2"},
+		{HashKeyValue: "0xtx1"},
+		{HashKeyValue: "0xtx2"},
 	}
 
 	err := s.StampBeforeWrite(cols.Transaction, txDocs)
@@ -41,7 +40,7 @@ func TestStampBeforeWrite_Log(t *testing.T) {
 	s.txHashToID["0xtx1"] = "tx-doc-id-1"
 
 	logDocs := []map[string]any{
-		{constants.TransactionHashKeyValue: "0xtx1"},
+		{TransactionHashKeyValue: "0xtx1"},
 	}
 
 	err := s.StampBeforeWrite(cols.Log, logDocs)
@@ -58,7 +57,7 @@ func TestStampBeforeWrite_Log_TxNotYetStamped(t *testing.T) {
 	s.blockID = "block-doc-id-1"
 
 	logDocs := []map[string]any{
-		{constants.TransactionHashKeyValue: "0xunknown"},
+		{TransactionHashKeyValue: "0xunknown"},
 	}
 
 	err := s.StampBeforeWrite(cols.Log, logDocs)
@@ -77,8 +76,8 @@ func TestStampBeforeWrite_AccessListEntry(t *testing.T) {
 	s.txHashToID["0xtx2"] = "tx-doc-id-2"
 
 	aleDocs := []map[string]any{
-		{constants.AddressKeyValue: "0x01"},
-		{constants.AddressKeyValue: "0x02"},
+		{AddressKeyValue: "0x01"},
+		{AddressKeyValue: "0x02"},
 	}
 
 	err := s.StampBeforeWrite(cols.AccessListEntry, aleDocs)
@@ -95,8 +94,8 @@ func TestStampBeforeWrite_AccessListEntry_FewerParentRefs(t *testing.T) {
 	s.txHashToID["0xtx1"] = "tx-doc-id-1"
 
 	aleDocs := []map[string]any{
-		{constants.AddressKeyValue: "0x01"},
-		{constants.AddressKeyValue: "0x02"},
+		{AddressKeyValue: "0x01"},
+		{AddressKeyValue: "0x02"},
 	}
 
 	err := s.StampBeforeWrite(cols.AccessListEntry, aleDocs)
@@ -114,7 +113,7 @@ func TestStampBeforeWrite_AccessListEntry_UnknownParentRef(t *testing.T) {
 	s.txHashToID["0xtx1"] = "tx-doc-id-1"
 
 	aleDocs := []map[string]any{
-		{constants.AddressKeyValue: "0x01"},
+		{AddressKeyValue: "0x01"},
 	}
 
 	err := s.StampBeforeWrite(cols.AccessListEntry, aleDocs)
@@ -148,7 +147,7 @@ func TestRecordDocIDs_Block(t *testing.T) {
 	cols := NewCollectionNames("Ethereum__Mainnet")
 	s := newEvmLinkStamper(cols, nil)
 
-	blockDocs := []map[string]any{{constants.HashKeyValue: "0xabc"}}
+	blockDocs := []map[string]any{{HashKeyValue: "0xabc"}}
 	blockIDs := []string{"block-doc-id-1"}
 
 	err := s.RecordDocIDs(cols.Block, blockDocs, blockIDs)
@@ -162,7 +161,7 @@ func TestRecordDocIDs_Block_NoDocIDs(t *testing.T) {
 	cols := NewCollectionNames("Ethereum__Mainnet")
 	s := newEvmLinkStamper(cols, nil)
 
-	err := s.RecordDocIDs(cols.Block, []map[string]any{{constants.HashKeyValue: "0xabc"}}, nil)
+	err := s.RecordDocIDs(cols.Block, []map[string]any{{HashKeyValue: "0xabc"}}, nil)
 	require.NoError(t, err, "block with no docIDs keeps prior blockID without error")
 
 	assert.Empty(t, s.blockID)
@@ -174,8 +173,8 @@ func TestRecordDocIDs_TransactionBuildsTxHashToID(t *testing.T) {
 	s := newEvmLinkStamper(cols, nil)
 
 	txDocs := []map[string]any{
-		{constants.HashKeyValue: "0xtxA"},
-		{constants.HashKeyValue: "0xtxB"},
+		{HashKeyValue: "0xtxA"},
+		{HashKeyValue: "0xtxB"},
 	}
 	txIDs := []string{"docA", "docB"}
 
@@ -196,8 +195,8 @@ func TestRecordDocIDs_Transaction_PartialDocIDs(t *testing.T) {
 	// block whose docs already exist), not an error. The guard contract:
 	// registration is skipped for docs without docIDs.
 	txDocs := []map[string]any{
-		{constants.HashKeyValue: "0xtx1"},
-		{constants.HashKeyValue: "0xtx2"},
+		{HashKeyValue: "0xtx1"},
+		{HashKeyValue: "0xtx2"},
 	}
 	err := s.RecordDocIDs(cols.Transaction, txDocs, []string{"tx-doc-id-1"})
 
@@ -217,8 +216,8 @@ func TestRecordDocIDs_Transaction_ZeroDocIDs(t *testing.T) {
 	// Routine re-index: every doc already exists, no docIDs returned at all.
 	// The call is silent — no error, nothing registered, docs untouched.
 	txDocs := []map[string]any{
-		{constants.HashKeyValue: "0xtx1"},
-		{constants.HashKeyValue: "0xtx2"},
+		{HashKeyValue: "0xtx1"},
+		{HashKeyValue: "0xtx2"},
 	}
 	err := s.RecordDocIDs(cols.Transaction, txDocs, nil)
 
@@ -257,25 +256,25 @@ func TestRecordDocIDs_NeverMutatesDocs(t *testing.T) {
 		{
 			name:       "block",
 			collection: cols.Block,
-			docs:       []map[string]any{{constants.HashKeyValue: "0xblock"}},
+			docs:       []map[string]any{{HashKeyValue: "0xblock"}},
 			ids:        []string{"block-id"},
 		},
 		{
 			name:       "transaction",
 			collection: cols.Transaction,
-			docs:       []map[string]any{{constants.HashKeyValue: "0xtx1"}},
+			docs:       []map[string]any{{HashKeyValue: "0xtx1"}},
 			ids:        []string{"tx-id"},
 		},
 		{
 			name:       "log",
 			collection: cols.Log,
-			docs:       []map[string]any{{constants.TransactionHashKeyValue: "0xtx1"}},
+			docs:       []map[string]any{{TransactionHashKeyValue: "0xtx1"}},
 			ids:        []string{"log-id"},
 		},
 		{
 			name:       "accessListEntry",
 			collection: cols.AccessListEntry,
-			docs:       []map[string]any{{constants.AddressKeyValue: "0x01"}},
+			docs:       []map[string]any{{AddressKeyValue: "0x01"}},
 			ids:        []string{"ale-id"},
 		},
 	}
@@ -311,10 +310,10 @@ func TestUniformProtocol_FullBlockSequence(t *testing.T) {
 	s := newEvmLinkStamper(cols, []string{"0xtx1"})
 
 	groups := []chains.DocumentGroup{
-		{Collection: cols.Block, Docs: []map[string]any{{constants.HashKeyValue: "0xblock"}}},
-		{Collection: cols.Transaction, Docs: []map[string]any{{constants.HashKeyValue: "0xtx1"}}},
-		{Collection: cols.Log, Docs: []map[string]any{{constants.TransactionHashKeyValue: "0xtx1"}}},
-		{Collection: cols.AccessListEntry, Docs: []map[string]any{{constants.AddressKeyValue: "0x01"}}},
+		{Collection: cols.Block, Docs: []map[string]any{{HashKeyValue: "0xblock"}}},
+		{Collection: cols.Transaction, Docs: []map[string]any{{HashKeyValue: "0xtx1"}}},
+		{Collection: cols.Log, Docs: []map[string]any{{TransactionHashKeyValue: "0xtx1"}}},
+		{Collection: cols.AccessListEntry, Docs: []map[string]any{{AddressKeyValue: "0x01"}}},
 	}
 	assignedIDs := [][]string{
 		{"block-id-1"},
@@ -354,13 +353,13 @@ func TestStampBeforeWrite_Transaction_InvalidDocFails(t *testing.T) {
 			name:    "non-string hash",
 			blockID: "block-doc-id-1",
 			txHash:  12345,
-			wantErr: constants.HashKeyValue,
+			wantErr: HashKeyValue,
 		},
 		{
 			name:    "empty hash",
 			blockID: "block-doc-id-1",
 			txHash:  "",
-			wantErr: constants.HashKeyValue,
+			wantErr: HashKeyValue,
 		},
 		{
 			name:    "no block docID registered",
@@ -376,7 +375,7 @@ func TestStampBeforeWrite_Transaction_InvalidDocFails(t *testing.T) {
 			s := newEvmLinkStamper(cols, nil)
 			s.blockID = tc.blockID
 
-			txDocs := []map[string]any{{constants.HashKeyValue: tc.txHash}}
+			txDocs := []map[string]any{{HashKeyValue: tc.txHash}}
 			err := s.StampBeforeWrite(cols.Transaction, txDocs)
 
 			require.Error(t, err)
@@ -407,11 +406,11 @@ func TestRecordDocIDs_Transaction_InvalidHashFails(t *testing.T) {
 			t.Parallel()
 			s := newEvmLinkStamper(cols, nil)
 
-			txDocs := []map[string]any{{constants.HashKeyValue: tc.txHash}}
+			txDocs := []map[string]any{{HashKeyValue: tc.txHash}}
 			err := s.RecordDocIDs(cols.Transaction, txDocs, []string{"tx-doc-id-1"})
 
 			require.Error(t, err, "an unparseable hash cannot be registered")
-			assert.Contains(t, err.Error(), constants.HashKeyValue)
+			assert.Contains(t, err.Error(), HashKeyValue)
 			_, hasEmpty := s.txHashToID[""]
 			assert.False(t, hasEmpty, "empty hash must never be registered")
 			assert.Empty(t, s.txHashToID, "nothing may be registered when a doc fails validation")
@@ -441,13 +440,13 @@ func TestStampBeforeWrite_Log_InvalidDocFails(t *testing.T) {
 
 			logDocs := []map[string]any{{}}
 			if tc.logHash != nil {
-				logDocs[0][constants.TransactionHashKeyValue] = tc.logHash
+				logDocs[0][TransactionHashKeyValue] = tc.logHash
 			}
 
 			err := s.StampBeforeWrite(cols.Log, logDocs)
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), constants.TransactionHashKeyValue)
+			assert.Contains(t, err.Error(), TransactionHashKeyValue)
 			_, hasBlockID := logDocs[0]["_blockID"]
 			assert.False(t, hasBlockID, "failing doc must not be stamped")
 			_, hasTxID := logDocs[0]["_transactionID"]
@@ -463,7 +462,7 @@ func TestLog_CorruptionRegression(t *testing.T) {
 
 	// Register a real transaction.
 	s.blockID = "block-doc-id-1"
-	txDocs := []map[string]any{{constants.HashKeyValue: "0xtx1"}}
+	txDocs := []map[string]any{{HashKeyValue: "0xtx1"}}
 	require.NoError(t, s.RecordDocIDs(cols.Transaction, txDocs, []string{"tx-doc-id-1"}))
 
 	// A log batch where the second doc is missing transactionHash. Before the
@@ -471,7 +470,7 @@ func TestLog_CorruptionRegression(t *testing.T) {
 	// and a log with a missing hash looked it up, receiving an unrelated
 	// transaction's _transactionID. That must be structurally impossible now.
 	logDocs := []map[string]any{
-		{constants.TransactionHashKeyValue: "0xtx1"},
+		{TransactionHashKeyValue: "0xtx1"},
 		{},
 	}
 	err := s.StampBeforeWrite(cols.Log, logDocs)
