@@ -2,13 +2,16 @@ package pruner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/node"
@@ -21,121 +24,33 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// testSchema defines a simple schema for pruner integration tests.
-const testSchema = `
-type TestBlock {
-	number: Int @index
-	hash: String
-}
-
-type TestTx {
-	blockNumber: Int @index
-	txHash: String
-}
-`
-
-const timeout = 10 * time.Second
-
-// testCollections returns a CollectionConfig matching the testSchema.
-func testCollections() CollectionConfig {
-	return CollectionConfig{
-		BlockCollection:      "TestBlock",
-		BlockNumberField:     constants.NumberFieldValue,
-		DependentCollections: []string{"TestTx"},
-	}
-}
-
-// startTestNode creates a real DefraDB node with the test schema.
-func startTestNode(t *testing.T) *node.Node {
-	t.Helper()
-	td := testutils.SetupTestDefraDBWithSchema(t, testSchema)
-	return td.Node
-}
-
-// insertTestBlock inserts a TestBlock and optionally TestTx docs into the DB.
-// Returns the block docID.
-func insertTestBlock(t *testing.T, n *node.Node, blockNum int64, txCount int) string {
-	t.Helper()
-	ctx := context.Background()
-	// Insert block
-	mutation := fmt.Sprintf(`mutation { add_TestBlock(input: [{number: %d, hash: "hash%d"}]) { _docID } }`, blockNum, blockNum)
-	result := n.DB.ExecRequest(ctx, mutation)
-	require.Empty(t, result.GQL.Errors, "insert block %d failed: %v", blockNum, result.GQL.Errors)
-
-	// Extract docID from the returned list
-	blockDocID := ""
-	if data, ok := result.GQL.Data.(map[string]any); ok {
-		raw := data["add_TestBlock"]
-		switch v := raw.(type) {
-		case []any:
-			if len(v) > 0 {
-				if m, ok := v[0].(map[string]any); ok {
-					blockDocID, _ = m["_docID"].(string)
-				}
-			}
-		case []map[string]any:
-			if len(v) > 0 {
-				blockDocID, _ = v[0]["_docID"].(string)
-			}
-		}
-	}
-
-	// Insert transactions
-	for i := range txCount {
-		txMutation := fmt.Sprintf(`mutation { add_TestTx(input: [{blockNumber: %d, txHash: "tx%d_%d"}]) { _docID } }`, blockNum, blockNum, i)
-		txResult := n.DB.ExecRequest(ctx, txMutation)
-		require.Empty(t, txResult.GQL.Errors, "insert tx %d_%d failed: %v", blockNum, i, txResult.GQL.Errors)
-	}
-
-	return blockDocID
-}
-
-// countDocs queries and returns the number of docs in the given collection.
-func countDocs(t *testing.T, n *node.Node, collectionName string) int {
-	t.Helper()
-	ctx := context.Background()
-	query := fmt.Sprintf(`query { %s { _docID } }`, collectionName)
-	result := n.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return 0
-	}
-	data, ok := result.GQL.Data.(map[string]any)
-	if !ok {
-		return 0
-	}
-	raw := data[collectionName]
-	switch docs := raw.(type) {
-	case []any:
-		return len(docs)
-	case []map[string]any:
-		return len(docs)
-	}
-	return 0
-}
-
 func TestNewPruner(t *testing.T) {
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 1000, IntervalSeconds: 60}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 1000, IntervalSeconds: 60}
 
-	t.Run("default collection config", func(t *testing.T) {
-		p := NewPruner(cfg, nil)
+	t.Run("nil chain", func(t *testing.T) {
+		p := NewPruner(cfg, nil, nil)
 		require.NotNil(t, p)
-		assert.Equal(t, constants.CollectionBlock, p.collections.BlockCollection)
+		assert.Equal(t, "", p.blockCollection)
+		assert.Equal(t, "", p.blockSigCollection)
 	})
 
-	t.Run("custom collection config", func(t *testing.T) {
-		custom := CollectionConfig{
-			BlockCollection:  "Custom__Block",
-			BlockNumberField: "num",
+	t.Run("with chain resolves collection names", func(t *testing.T) {
+		mock := &testutils.MockConverter{
+			CollectionsFn: func() chains.Collections {
+				return evm.NewCollectionNames("Test")
+			},
+			SignatureCollectionFn: func() string { return "Test__BlockSignature" },
 		}
-		p := NewPruner(cfg, nil, custom)
+		p := NewPruner(cfg, nil, mock)
 		require.NotNil(t, p)
-		assert.Equal(t, "Custom__Block", p.collections.BlockCollection)
+		assert.Equal(t, "Test__Block", p.blockCollection)
+		assert.Equal(t, "Test__BlockSignature", p.blockSigCollection)
 	})
 }
 
 func TestPrunerSetQueue(t *testing.T) {
-	cfg := &Config{Enabled: true}
-	p := NewPruner(cfg, nil)
+	cfg := &config.PrunerConfig{Enabled: true}
+	p := NewPruner(cfg, nil, nil)
 	assert.Nil(t, p.queue)
 
 	q := NewIndexerQueue()
@@ -144,8 +59,8 @@ func TestPrunerSetQueue(t *testing.T) {
 }
 
 func TestPrunerStart_Disabled(t *testing.T) {
-	cfg := &Config{Enabled: false}
-	p := NewPruner(cfg, nil)
+	cfg := &config.PrunerConfig{Enabled: false}
+	p := NewPruner(cfg, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	err := p.Start(ctx)
 	assert.NoError(t, err)
@@ -155,8 +70,8 @@ func TestPrunerStart_Disabled(t *testing.T) {
 }
 
 func TestPrunerStart_NilNode(t *testing.T) {
-	cfg := &Config{Enabled: true}
-	p := NewPruner(cfg, nil)
+	cfg := &config.PrunerConfig{Enabled: true}
+	p := NewPruner(cfg, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	err := p.Start(ctx)
@@ -167,8 +82,8 @@ func TestPrunerStart_NilNode(t *testing.T) {
 }
 
 func TestPrunerGetMetrics(t *testing.T) {
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, nil)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p := NewPruner(cfg, nil, nil)
 
 	metrics := p.GetMetrics()
 	assert.True(t, metrics.Enabled)
@@ -178,8 +93,8 @@ func TestPrunerGetMetrics(t *testing.T) {
 }
 
 func TestPrunerStop_NotRunning(t *testing.T) {
-	cfg := &Config{Enabled: true}
-	p := NewPruner(cfg, nil)
+	cfg := &config.PrunerConfig{Enabled: true}
+	p := NewPruner(cfg, nil, nil)
 
 	// Should be a no-op without panicking
 	assert.NotPanics(t, func() {
@@ -188,8 +103,8 @@ func TestPrunerStop_NotRunning(t *testing.T) {
 }
 
 func TestPrunerStop_WithQueue(t *testing.T) {
-	cfg := &Config{Enabled: false}
-	p := NewPruner(cfg, nil)
+	cfg := &config.PrunerConfig{Enabled: false}
+	p := NewPruner(cfg, nil, nil)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 
@@ -198,264 +113,12 @@ func TestPrunerStop_WithQueue(t *testing.T) {
 	assert.False(t, p.isRunning)
 }
 
-func TestParseBlockNumber(t *testing.T) {
-	tests := []struct {
-		name        string
-		input       any
-		expected    int64
-		expectError bool
-	}{
-		{"float64", float64(42), 42, false},
-		{"int64", int64(100), 100, false},
-		{"int", int(200), 200, false},
-		{"string (unknown type)", "300", 0, true},
-		{"nil", nil, 0, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseBlockNumber(tt.input)
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestExtractBlockNumber(t *testing.T) {
-	cfg := &Config{Enabled: true}
-	cols := DefaultCollectionConfig()
-	p := NewPruner(cfg, nil, cols)
-
-	t.Run("nil data returns ErrNoBlocks", func(t *testing.T) {
-		result, err := p.extractBlockNumber(nil)
-		assert.ErrorIs(t, err, ErrNoBlocks)
-		assert.Equal(t, int64(0), result)
-	})
-
-	t.Run("wrong type returns error", func(t *testing.T) {
-		_, err := p.extractBlockNumber("not a map")
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, ErrNoBlocks)
-	})
-
-	t.Run("empty blocks array ([]interface{}) returns ErrNoBlocks", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []any{},
-		}
-		result, err := p.extractBlockNumber(data)
-		assert.ErrorIs(t, err, ErrNoBlocks)
-		assert.Equal(t, int64(0), result)
-	})
-
-	t.Run("blocks with data ([]interface{})", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []any{
-				map[string]any{constants.NumberFieldValue: float64(42)},
-			},
-		}
-		result, err := p.extractBlockNumber(data)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(42), result)
-	})
-
-	t.Run("blocks with typed map array", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []map[string]any{
-				{constants.NumberFieldValue: float64(99)},
-			},
-		}
-		result, err := p.extractBlockNumber(data)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(99), result)
-	})
-
-	t.Run("empty typed map array returns ErrNoBlocks", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []map[string]any{},
-		}
-		result, err := p.extractBlockNumber(data)
-		assert.ErrorIs(t, err, ErrNoBlocks)
-		assert.Equal(t, int64(0), result)
-	})
-
-	t.Run("typed map array missing number field skips to next valid block", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []map[string]any{
-				{"other_field": "value"},
-				{constants.NumberFieldValue: float64(42)},
-			},
-		}
-		result, err := p.extractBlockNumber(data)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(42), result)
-	})
-
-	t.Run("typed map array all blocks missing number field returns error", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []map[string]any{
-				{"other_field": "value"},
-				{"another_field": 123},
-			},
-		}
-		_, err := p.extractBlockNumber(data)
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, ErrNoValidBlocks)
-	})
-
-	t.Run("block with nil number field skips to next valid block", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []map[string]any{
-				{constants.NumberFieldValue: nil},
-				{constants.NumberFieldValue: float64(7)},
-			},
-		}
-		result, err := p.extractBlockNumber(data)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(7), result)
-	})
-
-	t.Run("all blocks have nil number field returns error", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []map[string]any{
-				{constants.NumberFieldValue: nil},
-				{constants.NumberFieldValue: nil},
-			},
-		}
-		_, err := p.extractBlockNumber(data)
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, ErrNoValidBlocks)
-	})
-
-	t.Run("interface array with non-map element returns error", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []any{
-				"not a map",
-			},
-		}
-		_, err := p.extractBlockNumber(data)
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, ErrNoBlocks)
-	})
-
-	t.Run("interface array missing number field skips to next valid block", func(t *testing.T) {
-		data := map[string]any{
-			constants.CollectionBlock: []any{
-				map[string]any{"other": "value"},
-				map[string]any{constants.NumberFieldValue: float64(55)},
-			},
-		}
-		result, err := p.extractBlockNumber(data)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(55), result)
-	})
-
-	t.Run("missing block collection key returns error", func(t *testing.T) {
-		data := map[string]any{
-			"Other_Collection": []any{},
-		}
-		_, err := p.extractBlockNumber(data)
-		assert.Error(t, err)
-		assert.NotErrorIs(t, err, ErrNoBlocks)
-	})
-}
-
-func TestExtractDocIDs(t *testing.T) {
-	t.Run("valid docs within max", func(t *testing.T) {
-		docs := []map[string]any{
-			{"_docID": "bae-aaa", "number": float64(1)},
-			{"_docID": "bae-bbb", "number": float64(2)},
-		}
-		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
-		assert.NoError(t, err)
-		assert.Equal(t, []string{"bae-aaa", "bae-bbb"}, ids)
-	})
-
-	t.Run("stops at maxBlockNumber", func(t *testing.T) {
-		docs := []map[string]any{
-			{"_docID": "bae-aaa", "number": float64(1)},
-			{"_docID": "bae-bbb", "number": float64(5)},
-			{"_docID": "bae-ccc", "number": float64(10)},
-		}
-		ids, err := extractDocIDs(docs, "number", 3, "TestBlock")
-		assert.NoError(t, err)
-		assert.Equal(t, []string{"bae-aaa"}, ids)
-	})
-
-	t.Run("parse error skips doc and continues", func(t *testing.T) {
-		docs := []map[string]any{
-			{"_docID": "bae-aaa", "number": "not-a-number"},
-			{"_docID": "bae-bbb", "number": float64(2)},
-		}
-		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
-		assert.NoError(t, err)
-		assert.Equal(t, []string{"bae-bbb"}, ids)
-	})
-
-	t.Run("nil block number skips doc and continues", func(t *testing.T) {
-		docs := []map[string]any{
-			{"_docID": "bae-aaa", "number": nil},
-			{"_docID": "bae-bbb", "number": float64(2)},
-		}
-		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
-		assert.NoError(t, err)
-		assert.Equal(t, []string{"bae-bbb"}, ids)
-	})
-
-	t.Run("non-string _docID skips doc and continues", func(t *testing.T) {
-		docs := []map[string]any{
-			{"_docID": 123, "number": float64(1)},
-			{"_docID": "bae-bbb", "number": float64(2)},
-		}
-		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
-		assert.NoError(t, err)
-		assert.Equal(t, []string{"bae-bbb"}, ids)
-	})
-
-	t.Run("empty docs returns nil", func(t *testing.T) {
-		ids, err := extractDocIDs(nil, "number", 10, "TestBlock")
-		assert.NoError(t, err)
-		assert.Nil(t, ids)
-	})
-
-	t.Run("all docs corrupt returns ErrNoValidDocs", func(t *testing.T) {
-		docs := []map[string]any{
-			{"_docID": "bae-aaa", "number": nil},
-			{"_docID": "bae-bbb", "number": "not-a-number"},
-		}
-		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
-		assert.Nil(t, ids)
-		assert.ErrorIs(t, err, ErrNoValidDocs)
-	})
-
-	t.Run("all docs above range returns nil without error", func(t *testing.T) {
-		docs := []map[string]any{
-			{"_docID": "bae-aaa", "number": float64(100)},
-		}
-		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
-		assert.NoError(t, err)
-		assert.Nil(t, ids)
-	})
-
-	t.Run("some corrupt, rest above range returns nil without error", func(t *testing.T) {
-		docs := []map[string]any{
-			{"_docID": "bae-aaa", "number": nil},
-			{"_docID": "bae-bbb", "number": float64(100)},
-		}
-		ids, err := extractDocIDs(docs, "number", 10, "TestBlock")
-		assert.NoError(t, err)
-		assert.Nil(t, ids)
-	})
-}
+// ─── Integration tests with real DefraDB node ───────────────────────────────
 
 func TestRunPrune_NilQueue(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
 	assert.Nil(t, p.queue)
 	// runPrune with nil queue calls filterBasedPrune which needs a node
 	ctx := t.Context()
@@ -465,9 +128,8 @@ func TestRunPrune_NilQueue(t *testing.T) {
 
 func TestRunPrune_WithIndexerQueue(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 	assert.NotNil(t, p.queue)
@@ -483,7 +145,7 @@ func queueBlocks(t *testing.T, q *IndexerQueue, n int64) {
 	for i := int64(1); i <= n; i++ {
 		err := q.TrackBlockDocIDs(i,
 			docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
-			map[string][]string{constants.CollectionTransaction: {
+			map[string][]string{testTxColName: {
 				docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001",
 				docIDPrefix + "-770e8400-e29b-41d4-a716-446655440002",
 			}},
@@ -497,8 +159,8 @@ func queueBlocks(t *testing.T, q *IndexerQueue, n int64) {
 // backlog grows instead of scaling with it.
 func TestRunIndexerQueuePrune_BoundsWorkPerCycle(t *testing.T) {
 	n := startTestNode(t)
-	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
-	p := NewPruner(cfg, n, testCollections())
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 
@@ -516,8 +178,8 @@ func TestRunIndexerQueuePrune_BoundsWorkPerCycle(t *testing.T) {
 func TestRunIndexerQueuePrune_CheckpointsBelowRetentionTarget(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
-	cfg := &Config{Enabled: true, MaxBlocks: 100, MaxBlocksPerCycle: 2}
-	p := NewPruner(cfg, n, testCollections())
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, MaxBlocksPerCycle: 2}
+	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	_, err := q.LoadFromFile(path)
 	require.NoError(t, err)
@@ -542,8 +204,8 @@ func TestRunIndexerQueuePrune_CheckpointsBelowRetentionTarget(t *testing.T) {
 func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
-	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
-	p := NewPruner(cfg, n, testCollections())
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+	p := NewPruner(cfg, n, nil)
 	q := NewIndexerQueue()
 	// LoadFromFile binds the queue to the path Save writes to.
 	_, err := q.LoadFromFile(path)
@@ -564,9 +226,8 @@ func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
 
 func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
 	q := NewIndexerQueue()
 	p.SetQueue(q)
 	// Queue has 0 entries, below maxBlocks=100
@@ -577,13 +238,10 @@ func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// ─── Integration tests with real DefraDB node ───────────────────────────────
-
 func TestStartAndStop_WithRealNode(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
+	p, _ := newTestPruner(cfg, n)
 
 	// Set an indexer queue so pruneLoop does not nil-deref on queue type assert
 	q := NewIndexerQueue()
@@ -605,10 +263,9 @@ func TestStartAndStop_WithRealNode(t *testing.T) {
 
 func TestPruneLoop_TickerFires(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
 	// Use 1-second interval so the ticker fires quickly
-	cfg := &Config{Enabled: true, MaxBlocks: 1000, DocsPerBlock: 10, IntervalSeconds: 1}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1000, DocsPerBlock: 10, IntervalSeconds: 1}
+	p, _ := newTestPruner(cfg, n)
 
 	q := NewIndexerQueue()
 	p.SetQueue(q)
@@ -627,9 +284,8 @@ func TestPruneLoop_TickerFires(t *testing.T) {
 
 func TestPruneLoop_StopsOnContextCancel(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 1}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 1}
+	p, _ := newTestPruner(cfg, n)
 
 	q := NewIndexerQueue()
 	p.SetQueue(q)
@@ -647,9 +303,8 @@ func TestPruneLoop_StopsOnContextCancel(t *testing.T) {
 
 func TestPruneLoop_StopsOnStopChan(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 1}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 1}
+	p, _ := newTestPruner(cfg, n)
 
 	q := NewIndexerQueue()
 	p.SetQueue(q)
@@ -665,9 +320,8 @@ func TestPruneLoop_StopsOnStopChan(t *testing.T) {
 
 func TestStop_WithQueueSave(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
+	p, _ := newTestPruner(cfg, n)
 
 	tmpDir := t.TempDir()
 	q := NewIndexerQueue()
@@ -694,20 +348,19 @@ func TestStop_WithQueueSave(t *testing.T) {
 
 func TestRunPrune_Dispatching(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
 	ctx := context.Background()
 
 	t.Run("nil queue calls filterBasedPrune", func(t *testing.T) {
-		cfg := &Config{Enabled: true, MaxBlocks: 1000}
-		p := NewPruner(cfg, n, cols)
+		cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1000}
+		p, _ := newTestPruner(cfg, n)
 		// No queue set, so runPrune calls filterBasedPrune
 		err := p.runPrune(ctx)
 		assert.NoError(t, err)
 	})
 
 	t.Run("indexer queue dispatch", func(t *testing.T) {
-		cfg := &Config{Enabled: true, MaxBlocks: 1000}
-		p := NewPruner(cfg, n, cols)
+		cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1000}
+		p, _ := newTestPruner(cfg, n)
 		q := NewIndexerQueue()
 		p.SetQueue(q)
 		err := p.runPrune(ctx)
@@ -715,84 +368,10 @@ func TestRunPrune_Dispatching(t *testing.T) {
 	})
 }
 
-func TestGetLowestAndHighestBlockNumber(t *testing.T) {
-	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
-	ctx := context.Background()
-
-	// Empty DB
-	lowest, err := p.getLowestBlockNumber(ctx)
-	assert.ErrorIs(t, err, ErrNoBlocks)
-	assert.Equal(t, int64(0), lowest)
-
-	highest, err := p.getHighestBlockNumber(ctx)
-	assert.ErrorIs(t, err, ErrNoBlocks)
-	assert.Equal(t, int64(0), highest)
-
-	// Insert blocks
-	insertTestBlock(t, n, 10, 0)
-	insertTestBlock(t, n, 20, 0)
-	insertTestBlock(t, n, 30, 0)
-
-	lowest, err = p.getLowestBlockNumber(ctx)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(10), lowest)
-
-	highest, err = p.getHighestBlockNumber(ctx)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(30), highest)
-}
-
-func TestGetLowestAndHighestBlockNumber_SkipsRowsWithNoNumber(t *testing.T) {
-	n := startTestNode(t)
-	p := NewPruner(&Config{Enabled: true, MaxBlocks: 100}, n, testCollections())
-	ctx := context.Background()
-
-	// More rows without a number than the query's limit, so an ordering that does not
-	// exclude them returns nulls only.
-	for i := range 10 {
-		res := n.DB.ExecRequest(ctx, fmt.Sprintf(`mutation { add_TestBlock(input: [{hash: "no-number-%d"}]) { _docID } }`, i))
-		require.Empty(t, res.GQL.Errors, "insert failed: %v", res.GQL.Errors)
-	}
-	for _, num := range []int64{10, 20, 30} {
-		insertTestBlock(t, n, num, 0)
-	}
-
-	lowest, err := p.getLowestBlockNumber(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(10), lowest)
-
-	highest, err := p.getHighestBlockNumber(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, int64(30), highest)
-}
-
-// A collection holding only rows without a number must stay distinguishable from an empty
-// one: the callers warn on the first and not on the second.
-func TestGetLowestAndHighestBlockNumber_NoRowsWithNumber(t *testing.T) {
-	n := startTestNode(t)
-	p := NewPruner(&Config{Enabled: true, MaxBlocks: 100}, n, testCollections())
-	ctx := context.Background()
-
-	for i := range 3 {
-		res := n.DB.ExecRequest(ctx, fmt.Sprintf(`mutation { add_TestBlock(input: [{hash: "no-number-%d"}]) { _docID } }`, i))
-		require.Empty(t, res.GQL.Errors, "insert failed: %v", res.GQL.Errors)
-	}
-
-	_, err := p.getLowestBlockNumber(ctx)
-	assert.ErrorIs(t, err, ErrNoValidBlocks)
-
-	_, err = p.getHighestBlockNumber(ctx)
-	assert.ErrorIs(t, err, ErrNoValidBlocks)
-}
-
 func TestGetBlockRange(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	t.Run("empty database returns ErrNoBlocks", func(t *testing.T) {
@@ -816,66 +395,23 @@ func TestGetBlockRange(t *testing.T) {
 	})
 }
 
-func TestQueryOldestDocIDs(t *testing.T) {
-	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
-	ctx := context.Background()
-
-	// Insert blocks
-	insertTestBlock(t, n, 1, 0)
-	insertTestBlock(t, n, 2, 0)
-	insertTestBlock(t, n, 3, 0)
-
-	// Query for blocks with number <= 2
-	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 2)
-	assert.NoError(t, err)
-	assert.Equal(t, 2, len(docIDs))
-
-	// Query for blocks with number <= 0 (none)
-	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 0)
-	assert.NoError(t, err)
-	assert.Equal(t, 0, len(docIDs))
-
-	// Query for all blocks
-	docIDs, err = p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 100)
-	assert.NoError(t, err)
-	assert.Equal(t, 3, len(docIDs))
-}
-
-func TestQueryOldestDocIDs_EmptyCollection(t *testing.T) {
-	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
-	ctx := context.Background()
-
-	// TestTx collection exists in schema but has zero documents
-	docIDs, err := p.queryOldestDocIDs(ctx, "TestTx", "blockNumber", 100)
-	assert.NoError(t, err)
-	assert.Nil(t, docIDs)
-}
-
-func TestQueryOldestDocIDs_NonExistentCollection(t *testing.T) {
-	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
-	ctx := context.Background()
-
-	// DefraDB returns a GQL error for unknown collections (caught at the GQL layer).
-	// The comma-ok check in queryOldestDocIDs is a defensive fallback for the case
-	// where DefraDB returns a valid Data map without the collection key.
-	_, err := p.queryOldestDocIDs(ctx, "NonExistent", "number", 100)
+func TestGetBlockRange_CorruptDataReturnsErrNoValidBlocks(t *testing.T) {
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	mock := &testutils.MockConverter{
+		GetLowestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) {
+			return 0, chains.ErrBlockNumberCorrupt
+		},
+	}
+	p := NewPruner(cfg, nil, mock)
+	_, _, err := p.getBlockRange(context.Background())
 	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNoValidBlocks))
 }
 
 func TestPurgeByDocIDs(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p, tc := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	// Insert blocks
@@ -884,9 +420,10 @@ func TestPurgeByDocIDs(t *testing.T) {
 
 	assert.Equal(t, 2, countDocs(t, n, "TestBlock"))
 
-	// Get docIDs via queryOldestDocIDs (same format PurgeByDocIDs expects)
-	docIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 1)
+	// Get docIDs by querying via chain
+	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, n, 1, 1)
 	require.NoError(t, err)
+	docIDs := docIDsByCol[testBlockColName]
 	require.Len(t, docIDs, 1)
 
 	// Purge one
@@ -907,16 +444,16 @@ func TestPurgeByDocIDs(t *testing.T) {
 
 func TestPurgeByDocIDs_InvalidDocID(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p, tc := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	insertTestBlock(t, n, 1, 0)
 	insertTestBlock(t, n, 2, 0)
 
-	validDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 2)
+	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, n, 1, 2)
 	require.NoError(t, err)
+	validDocIDs := docIDsByCol[testBlockColName]
 	require.Len(t, validDocIDs, 2)
 
 	// Mix valid and invalid docIDs
@@ -931,9 +468,8 @@ func TestPurgeByDocIDs_InvalidDocID(t *testing.T) {
 
 func TestPruneBlockRange(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	// Insert blocks with transactions
@@ -955,9 +491,8 @@ func TestPruneBlockRange(t *testing.T) {
 
 func TestFilterBasedPrune(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	// Empty DB should be a no-op
@@ -984,7 +519,8 @@ func TestFilterBasedPrune(t *testing.T) {
 // Rows without a number must not stop the pruner reaching the block range and pruning.
 func TestFilterBasedPrune_WithRowsWithNoNumber(t *testing.T) {
 	n := startTestNode(t)
-	p := NewPruner(&Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}, n, testCollections())
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	for i := range 10 {
@@ -1001,9 +537,8 @@ func TestFilterBasedPrune_WithRowsWithNoNumber(t *testing.T) {
 
 func TestFilterBasedPrune_WithinLimit(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	insertTestBlock(t, n, 1, 0)
@@ -1017,9 +552,8 @@ func TestFilterBasedPrune_WithinLimit(t *testing.T) {
 
 func TestStartupCleanup(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	// Empty DB
@@ -1041,9 +575,8 @@ func TestStartupCleanup(t *testing.T) {
 
 func TestStartupCleanup_WithinLimit(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	insertTestBlock(t, n, 1, 0)
@@ -1057,30 +590,23 @@ func TestStartupCleanup_WithinLimit(t *testing.T) {
 
 func TestPurgeFromDrainResult(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p, tc := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	// Insert blocks and txs
 	insertTestBlock(t, n, 1, 1)
 	insertTestBlock(t, n, 2, 0)
 
-	// Get docIDs via queryOldestDocIDs (same format PurgeByDocIDs expects)
-	blockDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 1)
+	// Get docIDs via chain
+	docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, n, 1, 1)
 	require.NoError(t, err)
-	require.Len(t, blockDocIDs, 1)
-
-	txDocIDs, err := p.queryOldestDocIDs(ctx, "TestTx", "blockNumber", 1)
-	require.NoError(t, err)
-	require.Len(t, txDocIDs, 1)
+	require.NotNil(t, docIDsByCol[testBlockColName])
+	require.NotNil(t, docIDsByCol[testTxColName])
 
 	drainResult := &DrainResult{
-		DocIDsByCollection: map[string][]string{
-			"TestBlock": blockDocIDs,
-			"TestTx":    txDocIDs,
-		},
-		BlockCount: 1,
+		DocIDsByCollection: docIDsByCol,
+		BlockCount:         1,
 	}
 
 	err = p.purgeFromDrainResult(ctx, drainResult)
@@ -1092,9 +618,8 @@ func TestPurgeFromDrainResult(t *testing.T) {
 
 func TestPurgeFromDrainResult_EmptyCollections(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	// DrainResult with no matching collections
@@ -1110,61 +635,54 @@ func TestPurgeFromDrainResult_EmptyCollections(t *testing.T) {
 func TestPurgeFromDrainResult_PurgeError(t *testing.T) {
 	t.Run("dependent_collection_error_propagates", func(t *testing.T) {
 		n := startTestNode(t)
-		cols := testCollections()
-		cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
-		p := NewPruner(cfg, n, cols)
+		cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+		p, tc := newTestPruner(cfg, n)
 		ctx := context.Background()
 
 		insertTestBlock(t, n, 1, 1)
 
-		blockDocIDs, err := p.queryOldestDocIDs(ctx, "TestBlock", constants.NumberFieldValue, 1)
+		docIDsByCol, err := tc.GetDocIDsByBlockRange(ctx, n, 1, 1)
 		require.NoError(t, err)
-		require.Len(t, blockDocIDs, 1)
 
 		drainResult := &DrainResult{
 			DocIDsByCollection: map[string][]string{
-				"TestBlock": blockDocIDs,
-				"TestTx":    {"not-a-valid-docid"},
+				testBlockColName: docIDsByCol[testBlockColName],
+				testTxColName:    {"not-a-valid-docid"},
 			},
 			BlockCount: 1,
 		}
 
 		err = p.purgeFromDrainResult(ctx, drainResult)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "dependent collection errors")
+		assert.Contains(t, err.Error(), "collection purge errors")
 		assert.Contains(t, err.Error(), "purge TestTx")
-		assert.Equal(t, int64(1), p.totalBlocksPruned)
+		assert.True(t, p.totalDocsPruned > 0)
 		assert.False(t, p.lastPruneTime.IsZero())
 	})
 
-	t.Run("block_collection_error_is_fatal", func(t *testing.T) {
+	t.Run("block_collection_error_is_reported", func(t *testing.T) {
 		n := startTestNode(t)
-		cols := testCollections()
-		cfg := &Config{Enabled: true, MaxBlocks: 100, PruneHistory: false}
-		p := NewPruner(cfg, n, cols)
+		cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+		p, _ := newTestPruner(cfg, n)
 		ctx := context.Background()
 
 		drainResult := &DrainResult{
 			DocIDsByCollection: map[string][]string{
-				"TestBlock": {"not-a-valid-docid"},
+				testBlockColName: {"not-a-valid-docid"},
 			},
 			BlockCount: 1,
 		}
 
 		err := p.purgeFromDrainResult(ctx, drainResult)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to purge blocks")
-		assert.NotContains(t, err.Error(), "dependent collection errors")
-		assert.Equal(t, int64(0), p.totalBlocksPruned)
-		assert.True(t, p.lastPruneTime.IsZero())
+		assert.Contains(t, err.Error(), "purge TestBlock")
 	})
 }
 
 func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 2, PruneHistory: false}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	q := NewIndexerQueue()
@@ -1185,9 +703,8 @@ func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {
 
 func TestRunIndexerQueuePrune_BelowThreshold_WithNode(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
 	ctx := context.Background()
 
 	q := NewIndexerQueue()
@@ -1201,9 +718,8 @@ func TestRunIndexerQueuePrune_BelowThreshold_WithNode(t *testing.T) {
 func TestRunPrune_DefaultQueueType(t *testing.T) {
 	// Test the default case in runPrune switch by using a custom Queue implementation
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 1000}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1000}
+	p, _ := newTestPruner(cfg, n)
 
 	// Use a mock queue that is neither IndexerQueue nor EventQueue
 	p.SetQueue(&mockQueue{})
@@ -1221,9 +737,8 @@ func (m *mockQueue) Save() error { return nil }
 
 func TestStop_WithQueueSaveError(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
-	p := NewPruner(cfg, n, cols)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
+	p, _ := newTestPruner(cfg, n)
 
 	// Use a mock queue that returns an error on Save
 	p.SetQueue(&mockQueueSaveError{})
@@ -1250,13 +765,12 @@ func (m *mockQueueSaveError) Save() error { return fmt.Errorf("save failed") }
 
 func TestStartStop_Concurrent(t *testing.T) {
 	n := startTestNode(t)
-	cols := testCollections()
-	cfg := &Config{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, DocsPerBlock: 10, IntervalSeconds: 3600}
 
 	var wg sync.WaitGroup
 	for range 5 {
 		wg.Go(func() {
-			p := NewPruner(cfg, n, cols)
+			p, _ := newTestPruner(cfg, n)
 			q := NewIndexerQueue()
 			p.SetQueue(q)
 
@@ -1271,8 +785,8 @@ func TestStartStop_Concurrent(t *testing.T) {
 }
 
 func TestGetMetrics_Concurrent(t *testing.T) {
-	cfg := &Config{Enabled: true, MaxBlocks: 100}
-	p := NewPruner(cfg, nil)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p := NewPruner(cfg, nil, nil)
 
 	var wg sync.WaitGroup
 	for range 10 {

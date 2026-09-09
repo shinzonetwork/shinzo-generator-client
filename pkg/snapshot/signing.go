@@ -69,13 +69,13 @@ func ComputeSnapshotMerkleRoot(blockSigMerkleRoots [][]byte) []byte {
 
 // getBlockSigMerkleRoots queries DefraDB for block signature Merkle roots
 // in the given block range, returned sorted by blockNumber ASC.
-func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBlock, endBlock int64) (roots [][]byte, count int, err error) {
+func (s *Snapshotter) getBlockSigMerkleRoots(ctx context.Context, startBlock, endBlock int64) (roots [][]byte, count int, err error) {
 	query := fmt.Sprintf(
 		`query { %s(filter: {blockNumber: {_geq: %d, _leq: %d}}, order: {blockNumber: ASC}) { merkleRoot } }`,
-		constants.CollectionBlockSignature, startBlock, endBlock,
+		s.blockSigCollection, startBlock, endBlock,
 	)
 
-	result := defraNode.DB.ExecRequest(ctx, query)
+	result := s.defraNode.DB.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
 		return nil, 0, fmt.Errorf("query block signatures: %w", result.GQL.Errors[0]) //nolint: err113
 	}
@@ -85,7 +85,7 @@ func getBlockSigMerkleRoots(ctx context.Context, defraNode *node.Node, startBloc
 		return nil, 0, nil
 	}
 
-	raw := data[constants.CollectionBlockSignature]
+	raw := data[s.blockSigCollection]
 	if raw == nil {
 		return nil, 0, nil
 	}
@@ -153,13 +153,13 @@ func signMerkleRoot(ctx context.Context, merkleRoot []byte) (sigType, sigIdentit
 }
 
 // createSnapshotSignatureDoc creates a SnapshotSignature document in DefraDB.
-func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *SnapshotSignatureData) error {
-	txn, err := defraNode.DB.NewTxn(false)
+func (s *Snapshotter) createSnapshotSignatureDoc(ctx context.Context, sig *SnapshotSignatureData) error {
+	txn, err := s.defraNode.DB.NewTxn(false)
 	if err != nil {
 		return fmt.Errorf("new txn: %w", err)
 	}
 
-	col, err := txn.GetCollectionByName(ctx, constants.CollectionSnapshotSignature)
+	col, err := txn.GetCollectionByName(ctx, s.snapshotSigCollection)
 	if err != nil {
 		txn.Discard()
 		return fmt.Errorf("get collection: %w", err)
@@ -198,8 +198,12 @@ func createSnapshotSignatureDoc(ctx context.Context, defraNode *node.Node, sig *
 
 // QuerySnapshotSignatures queries DefraDB for all SnapshotSignature documents,
 // and returns them keyed by snapshot filename for easy lookup.
-func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[string]*SnapshotSignatureData, error) {
-	docs, err := fetchSnapshotSignatureDocs(ctx, defraNode)
+func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node, snapshotSigCollection string) (map[string]*SnapshotSignatureData, error) {
+	if snapshotSigCollection == "" {
+		return nil, nil // nolint:nilnil // This is a legitimate empty result, not an error.
+	}
+
+	docs, err := fetchSnapshotSignatureDocs(ctx, defraNode, snapshotSigCollection)
 	if err != nil {
 		return nil, err
 	}
@@ -216,10 +220,10 @@ func QuerySnapshotSignatures(ctx context.Context, defraNode *node.Node) (map[str
 }
 
 // fetchSnapshotSignatureDocs executes the GraphQL query and returns raw documents.
-func fetchSnapshotSignatureDocs(ctx context.Context, defraNode *node.Node) ([]map[string]any, error) {
+func fetchSnapshotSignatureDocs(ctx context.Context, defraNode *node.Node, snapshotSigCollection string) ([]map[string]any, error) {
 	query := fmt.Sprintf(
 		`query { %s { startBlock endBlock merkleRoot blockCount signatureType signatureIdentity signatureValue snapshotFile createdAt blockSigMerkleRoots } }`,
-		constants.CollectionSnapshotSignature,
+		snapshotSigCollection,
 	)
 
 	result := defraNode.DB.ExecRequest(ctx, query)
@@ -232,7 +236,7 @@ func fetchSnapshotSignatureDocs(ctx context.Context, defraNode *node.Node) ([]ma
 		return nil, nil
 	}
 
-	raw := data[constants.CollectionSnapshotSignature]
+	raw := data[snapshotSigCollection]
 	if raw == nil {
 		return nil, nil
 	}
@@ -312,7 +316,7 @@ func parseBlockSigMerkleRoots(raw any) []string {
 
 // signSnapshotWithRoots signs a snapshot using pre-queried block sig roots.
 // This avoids re-querying roots (which could race with concurrent block commits).
-func signSnapshotWithRoots(ctx context.Context, defraNode *node.Node, snapshotFilename string, startBlock, endBlock int64, roots [][]byte, blockCount int) error {
+func (s *Snapshotter) signSnapshotWithRoots(ctx context.Context, snapshotFilename string, startBlock, endBlock int64, roots [][]byte, blockCount int) error {
 	if len(roots) == 0 {
 		logger.Sugar.Warnf("Snapshot signing: no block signatures found for blocks %d-%d, skipping signing", startBlock, endBlock)
 		return nil
@@ -351,8 +355,7 @@ func signSnapshotWithRoots(ctx context.Context, defraNode *node.Node, snapshotFi
 		BlockSigMerkleRoots: blockSigRootStrs,
 	}
 
-	// Create DefraDB document
-	if err := createSnapshotSignatureDoc(ctx, defraNode, sig); err != nil {
+	if err := s.createSnapshotSignatureDoc(ctx, sig); err != nil {
 		logger.Sugar.Warnf("Snapshot signing: failed to create DefraDB document: %v", err)
 		// Don't fail the whole operation - sidecar was written successfully
 	}

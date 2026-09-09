@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 func TestNewBlockHandler_NilNode(t *testing.T) {
 	t.Parallel()
 	// Test that nil node returns error.
-	handler, err := NewBlockHandler(nil, 1000, nil)
+	handler, err := NewBlockHandler(nil, 1000)
 	if err == nil {
 		t.Error("Expected error for nil node, got nil")
 	}
@@ -172,10 +172,6 @@ func TestConvertHexToInt_UnhappyPaths(t *testing.T) {
 		})
 	}
 }
-
-// Note: Tests for CreateBlockBatch, GetHighestBlockNumber, and other methods
-// that require an embedded DefraDB node should be placed in integration tests
-// since they require a running DefraDB instance.
 
 // ---------------------------------------------------------------------------
 // retryBackoff tests
@@ -437,14 +433,14 @@ func TestNewBlockHandler_ZeroMaxDocs(t *testing.T) {
 	// by verifying both the nil-node error path and the default logic.
 
 	// With nil node, verify the error is returned regardless of maxDocsPerTxn
-	_, err := NewBlockHandler(nil, 0, nil)
-	require.Error(t, err, "NewBlockHandler(nil, 0, nil) should return error")
+	_, err := NewBlockHandler(nil, 0)
+	require.Error(t, err, "NewBlockHandler(nil, 0) should return error")
 
-	_, err = NewBlockHandler(nil, -1, nil)
-	require.Error(t, err, "NewBlockHandler(nil, -1, nil) should return error")
+	_, err = NewBlockHandler(nil, -1)
+	require.Error(t, err, "NewBlockHandler(nil, -1) should return error")
 
-	_, err = NewBlockHandler(nil, -100, nil)
-	require.Error(t, err, "NewBlockHandler(nil, -100, nil) should return error")
+	_, err = NewBlockHandler(nil, -100)
+	require.Error(t, err, "NewBlockHandler(nil, -100) should return error")
 }
 
 // ---------------------------------------------------------------------------
@@ -454,19 +450,21 @@ func TestNewBlockHandler_ZeroMaxDocs(t *testing.T) {
 func TestBlockCreationResult_Fields(t *testing.T) {
 	t.Parallel()
 	result := &BlockCreationResult{
-		BlockID:          "block-123",
 		BlockNumber:      42,
-		TransactionIDs:   []string{"tx-1", "tx-2", "tx-3"},
-		LogIDs:           []string{"log-1", "log-2"},
-		AccessListIDs:    []string{"ale-1"},
+		BlockID:          "block-123",
 		BlockSignatureID: "sig-abc",
+		OtherDocIDs: map[string][]string{
+			"tx":  {"tx-1", "tx-2", "tx-3"},
+			"log": {"log-1", "log-2"},
+			"ale": {"ale-1"},
+		},
 	}
 
 	assert.Equal(t, "block-123", result.BlockID)
 	assert.Equal(t, int64(42), result.BlockNumber)
-	assert.Len(t, result.TransactionIDs, 3)
-	assert.Len(t, result.LogIDs, 2)
-	assert.Len(t, result.AccessListIDs, 1)
+	assert.Len(t, result.OtherDocIDs["tx"], 3)
+	assert.Len(t, result.OtherDocIDs["log"], 2)
+	assert.Len(t, result.OtherDocIDs["ale"], 1)
 	assert.Equal(t, "sig-abc", result.BlockSignatureID)
 }
 
@@ -474,10 +472,8 @@ func TestBlockCreationResult_EmptySlices(t *testing.T) {
 	t.Parallel()
 	result := &BlockCreationResult{}
 
-	assert.Nil(t, result.TransactionIDs, "TransactionIDs should be nil when not set")
-	assert.Nil(t, result.LogIDs, "LogIDs should be nil when not set")
-	assert.Nil(t, result.AccessListIDs, "AccessListIDs should be nil when not set")
-	assert.Empty(t, result.BlockSignatureID, "BlockSignatureID should be empty when not set")
+	assert.Nil(t, result.OtherDocIDs, "OtherDocIDs should be nil when not set")
+	assert.Empty(t, result.BlockSignatureID, "BlockSignatureDocID should be empty when not set")
 }
 
 // ---------------------------------------------------------------------------
@@ -489,10 +485,9 @@ func TestMockDocIDTracker_TrackBlock(t *testing.T) {
 	tracker := &mockDocIDTracker{}
 
 	result := &BlockCreationResult{
-		BlockID:        "block-1",
-		BlockNumber:    100,
-		TransactionIDs: []string{"tx-1"},
-		LogIDs:         []string{"log-1"},
+		BlockID:     "block-1",
+		BlockNumber: 100,
+		OtherDocIDs: map[string][]string{"tx": {"tx-1"}, "log": {"log-1"}},
 	}
 
 	err := tracker.TrackBlock(context.Background(), 100, result)

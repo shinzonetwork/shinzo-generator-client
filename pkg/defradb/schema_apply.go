@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	indexerErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
@@ -75,8 +75,7 @@ func (b *HTTPBackend) ApplySchema(ctx context.Context, sdl string) error {
 }
 
 // ApplyCollectionSchemas applies the embedded collection schemas to the
-// DefraDB node. If chainPrefix is empty, constants.DefaultCollectionPrefix
-// is used.
+// DefraDB node using the given chain's collection names.
 //
 // It first attempts a monolithic AddSchema call (all collections in one SDL)
 // so that cross-type references within the schema are resolved by the engine.
@@ -95,29 +94,23 @@ func (b *HTTPBackend) ApplySchema(ctx context.Context, sdl string) error {
 //
 // Migrating or modifying already-existing collections requires a separate
 // mechanism such as DefraDB Lens migrations or purge-and-reapply.
-func ApplyCollectionSchemas(ctx context.Context, defraNode *node.Node, chainPrefix string) error {
-	return applyWithBackend(ctx, &DBBackend{DB: defraNode.DB}, chainPrefix)
+func ApplyCollectionSchemas(ctx context.Context, defraNode *node.Node, collections chains.Collections) error {
+	return applyWithBackend(ctx, &DBBackend{DB: defraNode.DB}, collections)
 }
 
 // ApplyCollectionSchemasViaHTTP applies the embedded collection schemas to an
-// external DefraDB instance via its HTTP API. If chainPrefix is empty,
-// constants.DefaultCollectionPrefix is used.
+// external DefraDB instance via its HTTP API using the given chain's collection names.
 //
 // See ApplyCollectionSchemas for the additive-only guarantee.
-func ApplyCollectionSchemasViaHTTP(ctx context.Context, defraURL, chainPrefix string) error {
-	return applyWithBackend(ctx, &HTTPBackend{URL: defraURL}, chainPrefix)
+func ApplyCollectionSchemasViaHTTP(ctx context.Context, defraURL string, collections chains.Collections) error {
+	return applyWithBackend(ctx, &HTTPBackend{URL: defraURL}, collections)
 }
 
 // applyWithBackend applies schemas using the given backend. It first attempts
 // a monolithic apply (all collections in one SDL) and falls back to per-file
 // application on "collection already exists".
-func applyWithBackend(ctx context.Context, backend SchemaApplyBackend, chainPrefix string) error {
-	prefix := chainPrefix
-	if prefix == "" {
-		prefix = constants.DefaultCollectionPrefix
-	}
-
-	sdl, err := schema.LoadSchemaSDLForChain(prefix)
+func applyWithBackend(ctx context.Context, backend SchemaApplyBackend, collections chains.Collections) error {
+	sdl, err := schema.LoadSchemaSDLForChain(collections)
 	if err != nil {
 		return fmt.Errorf("failed to load schema: %w", err)
 	}
@@ -131,7 +124,7 @@ func applyWithBackend(ctx context.Context, backend SchemaApplyBackend, chainPref
 	}
 
 	logger.Sugar.Info("Some collections already exist, applying per file")
-	return applyPerFileWithBackend(ctx, backend, prefix)
+	return applyPerFileWithBackend(ctx, backend, collections)
 }
 
 // applyPerFileWithBackend applies each collection schema file individually
@@ -145,14 +138,14 @@ func applyWithBackend(ctx context.Context, backend SchemaApplyBackend, chainPref
 // cross-references cannot be resolved individually. This scenario only arises
 // from manual partial pre-seeding; normal operation always hits the monolithic
 // path first or the full-restart fallback where all types already exist.
-func applyPerFileWithBackend(ctx context.Context, backend SchemaApplyBackend, prefix string) error {
-	files, err := schema.ListCollectionFiles()
+func applyPerFileWithBackend(ctx context.Context, backend SchemaApplyBackend, collections chains.Collections) error {
+	files, err := schema.ListCollectionFiles(collections)
 	if err != nil {
 		return fmt.Errorf("failed to list collection files: %w", err)
 	}
 
 	for _, file := range files {
-		sdl, err := schema.LoadCollectionSDLForChain(file, prefix)
+		sdl, err := schema.LoadCollectionSDLForChain(collections, file)
 		if err != nil {
 			return fmt.Errorf("failed to load collection file %s: %w", file, err)
 		}

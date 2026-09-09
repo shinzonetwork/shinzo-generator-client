@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
@@ -17,11 +18,17 @@ func run(args []string, stdout io.Writer) error {
 		return err
 	}
 
+	p := *prefix
+	if p == "" {
+		p = evm.DefaultCollectionPrefix
+	}
+	c := evm.NewCollectionNames(p)
+
 	var sdl string
 	var err error
 	switch {
 	case *listFiles:
-		files, err := schema.ListCollectionFiles()
+		files, err := schema.ListCollectionFiles(c)
 		if err != nil {
 			return err
 		}
@@ -31,27 +38,17 @@ func run(args []string, stdout io.Writer) error {
 			}
 		}
 		return nil
+	case *file != "" && *prefix != "":
+		sdl, err = schema.LoadCollectionSDLForChain(c, *file)
 	case *file != "":
-		if *prefix != "" {
-			sdl, err = schema.LoadCollectionSDLForChain(*file, *prefix)
-		} else {
-			sdl, err = schema.LoadCollectionSDL(*file)
-		}
-		if err != nil {
-			return err
-		}
-	case *prefix != "":
-		sdl, err = schema.GetSchemaForChain(*prefix)
-		if err != nil {
-			return err
-		}
+		sdl, err = schema.LoadCollectionSDL(*file)
 	default:
-		sdl, err = schema.GetSchema()
-		if err != nil {
-			return err
-		}
+		sdl, err = schema.GetSchemaForChain(c)
 	}
 
+	if err != nil {
+		return err
+	}
 	_, err = io.WriteString(stdout, sdl)
 	return err
 }

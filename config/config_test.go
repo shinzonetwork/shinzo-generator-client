@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const snapshotsDefaultDir = "./snapshots"
+
 func TestLoadConfig_ValidYAML(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
@@ -143,6 +145,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
+	cfg.Chain.Adapter = DefaultChainAdapter
 	cfg.Indexer.StartHeight = -1
 
 	err := validateConfig(cfg)
@@ -153,6 +156,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
+	cfg.Chain.Adapter = DefaultChainAdapter
 	cfg.DefraDB.Embedded = false
 	cfg.DefraDB.URL = ""
 
@@ -164,6 +168,7 @@ func TestValidateConfig_Valid(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
+	cfg.Chain.Adapter = DefaultChainAdapter
 	cfg.Indexer.StartHeight = 0
 	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 
@@ -490,6 +495,7 @@ func TestValidateConfig_AuthModes(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = DefaultChainAdapter
 			cfg.Indexer.SchemaAuthMode = tt.mode
 			err := validateConfig(cfg)
 			if tt.shouldError {
@@ -500,4 +506,255 @@ func TestValidateConfig_AuthModes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestChainAdapter_DefaultEVM(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{}
+	applyDefaults(cfg)
+	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "Chain.Adapter should default to evm")
+}
+
+func TestChainAdapter_EnvOverride(t *testing.T) {
+	tests := []struct {
+		name   string
+		envVal string
+		want   string
+	}{
+		{"evm", DefaultChainAdapter, DefaultChainAdapter},
+		{"cosmos", "cosmos", "cosmos"},
+		{"custom", "solana", "solana"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			t.Setenv("CHAIN_ADAPTER", tt.envVal)
+			applyChainEnvOverrides(cfg)
+			assert.Equal(t, tt.want, cfg.Chain.Adapter, "Chain.Adapter")
+		})
+	}
+}
+
+func TestChainAdapter_EnvOverrideEmptyIgnored(t *testing.T) {
+	cfg := &Config{}
+	cfg.Chain.Adapter = DefaultChainAdapter
+	t.Setenv("CHAIN_ADAPTER", "")
+	applyChainEnvOverrides(cfg)
+	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "empty CHAIN_ADAPTER should not override")
+}
+
+func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		chainAdapter string
+		shouldError  bool
+		errContains  string
+	}{
+		{"evm valid", DefaultChainAdapter, false, ""},
+		{"cosmos rejected", "cosmos", true, "not yet implemented"},
+		{"solana rejected", "solana", true, "not yet implemented"},
+		{"empty rejected", "", true, "not yet implemented"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = tt.chainAdapter
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_DefaultChainAdapter(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	configContent := `
+defradb:
+  embedded: true
+indexer:
+  start_height: 0
+`
+
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "Chain.Adapter should default to evm")
+}
+
+func TestLoadConfig_InvalidChainAdapter(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+
+	configContent := `
+chain:
+  adapter: "cosmos"
+defradb:
+  embedded: true
+indexer:
+  start_height: 0
+`
+
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
+
+	_, err := LoadConfig(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not yet implemented")
+}
+
+func TestPrunerConfigMaxDocs(t *testing.T) {
+	cfg := &PrunerConfig{MaxBlocks: 100, DocsPerBlock: 1000}
+	assert.Equal(t, int64(100000), cfg.MaxDocs())
+
+	cfg2 := &PrunerConfig{MaxBlocks: 0, DocsPerBlock: 1000}
+	assert.Equal(t, int64(0), cfg2.MaxDocs())
+}
+
+func TestPrunerConfigSetDefaults(t *testing.T) {
+	t.Run("fills zero values", func(t *testing.T) {
+		cfg := &PrunerConfig{}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(10000), cfg.MaxBlocks)
+		assert.Equal(t, 1000, cfg.DocsPerBlock)
+		assert.Equal(t, 60, cfg.IntervalSeconds)
+	})
+
+	t.Run("preserves non-zero values", func(t *testing.T) {
+		cfg := &PrunerConfig{MaxBlocks: 500, DocsPerBlock: 200, IntervalSeconds: 30}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(500), cfg.MaxBlocks)
+		assert.Equal(t, 200, cfg.DocsPerBlock)
+		assert.Equal(t, 30, cfg.IntervalSeconds)
+	})
+
+	t.Run("fills negative values", func(t *testing.T) {
+		cfg := &PrunerConfig{MaxBlocks: -1, DocsPerBlock: -1, IntervalSeconds: -1}
+		cfg.SetDefaults()
+		assert.Equal(t, int64(10000), cfg.MaxBlocks)
+		assert.Equal(t, 1000, cfg.DocsPerBlock)
+		assert.Equal(t, 60, cfg.IntervalSeconds)
+	})
+}
+
+func TestSnapshotConfigSetDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    SnapshotConfig
+		expected SnapshotConfig
+	}{
+		{
+			name:     "empty config gets all defaults",
+			input:    SnapshotConfig{},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "preset values preserved",
+			input:    SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30},
+			expected: SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30},
+		},
+		{
+			name:     "zero blocks per file gets default",
+			input:    SnapshotConfig{BlocksPerFile: 0},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "negative blocks per file gets default",
+			input:    SnapshotConfig{BlocksPerFile: -5},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "zero interval seconds gets default",
+			input:    SnapshotConfig{IntervalSeconds: 0},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "negative interval seconds gets default",
+			input:    SnapshotConfig{IntervalSeconds: -10},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "enabled true unaffected",
+			input:    SnapshotConfig{Enabled: true},
+			expected: SnapshotConfig{Enabled: true, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+		{
+			name:     "enabled false unaffected",
+			input:    SnapshotConfig{Enabled: false},
+			expected: SnapshotConfig{Enabled: false, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := tt.input
+			cfg.SetDefaults()
+			assert.Equal(t, tt.expected, cfg)
+		})
+	}
+}
+
+func TestConverterConfigSetDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    ConverterConfig
+		expected ConverterConfig
+	}{
+		{
+			name:     "empty config gets default",
+			input:    ConverterConfig{},
+			expected: ConverterConfig{LowestBlockQueryLimit: 1},
+		},
+		{
+			name:     "preset value preserved",
+			input:    ConverterConfig{LowestBlockQueryLimit: 7},
+			expected: ConverterConfig{LowestBlockQueryLimit: 7},
+		},
+		{
+			name:     "negative value gets default",
+			input:    ConverterConfig{LowestBlockQueryLimit: -5},
+			expected: ConverterConfig{LowestBlockQueryLimit: 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := tt.input
+			cfg.SetDefaults()
+			assert.Equal(t, tt.expected, cfg)
+		})
+	}
+}
+
+func TestApplyEnvOverrides_ConverterConfig(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("CONVERTER_LOWEST_BLOCK_QUERY_LIMIT", "7")
+	applyEnvOverrides(cfg)
+
+	assert.Equal(t, 7, cfg.Converter.LowestBlockQueryLimit, "Converter.LowestBlockQueryLimit")
+}
+
+func TestApplyEnvOverrides_ConverterConfig_InvalidValue(t *testing.T) {
+	cfg := &Config{Converter: ConverterConfig{LowestBlockQueryLimit: 1}}
+	t.Setenv("CONVERTER_LOWEST_BLOCK_QUERY_LIMIT", "not_a_number")
+	applyEnvOverrides(cfg)
+
+	assert.Equal(t, 1, cfg.Converter.LowestBlockQueryLimit, "invalid env value should be ignored, preset preserved")
 }
