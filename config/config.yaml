@@ -39,6 +39,7 @@ geth:
   ws_url: "${GETH_WS_URL}"
   api_key: "${GETH_API_KEY}"
   api_key_type: "${GETH_API_KEY_TYPE}"
+  dial_timeout_seconds: 10     # Positive: bounds the startup RPC/WS dial (seconds). 0 or negative = unbounded (env: GETH_DIAL_TIMEOUT_SECONDS)
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
   concurrent_blocks: 1      # Number of blocks to process concurrently

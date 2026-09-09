@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -46,12 +47,15 @@ type Fetcher struct {
 
 	// Connection-config fields populated by NewFetcherFromConfig. When
 	// non-empty, Connect(ctx) dials the RPC endpoint using these values.
-	// The low-level NewFetcher constructor sets client directly and leaves
-	// these blank, making Connect a no-op.
-	nodeURL    string
-	wsURL      string
-	apiKey     string
-	apiKeyType string
+	// dialTimeout bounds the dial phase when positive; non-positive values
+	// leave the dial unbounded (the caller's context governs). The low-level
+	// NewFetcher constructor sets client directly and leaves these blank,
+	// making Connect a no-op.
+	nodeURL     string
+	wsURL       string
+	apiKey      string
+	apiKeyType  string
+	dialTimeout time.Duration
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -83,17 +87,20 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		wsURL:          cfg.Geth.WsURL,
 		apiKey:         cfg.Geth.APIKey,
 		apiKeyType:     cfg.Geth.APIKeyType,
+		dialTimeout:    time.Duration(cfg.Geth.DialTimeoutSeconds) * time.Second,
 		receiptWorkers: receiptWorkers,
 	}, nil
 }
 
-// Connect dials the RPC endpoint using the connection-config fields. If the
-// fetcher was built via NewFetcher (pre-connected client), Connect is a no-op.
-func (f *Fetcher) Connect(_ context.Context) error {
+// Connect dials the RPC endpoint using the connection-config fields. The
+// provided context governs the dial; f.dialTimeout (GethConfig's
+// dial_timeout_seconds) may additionally bound it. If the fetcher was built
+// via NewFetcher (pre-connected client), Connect is a no-op.
+func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
 	}
-	client, err := NewEthereumClient(f.nodeURL, f.wsURL, f.apiKey, f.apiKeyType) //nolint:contextcheck // NewEthereumClient does not accept a context yet
+	client, err := NewEthereumClient(ctx, f.nodeURL, f.wsURL, f.apiKey, f.apiKeyType, f.dialTimeout)
 	if err != nil {
 		return fmt.Errorf("create ethereum client: %w", err)
 	}
