@@ -11,7 +11,6 @@ import (
 
 	cid "github.com/ipfs/go-cid"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -277,7 +276,7 @@ func (h *BlockHandler) Store(
 	if err != nil {
 		return nil, fmt.Errorf("invalid block number: %w", err)
 	}
-	blockHash, _ := blockData[constants.HashKeyValue].(string)
+	blockHash, _ := blockData[blockGroup.BlockHashField].(string)
 
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
@@ -566,7 +565,8 @@ func (h *BlockHandler) createDocsInTxn(
 // The result.Groups identify which collections to query (typically the same
 // groups produced by Convert, minus the signature group).
 // result.SignatureCollection names the collection where the block signature
-// document will be stored.
+// document will be stored. Every group must carry a non-empty BlockNumField —
+// an empty one fails fast instead of issuing a malformed query.
 func (h *BlockHandler) SignExisting(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -580,11 +580,10 @@ func (h *BlockHandler) SignExisting(
 	var allDocIDs []string
 	var collectionNames []string
 	for _, g := range result.Groups {
-		field := g.BlockNumField
-		if field == "" {
-			field = constants.BlockNumberKeyValue
+		if g.BlockNumField == "" {
+			return "", fmt.Errorf("group %s has empty BlockNumField", g.Collection) //nolint:err113
 		}
-		docIDs, err := h.queryCollectionDocIDs(ctx, g.Collection, field, blockNumber, blockNumber)
+		docIDs, err := h.queryCollectionDocIDs(ctx, g.Collection, g.BlockNumField, blockNumber, blockNumber)
 		if err != nil {
 			return "", fmt.Errorf("query docIDs for %s: %w", g.Collection, err) //nolint:err113
 		}
@@ -600,42 +599,59 @@ func (h *BlockHandler) SignExisting(
 	return h.signBlockOverCIDs(ctx, blockNumber, blockHash, len(allDocIDs), cids, result.SignatureCollection)
 }
 
+// Field names of the block-signature document, matching the
+// blockSignature collection SDL.
+const (
+	sigFieldBlockNumber = "blockNumber"
+	sigFieldBlockHash   = "blockHash"
+)
+
 // buildBlockSignatureDocument creates a client.Document for a block signature.
 func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig *node.BatchSignature, blockHash string, blockNumber int64, col client.Collection, sortedCIDStrings []string) (*client.Document, error) {
 	data := map[string]any{
-		constants.BlockNumberKeyValue: blockNumber,
-		constants.BlockHashKeyValue:   blockHash,
-		"merkleRoot":                  hex.EncodeToString(blockSig.MerkleRoot),
-		"cidCount":                    blockSig.CIDCount,
-		"cids":                        sortedCIDStrings,
-		"signatureType":               blockSig.Header.Type,
-		"signatureIdentity":           string(blockSig.Header.Identity),
-		"signatureValue":              hex.EncodeToString(blockSig.Value),
-		"createdAt":                   time.Now().UTC().Format(time.RFC3339),
+		sigFieldBlockNumber: blockNumber,
+		sigFieldBlockHash:   blockHash,
+		"merkleRoot":        hex.EncodeToString(blockSig.MerkleRoot),
+		"cidCount":          blockSig.CIDCount,
+		"cids":              sortedCIDStrings,
+		"signatureType":     blockSig.Header.Type,
+		"signatureIdentity": string(blockSig.Header.Identity),
+		"signatureValue":    hex.EncodeToString(blockSig.Value),
+		"createdAt":         time.Now().UTC().Format(time.RFC3339),
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
 
 // waitForCIDs collects the CIDs for allDocIDs, retrying while they are still arriving (P2P data
 // can lag). It returns the CIDs only once every document has one; partial coverage is an error so
-// a signature is never made over a subset of the block.
+// a signature is never made over a subset of the block. Backoff waits are cancellable: a cancelled
+// ctx stops the loop within one backoff tick (no further queries are issued) and returns ctx.Err().
 func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDocIDs []string, collectionNames []string) ([]cid.Cid, error) {
 	maxRetries := h.maxCIDRetries
 	var lastCIDCount int
+	var lastCountAttempt int
 	var lastErr error
 
 	for attempt := range maxRetries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		cids, err := h.collectDocCIDsFn(ctx, allDocIDs, collectionNames)
 		if err != nil {
 			lastErr = err
 			logger.Sugar.Warnf("Block %d: CID query failed (attempt %d/%d): %v", blockNumber, attempt+1, maxRetries, err)
 			if attempt < maxRetries-1 {
-				time.Sleep(h.retryBackoffFn(attempt))
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(h.retryBackoffFn(attempt)):
+				}
 			}
 			continue
 		}
 
 		lastCIDCount = len(cids)
+		lastCountAttempt = attempt + 1
 		if len(cids) >= len(allDocIDs) {
 			return cids, nil
 		}
@@ -644,7 +660,11 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 		if attempt < maxRetries-1 {
 			logger.Sugar.Debugf("Block %d: waiting for P2P data (%d/%d CIDs, attempt %d/%d)",
 				blockNumber, len(cids), len(allDocIDs), attempt+1, maxRetries)
-			time.Sleep(h.retryBackoffFn(attempt))
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(h.retryBackoffFn(attempt)):
+			}
 		}
 	}
 
@@ -652,8 +672,8 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 		return nil, fmt.Errorf("no CIDs found for block %d after %d retries (%d docs): %w", //nolint:err113
 			blockNumber, maxRetries, len(allDocIDs), lastErr)
 	}
-	return nil, fmt.Errorf("incomplete CID coverage for block %d after %d retries (%d/%d docs): %w", //nolint:err113
-		blockNumber, maxRetries, lastCIDCount, len(allDocIDs), lastErr)
+	return nil, fmt.Errorf("incomplete CID coverage for block %d after %d retries (%d/%d docs as of attempt %d/%d): %w", //nolint:err113
+		blockNumber, maxRetries, lastCIDCount, len(allDocIDs), lastCountAttempt, maxRetries, lastErr)
 }
 
 // signBlockOverCIDs signs the block over cids and stores the signature, returning its document id.
@@ -757,7 +777,11 @@ func (h *BlockHandler) writeBatchWithRetry(ctx context.Context, blockInt int64, 
 			return err
 		}
 		logger.Sugar.Infof("Block %d: %s batch conflict, retrying (attempt %d/%d)", blockInt, kind, attempt+1, maxBatchRetries)
-		time.Sleep(time.Duration(attempt+1) * batchConflictRetryDelay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * batchConflictRetryDelay):
+		}
 	}
 	return nil
 }

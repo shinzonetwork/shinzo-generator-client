@@ -196,6 +196,20 @@ func TestWriteBatchWithRetry(t *testing.T) {
 		assert.Equal(t, 2, calls)
 		assert.Equal(t, 2, collector.Len())
 	})
+
+	t.Run("returns ctx.Err() when ctx is cancelled during backoff", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		calls := 0
+		err := h.writeBatchWithRetry(ctx, 100, "log", func() error {
+			calls++
+			return fmt.Errorf("transaction conflict") //nolint:err113
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, 1, calls)
+	})
 }
 
 // =========================================================================
@@ -484,34 +498,6 @@ func TestExistingSig_Commit_Error(t *testing.T) {
 
 // --- CID retry backoff paths ---
 
-func TestExistingSig_CIDRetry_BackoffPath(t *testing.T) {
-	t.Parallel()
-	collectCount := 0
-
-	db := &mockBlockDB{
-		execReqFn: execReqFnWithDocIDs(),
-	}
-	h := newMockHandler(t, db)
-	h.maxCIDRetries = 2
-	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
-		collectCount++
-		if collectCount == 1 {
-			return nil, nil
-		}
-		if collectCount == 2 {
-			return []cid.Cid{oneTestCID()}, nil
-		}
-		return nil, fmt.Errorf("sign error") //nolint:err113
-	}
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		return nil, fmt.Errorf("sign error") //nolint:err113
-	}
-	result := buildSigGroups(t, testBlock(), nil, nil)
-
-	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
-	require.Error(t, err)
-}
-
 func TestExistingSig_BuildLogDoc_Continue(t *testing.T) {
 	t.Parallel()
 
@@ -560,6 +546,176 @@ func TestExistingSig_CIDRetry_CollectError_Backoff(t *testing.T) {
 	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CIDs found")
+}
+
+// --- CID retry cancellation + annotated failure message (#362) ---
+
+func TestExistingSig_CIDRetry_Cancellation(t *testing.T) {
+	t.Parallel()
+	collectErr := fmt.Errorf("collect error") //nolint:err113
+
+	tests := []struct {
+		name       string
+		preCancel  bool          // cancel before the call vs during collect
+		cancelCall int           // 1-based collect call that cancels the ctx
+		collectErr error         // non-nil → collect takes the query-error path
+		backoff    time.Duration // injected retryBackoffFn
+		maxRetries int
+		wantCalls  int
+	}{
+		{
+			name:       "query error path exits within one backoff tick",
+			cancelCall: 1,
+			collectErr: collectErr,
+			backoff:    5 * time.Second,
+			maxRetries: 3,
+			wantCalls:  1,
+		},
+		{
+			name:       "partial coverage path exits within one backoff tick",
+			cancelCall: 1, // collect returns nil,nil → 0/1 CIDs: partial coverage
+			backoff:    5 * time.Second,
+			maxRetries: 3,
+			wantCalls:  1,
+		},
+		{
+			name:       "mid-sequence cancellation after an elapsed wait",
+			cancelCall: 2,
+			backoff:    10 * time.Millisecond, // first wait completes for real
+			maxRetries: 5,
+			wantCalls:  2,
+		},
+		{
+			name:       "pre-cancelled ctx stops the first query",
+			preCancel:  true,
+			maxRetries: 3,
+			wantCalls:  0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.preCancel {
+				cancel()
+			}
+
+			calls := 0
+			db := &mockBlockDB{
+				execReqFn: execReqFnWithDocIDs(),
+			}
+			h := newMockHandler(t, db)
+			h.maxCIDRetries = tc.maxRetries
+			h.retryBackoffFn = func(int) time.Duration { return tc.backoff }
+			h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
+				calls++
+				if calls == tc.cancelCall {
+					cancel()
+				}
+				return nil, tc.collectErr
+			}
+			result := buildSigGroups(t, testBlock(), nil, nil)
+
+			start := time.Now()
+			_, err := h.SignExisting(ctx, result, "0xhash", 100)
+			elapsed := time.Since(start)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, context.Canceled)
+			assert.Equal(t, tc.wantCalls, calls, "no query may be issued after cancellation")
+			assert.Less(t, elapsed, time.Second, "exit must be well within one backoff tick")
+		})
+	}
+}
+
+func TestExistingSig_CIDRetry_IncompleteCoverageMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxRetries int
+		collect    func(call int) ([]cid.Cid, error)
+		wantMsg    string
+	}{
+		{
+			name:       "count observed on the final attempt",
+			maxRetries: 2,
+			collect: func(call int) ([]cid.Cid, error) {
+				if call == 1 {
+					return nil, nil
+				}
+				return []cid.Cid{oneTestCID()}, nil
+			},
+			wantMsg: "1/2 docs as of attempt 2/2",
+		},
+		{
+			name:       "count from an earlier attempt, later attempts error",
+			maxRetries: 3,
+			collect: func(call int) ([]cid.Cid, error) {
+				if call == 1 {
+					return []cid.Cid{oneTestCID()}, nil // 1/2 observed on attempt 1
+				}
+				return nil, fmt.Errorf("collect error") //nolint:err113
+			},
+			wantMsg: "1/2 docs as of attempt 1/3",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			calls := 0
+			db := &mockBlockDB{
+				execReqFn: execReqFnWithDocIDs(),
+			}
+			h := newMockHandler(t, db)
+			h.maxCIDRetries = tc.maxRetries
+			h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
+				calls++
+				return tc.collect(calls)
+			}
+			// Two groups give allDocIDs=2, so partial-but-nonzero coverage is reachable and
+			// the failure message reports the count with the attempt it was observed on.
+			result := chains.ConversionResult{
+				Groups: []chains.DocumentGroup{
+					{Collection: colBlock, BlockNumField: "blockNumber"},
+					{Collection: colTransaction, BlockNumField: "blockNumber"},
+				},
+				SignatureCollection: colBlockSignature,
+			}
+
+			_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "incomplete CID coverage")
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestExistingSig_EmptyBlockNumFieldFailsFast(t *testing.T) {
+	t.Parallel()
+	queries := 0
+	db := &mockBlockDB{
+		execReqFn: func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+			queries++
+			return &client.RequestResult{}
+		},
+	}
+	h := newMockHandler(t, db)
+	result := chains.ConversionResult{
+		Groups: []chains.DocumentGroup{
+			{Collection: colBlock},
+		},
+		SignatureCollection: colBlockSignature,
+	}
+
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty BlockNumField")
+	assert.Contains(t, err.Error(), colBlock)
+	assert.Zero(t, queries, "no query may be issued for a contract-violating group")
 }
 
 // =========================================================================

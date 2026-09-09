@@ -16,7 +16,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -1041,21 +1040,21 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 		{
 			name:        "tx hash non-string",
 			role:        chains.TypeTransaction,
-			mutate:      func(doc map[string]any) { doc[constants.HashKeyValue] = 12345 },
+			mutate:      func(doc map[string]any) { doc["hash"] = 12345 },
 			skippedRole: chains.TypeTransaction,
 			writtenRole: chains.TypeLog,
 		},
 		{
 			name:        "tx hash key deleted",
 			role:        chains.TypeTransaction,
-			mutate:      func(doc map[string]any) { delete(doc, constants.HashKeyValue) },
+			mutate:      func(doc map[string]any) { delete(doc, "hash") },
 			skippedRole: chains.TypeTransaction,
 			writtenRole: chains.TypeLog,
 		},
 		{
 			name:        "log transactionHash non-string",
 			role:        chains.TypeLog,
-			mutate:      func(doc map[string]any) { doc[constants.TransactionHashKeyValue] = 42 },
+			mutate:      func(doc map[string]any) { doc["transactionHash"] = 42 },
 			skippedRole: chains.TypeLog,
 			writtenRole: chains.TypeTransaction,
 		},
