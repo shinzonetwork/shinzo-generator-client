@@ -2,9 +2,10 @@ package evm
 
 import (
 	"context"
-	stderrors "errors"
+	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,13 +36,14 @@ func TestNewFetcherFromConfig(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name           string
-		cfg            *config.Config
-		wantErr        bool
-		wantReceipt    int
-		wantNodeURL    string
-		wantAPIKey     string
-		wantAPIKeyType string
+		name            string
+		cfg             *config.Config
+		wantErr         bool
+		wantReceipt     int
+		wantNodeURL     string
+		wantAPIKey      string
+		wantAPIKeyType  string
+		wantDialTimeout time.Duration
 	}{
 		{
 			name:    "NilConfig",
@@ -70,6 +72,17 @@ func TestNewFetcherFromConfig(t *testing.T) {
 			wantAPIKey:     "secret",
 			wantAPIKeyType: "X-Api-Key",
 		},
+		{
+			name: "DialTimeoutSecondsPropagates",
+			cfg: &config.Config{
+				Chain:   config.ChainConfig{Name: "Ethereum", Network: "Mainnet"},
+				Geth:    config.GethConfig{NodeURL: "http://localhost:8545", DialTimeoutSeconds: 15},
+				Indexer: config.IndexerConfig{},
+			},
+			wantReceipt:     16,
+			wantNodeURL:     "http://localhost:8545",
+			wantDialTimeout: 15 * time.Second,
+		},
 	}
 
 	for _, tc := range cases {
@@ -87,6 +100,7 @@ func TestNewFetcherFromConfig(t *testing.T) {
 			assert.Equal(t, tc.wantNodeURL, f.nodeURL)
 			assert.Equal(t, tc.wantAPIKey, f.apiKey)
 			assert.Equal(t, tc.wantAPIKeyType, f.apiKeyType)
+			assert.Equal(t, tc.wantDialTimeout, f.dialTimeout)
 			assert.Nil(t, f.client, "should not have a connected client")
 		})
 	}
@@ -117,6 +131,33 @@ func TestFetcher_Connect(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestFetcher_Connect_PropagatesCtx proves the context survives the
+// Connect → NewEthereumClient seam: dialing a hanging WebSocket server
+// (accepts the TCP connection, never completes the handshake) is aborted by
+// the context deadline instead of blocking until OS-level timeouts.
+func TestFetcher_Connect_PropagatesCtx(t *testing.T) {
+	t.Parallel()
+	wsServer := newHangingWSServer()
+	defer wsServer.Close()
+	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
+
+	cfg := testConfig()
+	cfg.Geth.WsURL = wsURL
+	f, err := NewFetcherFromConfig(cfg)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err = f.Connect(ctx)
+	elapsed := time.Since(start)
+
+	assert.Error(t, err)
+	assertDeadlineError(t, err)
+	assert.Less(t, elapsed, 5*time.Second, "Connect must abort on the context deadline, not on OS-level timeouts")
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +214,7 @@ func TestFetcher_FetchHighestBlockNumber(t *testing.T) {
 		},
 		{
 			name:        "ClientError",
-			latestErr:   stderrors.New("failed to get latest header"),
+			latestErr:   errors.New("failed to get latest header"),
 			wantErr:     true,
 			errContains: "failed to get latest block number",
 		},
@@ -256,7 +297,7 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 func TestFetcher_FetchBlock_BlockNotFound(t *testing.T) {
 	t.Parallel()
 
-	errNotFound := stderrors.New("block not found")
+	errNotFound := errors.New("block not found")
 	calls := 0
 	client := &fakeRPCClient{
 		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
@@ -283,7 +324,7 @@ func TestFetcher_FetchBlock_RPCErrorNoRetry(t *testing.T) {
 	client := &fakeRPCClient{
 		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
 			calls++
-			return nil, stderrors.New("connection refused")
+			return nil, errors.New("connection refused")
 		},
 	}
 	f := NewFetcher(client, 8)
@@ -617,7 +658,7 @@ func TestMockFetcher_Connect(t *testing.T) {
 		{
 			name: "CustomFn",
 			setupFn: func(m *testutils.MockFetcher) {
-				m.ConnectFn = func(_ context.Context) error { return stderrors.New("dial failed") }
+				m.ConnectFn = func(_ context.Context) error { return errors.New("dial failed") }
 			},
 			wantErr: true,
 			errSub:  "dial failed",
