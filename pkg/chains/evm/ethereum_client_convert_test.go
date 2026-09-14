@@ -6,6 +6,7 @@ package evm
 import (
 	"fmt"
 	"math/big"
+	"strconv"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -58,7 +59,7 @@ func TestConvertGethBlock_NilBlock(t *testing.T) {
 func TestConvertGethBlock_WithBaseFee(t *testing.T) {
 	t.Parallel()
 	header := &ethtypes.Header{
-		Number:   big.NewInt(100),
+		Number:   big.NewInt(testBlockNumber),
 		BaseFee:  big.NewInt(1000000000),
 		GasLimit: 8000000,
 	}
@@ -74,7 +75,7 @@ func TestConvertGethBlock_WithBaseFee(t *testing.T) {
 func TestConvertGethBlock_WithoutBaseFee(t *testing.T) {
 	t.Parallel()
 	header := &ethtypes.Header{
-		Number:   big.NewInt(100),
+		Number:   big.NewInt(testBlockNumber),
 		GasLimit: 8000000,
 	}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
@@ -135,7 +136,7 @@ func TestConvertTransaction_EIP1559(t *testing.T) {
 	tx, err := ethtypes.SignNewTx(key, signer, inner)
 	require.NoError(t, err)
 
-	header := &ethtypes.Header{Number: big.NewInt(100)}
+	header := &ethtypes.Header{Number: big.NewInt(testBlockNumber)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
@@ -173,7 +174,7 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 	tx, err := ethtypes.SignNewTx(key, signer, inner)
 	require.NoError(t, err)
 
-	header := &ethtypes.Header{Number: big.NewInt(100)}
+	header := &ethtypes.Header{Number: big.NewInt(testBlockNumber)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
@@ -201,7 +202,7 @@ func TestConvertGethReceipt_Success(t *testing.T) {
 		ContractAddress:   common.Address{},
 		GasUsed:           21000,
 		BlockHash:         common.HexToHash("0xblockhash"),
-		BlockNumber:       big.NewInt(100),
+		BlockNumber:       big.NewInt(testBlockNumber),
 		TransactionIndex:  0,
 		Logs:              []*ethtypes.Log{},
 	}
@@ -220,7 +221,7 @@ func TestConvertGethReceipt_FailedStatus(t *testing.T) {
 	receipt := &ethtypes.Receipt{
 		Status:      ethtypes.ReceiptStatusFailed,
 		TxHash:      common.HexToHash("0xtxhash"),
-		BlockNumber: big.NewInt(100),
+		BlockNumber: big.NewInt(testBlockNumber),
 		Logs:        []*ethtypes.Log{},
 	}
 
@@ -238,7 +239,7 @@ func TestConvertGethReceipt_ContractCreation(t *testing.T) {
 		Status:          ethtypes.ReceiptStatusSuccessful,
 		ContractAddress: contractAddr,
 		TxHash:          common.HexToHash("0xtxhash"),
-		BlockNumber:     big.NewInt(100),
+		BlockNumber:     big.NewInt(testBlockNumber),
 		Logs:            []*ethtypes.Log{},
 	}
 
@@ -254,7 +255,7 @@ func TestConvertGethReceipt_WithLogs(t *testing.T) {
 	receipt := &ethtypes.Receipt{
 		Status:      ethtypes.ReceiptStatusSuccessful,
 		TxHash:      common.HexToHash("0xtxhash"),
-		BlockNumber: big.NewInt(100),
+		BlockNumber: big.NewInt(testBlockNumber),
 		Logs: []*ethtypes.Log{
 			{
 				Address:     common.HexToAddress("0xcontract"),
@@ -299,7 +300,7 @@ func TestConvertGethLog(t *testing.T) {
 
 	assert.Equal(t, common.HexToAddress("0xcontract").Hex(), result.Address)
 	assert.Len(t, result.Topics, 2)
-	assert.Equal(t, "100", result.BlockNumber)
+	assert.Equal(t, strconv.Itoa(testBlockNumber), result.BlockNumber)
 	assert.Equal(t, 5, result.TransactionIndex)
 	assert.Equal(t, 3, result.LogIndex)
 	assert.True(t, result.Removed)
@@ -331,7 +332,7 @@ func TestGetBaseFeePerGas(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			header := &ethtypes.Header{Number: big.NewInt(100), BaseFee: tc.baseFee}
+			header := &ethtypes.Header{Number: big.NewInt(testBlockNumber), BaseFee: tc.baseFee}
 			block := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 			assert.Equal(t, tc.want, getBaseFeePerGas(block))
 		})
@@ -511,7 +512,7 @@ func TestConvertGethBlock_WithUncles(t *testing.T) {
 	uncleHeader := &ethtypes.Header{Number: big.NewInt(98)}
 
 	header := &ethtypes.Header{
-		Number:   big.NewInt(100),
+		Number:   big.NewInt(testBlockNumber),
 		GasLimit: 8000000,
 	}
 
@@ -545,7 +546,7 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 	tx, err := ethtypes.SignNewTx(key, signer, inner)
 	require.NoError(t, err)
 
-	header := &ethtypes.Header{Number: big.NewInt(100)}
+	header := &ethtypes.Header{Number: big.NewInt(testBlockNumber)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
@@ -559,7 +560,7 @@ func TestConvertTransaction_SignedLegacy(t *testing.T) {
 func TestConvertGethBlock_FailedTxConversion(t *testing.T) {
 	t.Parallel()
 	header := &ethtypes.Header{
-		Number:   big.NewInt(100),
+		Number:   big.NewInt(testBlockNumber),
 		GasLimit: 8000000,
 	}
 
@@ -600,7 +601,7 @@ func TestConvertTransaction_NilFromAddr(t *testing.T) {
 	// with go-ethereum types, but the code handles it. We test via an unsigned
 	// legacy tx which takes the error path with zero address fallback.
 	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
-	header := &ethtypes.Header{Number: big.NewInt(100)}
+	header := &ethtypes.Header{Number: big.NewInt(testBlockNumber)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
@@ -636,7 +637,7 @@ func TestConvertTransaction_BlobTx(t *testing.T) {
 	tx, err := ethtypes.SignNewTx(key, signer, inner)
 	require.NoError(t, err)
 
-	header := &ethtypes.Header{Number: big.NewInt(100)}
+	header := &ethtypes.Header{Number: big.NewInt(testBlockNumber)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
@@ -702,11 +703,11 @@ func TestConvertTransaction_FromAddrError_ZeroAddressFallback(t *testing.T) {
 	}
 	tx := ethtypes.NewTx(inner)
 
-	header := &ethtypes.Header{Number: big.NewInt(100)}
+	header := &ethtypes.Header{Number: big.NewInt(testBlockNumber)}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{}, nil, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
 	localTx := client.convertTransaction(tx, gethBlock, 0)
 	// The error path sets fromAddr to zero address
-	assert.Equal(t, "0x0000000000000000000000000000000000000000", localTx.From)
+	assert.Equal(t, ZeroAddress, localTx.From)
 }
