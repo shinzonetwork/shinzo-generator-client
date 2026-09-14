@@ -2,12 +2,21 @@ package evm
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/gorilla/websocket"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
 
@@ -195,4 +204,162 @@ func (f *fakeRPCClient) Close() error {
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
 	os.Exit(m.Run())
+}
+
+// --- EthereumClient test infrastructure (shared across client test files) ---
+
+// ethGetBlockByNumber is used in multiple tests, so define it as a constant for easy updates if needed.
+const ethGetBlockByNumber = "eth_getBlockByNumber"
+
+// ethGetTransactionReceipt is used in multiple tests, so define it as a constant for easy updates if needed.
+const ethGetTransactionReceipt = "eth_getTransactionReceipt"
+
+// ethGetBlockReceipts is used in multiple tests, so define it as a constant for easy updates if needed.
+const ethGetBlockReceipts = "eth_getBlockReceipts"
+
+type jsonRPCRequest struct {
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
+	ID     any             `json:"id"`
+}
+
+func newMockRPCServer(handler func(method string, params json.RawMessage) (any, error)) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req jsonRPCRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		result, err := handler(req.Method, req.Params)
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			resp := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"error":   map[string]any{"code": -32000, "message": err.Error()},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		resp := map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"result":  result,
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+}
+
+func simpleRPCServer() *httptest.Server {
+	return newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+		switch method {
+		case "eth_chainId", "net_version":
+			return "0x1", nil
+		default:
+			return "0x1", nil
+		}
+	})
+}
+
+func fullBlockResponse(number string, txs []any) map[string]any {
+	// Empty trie root hash — must match empty transaction list
+	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+	block := map[string]any{
+		constants.NumberFieldName: number,
+		"hash":                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+		ParentHashFieldName:       "0x0000000000000000000000000000000000000000000000000000000000000000",
+		NonceFieldName:            "0x0000000000000000",
+		Sha3UnclesFieldName:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+		LogsBloomFieldName:        "0x" + fmt.Sprintf("%0512x", 0),
+		TransactionsRootFieldName: emptyTrieRoot,
+		StateRootFieldName:        "0x0000000000000000000000000000000000000000000000000000000000000000",
+		ReceiptsRootFieldName:     "0x0000000000000000000000000000000000000000000000000000000000000000",
+		MinerFieldName:            "0x0000000000000000000000000000000000000000",
+		DifficultyFieldName:       "0x0",
+		"totalDifficulty":         "0x0",
+		ExtraDataFieldName:        "0x",
+		"size":                    "0x100",
+		GasLimitFieldName:         "0x1000000",
+		GasUsedFieldName:          "0x5208",
+		TimestampFieldName:        "0x60000000",
+		MixHashFieldName:          "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":                  []any{},
+	}
+	if txs != nil {
+		block["transactions"] = txs
+	} else {
+		block["transactions"] = []any{}
+	}
+	return block
+}
+
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(_ *http.Request) bool { return true },
+}
+
+// newWSMockServer creates an httptest.Server that upgrades to WebSocket and
+// handles JSON-RPC messages, simulating an Ethereum node.
+func newWSMockServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+
+			var req jsonRPCRequest
+			if err := json.Unmarshal(msg, &req); err != nil {
+				return
+			}
+
+			resp := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result":  "0x1",
+			}
+			respBytes, _ := json.Marshal(resp)
+			if err := conn.WriteMessage(websocket.TextMessage, respBytes); err != nil {
+				return
+			}
+		}
+	}))
+}
+
+func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {
+	// Use a fixed test private key
+	key, err := crypto.HexToECDSA("fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19")
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse test key: %v", err))
+	}
+	addr := crypto.PubkeyToAddress(key.PublicKey)
+	return key, addr
+}
+
+// newHangingWSServer returns a server that accepts the TCP connection and the
+// HTTP upgrade request, then never responds: a hermetic black-hole for the
+// WebSocket handshake. The handler blocks on its request context, which is
+// cancelled when the server is closed.
+func newHangingWSServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+}
+
+// assertDeadlineError requires err to stem from the dial context's deadline —
+// either the context sentinel or the socket-deadline sentinel. The WS dialer
+// materialises a context deadline as a connection read/write deadline, so the
+// handshake surfaces os.ErrDeadlineExceeded (not the context's own sentinel).
+func assertDeadlineError(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("expected a deadline-related error, got: %v", err)
+	}
 }

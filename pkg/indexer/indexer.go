@@ -704,12 +704,12 @@ func (i *ChainIndexer) SignMessages(message string) (server.DefraPKRegistration,
 	}
 
 	return server.DefraPKRegistration{
-			PublicKey:   nodePubKey,
-			SignedPKMsg: signedMsg,
-		}, server.PeerIDRegistration{
-			PeerID:        peerPubKey,
-			SignedPeerMsg: peerSignedMsg,
-		}, nil
+		PublicKey:   nodePubKey,
+		SignedPKMsg: signedMsg,
+	}, server.PeerIDRegistration{
+		PeerID:        peerPubKey,
+		SignedPeerMsg: peerSignedMsg,
+	}, nil
 }
 
 // SignRegistrationMessage signs a registration message using only the DefraDB identity key.
