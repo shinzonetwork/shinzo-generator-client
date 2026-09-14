@@ -207,14 +207,28 @@ func TestMain(m *testing.M) {
 
 // --- EthereumClient test infrastructure (shared across client test files) ---
 
-// ethGetBlockByNumber is used in multiple tests, so define it as a constant for easy updates if needed.
-const ethGetBlockByNumber = "eth_getBlockByNumber"
+// Test-local constants shared across the client test files.
+const (
+	// ethGetBlockByNumber is used in multiple tests, so define it as a constant for easy updates if needed.
+	ethGetBlockByNumber = "eth_getBlockByNumber"
 
-// ethGetTransactionReceipt is used in multiple tests, so define it as a constant for easy updates if needed.
-const ethGetTransactionReceipt = "eth_getTransactionReceipt"
+	// ethGetTransactionReceipt is used in multiple tests, so define it as a constant for easy updates if needed.
+	ethGetTransactionReceipt = "eth_getTransactionReceipt"
 
-// ethGetBlockReceipts is used in multiple tests, so define it as a constant for easy updates if needed.
-const ethGetBlockReceipts = "eth_getBlockReceipts"
+	// ethGetBlockReceipts is used in multiple tests, so define it as a constant for easy updates if needed.
+	ethGetBlockReceipts = "eth_getBlockReceipts"
+
+	// ethChainID and ethNetVersion are the two chain-identity probe methods used by the mock servers.
+	ethChainID    = "eth_chainId"
+	ethNetVersion = "net_version"
+
+	testBlockNumber = 100
+)
+
+// testBlockNumberHex is the fixture block number's hex form. The single source
+// of truth is testBlockNumber: the mock server serves the hex form on the
+// wire while assertions compare against the decimal form.
+var testBlockNumberHex = fmt.Sprintf("0x%x", testBlockNumber)
 
 type jsonRPCRequest struct {
 	Method string          `json:"method"`
@@ -254,7 +268,7 @@ func newMockRPCServer(handler func(method string, params json.RawMessage) (any, 
 func simpleRPCServer() *httptest.Server {
 	return newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "eth_chainId", "net_version":
+		case ethChainID, ethNetVersion:
 			return "0x1", nil
 		default:
 			return "0x1", nil
@@ -267,7 +281,7 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 	block := map[string]any{
 		NumberFieldName:           number,
-		"hash":                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+		HashKeyName:               "0x0000000000000000000000000000000000000000000000000000000000000001",
 		ParentHashFieldName:       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		NonceFieldName:            "0x0000000000000000",
 		Sha3UnclesFieldName:       "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",

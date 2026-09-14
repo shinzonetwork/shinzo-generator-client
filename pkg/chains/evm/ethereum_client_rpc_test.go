@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strconv"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -26,7 +27,7 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 			// Return a full block header with all required fields
 			return map[string]any{
 				NumberFieldName:           "0x64",
-				"hash":                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+				HashKeyName:               "0x0000000000000000000000000000000000000000000000000000000000000001",
 				ParentHashFieldName:       "0x0000000000000000000000000000000000000000000000000000000000000000",
 				NonceFieldName:            "0x0000000000000000",
 				Sha3UnclesFieldName:       "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -55,14 +56,14 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 	blockNum, err := client.GetLatestBlockNumber(context.Background())
 	require.NoError(t, err)
 	assert.NotNil(t, blockNum)
-	assert.Equal(t, int64(100), blockNum.Int64())
+	assert.Equal(t, int64(testBlockNumber), blockNum.Int64())
 }
 
 func TestGetNetworkID_Success(t *testing.T) {
 	t.Parallel()
 	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
-		case "net_version":
+		case ethNetVersion:
 			return "1", nil
 		default:
 			return "0x1", nil
@@ -86,7 +87,7 @@ func TestGetBlockByNumber_Success(t *testing.T) {
 	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
-			return fullBlockResponse("0x64", nil), nil
+			return fullBlockResponse(testBlockNumberHex, nil), nil
 		default:
 			return "0x1", nil
 		}
@@ -97,10 +98,10 @@ func TestGetBlockByNumber_Success(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
-	block, err := client.GetBlockByNumber(context.Background(), big.NewInt(100))
+	block, err := client.GetBlockByNumber(context.Background(), big.NewInt(testBlockNumber))
 	require.NoError(t, err)
 	require.NotNil(t, block)
-	assert.Equal(t, "100", block.Number)
+	assert.Equal(t, strconv.Itoa(testBlockNumber), block.Number)
 }
 
 func TestGetBlockByNumber_Error(t *testing.T) {
@@ -131,20 +132,20 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 		switch method {
 		case ethGetTransactionReceipt:
 			return map[string]any{
-				"transactionHash":            "0x0000000000000000000000000000000000000000000000000000000000000abc",
-				TransactionIndexFieldName:    "0x0",
-				constants.BlockHashFieldName: "0x0000000000000000000000000000000000000000000000000000000000000001",
-				"blockNumber":                "0x64",
-				"from":                       "0x0000000000000000000000000000000000000001",
-				"to":                         "0x0000000000000000000000000000000000000002",
-				CumulativeGasUsedFieldName:   "0x5208",
-				GasUsedFieldName:             "0x5208",
-				"contractAddress":            nil,
-				"logs":                       []any{},
-				LogsBloomFieldName:           "0x" + fmt.Sprintf("%0512x", 0),
-				StatusFieldName:              "0x1",
-				EffectiveGasPriceFieldName:   "0x4a817c800",
-				TypeFieldName:                "0x0",
+				TransactionHashKeyName:         "0x0000000000000000000000000000000000000000000000000000000000000abc",
+				TransactionIndexFieldName:      "0x0",
+				constants.BlockHashFieldName:   "0x0000000000000000000000000000000000000000000000000000000000000001",
+				constants.BlockNumberFieldName: "0x64",
+				"from":                         "0x0000000000000000000000000000000000000001",
+				"to":                           "0x0000000000000000000000000000000000000002",
+				CumulativeGasUsedFieldName:     "0x5208",
+				GasUsedFieldName:               "0x5208",
+				"contractAddress":              nil,
+				"logs":                         []any{},
+				LogsBloomFieldName:             "0x" + fmt.Sprintf("%0512x", 0),
+				StatusFieldName:                "0x1",
+				EffectiveGasPriceFieldName:     "0x4a817c800",
+				TypeFieldName:                  "0x0",
 			}, nil
 		default:
 			return "0x1", nil
@@ -191,17 +192,17 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 		case ethGetBlockReceipts:
 			return []any{
 				map[string]any{
-					"transactionHash":            "0x0000000000000000000000000000000000000000000000000000000000000abc",
-					TransactionIndexFieldName:    "0x0",
-					constants.BlockHashFieldName: "0x0000000000000000000000000000000000000000000000000000000000000001",
-					"blockNumber":                "0x64",
-					CumulativeGasUsedFieldName:   "0x5208",
-					GasUsedFieldName:             "0x5208",
-					"logs":                       []any{},
-					LogsBloomFieldName:           "0x" + fmt.Sprintf("%0512x", 0),
-					StatusFieldName:              "0x1",
-					EffectiveGasPriceFieldName:   "0x4a817c800",
-					TypeFieldName:                "0x0",
+					TransactionHashKeyName:         "0x0000000000000000000000000000000000000000000000000000000000000abc",
+					TransactionIndexFieldName:      "0x0",
+					constants.BlockHashFieldName:   "0x0000000000000000000000000000000000000000000000000000000000000001",
+					constants.BlockNumberFieldName: "0x64",
+					CumulativeGasUsedFieldName:     "0x5208",
+					GasUsedFieldName:               "0x5208",
+					"logs":                         []any{},
+					LogsBloomFieldName:             "0x" + fmt.Sprintf("%0512x", 0),
+					StatusFieldName:                "0x1",
+					EffectiveGasPriceFieldName:     "0x4a817c800",
+					TypeFieldName:                  "0x0",
 				},
 			}, nil
 		default:
@@ -214,7 +215,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
-	receipts, err := client.GetBlockReceipts(context.Background(), big.NewInt(100))
+	receipts, err := client.GetBlockReceipts(context.Background(), big.NewInt(testBlockNumber))
 	require.NoError(t, err)
 	require.Len(t, receipts, 1)
 	assert.Equal(t, "1", receipts[0].Status)
@@ -322,7 +323,7 @@ func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
 				return fullBlockResponse("0xc8", nil), nil // 200
 			}
 			// First retry gets success
-			return fullBlockResponse("0x64", nil), nil // 100
+			return fullBlockResponse(testBlockNumberHex, nil), nil // 100
 		default:
 			return "0x1", nil
 		}
@@ -413,7 +414,7 @@ func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
 			if callCount == 2 {
 				return nil, fmt.Errorf("transaction type not supported") // First retry fails
 			}
-			return fullBlockResponse("0x64", nil), nil // Second retry succeeds
+			return fullBlockResponse(testBlockNumberHex, nil), nil // Second retry succeeds
 		}
 		return "0x1", nil
 	})
