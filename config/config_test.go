@@ -121,6 +121,10 @@ func TestApplyDefaults_AllZeroValues(t *testing.T) {
 	assert.Equal(t, 1000, cfg.Indexer.MaxDocsPerTxn, "MaxDocsPerTxn")
 	assert.Equal(t, 8080, cfg.Indexer.HealthServerPort, "HealthServerPort")
 	assert.Equal(t, 100, cfg.Indexer.StartBuffer, "StartBuffer")
+	assert.Equal(t, snapshotsDefaultDir, cfg.Snapshot.Dir, "Snapshot.Dir")
+	assert.Equal(t, int64(1000), cfg.Snapshot.BlocksPerFile, "Snapshot.BlocksPerFile")
+	assert.Equal(t, 60, cfg.Snapshot.IntervalSeconds, "Snapshot.IntervalSeconds")
+	assert.Equal(t, DefaultMaxSnapshots, cfg.Snapshot.MaxSnapshots, "Snapshot.MaxSnapshots")
 }
 
 func TestApplyDefaults_PresetValuesPreserved(t *testing.T) {
@@ -365,12 +369,14 @@ func TestApplyEnvOverrides_SnapshotConfig(t *testing.T) {
 	t.Setenv("SNAPSHOT_DIR", "/custom/snapshots")
 	t.Setenv("SNAPSHOT_BLOCKS_PER_FILE", "5000")
 	t.Setenv("SNAPSHOT_INTERVAL_SECONDS", "120")
+	t.Setenv("SNAPSHOT_MAX_SNAPSHOTS", "200")
 	applyEnvOverrides(cfg)
 
 	assert.True(t, cfg.Snapshot.Enabled, "Snapshot.Enabled")
 	assert.Equal(t, "/custom/snapshots", cfg.Snapshot.Dir, "Snapshot.Dir")
 	assert.Equal(t, int64(5000), cfg.Snapshot.BlocksPerFile, "Snapshot.BlocksPerFile")
 	assert.Equal(t, 120, cfg.Snapshot.IntervalSeconds, "Snapshot.IntervalSeconds")
+	assert.Equal(t, 200, cfg.Snapshot.MaxSnapshots, "Snapshot.MaxSnapshots")
 }
 
 func TestApplyEnvOverrides_SnapshotConfig_Invalid(t *testing.T) {
@@ -378,9 +384,11 @@ func TestApplyEnvOverrides_SnapshotConfig_Invalid(t *testing.T) {
 	t.Setenv("SNAPSHOT_ENABLED", "notbool")
 	t.Setenv("SNAPSHOT_BLOCKS_PER_FILE", "invalid")
 	t.Setenv("SNAPSHOT_INTERVAL_SECONDS", "bad")
+	t.Setenv("SNAPSHOT_MAX_SNAPSHOTS", "not_a_number")
 	applyEnvOverrides(cfg)
 
 	assert.False(t, cfg.Snapshot.Enabled, "Snapshot.Enabled should remain false")
+	assert.Zero(t, cfg.Snapshot.MaxSnapshots, "Snapshot.MaxSnapshots should remain 0 for invalid value")
 }
 
 func TestLoadConfig_EnvironmentOverrides_Integration(t *testing.T) {
@@ -659,42 +667,52 @@ func TestSnapshotConfigSetDefaults(t *testing.T) {
 		{
 			name:     "empty config gets all defaults",
 			input:    SnapshotConfig{},
-			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: DefaultMaxSnapshots},
 		},
 		{
 			name:     "preset values preserved",
 			input:    SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30},
-			expected: SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30},
+			expected: SnapshotConfig{Dir: "/custom/dir", BlocksPerFile: 500, IntervalSeconds: 30, MaxSnapshots: DefaultMaxSnapshots},
 		},
 		{
 			name:     "zero blocks per file gets default",
 			input:    SnapshotConfig{BlocksPerFile: 0},
-			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: DefaultMaxSnapshots},
 		},
 		{
 			name:     "negative blocks per file gets default",
 			input:    SnapshotConfig{BlocksPerFile: -5},
-			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: DefaultMaxSnapshots},
 		},
 		{
 			name:     "zero interval seconds gets default",
 			input:    SnapshotConfig{IntervalSeconds: 0},
-			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: DefaultMaxSnapshots},
 		},
 		{
 			name:     "negative interval seconds gets default",
 			input:    SnapshotConfig{IntervalSeconds: -10},
-			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: DefaultMaxSnapshots},
 		},
 		{
 			name:     "enabled true unaffected",
 			input:    SnapshotConfig{Enabled: true},
-			expected: SnapshotConfig{Enabled: true, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+			expected: SnapshotConfig{Enabled: true, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: DefaultMaxSnapshots},
 		},
 		{
 			name:     "enabled false unaffected",
 			input:    SnapshotConfig{Enabled: false},
-			expected: SnapshotConfig{Enabled: false, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60},
+			expected: SnapshotConfig{Enabled: false, Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: DefaultMaxSnapshots},
+		},
+		{
+			name:     "negative one max snapshots preserved (unlimited)",
+			input:    SnapshotConfig{MaxSnapshots: -1},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: -1},
+		},
+		{
+			name:     "positive max snapshots preserved",
+			input:    SnapshotConfig{MaxSnapshots: 25},
+			expected: SnapshotConfig{Dir: snapshotsDefaultDir, BlocksPerFile: 1000, IntervalSeconds: 60, MaxSnapshots: 25},
 		},
 	}
 
@@ -704,6 +722,87 @@ func TestSnapshotConfigSetDefaults(t *testing.T) {
 			cfg := tt.input
 			cfg.SetDefaults()
 			assert.Equal(t, tt.expected, cfg)
+		})
+	}
+}
+
+func TestValidateConfig_MaxSnapshotsRange(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		maxSnapshots int
+		shouldError  bool
+		errContains  string
+	}{
+		{"unlimited accepted", -1, false, ""},
+		{"zero accepted (means default)", 0, false, ""},
+		{"positive accepted", 100, false, ""},
+		{"below -1 rejected", -2, true, "max_snapshots"},
+		{"far below -1 rejected", -100, true, "max_snapshots"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			cfg.Snapshot.MaxSnapshots = tt.maxSnapshots
+
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateConfig_SnapshotCoverage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		snapshotEnabled bool
+		prunerEnabled   bool
+		maxSnapshots    int
+		blocksPerFile   int64
+		maxBlocks       int64
+		shouldError     bool
+	}{
+		{"coverage below max blocks rejected", true, true, 10, 100, 10000, true},
+		{"coverage equal to max blocks accepted", true, true, 100, 100, 10000, false},
+		{"coverage above max blocks accepted", true, true, 200, 100, 10000, false},
+		{"skipped when pruner disabled", true, false, 10, 100, 10000, false},
+		{"skipped when snapshotter disabled", false, true, 10, 100, 10000, false},
+		{"skipped when unlimited", true, true, -1, 100, 10000, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			cfg.Snapshot = SnapshotConfig{
+				Enabled:       tt.snapshotEnabled,
+				Dir:           snapshotsDefaultDir,
+				BlocksPerFile: tt.blocksPerFile,
+				MaxSnapshots:  tt.maxSnapshots,
+			}
+			cfg.Pruner = PrunerConfig{
+				Enabled:   tt.prunerEnabled,
+				MaxBlocks: tt.maxBlocks,
+			}
+
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "snapshot coverage")
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }

@@ -93,11 +93,17 @@ func (s *Snapshotter) Start(ctx context.Context) error {
 	s.ctx = ctx // store context with identity for signing.
 	s.scanExisting()
 
+	// Enforce the retention limit once at startup so a lowered max_snapshots
+	// takes effect immediately. Failures are non-fatal.
+	if err := s.enforceSnapshotLimit(ctx); err != nil {
+		logger.Sugar.Warnf("Snapshotter failed to enforce max_snapshots at startup: %v", err)
+	}
+
 	s.wg.Add(1)
 	go s.loop(ctx)
 
-	logger.Sugar.Infof("Snapshotter started (dir=%s, blocks_per_file=%d, interval=%ds)",
-		s.cfg.Dir, s.cfg.BlocksPerFile, s.cfg.IntervalSeconds)
+	logger.Sugar.Infof("Snapshotter started (dir=%s, blocks_per_file=%d, interval=%ds, max_snapshots=%d)",
+		s.cfg.Dir, s.cfg.BlocksPerFile, s.cfg.IntervalSeconds, s.cfg.MaxSnapshots)
 	return nil
 }
 
@@ -259,29 +265,8 @@ func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
 	lastSnapshot := s.lastSnapshotBlock
 	s.mu.RUnlock()
 
-	bpf := s.cfg.BlocksPerFile
-
-	// Determine the next aligned range to snapshot.
-	// Ranges are aligned to multiples of blocks_per_file:
-	//   e.g. with bpf=1000: [23700000..23700999], [23701000..23701999], ...
-	var rangeStart int64
-	if lastSnapshot == 0 {
-		// First snapshot: align to the nearest boundary at or above lowest.
-		rangeStart = ((lowest + bpf - 1) / bpf) * bpf
-	} else {
-		rangeStart = lastSnapshot + 1
-	}
-
-	// If pruner removed blocks we haven't snapshotted, skip ahead.
-	if rangeStart < lowest {
-		logger.Sugar.Warnf("Snapshot gap: expected range starting %d but lowest in DB is %d", rangeStart, lowest)
-		rangeStart = ((lowest + bpf - 1) / bpf) * bpf
-	}
-
-	rangeEnd := rangeStart + bpf - 1
-
-	// The entire aligned range must be present in the DB.
-	if rangeEnd > highest {
+	rangeStart, rangeEnd, ok := s.nextSnapshotRange(lastSnapshot, lowest, highest)
+	if !ok {
 		return nil
 	}
 
@@ -296,8 +281,45 @@ func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
 	s.totalSnapshots++
 	s.mu.Unlock()
 
+	// Enforce the retention limit after each successful snapshot. Failures are
+	// non-fatal: purge problems must never block snapshot creation.
+	if err := s.enforceSnapshotLimit(ctx); err != nil {
+		logger.Sugar.Warnf("Snapshot: failed to enforce max_snapshots limit: %v", err)
+	}
+
 	logger.Sugar.Infof("Snapshot created: blocks %d to %d", rangeStart, rangeEnd)
 	return nil
+}
+
+// nextSnapshotRange determines the next aligned block range to snapshot.
+// Ranges are aligned to multiples of blocks_per_file:
+//
+//	e.g. with bpf=1000: [23700000..23700999], [23701000..23701999], ...
+//
+// It skips ahead if the pruner removed blocks that were never snapshotted,
+// and reports ok=false when the DB does not yet hold the full range.
+func (s *Snapshotter) nextSnapshotRange(lastSnapshot, lowest, highest int64) (start, end int64, ok bool) {
+	bpf := s.cfg.BlocksPerFile
+
+	if lastSnapshot == 0 {
+		// First snapshot: align to the nearest boundary at or above lowest.
+		start = ((lowest + bpf - 1) / bpf) * bpf
+	} else {
+		start = lastSnapshot + 1
+	}
+
+	// If pruner removed blocks we haven't snapshotted, skip ahead.
+	if start < lowest {
+		logger.Sugar.Warnf("Snapshot gap: expected range starting %d but lowest in DB is %d", start, lowest)
+		start = ((lowest + bpf - 1) / bpf) * bpf
+	}
+
+	end = start + bpf - 1
+	if end > highest {
+		// The entire aligned range must be present in the DB.
+		return 0, 0, false
+	}
+	return start, end, true
 }
 
 func (s *Snapshotter) createSnapshot(ctx context.Context, startBlock, endBlock int64) error {
