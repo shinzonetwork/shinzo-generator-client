@@ -10,7 +10,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Grandfathered files: "path|line-count" (pinned via wc -l at install).
 BASELINE=(
-	"pkg/chains/evm/ethereum_client_test.go|1915"
 	"pkg/server/health_test.go|1096"
 	"pkg/defra/block_handler_defra_test.go|1023"
 )
