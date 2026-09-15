@@ -405,6 +405,7 @@ func createAndStartNode(
 	}
 
 	if err := defraNode.Start(ctx); err != nil {
+		_ = defraNode.Close(ctx)
 		return nil, fmt.Errorf("failed to start defra node: %w", err)
 	}
 
