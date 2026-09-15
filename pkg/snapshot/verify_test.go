@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/crypto"
@@ -40,8 +41,8 @@ func TestExtractBlockSigMerkleRoots(t *testing.T) {
 			name: "plain jsonl file with two block signatures",
 			write: func(t *testing.T, dir string) string {
 				lines := []string{
-					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("root1_data_bytes"), constants.BlockNumberKeyValue: 1000}}),
-					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("root2_data_bytes"), constants.BlockNumberKeyValue: 1001}}),
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("root1_data_bytes"), evm.BlockNumberKeyValue: 1000}}),
+					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("root2_data_bytes"), evm.BlockNumberKeyValue: 1001}}),
 				}
 				return writeJSONLFile(t, dir, "test.jsonl", lines)
 			},
@@ -75,7 +76,7 @@ func TestExtractBlockSigMerkleRoots(t *testing.T) {
 			name: "non-block-signature entries are skipped",
 			write: func(t *testing.T, dir string) string {
 				lines := []string{
-					mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
+					mustJSON(t, map[string]any{"type": "block", "data": map[string]any{evm.NumberFieldValue: 1000}}),
 					mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
 					mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: hexRoot("valid_root")}}),
 					mustJSON(t, map[string]any{"type": "log", "data": map[string]any{"logIndex": 0}}),
@@ -154,7 +155,7 @@ func TestExtractBlockSigMerkleRoots(t *testing.T) {
 				for i, mr := range orderedMrs {
 					lines = append(lines, mustJSON(t, map[string]any{
 						"type": constants.BlockSignatureTypeValue,
-						"data": map[string]any{constants.MerkleRootKeyValue: mr, constants.BlockNumberKeyValue: 1000 + i},
+						"data": map[string]any{constants.MerkleRootKeyValue: mr, evm.BlockNumberKeyValue: 1000 + i},
 					}))
 				}
 				return writeJSONLFile(t, dir, "ordered.jsonl", lines)
@@ -236,7 +237,7 @@ func TestVerifySnapshotWithSig_NoBlockSigsInSnapshot(t *testing.T) {
 
 	// Create a snapshot with no block_signature entries
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{evm.NumberFieldValue: 1000}}),
 		mustJSON(t, map[string]any{"type": "transaction", "data": map[string]any{"hash": "0xabc"}}),
 	}
 	p := writeJSONLFile(t, dir, "test.jsonl", lines)
@@ -524,7 +525,7 @@ func TestVerifySnapshot_ValidSigFileButNoBlockSigs(t *testing.T) {
 
 	// Create a gzip'd JSONL file with no block_signature entries
 	lines := []string{
-		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{constants.NumberFieldValue: 1000}}),
+		mustJSON(t, map[string]any{"type": "block", "data": map[string]any{evm.NumberFieldValue: 1000}}),
 	}
 	snapshotPath := writeGzipJSONLFile(t, dir, "snapshot_1000_1999.jsonl.gz", lines)
 
