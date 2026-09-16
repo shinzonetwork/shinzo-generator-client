@@ -917,6 +917,49 @@ func TestSignExisting_NoIdentity(t *testing.T) {
 	assert.Contains(t, err.Error(), "no identity available for signing")
 }
 
+func TestSignExisting_RefusesIncompleteBlock(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	handler, err := NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+
+	block := mockBlock("0xE10") // 3600
+	tx := mockTransaction("0xaaa3000000000000000000000000000000000000000000000000000000000001", "3600")
+	receipt := mockReceipt("0xaaa3000000000000000000000000000000000000000000000000000000000001", "0xE10")
+
+	// First arrival fails to stamp the tx group; the fail-fast Store leaves
+	// only the block doc stored, with no signature.
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+	txCol := extractCollection(evm.NewCollectionNames("Ethereum__Mainnet"), chains.TypeTransaction)
+	corrupted := false
+	for i := range result.Groups {
+		if result.Groups[i].Collection == txCol {
+			require.NotEmpty(t, result.Groups[i].Docs)
+			result.Groups[i].Docs[0][constants.HashKeyValue] = ""
+			corrupted = true
+		}
+	}
+	require.True(t, corrupted, "transaction group must be present in conversion result")
+
+	_, err = handler.Store(ctxWithIdentity(t), result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "link stamper")
+
+	// Re-arrival with clean data: the completeness guard must fail to sign
+	// the partial block instead of signing over just the block doc.
+	clean := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+	sigCtx := ctxWithIdentity(t)
+	sigDocID, err := handler.SignExisting(sigCtx, clean, block.Hash, 3600)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to sign incomplete block")
+	assert.Empty(t, sigDocID)
+
+	// No signature document may exist for the incomplete block.
+	sigIDs, qErr := handler.queryCollectionDocIDs(sigCtx, clean.SignatureCollection, "blockNumber", 3600, 3600)
+	require.NoError(t, qErr)
+	assert.Empty(t, sigIDs, "an incomplete block must never acquire a signature doc")
+}
+
 // ---------------------------------------------------------------------------
 // Store — transaction with no matching receipt
 // ---------------------------------------------------------------------------

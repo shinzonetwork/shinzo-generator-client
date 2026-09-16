@@ -57,12 +57,6 @@ func (m *mockBlockDB) ExecRequest(ctx context.Context, request string, opts ...o
 	return &client.RequestResult{}
 }
 
-func emptyExecReqFn() func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
-	return func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
-		return &client.RequestResult{GQL: client.GQLResult{Data: map[string]any{}}}
-	}
-}
-
 func execReqFnWithDocIDs() func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 	return func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
@@ -87,6 +81,51 @@ func execReqFnWithErrorForCol(targetCol string) func(_ context.Context, request 
 			}
 		}
 		return &client.RequestResult{GQL: client.GQLResult{Data: map[string]any{}}}
+	}
+}
+
+// execReqFnWithDocIDsExceptCol answers every collection query with one docID,
+// except targetCol which errors. Earlier groups pass the completeness guard,
+// so the loop reaches the target collection's query error.
+func execReqFnWithDocIDsExceptCol(targetCol string) func(_ context.Context, request string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+	return func(_ context.Context, request string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+		if strings.Contains(request, targetCol) {
+			return &client.RequestResult{
+				GQL: client.GQLResult{Errors: []error{fmt.Errorf("query error for %s", targetCol)}},
+			}
+		}
+		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		return &client.RequestResult{
+			GQL: client.GQLResult{
+				Data: map[string]any{
+					colBlock:           arr,
+					colTransaction:     arr,
+					colLog:             arr,
+					colAccessListEntry: arr,
+				},
+			},
+		}
+	}
+}
+
+// execReqFnWithDocIDsForCol answers only queries for targetCol with one docID;
+// every other collection comes back empty, simulating a partially stored block.
+func execReqFnWithDocIDsForCol(targetCol string) func(_ context.Context, request string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+	return func(_ context.Context, request string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
+		if !strings.Contains(request, targetCol) {
+			return &client.RequestResult{GQL: client.GQLResult{Data: map[string]any{}}}
+		}
+		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		return &client.RequestResult{
+			GQL: client.GQLResult{
+				Data: map[string]any{
+					colBlock:           arr,
+					colTransaction:     arr,
+					colLog:             arr,
+					colAccessListEntry: arr,
+				},
+			},
+		}
 	}
 }
 
@@ -235,7 +274,7 @@ func TestExistingSig_GetBlockCol_Error(t *testing.T) {
 func TestExistingSig_GetTxCol_Error(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		execReqFn: execReqFnWithErrorForCol(colTransaction),
+		execReqFn: execReqFnWithDocIDsExceptCol(colTransaction),
 	}
 	h := newMockHandler(t, db)
 	result := buildSigGroups(t, testBlock(), []*evm.Transaction{testTx()}, nil)
@@ -248,7 +287,7 @@ func TestExistingSig_GetTxCol_Error(t *testing.T) {
 func TestExistingSig_GetLogCol_Error(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		execReqFn: execReqFnWithErrorForCol(colLog),
+		execReqFn: execReqFnWithDocIDsExceptCol(colLog),
 	}
 	h := newMockHandler(t, db)
 	result := buildSigGroups(t, testBlock(), []*evm.Transaction{testTx()}, []*evm.TransactionReceipt{testReceipt()})
@@ -261,7 +300,7 @@ func TestExistingSig_GetLogCol_Error(t *testing.T) {
 func TestExistingSig_GetALECol_Error(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		execReqFn: execReqFnWithErrorForCol(colAccessListEntry),
+		execReqFn: execReqFnWithDocIDsExceptCol(colAccessListEntry),
 	}
 	h := newMockHandler(t, db)
 	tx := testTx()
@@ -273,10 +312,23 @@ func TestExistingSig_GetALECol_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "query docIDs for")
 }
 
+func TestExistingSig_RefusesIncompleteBlock(t *testing.T) {
+	t.Parallel()
+	db := &mockBlockDB{
+		execReqFn: execReqFnWithDocIDsForCol(colBlock),
+	}
+	h := newMockHandler(t, db)
+	result := buildSigGroups(t, testBlock(), []*evm.Transaction{testTx()}, []*evm.TransactionReceipt{testReceipt()})
+
+	_, err := h.SignExisting(context.Background(), result, "0xhash", 100)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to sign incomplete block")
+}
+
 func TestExistingSig_CIDRetry_CollectError(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
@@ -322,7 +374,7 @@ func TestExistingSig_CIDRetry_TxnError(t *testing.T) {
 func TestExistingSig_SigningTxn_Error(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 		newTxnFn:  func(_ bool) (client.Txn, error) { return nil, fmt.Errorf("signing txn error") }, //nolint:err113
 	}
 	h := newMockHandler(t, db)
@@ -342,7 +394,7 @@ func TestExistingSig_SigningTxn_Error(t *testing.T) {
 func TestExistingSig_SignBlock_Error(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
@@ -361,7 +413,7 @@ func TestExistingSig_SignBlock_Error(t *testing.T) {
 func TestExistingSig_NilBlockSig(t *testing.T) {
 	t.Parallel()
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
@@ -382,7 +434,7 @@ func TestExistingSig_GetSigCol_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
@@ -409,7 +461,7 @@ func TestExistingSig_BuildSigDoc_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
@@ -438,7 +490,7 @@ func TestExistingSig_CreateSigDoc_Error(t *testing.T) {
 	sigTxn.EXPECT().Discard()
 
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
@@ -465,7 +517,7 @@ func TestExistingSig_Commit_Error(t *testing.T) {
 	sigTxn.EXPECT().Commit().Return(fmt.Errorf("commit error")) //nolint:err113
 
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 		newTxnFn:  func(_ bool) (client.Txn, error) { return sigTxn, nil },
 	}
 	h := newMockHandler(t, db)
@@ -516,7 +568,7 @@ func TestExistingSig_BuildLogDoc_Continue(t *testing.T) {
 	t.Parallel()
 
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
@@ -548,7 +600,7 @@ func TestExistingSig_CIDRetry_CollectError_Backoff(t *testing.T) {
 	t.Parallel()
 
 	db := &mockBlockDB{
-		execReqFn: emptyExecReqFn(),
+		execReqFn: execReqFnWithDocIDs(),
 	}
 	h := newMockHandler(t, db)
 	h.maxCIDRetries = 2

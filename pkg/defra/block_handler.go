@@ -524,6 +524,11 @@ func (h *BlockHandler) createDocsInTxn(
 // groups produced by Convert, minus the signature group).
 // result.SignatureCollection names the collection where the block signature
 // document will be stored.
+//
+// Completeness guard: for each group the store must hold at least as many
+// docs as the group expects. A shortfall means the block was partially
+// indexed (e.g. its stamping failed, leaving only the block doc), and
+// signing fails so an incomplete block never carries a signature.
 func (h *BlockHandler) SignExisting(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -544,6 +549,10 @@ func (h *BlockHandler) SignExisting(
 		docIDs, err := h.queryCollectionDocIDs(ctx, g.Collection, field, blockNumber, blockNumber)
 		if err != nil {
 			return "", fmt.Errorf("query docIDs for %s: %w", g.Collection, err) //nolint:err113
+		}
+		if len(docIDs) < len(g.Docs) {
+			return "", fmt.Errorf("failed to sign incomplete block %d: collection %s has %d stored docs, expected %d",
+				blockNumber, g.Collection, len(docIDs), len(g.Docs))
 		}
 		allDocIDs = append(allDocIDs, docIDs...)
 		collectionNames = append(collectionNames, g.Collection)
