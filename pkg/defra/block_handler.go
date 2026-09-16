@@ -623,22 +623,29 @@ func (h *BlockHandler) SignExisting(
 // Field names of the block-signature document, matching the
 // blockSignature collection SDL.
 const (
-	sigFieldBlockNumber = "blockNumber"
-	sigFieldBlockHash   = "blockHash"
+	sigFieldBlockNumber       = "blockNumber"
+	sigFieldBlockHash         = "blockHash"
+	sigFieldMerkleRoot        = "merkleRoot"
+	sigFieldCIDCount          = "cidCount"
+	sigFieldCIDs              = "cids"
+	sigFieldSignatureType     = "signatureType"
+	sigFieldSignatureIdentity = "signatureIdentity"
+	sigFieldSignatureValue    = "signatureValue"
+	sigFieldCreatedAt         = "createdAt"
 )
 
 // buildBlockSignatureDocument creates a client.Document for a block signature.
 func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig *node.BatchSignature, blockHash string, blockNumber int64, col client.Collection, sortedCIDStrings []string) (*client.Document, error) {
 	data := map[string]any{
-		sigFieldBlockNumber: blockNumber,
-		sigFieldBlockHash:   blockHash,
-		"merkleRoot":        hex.EncodeToString(blockSig.MerkleRoot),
-		"cidCount":          blockSig.CIDCount,
-		"cids":              sortedCIDStrings,
-		"signatureType":     blockSig.Header.Type,
-		"signatureIdentity": string(blockSig.Header.Identity),
-		"signatureValue":    hex.EncodeToString(blockSig.Value),
-		"createdAt":         time.Now().UTC().Format(time.RFC3339),
+		sigFieldBlockNumber:       blockNumber,
+		sigFieldBlockHash:         blockHash,
+		sigFieldMerkleRoot:        hex.EncodeToString(blockSig.MerkleRoot),
+		sigFieldCIDCount:          blockSig.CIDCount,
+		sigFieldCIDs:              sortedCIDStrings,
+		sigFieldSignatureType:     blockSig.Header.Type,
+		sigFieldSignatureIdentity: string(blockSig.Header.Identity),
+		sigFieldSignatureValue:    hex.EncodeToString(blockSig.Value),
+		sigFieldCreatedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }
@@ -647,6 +654,10 @@ func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig
 // can lag). It returns the CIDs only once every document has one; partial coverage is an error so
 // a signature is never made over a subset of the block. Backoff waits are cancellable: a cancelled
 // ctx stops the loop within one backoff tick (no further queries are issued) and returns ctx.Err().
+// The loop-top ctx.Err() check is not redundant with the cancellable waits: a ctx already
+// cancelled at entry (the detached SignExisting goroutine may start on a dead processor ctx)
+// stops the loop before the first query, and the return is a bare ctx.Err() rather than a
+// DB-wrapped query error — the injectable collectDocCIDsFn does not check ctx itself.
 func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDocIDs []string, collectionNames []string) ([]cid.Cid, error) {
 	maxRetries := h.maxCIDRetries
 	var lastCIDCount int
