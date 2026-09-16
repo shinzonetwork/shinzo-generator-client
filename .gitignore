@@ -64,4 +64,9 @@ coverage.html
 # Logs
 logs/
 
+# Mac OS
 .DS_Store
+
+# SDD Files
+specs/
+
