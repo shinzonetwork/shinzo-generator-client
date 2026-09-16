@@ -134,6 +134,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	if logger.Sugar == nil {
 		logger.Init(cfg.Logger.Development)
 	}
+	logger.Sugar.Infof("Starting Shinzo Network Generator v%s", constants.GeneratorVersion)
 
 	defer func() {
 		if err != nil {

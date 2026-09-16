@@ -29,3 +29,6 @@ const ContentTypeJSON = "application/json"
 
 // CacheControlSchema is the Cache-Control directive for schema responses.
 const CacheControlSchema = "no-cache"
+
+// GeneratorVersion is the current version of the Shinzo Network Generator.
+const GeneratorVersion = "0.6.5.4"
