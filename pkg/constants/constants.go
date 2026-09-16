@@ -101,3 +101,6 @@ const (
 	// responses, which are generated and must not be cached stale.
 	CacheControlSchema = "no-cache"
 )
+
+// GeneratorVersion is the current version of the Shinzo Network Generator.
+const GeneratorVersion = "0.6.5.4"
