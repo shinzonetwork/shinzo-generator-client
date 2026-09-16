@@ -5,7 +5,7 @@ package evm
 // These constants live in pkg/chains/evm — not pkg/constants — because they
 // are EVM-specific: non-test code outside this package must not reference
 // them. The boundary is enforced by
-// pkg/constants/constants_boundary_test.go.
+// pkg/chains/evm/import_boundary_test.go.
 
 // NumberFieldValue is the string value "number" assigned to a field.
 const NumberFieldValue = "number"
