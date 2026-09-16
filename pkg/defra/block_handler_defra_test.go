@@ -1032,32 +1032,36 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 
 	tests := []struct {
-		name        string
-		role        string
-		mutate      func(doc map[string]any)
-		skippedRole string
-		writtenRole string
+		name         string
+		role         string
+		mutate       func(doc map[string]any)
+		skippedRoles []string
+		writtenRoles []string
 	}{
 		{
-			name:        "tx hash non-string",
-			role:        chains.TypeTransaction,
-			mutate:      func(doc map[string]any) { doc[constants.HashKeyValue] = 12345 },
-			skippedRole: chains.TypeTransaction,
-			writtenRole: chains.TypeLog,
+			name:         "tx hash non-string",
+			role:         chains.TypeTransaction,
+			mutate:       func(doc map[string]any) { doc[constants.HashKeyValue] = 12345 },
+			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
 		},
 		{
-			name:        "tx hash key deleted",
-			role:        chains.TypeTransaction,
-			mutate:      func(doc map[string]any) { delete(doc, constants.HashKeyValue) },
-			skippedRole: chains.TypeTransaction,
-			writtenRole: chains.TypeLog,
+			name:         "tx hash key deleted",
+			role:         chains.TypeTransaction,
+			mutate:       func(doc map[string]any) { delete(doc, constants.HashKeyValue) },
+			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
 		},
 		{
-			name:        "log transactionHash non-string",
-			role:        chains.TypeLog,
-			mutate:      func(doc map[string]any) { doc[constants.TransactionHashKeyValue] = 42 },
-			skippedRole: chains.TypeLog,
-			writtenRole: chains.TypeTransaction,
+			name:         "tx hash empty string",
+			role:         chains.TypeTransaction,
+			mutate:       func(doc map[string]any) { doc[constants.HashKeyValue] = "" },
+			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
+		},
+		{
+			name:         "log transactionHash non-string",
+			role:         chains.TypeLog,
+			mutate:       func(doc map[string]any) { doc[constants.TransactionHashKeyValue] = 42 },
+			skippedRoles: []string{chains.TypeLog, chains.TypeAccessListEntry},
+			writtenRoles: []string{chains.TypeTransaction},
 		},
 	}
 
@@ -1081,9 +1085,26 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 			ctx := ctxWithIdentity(t)
 			block := mockBlock("0xDAC") // 3500
 			tx := mockTransaction("0xaaa2000000000000000000000000000000000000000000000000000000000001", "3500")
+			tx.AccessList = []evm.AccessListEntry{
+				{
+					Address:     "0x0000000000000000000000000000000000000004",
+					StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
+				},
+			}
 			receipt := mockReceipt("0xaaa2000000000000000000000000000000000000000000000000000000000001", "0xDAC")
 
 			result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+
+			// The fixture tx carries an access-list entry so the fail-fast
+			// assertions below actually exercise the ALE group too.
+			aleCol := extractCollection(cols, chains.TypeAccessListEntry)
+			hasALE := false
+			for i := range result.Groups {
+				if result.Groups[i].Collection == aleCol {
+					hasALE = true
+				}
+			}
+			require.True(t, hasALE, "fixture must produce an access-list-entry group")
 
 			// Corrupt the target doc so the stamper's validation fails.
 			targetCol := extractCollection(cols, tc.role)
@@ -1104,10 +1125,25 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 			assert.NotEmpty(t, res.BlockID, "block doc is written before the stamping failure")
 			assert.Empty(t, res.BlockSignatureID, "stamp errors must suppress the block signature")
 
-			skippedCol := extractCollection(cols, tc.skippedRole)
-			writtenCol := extractCollection(cols, tc.writtenRole)
-			assert.NotContains(t, res.OtherDocIDs, skippedCol, "the failing group must not be written")
-			assert.Contains(t, res.OtherDocIDs, writtenCol, "groups that stamp cleanly must still be written")
+			for _, role := range tc.skippedRoles {
+				skippedCol := extractCollection(cols, role)
+				assert.NotContains(t, res.OtherDocIDs, skippedCol,
+					"the failing group and its dependents must not be written")
+
+				// Strongest proof that nothing was written: count the docs in
+				// the collection itself. Fail-fast must leave it empty.
+				field := "blockNumber"
+				if role == chains.TypeBlock {
+					field = "number"
+				}
+				ids, qErr := handler.queryCollectionDocIDs(ctx, skippedCol, field, 3500, 3500)
+				require.NoError(t, qErr)
+				assert.Empty(t, ids, "fail-fast must leave %s empty in the store", skippedCol)
+			}
+			for _, role := range tc.writtenRoles {
+				writtenCol := extractCollection(cols, role)
+				assert.Contains(t, res.OtherDocIDs, writtenCol, "groups that stamp cleanly must still be written")
+			}
 
 			require.Len(t, tracker.trackedResults, 1)
 			assert.Empty(t, tracker.trackedResults[0].BlockSignatureID, "tracked result must record the unsigned state")

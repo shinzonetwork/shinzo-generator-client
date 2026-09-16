@@ -253,8 +253,10 @@ func toInt64(v any) (int64, error) {
 // cross-document link fields (_blockID, _transactionID) via the
 // chain-provided LinkStamper. Stamping failures are collected as batch errors,
 // which suppress the block signature and surface in Store's returned error.
-// The block signature is created over the collected CIDs when signing identity
-// is available.
+// Processing is fail-fast: the first group stamp or write failure stops the
+// remaining groups, since a skipped parent would leave its dependents written
+// without links. The block signature is created over the collected CIDs when
+// signing identity is available.
 func (h *BlockHandler) Store(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -294,18 +296,20 @@ func (h *BlockHandler) Store(
 
 	for _, g := range result.Groups[1:] {
 		if !stampGroupLinks(result, g, nil, &batchErrors) {
-			continue
+			break // fail-fast: dependents of this group would be written unlinked
 		}
 
 		ids, err := h.writeGroup(ctx, blockInt, g)
-		if err != nil {
-			batchErrors = append(batchErrors, err)
-		}
-
-		stampGroupLinks(result, g, ids, &batchErrors)
-
 		otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
 		allDocIDs = append(allDocIDs, ids...)
+		if err != nil {
+			batchErrors = append(batchErrors, err)
+			break // fail-fast: a partial write leaves dependents unlinked
+		}
+
+		if !stampGroupLinks(result, g, ids, &batchErrors) {
+			break // fail-fast (unreachable when the pre-write pass passed)
+		}
 	}
 
 	blockSigDocID := h.signStoredBlock(ctx, blockInt, blockHash, allDocIDs, batchErrors, result.SignatureCollection, collector)
@@ -334,8 +338,9 @@ func (h *BlockHandler) Store(
 
 // stampGroupLinks stamps a group's documents via the conversion result's
 // LinkStamper, when one is configured. A stamping failure is recorded in
-// batchErrors and reported as false so callers can skip the affected group;
-// a nil stamper is a no-op.
+// batchErrors and reported as false; callers must stop processing the
+// remaining groups (fail-fast), since a skipped parent would leave its
+// dependents written without links. A nil stamper is a no-op.
 func stampGroupLinks(
 	result chains.ConversionResult,
 	group chains.DocumentGroup,
