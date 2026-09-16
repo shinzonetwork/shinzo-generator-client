@@ -44,22 +44,19 @@ type EthereumClient struct {
 // NewEthereumClient creates a new JSON-RPC Ethereum client with HTTP and
 // WebSocket support. The provided context governs the dial phase and is NOT
 // retained by the returned client (dial-only per go-ethereum's rpc.Dial
-// contract). When dialTimeout is positive, it additionally bounds the entire
-// dial sequence (HTTP + WebSocket + fallback attempts) regardless of whether
-// the caller's context carries a deadline. A non-positive dialTimeout leaves
-// the dial unbounded — the caller's context solely governs. A context that is
-// cancelled or expired before or during the dial fails the constructor — a
-// partially connected client is never returned.
+// contract); its cancellation or expiry before or while connecting fails the
+// constructor — a partially connected client is never returned. When
+// dialTimeout is positive, it bounds the WebSocket dial phase exclusively,
+// freshly derived from the caller's context (go-ethereum's HTTP dial is lazy
+// and performs no handshake at construction, so no separate budget is
+// needed); a WS-phase timeout with the caller's context alive and HTTP
+// connected degrades to HTTP-only mode instead of failing. A non-positive
+// dialTimeout leaves the WebSocket dial unbounded — the caller's context
+// solely governs.
 func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHeader string, dialTimeout time.Duration) (*EthereumClient, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
 			fmt.Errorf("dial context cancelled before connecting: %w", err))
-	}
-
-	if dialTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, dialTimeout)
-		defer cancel()
 	}
 
 	client := &EthereumClient{
@@ -107,14 +104,14 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 
 	// Establish WebSocket client with API key authentication if provided
 	if wsURL != "" {
-		if err := client.connectWebSocket(ctx, wsURL, apiKey, headerName); err != nil {
+		if err := client.connectWebSocket(ctx, wsURL, apiKey, headerName, dialTimeout); err != nil {
 			return nil, err
 		}
 	}
 
-	// Fail fast when the dial context died mid-dial (manifested via deadline
-	// forwarded onto the socket by the WS dialer, or between dial steps):
-	// never return a "successful" client that cannot serve a single request.
+	// Fail fast when the caller's context died mid-dial (cancelled or
+	// expired between dial steps): never return a "successful" client that
+	// cannot serve a single request.
 	if err := ctx.Err(); err != nil {
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
 			fmt.Errorf("dial context expired while connecting: %w", err))
@@ -131,72 +128,94 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 
 // connectWebSocket establishes the WebSocket client and stores it on c,
 // trying the API-key header path, the GCP query-parameter path, and the
-// unauthenticated fallback. It returns an error only when even the fallback
-// fails and no HTTP client is available for degradation; a context error
-// aborts immediately, since the fallback dial cannot succeed once the dial
-// context is gone.
-func (c *EthereumClient) connectWebSocket(ctx context.Context, wsURL, apiKey, headerName string) error {
+// unauthenticated fallback. All attempts share one WebSocket-phase budget
+// freshly derived from the caller's context when dialTimeout is positive, so
+// earlier phases can never starve it. A dead caller's context always fails
+// construction; a WS-phase timeout (or any final dial failure) with the
+// caller's context alive degrades to HTTP-only mode when an HTTP client is
+// connected, and fails otherwise.
+func (c *EthereumClient) connectWebSocket(ctx context.Context, wsURL, apiKey, headerName string, dialTimeout time.Duration) error {
 	logger.Sugar.Infof("Attempting WebSocket connection to %s", wsURL)
+
+	wsCtx := ctx
+	if dialTimeout > 0 {
+		var cancel context.CancelFunc
+		wsCtx, cancel = context.WithTimeout(ctx, dialTimeout)
+		defer cancel()
+	}
+
 	var wsClient *ethclient.Client
 	var err error
-	wsConnected := false
 
 	if apiKey != "" {
 		// Create WebSocket connection with custom headers for API key authentication
 		logger.Sugar.Infof("Creating WebSocket connection with %s header", headerName)
-		wsClient, err = createWebSocketWithHeaders(ctx, wsURL, apiKey, headerName)
+		wsClient, err = createWebSocketWithHeaders(wsCtx, wsURL, apiKey, headerName)
 		if err != nil {
 			if isContextError(err) {
-				// The dial context is gone (cancelled or expired): the
-				// unauthenticated fallback dial cannot succeed either —
-				// fail immediately instead of degrading to HTTP-only.
-				return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
-					fmt.Errorf("WebSocket dial aborted: %w", err))
+				// The unauthenticated fallback dial cannot succeed on a
+				// cancelled caller context or an expired WS-phase budget —
+				// resolve immediately instead of a pointless retry.
+				return c.wsDialFailure(ctx, wsURL, err, "")
 			}
 			logger.Sugar.Warnf("Failed to establish WebSocket connection with API key header: %v", err)
 			// Try fallback without API key
 			logger.Sugar.Info("Trying standard WebSocket connection as fallback")
-			wsClient, err = ethclient.DialContext(ctx, wsURL)
+			wsClient, err = ethclient.DialContext(wsCtx, wsURL)
 			if err != nil {
 				logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
-				// Only return error if HTTP client is also unavailable
-				if c.httpClient == nil {
-					return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
-						fmt.Errorf("WebSocket connection failed with both API key and standard methods: %w", err))
-				}
-				logger.Sugar.Warn("WebSocket unavailable, will use HTTP-only mode (may have reduced performance)")
-			} else {
-				logger.Sugar.Info("WebSocket fallback connection successful")
-				c.wsClient = wsClient
-				wsConnected = true
+				return c.wsDialFailure(ctx, wsURL, err,
+					"WebSocket connection failed with both API key and standard methods")
 			}
+			logger.Sugar.Info("WebSocket fallback connection successful")
+			c.wsClient = wsClient
 		} else {
 			logger.Sugar.Info("WebSocket connection with API key header successful")
 			c.wsClient = wsClient
-			wsConnected = true
 		}
 	} else {
 		// Standard WebSocket connection without API key
-		wsClient, err = ethclient.DialContext(ctx, wsURL)
+		wsClient, err = ethclient.DialContext(wsCtx, wsURL)
 		if err != nil {
 			logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
-			// Only return error if HTTP client is also unavailable
-			if c.httpClient == nil {
-				return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL, err)
-			}
-			logger.Sugar.Warn("WebSocket unavailable, will use HTTP-only mode (may have reduced performance)")
-		} else {
-			logger.Sugar.Info("Standard WebSocket connection successful")
-			c.wsClient = wsClient
-			wsConnected = true
+			return c.wsDialFailure(ctx, wsURL, err, "")
 		}
+		logger.Sugar.Info("Standard WebSocket connection successful")
+		c.wsClient = wsClient
 	}
 
-	// Log performance implications if WebSocket failed but HTTP succeeded
-	if !wsConnected && c.httpClient != nil {
-		logger.Sugar.Warn("WebSocket connection failed but HTTP is available - indexer performance may be reduced")
-	}
+	// Every failure path above resolves inside wsDialFailure — including the
+	// HTTP-only degrade (warned there) — so reaching this point means the WS
+	// client is established.
 	return nil
+}
+
+// wsDialFailure resolves a final (not retried) WebSocket dial failure into
+// the constructor outcome. A dead caller's context always fails the
+// constructor — startup shutting down must never yield a half-connected
+// client, whatever the transport state. With the caller's context alive and
+// an HTTP client already connected, the client degrades to HTTP-only mode;
+// without HTTP the failure propagates, preserving the error chain (including
+// the deadline sentinels isContextError classifies on). wrapMsg prefixes the
+// propagated error when set (e.g. "WebSocket connection failed with both API
+// key and standard methods").
+func (c *EthereumClient) wsDialFailure(ctx context.Context, wsURL string, err error, wrapMsg string) error {
+	if ctx.Err() != nil {
+		return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
+			fmt.Errorf("WebSocket dial aborted: %w", err))
+	}
+	if c.httpClient != nil {
+		if isContextError(err) {
+			logger.Sugar.Warn("WebSocket dial timed out, will use HTTP-only mode (may have reduced performance)")
+		} else {
+			logger.Sugar.Warn("WebSocket unavailable, will use HTTP-only mode (may have reduced performance)")
+		}
+		return nil
+	}
+	if wrapMsg != "" {
+		err = fmt.Errorf("%s: %w", wrapMsg, err)
+	}
+	return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL, err)
 }
 
 // apiKeyTransport adds API key header to HTTP requests.

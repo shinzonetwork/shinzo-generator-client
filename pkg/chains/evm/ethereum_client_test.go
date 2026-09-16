@@ -2017,3 +2017,72 @@ func TestNewEthereumClient_NonPositiveDialTimeout_IsUnbounded(t *testing.T) {
 		require.NoError(t, client.Close())
 	}
 }
+
+func TestNewEthereumClient_WSTimeout_DegradesToHTTPWhenConnected(t *testing.T) {
+	t.Parallel()
+
+	// Regression: the WS dial used to share one timeout budget with the
+	// whole dial sequence, and a WS-phase timeout failed the constructor
+	// regardless of the connected HTTP client. The WS phase now owns a
+	// freshly derived budget, and its expiry with the caller's context
+	// alive must degrade to HTTP-only startup instead of failing.
+
+	cases := []struct {
+		name   string
+		apiKey string
+		header string
+	}{
+		{name: "NoAPIKey", apiKey: "", header: "X-Api-Key"},
+		{name: "WithAPIKeyHeader", apiKey: "test-api-key-12345", header: "X-Api-Key"},
+		{name: "WithGCPQueryParam", apiKey: "test-api-key-12345", header: "x-goog-api-key"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			httpServer := simpleRPCServer()
+			defer httpServer.Close()
+			wsServer := newHangingWSServer()
+			defer wsServer.Close()
+			wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
+
+			// No caller deadline: dialTimeout bounds only the WS phase.
+			start := time.Now()
+			client, err := NewEthereumClient(t.Context(), httpServer.URL, wsURL, tc.apiKey, tc.header, 300*time.Millisecond)
+			elapsed := time.Since(start)
+
+			require.NoError(t, err)
+			require.NotNil(t, client)
+			require.NoError(t, client.Close())
+			assert.NotNil(t, client.httpClient)
+			assert.Nil(t, client.wsClient, "WS dial timed out, so the client must start HTTP-only")
+			assert.GreaterOrEqual(t, elapsed, 250*time.Millisecond,
+				"the WS-phase budget, not the instant HTTP dial, must bound the hanging handshake")
+			assert.Less(t, elapsed, 5*time.Second, "WS timeout must degrade, not hang or fail the constructor")
+		})
+	}
+}
+
+func TestNewEthereumClient_ParentDeadlineMidWSDial_FailsFast(t *testing.T) {
+	t.Parallel()
+	httpServer := simpleRPCServer()
+	defer httpServer.Close()
+	wsServer := newHangingWSServer()
+	defer wsServer.Close()
+	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
+
+	// The caller's deadline dies mid-WS-dial while the WS-phase budget
+	// (10s) would still be running: caller-context death must always fail
+	// the constructor, never degrade to a half-started HTTP-only client.
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	client, err := NewEthereumClient(ctx, httpServer.URL, wsURL, "", "X-Api-Key", 10*time.Second)
+	elapsed := time.Since(start)
+
+	assert.Error(t, err)
+	assert.Nil(t, client)
+	assertDeadlineError(t, err)
+	assert.Less(t, elapsed, 5*time.Second, "the caller deadline must abort startup even with HTTP connected")
+}

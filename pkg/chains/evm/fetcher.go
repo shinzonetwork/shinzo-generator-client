@@ -94,8 +94,9 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 
 // Connect dials the RPC endpoint using the connection-config fields. The
 // provided context governs the dial; f.dialTimeout (GethConfig's
-// dial_timeout_seconds) may additionally bound it. If the fetcher was built
-// via NewFetcher (pre-connected client), Connect is a no-op.
+// dial_timeout_seconds) may additionally bound the WebSocket dial phase. If
+// the fetcher was built via NewFetcher (pre-connected client), Connect is a
+// no-op.
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
