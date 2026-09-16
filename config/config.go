@@ -27,6 +27,18 @@ type DefraDBP2PConfig struct {
 	RetryBaseDelayMs    int      `yaml:"retry_base_delay_ms"`
 	ReconnectIntervalMs int      `yaml:"reconnect_interval_ms"`
 	EnableAutoReconnect bool     `yaml:"enable_auto_reconnect"`
+	// ResourceMemoryMiB is the memory budget the libp2p resource manager may allot across all
+	// peers and streams. Zero leaves libp2p's autoscaled defaults in place, which size themselves
+	// from the memory the process can see - the host machine's, not the container's cgroup limit -
+	// and produce arbitrary per-peer stream ceilings. Keep this below GOMEMLIMIT.
+	ResourceMemoryMiB int `yaml:"resource_memory_mib"`
+	// ResourceFileDescriptors is the file descriptor budget for the resource manager. Only read
+	// when ResourceMemoryMiB is set.
+	ResourceFileDescriptors int `yaml:"resource_file_descriptors"`
+	// MaxStreamsPerPeer caps the concurrent streams a single peer may open in each direction.
+	// Too low and peers get their streams reset with network.StreamResourceLimitExceeded (4098);
+	// CAR exchange, bitswap and pubsub all share these connections.
+	MaxStreamsPerPeer int `yaml:"max_streams_per_peer"`
 }
 
 // DefraDBStoreConfig represents store configuration for DefraDB.
@@ -129,7 +141,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	// Apply environment variable overrides.
-	applyEnvOverrides(&cfg)
+	if err := applyEnvOverrides(&cfg); err != nil {
+		return nil, err
+	}
 
 	// Apply default values.
 	applyDefaults(&cfg)
@@ -198,8 +212,10 @@ func validateConfig(cfg *Config) error {
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.
-func applyEnvOverrides(cfg *Config) {
-	applyDefraEnvOverrides(cfg)
+func applyEnvOverrides(cfg *Config) error {
+	if err := applyDefraEnvOverrides(cfg); err != nil {
+		return err
+	}
 	applyChainEnvOverrides(cfg)
 	applyIndexerEnvOverrides(cfg)
 	applySchemaEnvOverrides(cfg)
@@ -211,10 +227,12 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Logger.Development = debug
 		}
 	}
+
+	return nil
 }
 
 // applyDefraEnvOverrides applies DefraDB-related environment variable overrides.
-func applyDefraEnvOverrides(cfg *Config) {
+func applyDefraEnvOverrides(cfg *Config) error {
 	if defraURL := os.Getenv("DEFRADB_URL"); defraURL != "" {
 		cfg.DefraDB.URL = defraURL
 	} else if host := os.Getenv("DEFRADB_HOST"); host != "" {
@@ -240,6 +258,21 @@ func applyDefraEnvOverrides(cfg *Config) {
 		if parsed, err := strconv.ParseBool(acceptIncoming); err == nil {
 			cfg.DefraDB.P2P.AcceptIncoming = parsed
 		}
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_MEMORY_MIB"); err != nil {
+		return err
+	} else if ok {
+		cfg.DefraDB.P2P.ResourceMemoryMiB = n
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_FILE_DESCRIPTORS"); err != nil {
+		return err
+	} else if ok {
+		cfg.DefraDB.P2P.ResourceFileDescriptors = n
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_MAX_STREAMS_PER_PEER"); err != nil {
+		return err
+	} else if ok {
+		cfg.DefraDB.P2P.MaxStreamsPerPeer = n
 	}
 	if storePath := os.Getenv("DEFRADB_STORE_PATH"); storePath != "" {
 		cfg.DefraDB.Store.Path = storePath
@@ -274,6 +307,27 @@ func applyDefraEnvOverrides(cfg *Config) {
 			cfg.DefraDB.Store.NumLevelZeroTablesStall = n
 		}
 	}
+
+	return nil
+}
+
+// envPositiveInt reads name as a positive integer, reporting whether it was set at all.
+// It returns an error rather than silently ignoring a bad value: a mistyped resource limit
+// would otherwise be replaced by a default an order of magnitude from what was intended,
+// and the node would run with limits nobody chose.
+func envPositiveInt(name string) (int, bool, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return 0, false, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false, fmt.Errorf("invalid %s value %q: %w", name, raw, err)
+	}
+	if n <= 0 {
+		return 0, false, fmt.Errorf("invalid %s value %q: must be positive", name, raw)
+	}
+	return n, true, nil
 }
 
 // applyChainEnvOverrides applies chain and Geth environment variable overrides.
