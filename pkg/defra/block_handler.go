@@ -246,6 +246,16 @@ func toInt64(v any) (int64, error) {
 	}
 }
 
+// groupLogLabel shortens a collection name for perf logs by stripping the
+// chain prefix (e.g. "Ethereum__Mainnet__Transaction" → "Transaction").
+// Names without a prefix are returned unchanged.
+func groupLogLabel(collection string) string {
+	if i := strings.LastIndex(collection, "__"); i >= 0 && i+2 < len(collection) {
+		return collection[i+2:]
+	}
+	return collection
+}
+
 // Store persists a block and all its constituent documents (transactions, logs,
 // access-list entries, etc.) from the ConversionResult. Every group — the
 // block group included — follows the same uniform protocol: the chain-provided
@@ -285,6 +295,8 @@ func (h *BlockHandler) Store(
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
 
+	t := logger.NewPerfTimer()
+
 	// Block group — same protocol as every other group. Its stamp is
 	// field-wise a no-op (the block doc carries no link fields) and the
 	// recordDocIDs call below harvests the block docID. A stamp failure here
@@ -295,6 +307,7 @@ func (h *BlockHandler) Store(
 	}
 
 	blockID, err := h.storeBlockDoc(ctx, blockData, blockGroup.Collection)
+	t.Stage("blockDoc")
 	if err != nil {
 		return nil, err
 	}
@@ -324,9 +337,12 @@ func (h *BlockHandler) Store(
 		if !recordDocIDs(result, g, ids, &batchErrors) {
 			break // fail-fast (unreachable when the pre-write pass passed)
 		}
+		// Group duration covers stamp → write (incl. batch retries) → record.
+		t.Stagef("%s (%d docs)", groupLogLabel(g.Collection), len(g.Docs))
 	}
 
 	blockSigDocID := h.signStoredBlock(ctx, blockInt, blockHash, allDocIDs, batchErrors, result.SignatureCollection, collector)
+	t.Stage("sign")
 
 	creationResult := &BlockCreationResult{
 		BlockNumber:              blockInt,
@@ -341,6 +357,9 @@ func (h *BlockHandler) Store(
 			logger.Sugar.Warnf("Failed to track docIDs for block %d: %v", blockInt, err)
 		}
 	}
+	t.Stage("track")
+
+	logger.Perff("Block %d: %s", blockInt, t.Total())
 
 	if len(batchErrors) > 0 {
 		return creationResult, fmt.Errorf("block %d partially indexed with %d batch errors (first: %w)", //nolint:err113
@@ -417,7 +436,7 @@ func (h *BlockHandler) writeGroup(ctx context.Context, blockInt int64, g chains.
 	if batchSize <= 0 {
 		batchSize = h.maxDocsPerTxn
 	}
-	return h.createDocBatch(ctx, blockInt, g.Collection, g.Docs, batchSize)
+	return h.createDocBatch(ctx, blockInt, g.Collection, groupLogLabel(g.Collection), g.Docs, batchSize)
 }
 
 func (h *BlockHandler) signStoredBlock(
@@ -491,13 +510,16 @@ func (h *BlockHandler) storeBlockDoc(ctx context.Context, blockData map[string]a
 }
 
 // createDocBatch writes documents in batches of batchSize, returning all docIDs.
+// kind is the short collection label used in perf and retry logs.
 func (h *BlockHandler) createDocBatch(
 	ctx context.Context,
 	blockInt int64,
 	colName string,
+	kind string,
 	dataMaps []map[string]any,
 	batchSize int,
 ) ([]string, error) {
+	totalBatches := (len(dataMaps) + batchSize - 1) / batchSize
 	var allIDs []string
 	for i := 0; i < len(dataMaps); i += batchSize {
 		end := min(i+batchSize, len(dataMaps))
@@ -505,10 +527,11 @@ func (h *BlockHandler) createDocBatch(
 		if len(batch) == 0 {
 			continue
 		}
+		batchNum := i/batchSize + 1
 		var ids []string
-		err := h.writeBatchWithRetry(ctx, blockInt, colName, func() error {
+		err := h.writeBatchWithRetry(ctx, blockInt, kind, func() error {
 			var e error
-			ids, e = h.createDocsInTxn(ctx, colName, batch)
+			ids, e = h.createDocsInTxn(ctx, blockInt, colName, kind, batch, batchNum, totalBatches)
 			return e
 		})
 		allIDs = append(allIDs, ids...)
@@ -519,12 +542,20 @@ func (h *BlockHandler) createDocBatch(
 	return allIDs, nil
 }
 
-// createDocsInTxn creates documents from data maps in a single transaction.
+// createDocsInTxn creates documents from data maps in a single transaction,
+// logging per-batch build/insert/commit timings at PERF level. kind is the
+// short collection label; batchNum/totalBatches identify the batch within
+// its group.
 func (h *BlockHandler) createDocsInTxn(
 	ctx context.Context,
+	blockInt int64,
 	colName string,
+	kind string,
 	dataMaps []map[string]any,
+	batchNum, totalBatches int,
 ) ([]string, error) {
+	t := logger.NewPerfTimer()
+
 	txn, err := h.db.NewTxn(false)
 	if err != nil {
 		return nil, fmt.Errorf("create txn for %s: %w", colName, err) //nolint:err113
@@ -545,6 +576,7 @@ func (h *BlockHandler) createDocsInTxn(
 		}
 		docs = append(docs, doc)
 	}
+	t.Stage("build")
 
 	if len(docs) == 0 {
 		txn.Discard()
@@ -558,15 +590,21 @@ func (h *BlockHandler) createDocsInTxn(
 		}
 		return nil, fmt.Errorf("add documents to %s: %w", colName, err) //nolint:err113
 	}
+	t.Stage("insert")
 
 	if err := txn.Commit(); err != nil {
 		return nil, fmt.Errorf("commit %s batch: %w", colName, err) //nolint:err113
 	}
+	t.Stage("commit")
 
 	ids := make([]string, len(docs))
 	for i, doc := range docs {
 		ids[i] = doc.ID().String()
 	}
+
+	logger.Perff("Block %d: %s batch %d/%d (%d docs): %s",
+		blockInt, kind, batchNum, totalBatches, len(dataMaps), t.Total())
+
 	return ids, nil
 }
 
@@ -594,6 +632,8 @@ func (h *BlockHandler) SignExisting(
 		return "", fmt.Errorf("defraNode is nil") //nolint:err113
 	}
 
+	t := logger.NewPerfTimer()
+
 	var allDocIDs []string
 	var collectionNames []string
 	for _, g := range result.Groups {
@@ -611,13 +651,20 @@ func (h *BlockHandler) SignExisting(
 		allDocIDs = append(allDocIDs, docIDs...)
 		collectionNames = append(collectionNames, g.Collection)
 	}
+	t.Stage("query")
 
 	cids, err := h.waitForCIDs(ctx, blockNumber, allDocIDs, collectionNames)
+	t.Stage("cids")
 	if err != nil {
 		return "", err
 	}
 
-	return h.signBlockOverCIDs(ctx, blockNumber, blockHash, len(allDocIDs), cids, result.SignatureCollection)
+	sigID, err := h.signBlockOverCIDs(ctx, blockNumber, blockHash, len(allDocIDs), cids, result.SignatureCollection)
+	t.Stage("sign")
+
+	logger.Perff("Block %d (sign-existing): %s", blockNumber, t.Total())
+
+	return sigID, err
 }
 
 // Field names of the block-signature document, matching the
@@ -685,6 +732,8 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 		lastCIDCount = len(cids)
 		lastCountAttempt = attempt + 1
 		if len(cids) >= len(allDocIDs) {
+			logger.Perff("Block %d (cids): collected %d CIDs for %d docs on attempt %d/%d",
+				blockNumber, len(cids), len(allDocIDs), attempt+1, maxRetries)
 			return cids, nil
 		}
 
