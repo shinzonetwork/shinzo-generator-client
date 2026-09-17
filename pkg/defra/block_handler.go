@@ -723,6 +723,8 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 		lastCIDCount = len(cids)
 		lastCountAttempt = attempt + 1
 		if len(cids) >= len(allDocIDs) {
+			logger.Perff("Block %d (cids): collected %d CIDs for %d docs on attempt %d/%d",
+				blockNumber, len(cids), len(allDocIDs), attempt+1, maxRetries)
 			return cids, nil
 		}
 
