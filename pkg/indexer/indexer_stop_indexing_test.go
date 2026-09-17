@@ -6,6 +6,7 @@ package indexer
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -305,4 +306,119 @@ func TestStopIndexingVariants(t *testing.T) {
 			tc.assert(t, indexer)
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------.
+// StopIndexing vs in-flight StartIndexing.
+//  Deterministic park: the mock RPC blocks eth_blockNumber
+// (the first RPC call StartIndexing makes, from FetchHighestBlockNumber in
+// resolveStartHeight), so the start is pinned mid-init with fetcher/defraNode
+// already assigned while StopIndexing races it.
+//
+// Mutation detection:
+//   - Reverting the waitStartSettled call in StopIndexing: teardown nils
+//     i.fetcher under the parked start → nil-interface panic after release
+//     and/or a -race report on i.fetcher → this test fails.
+//   - Removing the markStartSettled handoff in runConcurrentIndexing: every
+//     steady-state stop stalls the full IndexingStartStopTimeout → suite
+//     timeouts.
+// ---------------------------------------------------------------------------.
+
+func TestStopIndexing_DuringStart_WaitsForStart(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	logger.InitConsoleOnly(true)
+
+	tmpDir := t.TempDir()
+
+	// Park the start mid-init (resolveStartHeight) until releaseRPC closes.
+	// FetchHighestBlockNumber → HeaderByNumber(nil) → eth_getBlockByNumber
+	// with the "latest" param — the FIRST RPC call StartIndexing makes, and
+	// it happens before the runConcurrentIndexing handoff. After release,
+	// serve a fixed tip so runConcurrentIndexing starts cleanly.
+	releaseRPC := make(chan struct{})
+	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			var rawParams []json.RawMessage
+			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
+				var blockParam string
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					<-releaseRPC
+					return fullBlockResponse("0x100", nil), nil
+				}
+			}
+			return fullBlockResponse("0x100", nil), nil
+		case ethBlockNumber:
+			return "0x100", nil
+		case ethGetBlockReceipts:
+			return []any{}, nil
+		default:
+			return "0x1", nil
+		}
+	})
+	t.Cleanup(rpcServer.Close)
+
+	cfg := startPathBaseCfg(rpcServer.URL, testDefraRandomURL, tmpDir, config.IndexerConfig{
+		StartHeight:      100,
+		ConcurrentBlocks: 1,
+		ReceiptWorkers:   2,
+		MaxDocsPerTxn:    100,
+		HealthServerPort: 0,
+		StartBuffer:      10,
+	})
+
+	indexer, err := CreateIndexer(cfg)
+	require.NoError(t, err)
+
+	errCh := startIndexingBackground(t, indexer)
+
+	// Wait until StartIndexing is deterministically in its init phase.
+	require.Eventually(t, func() bool {
+		indexer.mutex.RLock()
+		defer indexer.mutex.RUnlock()
+		return indexer.startInProgress
+	}, 10*time.Second, 10*time.Millisecond, "StartIndexing never entered its init phase")
+
+	// Race StopIndexing against the parked start: it must settle the start
+	// (not tear down under it) before proceeding.
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		indexer.StopIndexing()
+	}()
+
+	// Negative window: while the start is parked, StopIndexing must still be
+	// waiting, not tearing down. Best-effort: a slow machine only makes this
+	// vacuous, it cannot produce a false failure.
+	select {
+	case <-stopDone:
+		t.Fatal("StopIndexing returned while StartIndexing was still parked mid-init")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Release the parked start; init completes, the indexing loop registers
+	// its drain handle, and StopIndexing proceeds through wait + drain.
+	close(releaseRPC)
+
+	select {
+	case <-stopDone:
+	case <-time.After(30 * time.Second):
+		t.Fatal("StopIndexing did not finish after start settled")
+	}
+
+	select {
+	case startErr := <-errCh:
+		// A clean stop maps errIndexingStopped to nil; no panic is the core assertion.
+		assert.NoError(t, startErr)
+	case <-time.After(30 * time.Second):
+		t.Fatal("StartIndexing did not return")
+	}
+
+	assert.False(t, indexer.isStarted, "indexer should be stopped")
+	assert.False(t, indexer.shouldIndex, "indexer should not be indexing")
+	assert.Nil(t, indexer.fetcher, "fetcher should be torn down")
+	assert.Nil(t, indexer.defraNode, "defraNode should be torn down")
 }
