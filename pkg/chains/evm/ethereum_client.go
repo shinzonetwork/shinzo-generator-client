@@ -309,12 +309,19 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 		return nil, fmt.Errorf("no client available")
 	}
 
+	stats := rpcStatsFrom(ctx)
+	netStart := time.Now()
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
+	netDur := time.Since(netStart)
 	if err != nil {
+		stats.record("GetBlockByNumber", netDur, 0, true)
 		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
 	}
 
-	return c.convertGethBlock(gethBlock), nil
+	localStart := time.Now()
+	block := c.convertGethBlock(gethBlock)
+	stats.record("GetBlockByNumber", netDur, time.Since(localStart), false)
+	return block, nil
 }
 
 // GetNetworkID returns the network ID.
@@ -334,10 +341,14 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 		return nil, fmt.Errorf("no client available")
 	}
 
+	stats := rpcStatsFrom(ctx)
+	netStart := time.Now()
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
+		stats.record("GetLatestBlockNumber", time.Since(netStart), 0, true)
 		return nil, fmt.Errorf("failed to get latest header: %w", err)
 	}
+	stats.record("GetLatestBlockNumber", time.Since(netStart), 0, false)
 
 	return latestHeader.Number, nil
 }
@@ -350,11 +361,19 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 	}
 
 	hash := common.HexToHash(txHash)
+	stats := rpcStatsFrom(ctx)
+	netStart := time.Now()
 	receipt, err := client.TransactionReceipt(ctx, hash)
+	netDur := time.Since(netStart)
 	if err != nil {
+		stats.record("GetTransactionReceipt", netDur, 0, true)
 		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
-	return c.convertGethReceipt(receipt), nil
+
+	localStart := time.Now()
+	result := c.convertGethReceipt(receipt)
+	stats.record("GetTransactionReceipt", netDur, time.Since(localStart), false)
+	return result, nil
 }
 
 // GetBlockReceipts fetches all receipts for a block in a single RPC call.
@@ -363,14 +382,22 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.
 	if client == nil {
 		return nil, fmt.Errorf("no client available")
 	}
+
+	stats := rpcStatsFrom(ctx)
+	netStart := time.Now()
 	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
+	netDur := time.Since(netStart)
 	if err != nil {
+		stats.record("GetBlockReceipts", netDur, 0, true)
 		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
 	}
+
+	localStart := time.Now()
 	result := make([]*TransactionReceipt, len(receipts))
 	for i, receipt := range receipts {
 		result[i] = c.convertGethReceipt(receipt)
 	}
+	stats.record("GetBlockReceipts", netDur, time.Since(localStart), false)
 	return result, nil
 }
 

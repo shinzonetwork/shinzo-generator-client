@@ -97,7 +97,7 @@ func TestPerfTimer_ConcurrentTimersIndependent(t *testing.T) {
 // a PerfTimer rendering.
 func parseStageSeconds(t *testing.T, out, name string) float64 {
 	t.Helper()
-	for _, part := range strings.Split(out, ", ") {
+	for part := range strings.SplitSeq(out, ", ") {
 		after, ok := strings.CutPrefix(part, name+" ")
 		if !ok {
 			continue
