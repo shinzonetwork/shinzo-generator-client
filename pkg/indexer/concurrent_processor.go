@@ -213,17 +213,25 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 //   - store: up to MaxRPCRetries on transaction conflicts; ErrAlreadyExists
 //     triggers a fire-and-forget SignExisting goroutine
 func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blockNum int64) *BlockResult {
+	t := logger.NewPerfTimer()
+
 	raw, err := p.fetchBlockWithRetry(ctx, blockNum)
+	t.Stage("fetch")
 	if err != nil {
 		return &BlockResult{BlockNum: blockNum, Error: err}
 	}
 
 	result, err := p.converter.Convert(ctx, raw)
+	t.Stage("convert")
 	if err != nil {
 		return &BlockResult{BlockNum: blockNum, Error: fmt.Errorf("convert block: %w", err)}
 	}
 
-	return p.storeWithRetry(ctx, blockNum, result)
+	res := p.storeWithRetry(ctx, blockNum, result)
+	t.Stage("store")
+
+	logger.Perff("Block %d: %s", blockNum, t.Total())
+	return res
 }
 
 // fetchBlockWithRetry fetches a block from the fetcher with retry

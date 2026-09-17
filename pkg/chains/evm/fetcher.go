@@ -116,14 +116,21 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
 	}
+	t := logger.NewPerfTimer()
+
 	block, err := f.fetchBlock(ctx, height)
+	t.Stage("fetch")
 	if err != nil {
 		return nil, err
 	}
+
 	transactions, receipts, err := f.fetchTransactionsAndReceipts(ctx, block, height)
+	t.Stage("receipts")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch block %d receipts: %w", height, err)
 	}
+
+	logger.Perff("Block %d (rpc): %s", height, t.Total())
 	return &BlockBundle{
 		Block:        block,
 		Transactions: transactions,
