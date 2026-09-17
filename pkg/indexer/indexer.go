@@ -62,6 +62,9 @@ const (
 	// IndexingStopTimeout bounds how long StopIndexing waits for the block
 	// processor to drain before closing resources anyway.
 	IndexingStopTimeout = 30 * time.Second
+	// IndexingStartStopTimeout bounds how long StopIndexing waits for an
+	// in-flight StartIndexing to settle before tearing down anyway.
+	IndexingStartStopTimeout = 30 * time.Second
 )
 
 // var requiredPeers = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process.
@@ -87,6 +90,8 @@ type ChainIndexer struct {
 	lastProcessedTime         time.Time
 	indexingCancel            context.CancelCauseFunc // Cancel for the indexing loop; nil unless concurrent indexing is running.
 	indexingDone              chan struct{}           // Closed when the indexing loop has fully exited; guarded by mutex.
+	startInProgress           bool                    // True while StartIndexing is in its init phase (pre-handoff); guarded by mutex.
+	startDone                 chan struct{}           // Closed when StartIndexing settles (returns, or hands off to the drainable indexing loop); guarded by mutex.
 	mutex                     sync.RWMutex
 }
 
@@ -150,6 +155,12 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 			i.StopIndexing()
 		}
 	}()
+
+	// Mark the start as in-flight. Registered after the error guard so LIFO
+	// runs the settle defer BEFORE the guard's own StopIndexing on error
+	// paths — the guard then never waits on this very start (no deadlock).
+	i.beginStart()
+	defer i.markStartSettled()
 
 	// 1. Create fetcher (no dial yet) + converter — via factory dispatch, no evm import
 	fetcher, err := chains.NewFetcher(cfg)
@@ -434,6 +445,11 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		i.mutex.Unlock()
 	}()
 
+	// Init is complete and indexingCancel is already registered: from here
+	// the indexing drain in StopIndexing owns shutdown, so release any
+	// StopIndexing parked in waitStartSettled.
+	i.markStartSettled()
+
 	processor := NewConcurrentBlockProcessor(
 		i.fetcher,
 		i.converter,
@@ -452,8 +468,54 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	return err
 }
 
+// beginStart marks a StartIndexing as in-flight by setting the flag and
+// creating the settle channel together, both guarded by i.mutex.
+func (i *ChainIndexer) beginStart() {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.startInProgress = true
+	i.startDone = make(chan struct{})
+}
+
+// markStartSettled signals that StartIndexing is no longer in its init
+// phase: it has either returned or (once runConcurrentIndexing registered
+// the indexing drain) handed shutdown ownership to StopIndexing's drain.
+// Swap-under-mutex close makes repeated calls no-ops, so the channel is
+// closed exactly once regardless of which site runs first.
+func (i *ChainIndexer) markStartSettled() {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	if i.startDone != nil {
+		close(i.startDone)
+		i.startDone = nil
+	}
+	i.startInProgress = false
+}
+
+// waitStartSettled blocks until an in-flight StartIndexing has settled
+// (returned, or handed off to the drainable indexing loop), bounded by
+// IndexingStartStopTimeout. It never holds i.mutex while waiting.
+func (i *ChainIndexer) waitStartSettled() {
+	i.mutex.Lock()
+	inProgress, startDone := i.startInProgress, i.startDone
+	i.mutex.Unlock()
+	if !inProgress || startDone == nil {
+		return
+	}
+	select {
+	case <-startDone:
+	case <-time.After(IndexingStartStopTimeout):
+		logger.Sugar.Warn("StartIndexing still running; tearing down anyway")
+	}
+}
+
 // StopIndexing halts the indexer and cleanly shuts down all subsystems.
 func (i *ChainIndexer) StopIndexing() {
+	// Wait for an in-flight StartIndexing to settle (return, or hand off to
+	// the indexing loop) before touching anything it may be assigning or
+	// using mid-init (fetcher, defraNode) — bounded by IndexingStartStopTimeout.
+	i.waitStartSettled()
+
 	// Drain the indexing loop before any subsystem teardown: cancel the
 	// indexing context and wait for the block processor (workers + signers)
 	// to exit so nothing is mid-query when the fetcher/defra node close.
