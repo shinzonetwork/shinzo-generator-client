@@ -34,6 +34,11 @@ var (
 	ErrMTLSNotImplemented = errors.New("mTLS auth mode is not yet implemented")
 	// ErrUnknownAuthMode is returned when an unrecognized schema authentication mode is provided.
 	ErrUnknownAuthMode = errors.New("unknown auth mode")
+
+	// errIndexingStopped is the cancel cause used when StopIndexing initiates a
+	// clean shutdown of the indexing loop; runConcurrentIndexing maps it to a
+	// nil error so a clean stop does not surface as a failure.
+	errIndexingStopped = errors.New("indexing stopped")
 )
 
 const (
@@ -54,6 +59,9 @@ const (
 	DefaultBlockOffset = 3
 	// DefaultWorkersAhead is the number of blocks ahead of the last committed block that the processor will allow itself to get before throttling dispatch.
 	DefaultWorkersAhead = 2
+	// IndexingStopTimeout bounds how long StopIndexing waits for the block
+	// processor to drain before closing resources anyway.
+	IndexingStopTimeout = 30 * time.Second
 )
 
 // var requiredPeers = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process.
@@ -77,6 +85,8 @@ type ChainIndexer struct {
 	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks.
 	currentBlock              int64
 	lastProcessedTime         time.Time
+	indexingCancel            context.CancelCauseFunc // Cancel for the indexing loop; nil unless concurrent indexing is running.
+	indexingDone              chan struct{}           // Closed when the indexing loop has fully exited; guarded by mutex.
 	mutex                     sync.RWMutex
 }
 
@@ -398,6 +408,9 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 }
 
 // runConcurrentIndexing runs the indexer with concurrent block processing.
+// The context is wrapped with a cancel cause so StopIndexing can trigger a
+// clean shutdown (surfaced as a nil error) while external context
+// cancellation still propagates as context.Canceled.
 func (i *ChainIndexer) runConcurrentIndexing(
 	ctx context.Context,
 	startBlock int64,
@@ -405,6 +418,21 @@ func (i *ChainIndexer) runConcurrentIndexing(
 ) error {
 	i.shouldIndex = true
 	i.isStarted = true
+
+	ctx, cancel := context.WithCancelCause(ctx)
+	done := make(chan struct{})
+	i.mutex.Lock()
+	i.indexingCancel = cancel
+	i.indexingDone = done
+	i.mutex.Unlock()
+	defer func() {
+		cancel(nil)
+		close(done)
+		i.mutex.Lock()
+		i.indexingCancel = nil
+		i.indexingDone = nil
+		i.mutex.Unlock()
+	}()
 
 	processor := NewConcurrentBlockProcessor(
 		i.fetcher,
@@ -414,14 +442,35 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		cfg.Indexer.BlocksPerMinute,
 	)
 
-	return processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
+	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
 		i.updateBlockInfo(blockNum)
 		i.hasIndexedAtLeastOneBlock = true
 	})
+	if errors.Is(context.Cause(ctx), errIndexingStopped) {
+		return nil
+	}
+	return err
 }
 
 // StopIndexing halts the indexer and cleanly shuts down all subsystems.
 func (i *ChainIndexer) StopIndexing() {
+	// Drain the indexing loop before any subsystem teardown: cancel the
+	// indexing context and wait for the block processor (workers + signers)
+	// to exit so nothing is mid-query when the fetcher/defra node close.
+	i.mutex.Lock()
+	cancel := i.indexingCancel
+	done := i.indexingDone
+	i.mutex.Unlock()
+
+	if cancel != nil {
+		cancel(errIndexingStopped)
+		select {
+		case <-done:
+		case <-time.After(IndexingStopTimeout):
+			logger.Sugar.Warn("block processor stop timed out; closing resources anyway")
+		}
+	}
+
 	i.shouldIndex = false
 	i.isStarted = false
 
