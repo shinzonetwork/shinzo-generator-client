@@ -55,6 +55,7 @@ type ConcurrentBlockProcessor struct {
 	workers         int
 	blocksPerMinute int
 	resultChan      chan *BlockResult
+	signWg          sync.WaitGroup
 	pendingMu       sync.Mutex
 	pending         map[int64]*BlockResult
 	nextToCommit    int64
@@ -92,6 +93,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	shutdown := func() {
 		close(workChan)
 		wg.Wait()
+		p.signWg.Wait()
 		close(p.resultChan)
 		collectWg.Wait()
 	}
@@ -282,11 +284,11 @@ func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum 
 		}
 
 		if errors.IsErrAlreadyExists(err) {
-			go func() {
+			p.signWg.Go(func() {
 				if _, sErr := p.blockHandler.SignExisting(ctx, result, blockHash, blockNum); sErr != nil {
 					logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, sErr)
 				}
-			}()
+			})
 			return &BlockResult{BlockNum: blockNum, Success: true}
 		}
 
