@@ -16,7 +16,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -935,7 +934,7 @@ func TestSignExisting_RefusesIncompleteBlock(t *testing.T) {
 	for i := range result.Groups {
 		if result.Groups[i].Collection == txCol {
 			require.NotEmpty(t, result.Groups[i].Docs)
-			result.Groups[i].Docs[0][constants.HashKeyValue] = ""
+			result.Groups[i].Docs[0]["hash"] = ""
 			corrupted = true
 		}
 	}
@@ -1084,25 +1083,25 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 		{
 			name:         "tx hash non-string",
 			role:         chains.TypeTransaction,
-			mutate:       func(doc map[string]any) { doc[constants.HashKeyValue] = 12345 },
+			mutate:       func(doc map[string]any) { doc["hash"] = 12345 },
 			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
 		},
 		{
 			name:         "tx hash key deleted",
 			role:         chains.TypeTransaction,
-			mutate:       func(doc map[string]any) { delete(doc, constants.HashKeyValue) },
+			mutate:       func(doc map[string]any) { delete(doc, "hash") },
 			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
 		},
 		{
-			name:         "tx hash empty string",
+			name:         "tx hash empty",
 			role:         chains.TypeTransaction,
-			mutate:       func(doc map[string]any) { doc[constants.HashKeyValue] = "" },
+			mutate:       func(doc map[string]any) { doc["hash"] = "" },
 			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
 		},
 		{
 			name:         "log transactionHash non-string",
 			role:         chains.TypeLog,
-			mutate:       func(doc map[string]any) { doc[constants.TransactionHashKeyValue] = 42 },
+			mutate:       func(doc map[string]any) { doc["transactionHash"] = 42 },
 			skippedRoles: []string{chains.TypeLog, chains.TypeAccessListEntry},
 			writtenRoles: []string{chains.TypeTransaction},
 		},

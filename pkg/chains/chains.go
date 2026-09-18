@@ -167,6 +167,7 @@ type DocumentGroup struct {
 	// BlockNumField is the field name in each doc that holds the block number
 	// (e.g. "number" for block docs, "blockNumber" for tx/log/ale docs).
 	// Used by BlockHandler.SignExisting to query stored docIDs by block number.
+	// Converters must populate it on every group; SignExisting fails fast on empty.
 	BlockNumField string
 
 	// BlockHashField is the field name in each doc that holds the block hash
