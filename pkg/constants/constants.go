@@ -1,31 +1,89 @@
 package constants
 
-// HeaderMagicValue is the current magic value assigned to the header.
-const HeaderMagicValue = "DFKV"
+// Schema-level document values shared across the stack.
+const (
+	// HeaderMagicValue is the magic marker at the head of every snapshot
+	// file; readers match it to reject non-snapshot input before parsing.
+	HeaderMagicValue = "DFKV"
 
-// BlockSignatureTypeValue is the string value "block_signature" assigned to a type field.
-const BlockSignatureTypeValue = "block_signature"
+	// BlockSignatureTypeValue is the value of the "type" discriminator on
+	// block-signature JSONL entries; extractors match on it to pick
+	// signature entries out of a mixed snapshot stream.
+	BlockSignatureTypeValue = "block_signature"
 
-// MerkleRootKeyValue is the string value "merkleRoot" assigned to a key field.
-const MerkleRootKeyValue = "merkleRoot"
+	// MerkleRootFieldName is the document field carrying a signature's
+	// Merkle root, shared by the block-signature and snapshot-signature
+	// document shapes.
+	MerkleRootFieldName = "merkleRoot"
+)
 
-// Ed25519ValueString is the string value "Ed25519" assigned to a key field.
-const Ed25519ValueString = "Ed25519"
+// Field names of the signature documents (block-signature and
+// snapshot-signature). These are the single source of truth for the
+// document shape produced by the defra BlockHandler, the evm converter's
+// signature builder, and the snapshot signer, so the three sites cannot
+// drift apart.
+const (
+	// BlockNumberFieldName is the document field carrying a block's
+	// number: the blockNumber field of the blockSignature schema (see the
+	// shared SDL) and of the transaction, log, and access-list entry data
+	// schemas, which share the same name.
+	BlockNumberFieldName = "blockNumber"
 
-// Secp256k1ValueString is the string value "ES256K" assigned to a key field.
-const Secp256k1ValueString = "ES256K"
+	// BlockHashFieldName is the document field carrying a block's hash on
+	// the data documents and on the block-signature document. See
+	// BlockNumberFieldName for why the name is shared.
+	BlockHashFieldName = "blockHash"
 
-// SchemaAuthModeNone disables authentication on the schema endpoint.
-const SchemaAuthModeNone = "none"
+	// CIDCountFieldName is the field holding how many document CIDs the
+	// signature covers.
+	CIDCountFieldName = "cidCount"
 
-// SchemaAuthModeToken enables Bearer/API-key authentication on the schema endpoint.
-const SchemaAuthModeToken = "token"
+	// CIDsFieldName is the field holding the ordered CID list signed over.
+	CIDsFieldName = "cids"
 
-// SchemaAuthModeMTLS enables mTLS authentication on the schema endpoint (not yet implemented).
-const SchemaAuthModeMTLS = "mtls"
+	// SignatureTypeFieldName is the field naming the signature algorithm.
+	SignatureTypeFieldName = "signatureType"
 
-// ContentTypeJSON is the MIME type for JSON responses.
-const ContentTypeJSON = "application/json"
+	// SignatureIdentityFieldName is the field carrying the signer identity.
+	SignatureIdentityFieldName = "signatureIdentity"
 
-// CacheControlSchema is the Cache-Control directive for schema responses.
-const CacheControlSchema = "no-cache"
+	// SignatureValueFieldName is the field carrying the signature bytes.
+	SignatureValueFieldName = "signatureValue"
+
+	// CreatedAtFieldName is the field carrying the signing timestamp.
+	CreatedAtFieldName = "createdAt"
+)
+
+// Signing key-algorithm identifiers used as signature-type values.
+const (
+	// Ed25519ValueString is the signature-type value for Ed25519 signers.
+	Ed25519ValueString = "Ed25519"
+
+	// Secp256k1ValueString is the signature-type value for ES256K
+	// (secp256k1) signers.
+	Secp256k1ValueString = "ES256K"
+)
+
+// Authentication modes for the schema endpoint.
+const (
+	// SchemaAuthModeNone disables authentication on the schema endpoint.
+	SchemaAuthModeNone = "none"
+
+	// SchemaAuthModeToken enables Bearer/API-key authentication on the
+	// schema endpoint.
+	SchemaAuthModeToken = "token"
+
+	// SchemaAuthModeMTLS enables mTLS authentication on the schema endpoint
+	// (not yet implemented).
+	SchemaAuthModeMTLS = "mtls"
+)
+
+// HTTP response header values.
+const (
+	// ContentTypeJSON is the MIME type for JSON responses.
+	ContentTypeJSON = "application/json"
+
+	// CacheControlSchema is the Cache-Control directive for schema
+	// responses, which are generated and must not be cached stale.
+	CacheControlSchema = "no-cache"
+)

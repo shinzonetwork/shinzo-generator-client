@@ -1,83 +1,47 @@
 package evm
 
-// Ethereum JSON-RPC field names used to build and stamp EVM documents.
+// Field names used to build and stamp EVM documents.
 //
 // These constants live in pkg/chains/evm — not pkg/constants — because they
 // are EVM-specific: non-test code outside this package must not reference
-// them. The boundary is enforced by
-// pkg/chains/evm/import_boundary_test.go.
+// them. The boundary is enforced by pkg/chains/evm/import_boundary_test.go.
+//
+// *KeyName constants name the EVM-only fields used to join and look up documents
+// across collections; the blockNumber and blockHash join keys
+// are shared with the signature-document contract and therefore live in
+// pkg/constants.
+//
+// *FieldName constants name the remaining payload fields
+// carried through from the Ethereum JSON-RPC object shapes.
 
-// NumberFieldValue is the string value "number" assigned to a field.
-const NumberFieldValue = "number"
+// Document join keys: the fields later write stages query to link and
+// purge documents across collections.
+const (
+	HashKeyName            = "hash"
+	TransactionHashKeyName = "transactionHash"
+)
 
-// HashKeyValue is the string value "hash" assigned to a key field.
-const HashKeyValue = "hash"
-
-// BlockNumberKeyValue is the string value "blockNumber" assigned to a key field.
-const BlockNumberKeyValue = "blockNumber"
-
-// BlockHashKeyValue is the string value "blockHash" assigned to a key field.
-const BlockHashKeyValue = "blockHash"
-
-// AddressKeyValue is the string value "address" assigned to a key field.
-const AddressKeyValue = "address"
-
-// TransactionHashKeyValue is the string value "transactionHash" assigned to a key field.
-const TransactionHashKeyValue = "transactionHash"
-
-// TimestampKeyValue is the string value "timestamp" assigned to a key field.
-const TimestampKeyValue = "timestamp"
-
-// ParentHashKeyValue is the string value "parentHash" assigned to a key field.
-const ParentHashKeyValue = "parentHash"
-
-// DifficultyKeyValue is the string value "difficulty" assigned to a key field.
-const DifficultyKeyValue = "difficulty"
-
-// GasUsedKeyValue is the string value "gasUsed" assigned to a key field.
-const GasUsedKeyValue = "gasUsed"
-
-// GasLimitKeyValue is the string value "gasLimit" assigned to a key field.
-const GasLimitKeyValue = "gasLimit"
-
-// NonceKeyValue is the string value "nonce" assigned to a key field.
-const NonceKeyValue = "nonce"
-
-// MinerKeyValue is the string value "miner" assigned to a key field.
-const MinerKeyValue = "miner"
-
-// StateRootKeyValue is the string value "stateRoot" assigned to a key field.
-const StateRootKeyValue = "stateRoot"
-
-// Sha3UnclesKeyValue is the string value "sha3Uncles" assigned to a key field.
-const Sha3UnclesKeyValue = "sha3Uncles"
-
-// TransactionsRootKeyValue is the string value "transactionsRoot" assigned to a key field.
-const TransactionsRootKeyValue = "transactionsRoot"
-
-// ReceiptsRootKeyValue is the string value "receiptsRoot" assigned to a key field.
-const ReceiptsRootKeyValue = "receiptsRoot"
-
-// LogsBloomKeyValue is the string value "logsBloom" assigned to a key field.
-const LogsBloomKeyValue = "logsBloom"
-
-// ExtraDataKeyValue is the string value "extraData" assigned to a key field.
-const ExtraDataKeyValue = "extraData"
-
-// MixHashKeyValue is the string value "mixHash" assigned to a key field.
-const MixHashKeyValue = "mixHash"
-
-// TransactionIndexKeyValue is the string value "transactionIndex" assigned to a key field.
-const TransactionIndexKeyValue = "transactionIndex"
-
-// TypeKeyValue is the string value "type" assigned to a key field.
-const TypeKeyValue = "type"
-
-// CumulativeGasUsedKeyValue is the string value "cumulativeGasUsed" assigned to a key field.
-const CumulativeGasUsedKeyValue = "cumulativeGasUsed"
-
-// EffectiveGasPriceKeyValue is the string value "effectiveGasPrice" assigned to a key field.
-const EffectiveGasPriceKeyValue = "effectiveGasPrice"
-
-// StatusKeyValue is the string value "status" assigned to a key field.
-const StatusKeyValue = "status"
+// Payload field names, carried through from the Ethereum JSON-RPC shapes.
+const (
+	NumberFieldName            = "number"
+	AddressFieldName           = "address"
+	TimestampFieldName         = "timestamp"
+	ParentHashFieldName        = "parentHash"
+	DifficultyFieldName        = "difficulty"
+	GasUsedFieldName           = "gasUsed"
+	GasLimitFieldName          = "gasLimit"
+	NonceFieldName             = "nonce"
+	MinerFieldName             = "miner"
+	StateRootFieldName         = "stateRoot"
+	Sha3UnclesFieldName        = "sha3Uncles"
+	TransactionsRootFieldName  = "transactionsRoot"
+	ReceiptsRootFieldName      = "receiptsRoot"
+	LogsBloomFieldName         = "logsBloom"
+	ExtraDataFieldName         = "extraData"
+	MixHashFieldName           = "mixHash"
+	TransactionIndexFieldName  = "transactionIndex"
+	TypeFieldName              = "type"
+	CumulativeGasUsedFieldName = "cumulativeGasUsed"
+	EffectiveGasPriceFieldName = "effectiveGasPrice"
+	StatusFieldName            = "status"
+)

@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
@@ -352,8 +351,8 @@ func createTestSnapshot(t *testing.T, dir, filename string, merkleRootHexes []st
 		entry := map[string]any{
 			"type": constants.BlockSignatureTypeValue,
 			"data": map[string]any{
-				evm.BlockNumberKeyValue:      i + 1,
-				constants.MerkleRootKeyValue: mrHex,
+				constants.BlockNumberFieldName: i + 1,
+				constants.MerkleRootFieldName:  mrHex,
 			},
 		}
 		line, err := json.Marshal(entry)

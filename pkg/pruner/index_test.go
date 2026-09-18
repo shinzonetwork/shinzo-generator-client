@@ -9,6 +9,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
@@ -42,11 +43,11 @@ func TestSchemaIndexesBlockNumberField(t *testing.T) {
 		collection string
 		field      string
 	}{
-		{blockCol, evm.NumberFieldValue},
-		{txCol, evm.BlockNumberKeyValue},
-		{logCol, evm.BlockNumberKeyValue},
-		{aleCol, evm.BlockNumberKeyValue},
-		{sigCol, evm.BlockNumberKeyValue},
+		{blockCol, evm.NumberFieldName},
+		{txCol, constants.BlockNumberFieldName},
+		{logCol, constants.BlockNumberFieldName},
+		{aleCol, constants.BlockNumberFieldName},
+		{sigCol, constants.BlockNumberFieldName},
 	}
 
 	for _, c := range cases {
