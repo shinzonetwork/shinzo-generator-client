@@ -44,13 +44,21 @@ var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
 
 // Collection type constants used as arguments to GetCollection.
+//
+// TypeBlock, TypeTransaction, TypeBlockSignature, and TypeSnapshotSignature
+// exist in every chain family. TypeAccessListEntry and TypeLog are EVM-only,
+// and TypeInstruction, TypeTokenBalanceChange, and TypeReward are Solana-only;
+// other adapters return ErrUnknownCollection for roles they do not define.
 const (
-	TypeBlock             = "block"
-	TypeBlockSignature    = "blockSignature"
-	TypeSnapshotSignature = "snapshotSignature"
-	TypeTransaction       = "transaction"
-	TypeAccessListEntry   = "accessListEntry"
-	TypeLog               = "log"
+	TypeBlock              = "block"
+	TypeBlockSignature     = "blockSignature"
+	TypeSnapshotSignature  = "snapshotSignature"
+	TypeTransaction        = "transaction"
+	TypeAccessListEntry    = "accessListEntry"
+	TypeLog                = "log"
+	TypeInstruction        = "instruction"
+	TypeTokenBalanceChange = "tokenBalanceChange"
+	TypeReward             = "reward"
 )
 
 // DefaultAdapterName is the default name value to be used in ChainFactories.
