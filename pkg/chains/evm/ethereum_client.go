@@ -1,4 +1,4 @@
-package rpc
+package evm
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -180,7 +179,7 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // GetLatestBlock fetches the latest block.
-func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, error) {
+func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, fmt.Errorf("no client available")
@@ -236,7 +235,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*types.Block, erro
 }
 
 // GetBlockByNumber fetches a block by number.
-func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*types.Block, error) {
+func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, fmt.Errorf("no client available")
@@ -276,7 +275,7 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 }
 
 // GetTransactionReceipt fetches a transaction receipt by hash.
-func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash string) (*types.TransactionReceipt, error) {
+func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, fmt.Errorf("no client available")
@@ -291,7 +290,7 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 }
 
 // GetBlockReceipts fetches all receipts for a block in a single RPC call.
-func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*types.TransactionReceipt, error) {
+func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*TransactionReceipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, fmt.Errorf("no client available")
@@ -300,7 +299,7 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
 	}
-	result := make([]*types.TransactionReceipt, len(receipts))
+	result := make([]*TransactionReceipt, len(receipts))
 	for i, receipt := range receipts {
 		result[i] = c.convertGethReceipt(receipt)
 	}
@@ -308,18 +307,18 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.
 }
 
 // convertGethReceipt converts go-ethereum receipt to our custom receipt type.
-func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *types.TransactionReceipt {
+func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *TransactionReceipt {
 	if receipt == nil {
 		return nil
 	}
 
 	// Convert logs.
-	logs := make([]types.Log, len(receipt.Logs))
+	logs := make([]Log, len(receipt.Logs))
 	for i, log := range receipt.Logs {
 		logs[i] = c.convertGethLog(log)
 	}
 
-	return &types.TransactionReceipt{
+	return &TransactionReceipt{
 		TransactionHash:   receipt.TxHash.Hex(),
 		TransactionIndex:  fmt.Sprintf("%d", receipt.TransactionIndex),
 		BlockHash:         receipt.BlockHash.Hex(),
@@ -333,14 +332,14 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *types.Tr
 }
 
 // convertGethLog converts go-ethereum log to our custom log type.
-func (c *EthereumClient) convertGethLog(log *ethtypes.Log) types.Log {
+func (c *EthereumClient) convertGethLog(log *ethtypes.Log) Log {
 	// Convert topics
 	topics := make([]string, len(log.Topics))
 	for i, topic := range log.Topics {
 		topics[i] = topic.Hex()
 	}
 
-	return types.Log{
+	return Log{
 		Address:          log.Address.Hex(),
 		Topics:           topics,
 		Data:             common.Bytes2Hex(log.Data),
@@ -369,13 +368,13 @@ func getReceiptStatus(receipt *ethtypes.Receipt) string {
 }
 
 // convertGethBlock converts go-ethereum Block to our custom Block type.
-func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Block {
+func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *Block {
 	if gethBlock == nil {
 		return nil
 	}
 
 	// Convert transactions.
-	transactions := make([]types.Transaction, 0, len(gethBlock.Transactions()))
+	transactions := make([]Transaction, 0, len(gethBlock.Transactions()))
 
 	for i, tx := range gethBlock.Transactions() {
 		localTx := c.convertTransaction(tx, gethBlock, i)
@@ -389,7 +388,7 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 	}
 
 	// Convert the block.
-	return &types.Block{
+	return &Block{
 		Hash:             gethBlock.Hash().Hex(),
 		Number:           fmt.Sprintf("%d", gethBlock.NumberU64()),
 		Timestamp:        fmt.Sprintf("%d", gethBlock.Time()),
@@ -415,7 +414,7 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *types.Bloc
 }
 
 // convertTransaction safely converts a single transaction.
-func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock *ethtypes.Block, index int) *types.Transaction {
+func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock *ethtypes.Block, index int) *Transaction {
 	// Get transaction details with error handling.
 	fromAddr, fromErr := GetFromAddress(tx)
 	var fromAddrStr string
@@ -450,21 +449,21 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 	v, r, s := tx.RawSignatureValues()
 
 	// Get access list for EIP-2930/EIP-1559 transactions.
-	accessList := make([]types.AccessListEntry, 0)
+	accessList := make([]AccessListEntry, 0)
 	if tx.AccessList() != nil {
 		for _, entry := range tx.AccessList() {
 			storageKeys := make([]string, len(entry.StorageKeys))
 			for i, key := range entry.StorageKeys {
 				storageKeys[i] = key.Hex()
 			}
-			accessList = append(accessList, types.AccessListEntry{
+			accessList = append(accessList, AccessListEntry{
 				Address:     entry.Address.Hex(),
 				StorageKeys: storageKeys,
 			})
 		}
 	}
 
-	localTx := types.Transaction{
+	localTx := Transaction{
 		Hash:                 tx.Hash().Hex(),                          // string
 		BlockHash:            gethBlock.Hash().Hex(),                   // string
 		BlockNumber:          fmt.Sprintf("%d", gethBlock.NumberU64()), // string

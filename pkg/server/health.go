@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"github.com/sourcenetwork/defradb/node"
@@ -69,9 +69,10 @@ type HealthServer struct {
 	defraURL             string
 	snapshotter          *snapshot.Snapshotter
 	defraNode            *node.Node
+	collections          chains.Collections
 	startTime            time.Time
 	healthStatusPagePath string
-	querySnapshotSigsFn  func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error)
+	querySnapshotSigsFn  func(ctx context.Context, n *node.Node, snapshotSigCollection string) (map[string]*snapshot.SnapshotSignatureData, error)
 	shinzoHubRESTBase    string // full base URL injected into the health page template, e.g. "http://testnet.shinzo.network:1317"
 }
 
@@ -362,7 +363,7 @@ func (hs *HealthServer) snapshotsListHandler(w http.ResponseWriter, r *http.Requ
 	var sigs map[string]*snapshot.SnapshotSignatureData
 	if hs.defraNode != nil {
 		var err error
-		sigs, err = hs.querySnapshotSigsFn(r.Context(), hs.defraNode)
+		sigs, err = hs.querySnapshotSigsFn(r.Context(), hs.defraNode, hs.snapshotter.SnapshotSigCollection())
 		if err != nil {
 			logger.Sugar.Warnf("Failed to query snapshot signatures: %v", err)
 		}
@@ -467,8 +468,8 @@ func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Req
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error":  err.Error(),
-			"result": result, //nolint:goconst
+			"error":  err.Error(), //nolint:goconst
+			"result": result,      //nolint:goconst
 		})
 		return
 	}
@@ -477,7 +478,24 @@ func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Req
 	// ImportRawKVs writes raw KV pairs directly to the rootstore, bypassing
 	// the document layer. Index entries are not included in the export, so
 	// we must rebuild them from the imported document data.
-	if rebuildErr := snapshot.RebuildAllIndexes(r.Context(), hs.defraNode, constants.DefaultCollections()); rebuildErr != nil {
+	collections := hs.collections
+	if collections == nil {
+		// Servers that never enabled the schema endpoint (tests) fall back to
+		// the default collection set, matching the pre-chain-abstraction
+		// constants.DefaultCollections() behavior.
+		fallback, err := chains.NewCollections(nil)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":  fmt.Sprintf("resolve collections for index rebuild: %v", err),
+				"result": result,
+			})
+			return
+		}
+		collections = fallback
+	}
+	if rebuildErr := snapshot.RebuildAllIndexes(r.Context(), hs.defraNode, collections.AllCollections()); rebuildErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{

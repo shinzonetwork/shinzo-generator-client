@@ -1,0 +1,642 @@
+package evm
+
+import (
+	"context"
+	stderrors "errors"
+	"fmt"
+	"math/big"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+)
+
+// ---------------------------------------------------------------------------
+// Construction
+// ---------------------------------------------------------------------------
+
+func TestNewFetcher(t *testing.T) {
+	t.Parallel()
+	client := &fakeRPCClient{}
+	f := NewFetcher(client, 8)
+	assert.NotNil(t, f.client)
+	assert.Equal(t, 8, f.receiptWorkers)
+}
+
+// ---------------------------------------------------------------------------
+// NewFetcherFromConfig
+// ---------------------------------------------------------------------------
+
+func TestNewFetcherFromConfig(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name           string
+		cfg            *config.Config
+		wantErr        bool
+		wantReceipt    int
+		wantNodeURL    string
+		wantAPIKey     string
+		wantAPIKeyType string
+	}{
+		{
+			name:    "NilConfig",
+			cfg:     nil,
+			wantErr: true,
+		},
+		{
+			name: "DefaultReceiptWorkers",
+			cfg: &config.Config{
+				Chain:   config.ChainConfig{Name: "Ethereum", Network: "Mainnet"},
+				Geth:    config.GethConfig{NodeURL: "http://localhost:8545"},
+				Indexer: config.IndexerConfig{},
+			},
+			wantReceipt: 16,
+			wantNodeURL: "http://localhost:8545",
+		},
+		{
+			name: "CustomReceiptWorkers",
+			cfg: &config.Config{
+				Chain:   config.ChainConfig{Name: "Ethereum", Network: "Mainnet"},
+				Geth:    config.GethConfig{NodeURL: "http://localhost:8545", APIKey: "secret", APIKeyType: "X-Api-Key"},
+				Indexer: config.IndexerConfig{ReceiptWorkers: 4},
+			},
+			wantReceipt:    4,
+			wantNodeURL:    "http://localhost:8545",
+			wantAPIKey:     "secret",
+			wantAPIKeyType: "X-Api-Key",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f, err := NewFetcherFromConfig(tc.cfg)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, f)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotNil(t, f)
+			assert.Equal(t, tc.wantReceipt, f.receiptWorkers)
+			assert.Equal(t, tc.wantNodeURL, f.nodeURL)
+			assert.Equal(t, tc.wantAPIKey, f.apiKey)
+			assert.Equal(t, tc.wantAPIKeyType, f.apiKeyType)
+			assert.Nil(t, f.client, "should not have a connected client")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Connect
+// ---------------------------------------------------------------------------
+
+func TestFetcher_Connect(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		setup func() *Fetcher
+	}{
+		{
+			name:  "NoOpWhenClientAlreadySet",
+			setup: func() *Fetcher { return NewFetcher(&fakeRPCClient{}, 8) },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := tc.setup()
+			err := f.Connect(context.Background())
+			require.NoError(t, err)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Nil-client guards
+// ---------------------------------------------------------------------------
+
+func TestFetcher_NotConnectedGuards(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		fn   func(f *Fetcher) error
+	}{
+		{
+			name: "FetchBlock",
+			fn:   func(f *Fetcher) error { _, err := f.FetchBlock(context.Background(), 1); return err },
+		},
+		{
+			name: "FetchHighestBlockNumber",
+			fn:   func(f *Fetcher) error { _, err := f.FetchHighestBlockNumber(context.Background()); return err },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := &Fetcher{}
+			err := tc.fn(f)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "Connect")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FetchHighestBlockNumber (moved from adapter_test.go)
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchHighestBlockNumber(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		latestNum   *big.Int
+		latestErr   error
+		wantResult  int64
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:       "DelegatesToClient",
+			latestNum:  big.NewInt(123456),
+			wantResult: 123456,
+		},
+		{
+			name:        "ClientError",
+			latestErr:   stderrors.New("failed to get latest header"),
+			wantErr:     true,
+			errContains: "failed to get latest block number",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			client := &fakeRPCClient{latestNum: tc.latestNum, latestErr: tc.latestErr}
+			f := NewFetcher(client, 8)
+
+			n, err := f.FetchHighestBlockNumber(context.Background())
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errContains)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantResult, n)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FetchBlock: happy path with batch receipts
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchBlock_BatchSuccess(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	blockNum := int64(12345)
+	block := fakeBlockWithTxs(blockNum, fakeTx(txHash))
+	receipt := fakeReceipt(txHash, blockNum)
+
+	client := &fakeRPCClient{
+		block:         block,
+		batchReceipts: []*TransactionReceipt{receipt},
+	}
+	f := NewFetcher(client, 8)
+
+	raw, err := f.FetchBlock(context.Background(), blockNum)
+	require.NoError(t, err)
+
+	bundle, ok := raw.(*BlockBundle)
+	require.True(t, ok)
+	assert.Equal(t, block, bundle.Block)
+	assert.Len(t, bundle.Transactions, 1)
+	assert.Equal(t, txHash, bundle.Transactions[0].Hash)
+	assert.Len(t, bundle.Receipts, 1)
+	assert.Equal(t, receipt, bundle.Receipts[0])
+}
+
+func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
+	t.Parallel()
+
+	blockNum := int64(100)
+	block := fakeBlock(blockNum)
+
+	client := &fakeRPCClient{
+		block:         block,
+		batchReceipts: []*TransactionReceipt{},
+	}
+	f := NewFetcher(client, 8)
+
+	raw, err := f.FetchBlock(context.Background(), blockNum)
+	require.NoError(t, err)
+
+	bundle, ok := raw.(*BlockBundle)
+	require.True(t, ok)
+	assert.Equal(t, block, bundle.Block)
+	assert.Empty(t, bundle.Transactions)
+	assert.Empty(t, bundle.Receipts)
+}
+
+// ---------------------------------------------------------------------------
+// FetchBlock: block not found (no retry, error passed through unwrapped)
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchBlock_BlockNotFound(t *testing.T) {
+	t.Parallel()
+
+	errNotFound := stderrors.New("block not found")
+	calls := 0
+	client := &fakeRPCClient{
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
+			calls++
+			return nil, errNotFound
+		},
+	}
+	f := NewFetcher(client, 8)
+
+	_, err := f.FetchBlock(context.Background(), 42)
+	require.Error(t, err)
+	assert.Equal(t, errNotFound, err, "not-found error should pass through unwrapped")
+	assert.Equal(t, 1, calls, "should not retry on not-found errors")
+}
+
+// ---------------------------------------------------------------------------
+// FetchBlock: RPC error — no retry at fetcher level
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchBlock_RPCErrorNoRetry(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	client := &fakeRPCClient{
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
+			calls++
+			return nil, stderrors.New("connection refused")
+		},
+	}
+	f := NewFetcher(client, 8)
+
+	_, err := f.FetchBlock(context.Background(), 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+	assert.NotContains(t, err.Error(), "failed to fetch block")
+	assert.Equal(t, 1, calls, "should make exactly 1 call — no retry at fetcher level")
+}
+
+// ---------------------------------------------------------------------------
+// FetchBlock: pre-canceled context
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchBlock_ContextAlreadyCanceled(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	client := &fakeRPCClient{
+		blockFn: func(_ context.Context, _ *big.Int) (*Block, error) {
+			calls++
+			return fakeBlock(1), nil
+		},
+	}
+	f := NewFetcher(client, 8)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := f.FetchBlock(ctx, 1)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 0, calls, "should not call RPC with pre-canceled context")
+}
+
+// ---------------------------------------------------------------------------
+// Receipt fallback (moved from adapter_test.go — now pure unit tests)
+// ---------------------------------------------------------------------------
+
+func TestFetcher_ReceiptFallback(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	hashA := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	hashB := "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	hashC := "0xccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	cases := []struct {
+		name           string
+		blockNum       int64
+		txs            []Transaction
+		txReceiptFn    func(_ context.Context, _ string) (*TransactionReceipt, error)
+		wantErr        bool
+		wantErrContain string
+		wantReceipts   int
+	}{
+		{
+			name:     "NoTxns",
+			blockNum: 100000,
+		},
+		{
+			name:     "IndividualSuccess",
+			blockNum: 100000,
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+				return fakeReceipt(txHash, 100000), nil
+			},
+			wantReceipts: 1,
+		},
+		{
+			name:     "IndividualFail",
+			blockNum: 100001,
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+				return nil, fmt.Errorf("receipt not available")
+			},
+			wantErr:        true,
+			wantErrContain: "1/1 transaction receipts could not be fetched",
+		},
+		{
+			name:     "IndividualReceiptSuccess",
+			blockNum: 0xccc0,
+			txs:      []Transaction{fakeTx(txHash)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+				return fakeReceipt(txHash, 0xccc0), nil
+			},
+			wantReceipts: 1,
+		},
+		{
+			name:     "PartialFailure",
+			blockNum: 100003,
+			txs:      []Transaction{fakeTx(hashA), fakeTx(hashB), fakeTx(hashC)},
+			txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
+				if hash == hashB {
+					return nil, fmt.Errorf("receipt not available")
+				}
+				return fakeReceipt(hash, 100003), nil
+			},
+			wantErr:        true,
+			wantErrContain: "1/3 transaction receipts could not be fetched",
+		},
+		{
+			name:     "FullFailure",
+			blockNum: 100004,
+			txs:      []Transaction{fakeTx(hashA), fakeTx(hashB)},
+			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+				return nil, fmt.Errorf("rpc error")
+			},
+			wantErr:        true,
+			wantErrContain: "2/2 transaction receipts could not be fetched",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			block := fakeBlock(tc.blockNum)
+			if len(tc.txs) > 0 {
+				block = fakeBlockWithTxs(tc.blockNum, tc.txs...)
+			}
+
+			client := &fakeRPCClient{
+				block:       block,
+				batchErr:    fmt.Errorf("eth_getBlockReceipts not supported"),
+				txReceiptFn: tc.txReceiptFn,
+			}
+			f := NewFetcher(client, 8)
+
+			raw, err := f.FetchBlock(context.Background(), tc.blockNum)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContain)
+				assert.Nil(t, raw)
+				return
+			}
+			require.NoError(t, err)
+
+			bundle, ok := raw.(*BlockBundle)
+			require.True(t, ok)
+			assert.Equal(t, block, bundle.Block)
+			assert.Len(t, bundle.Receipts, tc.wantReceipts)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Receipt fallback: positional nil preservation
+// ---------------------------------------------------------------------------
+
+func TestFetcher_ReceiptFallback_PreservesPositionalNils(t *testing.T) {
+	t.Parallel()
+
+	hashA := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	hashB := "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	hashC := "0xccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+	block := fakeBlockWithTxs(100003, fakeTx(hashA), fakeTx(hashB), fakeTx(hashC))
+
+	client := &fakeRPCClient{
+		block:    block,
+		batchErr: fmt.Errorf("eth_getBlockReceipts not supported"),
+		txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
+			if hash == hashB {
+				return nil, fmt.Errorf("receipt not available")
+			}
+			return fakeReceipt(hash, 100003), nil
+		},
+	}
+	f := NewFetcher(client, 8)
+
+	txs, receipts, err := f.fetchTransactionsAndReceipts(context.Background(), block, 100003)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "1/3 transaction receipts could not be fetched")
+
+	assert.Len(t, txs, 3)
+	assert.Len(t, receipts, 3, "positional slice must not be collapsed")
+	assert.NotNil(t, receipts[0])
+	assert.Nil(t, receipts[1], "failed receipt must remain as nil in position")
+	assert.NotNil(t, receipts[2])
+}
+
+// ---------------------------------------------------------------------------
+// Context cancellation during receipt fetch (moved from adapter_test.go)
+// ---------------------------------------------------------------------------
+
+func TestFetcher_ReceiptFallback_ContextCancelTiming(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+	cases := []struct {
+		name        string
+		blockNum    int64
+		txSleep     time.Duration
+		ctxTimeout  time.Duration
+		returnError bool
+	}{
+		{
+			name:        "ContextCancel",
+			blockNum:    100002,
+			txSleep:     2 * time.Second,
+			ctxTimeout:  500 * time.Millisecond,
+			returnError: true,
+		},
+		{
+			name:        "ContextCancelDuringFetch",
+			blockNum:    1000,
+			txSleep:     500 * time.Millisecond,
+			ctxTimeout:  200 * time.Millisecond,
+			returnError: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			block := fakeBlockWithTxs(tc.blockNum, fakeTx(txHash))
+			client := &fakeRPCClient{
+				block:    block,
+				batchErr: fmt.Errorf("not supported"),
+				txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+					time.Sleep(tc.txSleep)
+					if tc.returnError {
+						return nil, fmt.Errorf("timeout")
+					}
+					return fakeReceipt(txHash, tc.blockNum), nil
+				},
+			}
+			f := NewFetcher(client, 8)
+
+			ctx, cancel := context.WithTimeout(context.Background(), tc.ctxTimeout)
+			defer cancel()
+
+			_, err := f.FetchBlock(ctx, tc.blockNum)
+			t.Logf("FetchBlock error: %v", err)
+		})
+	}
+}
+
+func TestFetcher_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) {
+	t.Parallel()
+
+	txs := make([]Transaction, 3)
+	for i := range 3 {
+		txs[i] = fakeTx(fmt.Sprintf("0x%064x", i+1))
+	}
+	block := fakeBlockWithTxs(0xddd0, txs...)
+
+	firstReceiptCalled := make(chan struct{})
+	client := &fakeRPCClient{
+		block:    block,
+		batchErr: fmt.Errorf("not supported"),
+		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+			select {
+			case firstReceiptCalled <- struct{}{}:
+			default:
+			}
+			time.Sleep(5 * time.Second)
+			return nil, fmt.Errorf("timeout")
+		},
+	}
+	f := NewFetcher(client, 1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := f.FetchBlock(ctx, 0xddd0)
+		errCh <- err
+	}()
+
+	select {
+	case <-firstReceiptCalled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for first receipt call")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		t.Logf("FetchBlock error: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for FetchBlock to complete")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Close
+// ---------------------------------------------------------------------------
+
+func TestFetcher_Close(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeRPCClient{}
+	f := NewFetcher(client, 8)
+
+	require.NoError(t, f.Close())
+	assert.True(t, client.closed)
+}
+
+func TestFetcher_Close_NilClient(t *testing.T) {
+	t.Parallel()
+
+	f := &Fetcher{}
+	require.NoError(t, f.Close())
+}
+
+// ---------------------------------------------------------------------------
+// MockFetcher Connect
+// ---------------------------------------------------------------------------
+
+func TestMockFetcher_Connect(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		setupFn func(m *testutils.MockFetcher)
+		wantErr bool
+		errSub  string
+	}{
+		{
+			name:    "Default",
+			setupFn: func(_ *testutils.MockFetcher) {},
+		},
+		{
+			name: "CustomFn",
+			setupFn: func(m *testutils.MockFetcher) {
+				m.ConnectFn = func(_ context.Context) error { return stderrors.New("dial failed") }
+			},
+			wantErr: true,
+			errSub:  "dial failed",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := &testutils.MockFetcher{}
+			tc.setupFn(m)
+			err := m.Connect(context.Background())
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSub)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, 1, m.ConnectCalls)
+		})
+	}
+}

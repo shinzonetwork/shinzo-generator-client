@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 )
