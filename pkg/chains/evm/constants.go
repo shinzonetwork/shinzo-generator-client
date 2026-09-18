@@ -4,7 +4,8 @@ package evm
 //
 // These constants live in pkg/chains/evm — not pkg/constants — because they
 // are EVM-specific: non-test code outside this package must not reference
-// them. The boundary is enforced by pkg/chains/evm/import_boundary_test.go.
+// them. The boundary is enforced by the evm-boundary depguard rule in
+// .golangci.yml.
 //
 // *KeyName constants name the EVM-only fields used to join and look up documents
 // across collections; the blockNumber and blockHash join keys
