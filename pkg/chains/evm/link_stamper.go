@@ -56,10 +56,10 @@ func (s *evmLinkStamper) StampBeforeWrite(collection string, docs []map[string]a
 
 	case s.cols.Transaction:
 		for j := range docs {
-			txHash, ok := docs[j][HashKeyValue].(string)
+			txHash, ok := docs[j][HashKeyName].(string)
 			if !ok || txHash == "" {
 				return fmt.Errorf("link stamper: transaction doc %d has missing, non-string, or empty %q", //nolint:err113
-					j, HashKeyValue)
+					j, HashKeyName)
 			}
 			if s.blockID == "" {
 				return fmt.Errorf("link stamper: no block docID registered before stamping transaction doc %d", j) //nolint:err113
@@ -69,10 +69,10 @@ func (s *evmLinkStamper) StampBeforeWrite(collection string, docs []map[string]a
 
 	case s.cols.Log:
 		for j := range docs {
-			txHash, ok := docs[j][TransactionHashKeyValue].(string)
+			txHash, ok := docs[j][TransactionHashKeyName].(string)
 			if !ok || txHash == "" {
 				return fmt.Errorf("link stamper: log doc %d has missing, non-string, or empty %q", //nolint:err113
-					j, TransactionHashKeyValue)
+					j, TransactionHashKeyName)
 			}
 			if s.blockID == "" {
 				return fmt.Errorf("link stamper: no block docID registered before stamping log doc %d", j) //nolint:err113
@@ -133,10 +133,10 @@ func (s *evmLinkStamper) RecordDocIDs(collection string, docs []map[string]any, 
 
 	case s.cols.Transaction:
 		for j := range docs {
-			txHash, ok := docs[j][HashKeyValue].(string)
+			txHash, ok := docs[j][HashKeyName].(string)
 			if !ok || txHash == "" {
 				return fmt.Errorf("link stamper: transaction doc %d has missing, non-string, or empty %q", //nolint:err113
-					j, HashKeyValue)
+					j, HashKeyName)
 			}
 			if j < len(ids) {
 				s.txHashToID[txHash] = ids[j]

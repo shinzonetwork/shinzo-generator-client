@@ -10,6 +10,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
@@ -119,8 +120,8 @@ func (c *Converter) Convert(
 			Collection:     c.collections.Block,
 			Docs:           []map[string]any{blockData},
 			BatchSize:      defaultBatch,
-			BlockNumField:  NumberFieldValue,
-			BlockHashField: HashKeyValue,
+			BlockNumField:  NumberFieldName,
+			BlockHashField: HashKeyName,
 		},
 	}
 	if len(txDocs) > 0 {
@@ -128,7 +129,7 @@ func (c *Converter) Convert(
 			Collection:    c.collections.Transaction,
 			Docs:          txDocs,
 			BatchSize:     c.txBatchSize(defaultBatch),
-			BlockNumField: BlockNumberKeyValue,
+			BlockNumField: constants.BlockNumberFieldName,
 		})
 	}
 	if len(logDocs) > 0 {
@@ -136,7 +137,7 @@ func (c *Converter) Convert(
 			Collection:    c.collections.Log,
 			Docs:          logDocs,
 			BatchSize:     c.logBatchSize(defaultBatch),
-			BlockNumField: BlockNumberKeyValue,
+			BlockNumField: constants.BlockNumberFieldName,
 		})
 	}
 	if len(aleDocs) > 0 {
@@ -144,7 +145,7 @@ func (c *Converter) Convert(
 			Collection:    c.collections.AccessListEntry,
 			Docs:          aleDocs,
 			BatchSize:     c.aleBatchSize(defaultBatch),
-			BlockNumField: BlockNumberKeyValue,
+			BlockNumField: constants.BlockNumberFieldName,
 		})
 	}
 
@@ -298,11 +299,11 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 		name  string
 		field string
 	}{
-		{c.collections.Block, NumberFieldValue},
-		{c.collections.Transaction, BlockNumberKeyValue},
-		{c.collections.Log, BlockNumberKeyValue},
-		{c.collections.AccessListEntry, BlockNumberKeyValue},
-		{c.collections.BlockSignature, BlockNumberKeyValue},
+		{c.collections.Block, NumberFieldName},
+		{c.collections.Transaction, constants.BlockNumberFieldName},
+		{c.collections.Log, constants.BlockNumberFieldName},
+		{c.collections.AccessListEntry, constants.BlockNumberFieldName},
+		{c.collections.BlockSignature, constants.BlockNumberFieldName},
 	}
 
 	result := make(map[string][]string)
@@ -323,26 +324,26 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 // buildBlockData builds the data map for a block document.
 func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any {
 	return map[string]any{
-		HashKeyValue:             block.Hash,
-		NumberFieldValue:         blockInt,
-		TimestampKeyValue:        block.Timestamp,
-		ParentHashKeyValue:       block.ParentHash,
-		DifficultyKeyValue:       block.Difficulty,
-		"totalDifficulty":        block.TotalDifficulty,
-		GasUsedKeyValue:          block.GasUsed,
-		GasLimitKeyValue:         block.GasLimit,
-		"baseFeePerGas":          block.BaseFeePerGas,
-		NonceKeyValue:            block.Nonce,
-		MinerKeyValue:            block.Miner,
-		"size":                   block.Size,
-		StateRootKeyValue:        block.StateRoot,
-		Sha3UnclesKeyValue:       block.Sha3Uncles,
-		TransactionsRootKeyValue: block.TransactionsRoot,
-		ReceiptsRootKeyValue:     block.ReceiptsRoot,
-		LogsBloomKeyValue:        block.LogsBloom,
-		ExtraDataKeyValue:        block.ExtraData,
-		MixHashKeyValue:          block.MixHash,
-		"uncles":                 block.Uncles,
+		HashKeyName:               block.Hash,
+		NumberFieldName:           blockInt,
+		TimestampFieldName:        block.Timestamp,
+		ParentHashFieldName:       block.ParentHash,
+		DifficultyFieldName:       block.Difficulty,
+		"totalDifficulty":         block.TotalDifficulty,
+		GasUsedFieldName:          block.GasUsed,
+		GasLimitFieldName:         block.GasLimit,
+		"baseFeePerGas":           block.BaseFeePerGas,
+		NonceFieldName:            block.Nonce,
+		MinerFieldName:            block.Miner,
+		"size":                    block.Size,
+		StateRootFieldName:        block.StateRoot,
+		Sha3UnclesFieldName:       block.Sha3Uncles,
+		TransactionsRootFieldName: block.TransactionsRoot,
+		ReceiptsRootFieldName:     block.ReceiptsRoot,
+		LogsBloomFieldName:        block.LogsBloom,
+		ExtraDataFieldName:        block.ExtraData,
+		MixHashFieldName:          block.MixHash,
+		"uncles":                  block.Uncles,
 	}
 }
 
@@ -352,27 +353,27 @@ func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any 
 func (c *Converter) buildTransactionData(tx *Transaction) map[string]any {
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	return map[string]any{
-		HashKeyValue:              tx.Hash,
-		BlockNumberKeyValue:       txBlockNum,
-		BlockHashKeyValue:         tx.BlockHash,
-		TransactionIndexKeyValue:  tx.TransactionIndex,
-		"from":                    tx.From,
-		"to":                      tx.To,
-		"value":                   tx.Value,
-		"gas":                     tx.Gas,
-		"gasPrice":                tx.GasPrice,
-		"maxFeePerGas":            tx.MaxFeePerGas,
-		"maxPriorityFeePerGas":    tx.MaxPriorityFeePerGas,
-		"input":                   tx.Input,
-		NonceKeyValue:             tx.Nonce,
-		TypeKeyValue:              tx.Type,
-		"chainId":                 tx.ChainID,
-		"v":                       tx.V,
-		"r":                       tx.R,
-		"s":                       tx.S,
-		CumulativeGasUsedKeyValue: tx.CumulativeGasUsed,
-		EffectiveGasPriceKeyValue: tx.EffectiveGasPrice,
-		StatusKeyValue:            tx.Status,
+		HashKeyName:                    tx.Hash,
+		constants.BlockNumberFieldName: txBlockNum,
+		constants.BlockHashFieldName:   tx.BlockHash,
+		TransactionIndexFieldName:      tx.TransactionIndex,
+		"from":                         tx.From,
+		"to":                           tx.To,
+		"value":                        tx.Value,
+		"gas":                          tx.Gas,
+		"gasPrice":                     tx.GasPrice,
+		"maxFeePerGas":                 tx.MaxFeePerGas,
+		"maxPriorityFeePerGas":         tx.MaxPriorityFeePerGas,
+		"input":                        tx.Input,
+		NonceFieldName:                 tx.Nonce,
+		TypeFieldName:                  tx.Type,
+		"chainId":                      tx.ChainID,
+		"v":                            tx.V,
+		"r":                            tx.R,
+		"s":                            tx.S,
+		CumulativeGasUsedFieldName:     tx.CumulativeGasUsed,
+		EffectiveGasPriceFieldName:     tx.EffectiveGasPrice,
+		StatusFieldName:                tx.Status,
 	}
 }
 
@@ -382,15 +383,15 @@ func (c *Converter) buildTransactionData(tx *Transaction) map[string]any {
 func (c *Converter) buildLogData(logEntry *Log) map[string]any {
 	logBlockNum, _ := utils.HexToInt(logEntry.BlockNumber)
 	return map[string]any{
-		AddressKeyValue:          logEntry.Address,
-		"topics":                 logEntry.Topics,
-		"data":                   logEntry.Data,
-		BlockNumberKeyValue:      logBlockNum,
-		TransactionHashKeyValue:  logEntry.TransactionHash,
-		TransactionIndexKeyValue: logEntry.TransactionIndex,
-		BlockHashKeyValue:        logEntry.BlockHash,
-		"logIndex":               logEntry.LogIndex,
-		"removed":                fmt.Sprintf("%v", logEntry.Removed),
+		AddressFieldName:               logEntry.Address,
+		"topics":                       logEntry.Topics,
+		"data":                         logEntry.Data,
+		constants.BlockNumberFieldName: logBlockNum,
+		TransactionHashKeyName:         logEntry.TransactionHash,
+		TransactionIndexFieldName:      logEntry.TransactionIndex,
+		constants.BlockHashFieldName:   logEntry.BlockHash,
+		"logIndex":                     logEntry.LogIndex,
+		"removed":                      fmt.Sprintf("%v", logEntry.Removed),
 	}
 }
 
@@ -400,9 +401,9 @@ func (c *Converter) buildLogData(logEntry *Log) map[string]any {
 // parallel array passed to newEvmLinkStamper.
 func (c *Converter) buildALEData(ale *AccessListEntry, blockNumber int64) map[string]any {
 	return map[string]any{
-		AddressKeyValue:     ale.Address,
-		BlockNumberKeyValue: blockNumber,
-		"storageKeys":       ale.StorageKeys,
+		AddressFieldName:               ale.Address,
+		constants.BlockNumberFieldName: blockNumber,
+		"storageKeys":                  ale.StorageKeys,
 	}
 }
 
@@ -415,15 +416,15 @@ func (c *Converter) BuildBlockSignatureData(
 	sortedCIDStrings []string,
 ) map[string]any {
 	return map[string]any{
-		BlockNumberKeyValue: blockNumber,
-		BlockHashKeyValue:   blockHash,
-		"merkleRoot":        hex.EncodeToString(blockSig.MerkleRoot),
-		"cidCount":          blockSig.CIDCount,
-		"cids":              sortedCIDStrings,
-		"signatureType":     blockSig.Header.Type,
-		"signatureIdentity": string(blockSig.Header.Identity),
-		"signatureValue":    hex.EncodeToString(blockSig.Value),
-		"createdAt":         time.Now().UTC().Format(time.RFC3339),
+		constants.BlockNumberFieldName:       blockNumber,
+		constants.BlockHashFieldName:         blockHash,
+		constants.MerkleRootFieldName:        hex.EncodeToString(blockSig.MerkleRoot),
+		constants.CIDCountFieldName:          blockSig.CIDCount,
+		constants.CIDsFieldName:              sortedCIDStrings,
+		constants.SignatureTypeFieldName:     blockSig.Header.Type,
+		constants.SignatureIdentityFieldName: string(blockSig.Header.Identity),
+		constants.SignatureValueFieldName:    hex.EncodeToString(blockSig.Value),
+		constants.CreatedAtFieldName:         time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -439,7 +440,7 @@ func (c *Converter) BuildBlockSignatureData(
 // are tagged with opName.
 func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
 	blockCol := c.collections.Block
-	field := NumberFieldValue
+	field := NumberFieldName
 	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { ` + field + ` _docID }}`
 
 	result := n.DB.ExecRequest(ctx, query)
@@ -504,7 +505,7 @@ func firstUsableRow(rows []any, opName string) (int64, error) {
 			return num, nil
 		}
 		docID, _ := block["_docID"].(string)
-		raw := block[NumberFieldValue]
+		raw := block[NumberFieldName]
 		skipped = append(skipped, fmt.Sprintf("docID=%s number=%T(%v)", docID, raw, raw))
 	}
 
@@ -538,7 +539,7 @@ func (c *Converter) hasAnyBlockDocs(ctx context.Context, n *node.Node, blockCol,
 // parseBlockNumberRow extracts the block number from a block query row. It
 // reports false when the number field is missing or has an unparseable type.
 func parseBlockNumberRow(block map[string]any) (int64, bool) {
-	switch v := block[NumberFieldValue].(type) {
+	switch v := block[NumberFieldName].(type) {
 	case float64:
 		return int64(v), true
 	case int64:

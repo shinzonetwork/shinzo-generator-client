@@ -205,7 +205,7 @@ func extractBlockSigMerkleRoots(snapshotPath string) ([][]byte, error) {
 			continue
 		}
 
-		mrStr, ok := entry.Data[constants.MerkleRootKeyValue].(string)
+		mrStr, ok := entry.Data[constants.MerkleRootFieldName].(string)
 		if !ok || mrStr == "" {
 			continue
 		}
