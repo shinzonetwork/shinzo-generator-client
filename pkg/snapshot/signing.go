@@ -106,7 +106,7 @@ func (s *Snapshotter) getBlockSigMerkleRoots(ctx context.Context, startBlock, en
 
 	roots = make([][]byte, 0, len(docs))
 	for _, doc := range docs {
-		mrStr, ok := doc[constants.MerkleRootKeyValue].(string)
+		mrStr, ok := doc[constants.MerkleRootFieldName].(string)
 		if !ok || mrStr == "" {
 			continue
 		}
@@ -166,16 +166,16 @@ func (s *Snapshotter) createSnapshotSignatureDoc(ctx context.Context, sig *Snaps
 	}
 
 	data := map[string]any{
-		"startBlock":                 sig.StartBlock,
-		"endBlock":                   sig.EndBlock,
-		constants.MerkleRootKeyValue: sig.MerkleRoot,
-		"blockCount":                 sig.BlockCount,
-		"signatureType":              sig.SignatureType,
-		"signatureIdentity":          sig.SignatureIdentity,
-		"signatureValue":             sig.SignatureValue,
-		"snapshotFile":               sig.SnapshotFile,
-		"createdAt":                  sig.CreatedAt,
-		"blockSigMerkleRoots":        sig.BlockSigMerkleRoots,
+		"startBlock":                         sig.StartBlock,
+		"endBlock":                           sig.EndBlock,
+		constants.MerkleRootFieldName:        sig.MerkleRoot,
+		"blockCount":                         sig.BlockCount,
+		constants.SignatureTypeFieldName:     sig.SignatureType,
+		constants.SignatureIdentityFieldName: sig.SignatureIdentity,
+		constants.SignatureValueFieldName:    sig.SignatureValue,
+		"snapshotFile":                       sig.SnapshotFile,
+		constants.CreatedAtFieldName:         sig.CreatedAt,
+		"blockSigMerkleRoots":                sig.BlockSigMerkleRoots,
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
@@ -269,22 +269,22 @@ func parseSnapshotSignatureDoc(doc map[string]any) *SnapshotSignatureData {
 	if v, ok := doc["endBlock"].(int64); ok {
 		sig.EndBlock = v
 	}
-	if v, ok := doc[constants.MerkleRootKeyValue].(string); ok {
+	if v, ok := doc[constants.MerkleRootFieldName].(string); ok {
 		sig.MerkleRoot = v
 	}
 	if v, ok := doc["blockCount"].(int64); ok {
 		sig.BlockCount = int(v)
 	}
-	if v, ok := doc["signatureType"].(string); ok {
+	if v, ok := doc[constants.SignatureTypeFieldName].(string); ok {
 		sig.SignatureType = v
 	}
-	if v, ok := doc["signatureIdentity"].(string); ok {
+	if v, ok := doc[constants.SignatureIdentityFieldName].(string); ok {
 		sig.SignatureIdentity = v
 	}
-	if v, ok := doc["signatureValue"].(string); ok {
+	if v, ok := doc[constants.SignatureValueFieldName].(string); ok {
 		sig.SignatureValue = v
 	}
-	if v, ok := doc["createdAt"].(string); ok {
+	if v, ok := doc[constants.CreatedAtFieldName].(string); ok {
 		sig.CreatedAt = v
 	}
 

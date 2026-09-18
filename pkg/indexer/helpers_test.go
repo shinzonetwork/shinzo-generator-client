@@ -19,7 +19,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
@@ -149,25 +148,25 @@ func (m *mockBlockStorer) SignExisting(ctx context.Context, result chains.Conver
 func fullBlockResponse(number string, txs []any) map[string]any {
 	emptyTrieRoot := testTransactionsRoot
 	block := map[string]any{
-		constants.NumberFieldValue: number,
-		"hash":                     "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":               "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"nonce":                    "0x0000000000000000",
-		"sha3Uncles":               testSha3Uncles,
-		"logsBloom":                "0x" + fmt.Sprintf("%0512x", 0),
-		"transactionsRoot":         emptyTrieRoot,
-		"stateRoot":                "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"receiptsRoot":             "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"miner":                    "0x0000000000000000000000000000000000000000",
-		"difficulty":               "0x0",
-		"totalDifficulty":          "0x0",
-		"extraData":                "0x",
-		"size":                     "0x100",
-		"gasLimit":                 "0x1000000",
-		"gasUsed":                  "0x5208",
-		"timestamp":                "0x60000000",
-		"mixHash":                  "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"uncles":                   []any{},
+		evm.NumberFieldName: number,
+		"hash":              "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"parentHash":        "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"nonce":             "0x0000000000000000",
+		"sha3Uncles":        testSha3Uncles,
+		"logsBloom":         "0x" + fmt.Sprintf("%0512x", 0),
+		"transactionsRoot":  emptyTrieRoot,
+		"stateRoot":         "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":      "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"miner":             "0x0000000000000000000000000000000000000000",
+		"difficulty":        "0x0",
+		"totalDifficulty":   "0x0",
+		"extraData":         "0x",
+		"size":              "0x100",
+		"gasLimit":          "0x1000000",
+		"gasUsed":           "0x5208",
+		"timestamp":         "0x60000000",
+		"mixHash":           "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"uncles":            []any{},
 	}
 	if txs != nil {
 		block["transactions"] = txs
@@ -574,7 +573,7 @@ func TestFullBlockResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			block := fullBlockResponse(tt.number, tt.txs)
-			assert.Equal(t, tt.number, block[constants.NumberFieldValue])
+			assert.Equal(t, tt.number, block[evm.NumberFieldName])
 			txList := block["transactions"].([]any)
 			assert.Len(t, txList, tt.wantTxLen)
 		})
