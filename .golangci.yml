@@ -9,6 +9,7 @@ linters:
     - canonicalheader
     - containedctx
     - contextcheck
+    - depguard
     - dogsled
     - dupl
     - dupword
@@ -44,6 +45,17 @@ linters:
     - wastedassign
     # - err113 # TODO - enable this linter and fix the issues it finds. by creating errors file with all reusable errors in it.
   settings:
+    depguard:
+      rules:
+        evm-boundary:
+          files:
+            - "$all"
+            - "!$test"
+            - "!**/pkg/chains/evm/**"
+            - "!**/cmd/**"
+          deny:
+            - pkg: github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm
+              desc: production code must consume the pkg/chains interfaces; the evm adapter is wired only by cmd/ binaries and imported only by tests
     funlen:
       lines: 100
     revive:
