@@ -7,6 +7,7 @@ import (
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -23,15 +24,29 @@ func TestSchemaIndexesBlockNumberField(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
+	cols, err := chains.NewCollections(nil)
+	require.NoError(t, err)
+
+	blockCol, err := cols.GetCollection(chains.TypeBlock)
+	require.NoError(t, err)
+	txCol, err := cols.GetCollection(chains.TypeTransaction)
+	require.NoError(t, err)
+	logCol, err := cols.GetCollection(chains.TypeLog)
+	require.NoError(t, err)
+	aleCol, err := cols.GetCollection(chains.TypeAccessListEntry)
+	require.NoError(t, err)
+	sigCol, err := cols.GetCollection(chains.TypeBlockSignature)
+	require.NoError(t, err)
+
 	cases := []struct {
 		collection string
 		field      string
 	}{
-		{constants.CollectionBlock, constants.NumberFieldValue},
-		{constants.CollectionTransaction, constants.BlockNumberKeyValue},
-		{constants.CollectionLog, constants.BlockNumberKeyValue},
-		{constants.CollectionAccessListEntry, constants.BlockNumberKeyValue},
-		{constants.CollectionBlockSignature, constants.BlockNumberKeyValue},
+		{blockCol, constants.NumberFieldValue},
+		{txCol, constants.BlockNumberKeyValue},
+		{logCol, constants.BlockNumberKeyValue},
+		{aleCol, constants.BlockNumberKeyValue},
+		{sigCol, constants.BlockNumberKeyValue},
 	}
 
 	for _, c := range cases {

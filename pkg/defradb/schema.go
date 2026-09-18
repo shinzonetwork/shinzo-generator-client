@@ -3,6 +3,7 @@ package defradb
 import (
 	"context"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -25,18 +26,18 @@ func (schema *MockSchemaApplierThatSucceeds) ApplySchema(_ context.Context, _ *n
 // Note: only additive schema changes are supported. See ApplyCollectionSchemas
 // for details.
 type SchemaApplierFromDir struct {
-	ChainPrefix string
+	Collections chains.Collections
 }
 
 // NewSchemaApplierFromDir creates a schema applier that uses the embedded
-// modular collection files. If chainPrefix is empty, the default prefix is used.
-func NewSchemaApplierFromDir(chainPrefix string) *SchemaApplierFromDir {
-	return &SchemaApplierFromDir{ChainPrefix: chainPrefix}
+// modular collection files with the given chain's collection names.
+func NewSchemaApplierFromDir(collections chains.Collections) *SchemaApplierFromDir {
+	return &SchemaApplierFromDir{Collections: collections}
 }
 
 // ApplySchema applies the embedded schema to the given DefraDB node.
 func (s *SchemaApplierFromDir) ApplySchema(ctx context.Context, defraNode *node.Node) error {
-	return ApplyCollectionSchemas(ctx, defraNode, s.ChainPrefix)
+	return ApplyCollectionSchemas(ctx, defraNode, s.Collections)
 }
 
 // SchemaApplierFromProvidedSchema applies schema text provided directly in memory.

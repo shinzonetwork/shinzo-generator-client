@@ -3,35 +3,32 @@ package indexer
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"sync"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/rpc"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/types"
 )
 
 const (
-	// BlockNotFoundRetryDelay is the delay before retrying when a block is not yet available on chain.
+	// BlockNotFoundRetryDelay is the delay before retrying when a block is not yet available on chains.
 	BlockNotFoundRetryDelay = 3 * time.Second
-
-	// RPCErrorRetryBaseDelay is the base delay for retrying RPC errors (multiplied by attempt number).
-	RPCErrorRetryBaseDelay = 500 * time.Millisecond
-
-	// MaxRPCRetries is the maximum number of retries for non-"not found" RPC errors.
-	MaxRPCRetries = 3
-
-	// TransactionConflictRetryBaseDelay is the base delay for retrying transaction conflicts.
-	TransactionConflictRetryBaseDelay = 50 * time.Millisecond
-
-	// SigningQueueSize is the buffer size for the background block signing channel.
-	SigningQueueSize = 64
 
 	// DispatchThrottleDelay is the delay when the processor is too far ahead of committed blocks.
 	DispatchThrottleDelay = 100 * time.Millisecond
+
+	// transactionConflictRetryBaseDelay is the base delay for retrying
+	// transaction conflicts on store.
+	transactionConflictRetryBaseDelay = 50 * time.Millisecond
+
+	// MaxRPCRetries is the maximum number of retries for non-"not found" RPC
+	// errors.
+	MaxRPCRetries = 3
+
+	// RPCErrorRetryBaseDelay is the base delay for retrying RPC errors.
+	RPCErrorRetryBaseDelay = 500 * time.Millisecond
 )
 
 // BlockResult holds the result of processing a block.
@@ -42,46 +39,43 @@ type BlockResult struct {
 	Error    error
 }
 
-// signingJob holds the data needed to sign an existing block in the background.
-type signingJob struct {
-	blockNum     int64
-	blockHash    string
-	block        *types.Block
-	transactions []*types.Transaction
-	receipts     []*types.TransactionReceipt
+// BlockStorer is the store-side interface used by the processor. The concrete
+// *defra.BlockHandler satisfies it; the interface enables pure unit tests with
+// a mock.
+type BlockStorer interface {
+	Store(ctx context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error)
+	SignExisting(ctx context.Context, result chains.ConversionResult, blockHash string, blockNumber int64) (string, error)
 }
 
 // ConcurrentBlockProcessor processes multiple blocks concurrently.
 type ConcurrentBlockProcessor struct {
-	blockHandler    *defra.BlockHandler
-	ethClient       *rpc.EthereumClient
+	fetcher         chains.Fetcher
+	converter       chains.Converter
+	blockHandler    BlockStorer
 	workers         int
-	receiptWorkers  int
 	blocksPerMinute int
 	resultChan      chan *BlockResult
 	pendingMu       sync.Mutex
 	pending         map[int64]*BlockResult
 	nextToCommit    int64
-	signingChan     chan signingJob
 }
 
 // NewConcurrentBlockProcessor creates a new concurrent processor.
 func NewConcurrentBlockProcessor(
-	blockHandler *defra.BlockHandler,
-	ethClient *rpc.EthereumClient,
+	fetcher chains.Fetcher,
+	converter chains.Converter,
+	blockHandler BlockStorer,
 	workers int,
-	receiptWorkers int,
 	blocksPerMinute int,
 ) *ConcurrentBlockProcessor {
 	return &ConcurrentBlockProcessor{
+		fetcher:         fetcher,
+		converter:       converter,
 		blockHandler:    blockHandler,
-		ethClient:       ethClient,
 		workers:         workers,
-		receiptWorkers:  receiptWorkers,
 		blocksPerMinute: blocksPerMinute,
 		resultChan:      make(chan *BlockResult, workers*DefaultWorkersAhead),
 		pending:         make(map[int64]*BlockResult),
-		signingChan:     make(chan signingJob, SigningQueueSize),
 	}
 }
 
@@ -93,36 +87,20 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 ) error {
 	p.nextToCommit = startBlock
 
-	workChan, wg, collectWg, signingWg := p.startWorkers(ctx, onBlockProcessed)
+	workChan, wg, collectWg := p.startWorkers(ctx, onBlockProcessed)
 
 	shutdown := func() {
 		close(workChan)
 		wg.Wait()
 		close(p.resultChan)
 		collectWg.Wait()
-		close(p.signingChan)
-		signingWg.Wait()
 	}
 
 	return p.dispatchLoop(ctx, startBlock, workChan, shutdown)
 }
 
-// startWorkers launches signing, processing, and result-collection goroutines.
-func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProcessed func(blockNum int64)) (chan int64, *sync.WaitGroup, *sync.WaitGroup, *sync.WaitGroup) {
-	var signingWg sync.WaitGroup
-	signingWg.Go(func() {
-		for job := range p.signingChan {
-			if ctx.Err() != nil {
-				continue
-			}
-			if _, err := p.blockHandler.CreateBlockSignatureForExistingBlock(
-				ctx, job.blockNum, job.blockHash, job.block, job.transactions, job.receipts,
-			); err != nil {
-				logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", job.blockNum, err)
-			}
-		}
-	})
-
+// startWorkers launches processing and result-collection goroutines.
+func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProcessed func(blockNum int64)) (chan int64, *sync.WaitGroup, *sync.WaitGroup) {
 	workChan := make(chan int64, p.workers*DefaultWorkersAhead)
 
 	var wg sync.WaitGroup
@@ -144,7 +122,7 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 		p.collectResults(onBlockProcessed)
 	})
 
-	return workChan, &wg, &collectWg, &signingWg
+	return workChan, &wg, &collectWg
 }
 
 // collectResults reads from resultChan and commits blocks in order.
@@ -161,10 +139,10 @@ func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum
 			delete(p.pending, p.nextToCommit)
 
 			if next.Success {
-				if next.BlockID != "existing" {
+				if next.BlockID != "" {
 					logger.Sugar.Infof("Committed block %d (ID: %s)", next.BlockNum, next.BlockID)
 				} else {
-					logger.Sugar.Infof("Block %d already existed, skipping", next.BlockNum)
+					logger.Sugar.Infof("Committed block %d", next.BlockNum)
 				}
 				if onBlockProcessed != nil {
 					onBlockProcessed(next.BlockNum)
@@ -227,32 +205,41 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 	}
 }
 
-// fetchAndProcessBlock fetches a block and processes it into DefraDB.
+// fetchAndProcessBlock fetches, converts, and stores a block with retry
+// classification:
+//   - fetch not-found: infinite retry with BlockNotFoundRetryDelay
+//   - fetch other errors: up to MaxRPCRetries with linear backoff
+//   - convert: no retry (pure computation)
+//   - store: up to MaxRPCRetries on transaction conflicts; ErrAlreadyExists
+//     triggers a fire-and-forget SignExisting goroutine
 func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blockNum int64) *BlockResult {
-	result := &BlockResult{BlockNum: blockNum}
-
-	block, err := p.fetchBlockWithRetry(ctx, blockNum)
+	raw, err := p.fetchBlockWithRetry(ctx, blockNum)
 	if err != nil {
-		result.Error = err
-		return result
+		return &BlockResult{BlockNum: blockNum, Error: err}
 	}
 
-	transactions, validReceipts := p.fetchTransactionsAndReceipts(ctx, block, blockNum)
+	result, err := p.converter.Convert(ctx, raw)
+	if err != nil {
+		return &BlockResult{BlockNum: blockNum, Error: fmt.Errorf("convert block: %w", err)}
+	}
 
-	return p.createBlockBatchWithRetry(ctx, block, blockNum, transactions, validReceipts, result)
+	return p.storeWithRetry(ctx, blockNum, result)
 }
 
-// fetchBlockWithRetry fetches a block by number, retrying on not-found and RPC errors.
-func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*types.Block, error) {
+// fetchBlockWithRetry fetches a block from the fetcher with retry
+// classification:
+//   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
+//   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
+func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
 	otherErrors := 0
 	for {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 
-		block, err := p.ethClient.GetBlockByNumber(ctx, big.NewInt(blockNum))
+		raw, err := p.fetcher.FetchBlock(ctx, blockNum)
 		if err == nil {
-			return block, nil
+			return raw, nil
 		}
 
 		if errors.IsErrNotFound(err) {
@@ -267,7 +254,7 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 
 		otherErrors++
 		if otherErrors >= MaxRPCRetries {
-			return nil, fmt.Errorf("failed to fetch block: %w", err)
+			return nil, fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
 		}
 		select {
 		case <-ctx.Done():
@@ -277,104 +264,56 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 	}
 }
 
-// fetchTransactionsAndReceipts fetches receipts for a block, falling back to individual fetches.
-func (p *ConcurrentBlockProcessor) fetchTransactionsAndReceipts(ctx context.Context, block *types.Block, blockNum int64) ([]*types.Transaction, []*types.TransactionReceipt) {
-	transactions := make([]*types.Transaction, len(block.Transactions))
-	for i := range block.Transactions {
-		transactions[i] = &block.Transactions[i]
-	}
+// storeWithRetry persists a ConversionResult via the block handler. On
+// ErrAlreadyExists it spawns a fire-and-forget SignExisting goroutine and
+// returns success. Transaction conflicts are retried up to MaxRPCRetries
+// times with transactionConflictRetryBaseDelay backoff.
+func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum int64, result chains.ConversionResult) *BlockResult {
+	blockHash := extractBlockHash(result.Groups)
 
-	batchReceipts, batchErr := p.ethClient.GetBlockReceipts(ctx, big.NewInt(blockNum))
-	if batchErr == nil {
-		return transactions, batchReceipts
-	}
-
-	if ctx.Err() == nil {
-		logger.Sugar.Debugf("Block %d: eth_getBlockReceipts not available, falling back to individual fetches: %v", blockNum, batchErr)
-	}
-
-	receipts := make([]*types.TransactionReceipt, len(block.Transactions))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, p.receiptWorkers)
-
-	for i, tx := range block.Transactions {
-		wg.Add(1)
-		go func(idx int, txHash string) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				return
-			}
-			receipt, err := p.ethClient.GetTransactionReceipt(ctx, txHash)
-			if err != nil {
-				if ctx.Err() == nil {
-					logger.Sugar.Warnf("Failed to fetch receipt for tx %s: %v", txHash, err)
-				}
-				return
-			}
-			receipts[idx] = receipt
-		}(i, tx.Hash)
-	}
-	wg.Wait()
-
-	validReceipts := make([]*types.TransactionReceipt, 0, len(receipts))
-	for _, r := range receipts {
-		if r != nil {
-			validReceipts = append(validReceipts, r)
-		}
-	}
-
-	return transactions, validReceipts
-}
-
-// createBlockBatchWithRetry attempts to write the block batch to DefraDB with retries.
-func (p *ConcurrentBlockProcessor) createBlockBatchWithRetry(ctx context.Context, block *types.Block, blockNum int64, transactions []*types.Transaction, validReceipts []*types.TransactionReceipt, result *BlockResult) *BlockResult {
 	for attempt := range MaxRPCRetries {
 		if ctx.Err() != nil {
-			result.Error = ctx.Err()
-			return result
+			return &BlockResult{BlockNum: blockNum, Error: ctx.Err()}
 		}
 
-		blockID, err := p.blockHandler.CreateBlockBatch(ctx, block, transactions, validReceipts)
+		res, err := p.blockHandler.Store(ctx, result)
 		if err == nil {
-			result.Success = true
-			result.BlockID = blockID
-			return result
+			return &BlockResult{BlockNum: blockNum, BlockID: res.BlockID, Success: true}
 		}
 
 		if errors.IsErrAlreadyExists(err) {
-			select {
-			case p.signingChan <- signingJob{
-				blockNum:     blockNum,
-				blockHash:    block.Hash,
-				block:        block,
-				transactions: transactions,
-				receipts:     validReceipts,
-			}:
-			default:
-				logger.Sugar.Warnf("Block %d: signing queue full, skipping block signature", blockNum)
-			}
-			result.Success = true
-			result.BlockID = "existing"
-			return result
+			go func() {
+				if _, sErr := p.blockHandler.SignExisting(ctx, result, blockHash, blockNum); sErr != nil {
+					logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, sErr)
+				}
+			}()
+			return &BlockResult{BlockNum: blockNum, Success: true}
 		}
 
 		if errors.IsErrTransactionConflict(err) && attempt < MaxRPCRetries-1 {
 			logger.Sugar.Infof("Block %d transaction conflict, retrying (attempt %d/%d)", blockNum, attempt+1, MaxRPCRetries)
 			select {
 			case <-ctx.Done():
-				result.Error = ctx.Err()
-				return result
-			case <-time.After(time.Duration(attempt+1) * TransactionConflictRetryBaseDelay):
+				return &BlockResult{BlockNum: blockNum, Error: ctx.Err()}
+			case <-time.After(time.Duration(attempt+1) * transactionConflictRetryBaseDelay):
 			}
 			continue
 		}
 
-		result.Error = fmt.Errorf("failed to create block batch: %w", err)
-		return result
+		return &BlockResult{BlockNum: blockNum, Error: fmt.Errorf("failed to store block: %w", err)}
 	}
+	return &BlockResult{BlockNum: blockNum, Error: fmt.Errorf("failed to store block %d: exhausted retries", blockNum)}
+}
 
-	return result
+// extractBlockHash finds the block group (the one with BlockHashField != "")
+// and returns its block hash value. Returns "" if no block group is found.
+func extractBlockHash(groups []chains.DocumentGroup) string {
+	for _, g := range groups {
+		if g.BlockHashField != "" && len(g.Docs) > 0 {
+			if hash, ok := g.Docs[0][g.BlockHashField].(string); ok {
+				return hash
+			}
+		}
+	}
+	return ""
 }

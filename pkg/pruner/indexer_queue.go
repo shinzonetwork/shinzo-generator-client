@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
@@ -18,23 +17,23 @@ const (
 	uuidSize                    = 16
 	uuidHexWithoutHyphensLen    = 32 // hex-encoded uuidSize bytes
 	indexerQueueEntriesPrealloc = 128
+	indexerQueueGobVersion      = 1
 	//
 	docIDPrefix = "bae"
 )
 
 // BlockEntry holds all document IDs created for a single block.
 type BlockEntry struct {
-	BlockNumber    int64
-	BlockDocID     [uuidSize]byte // single UUID for the block document
-	TransactionIDs []byte         // packed UUIDs: len/16 = count
-	LogIDs         []byte         // packed UUIDs: len/16 = count
-	AccessListIDs  []byte         // packed UUIDs: len/16 = count
-	BatchSigID     [uuidSize]byte // single UUID for batch signature
-	HasBatchSig    bool
+	BlockNumber int64
+	BlockDocID  [uuidSize]byte    // single UUID for the block document
+	OtherDocIDs map[string][]byte // collectionName → packed UUIDs (len/16 = count)
+	BatchSigID  [uuidSize]byte    // single UUID for batch signature
+	HasBatchSig bool
 }
 
 // indexerQueueSnapshot is the serializable form of the queue.
 type indexerQueueSnapshot struct {
+	Version     int
 	DocIDPrefix string
 	Entries     []BlockEntry
 }
@@ -75,7 +74,13 @@ func (q *IndexerQueue) LoadFromFile(path string) (int, error) {
 
 	var snap indexerQueueSnapshot
 	if err := gob.NewDecoder(f).Decode(&snap); err != nil {
-		return 0, fmt.Errorf("failed to decode queue file: %w", err)
+		logger.Sugar.Warnf("Failed to decode queue file (format changed, starting empty): %v", err)
+		return 0, nil
+	}
+
+	if snap.Version != indexerQueueGobVersion {
+		logger.Sugar.Warnf("Queue file version mismatch (got %d, want %d), starting empty", snap.Version, indexerQueueGobVersion)
+		return 0, nil
 	}
 
 	q.mu.Lock()
@@ -95,6 +100,7 @@ func (q *IndexerQueue) Save() error {
 
 	q.mu.Lock()
 	snap := indexerQueueSnapshot{
+		Version:     indexerQueueGobVersion,
 		DocIDPrefix: docIDPrefix,
 		Entries:     make([]BlockEntry, len(q.entries)),
 	}
@@ -142,6 +148,7 @@ func (q *IndexerQueue) Save() error {
 
 // TrackBlockDocIDs adds a block's docIDs to the queue.
 // blockDocID is the block document ID, otherDocIDs maps collection name → docID list.
+// All entries in otherDocIDs are stored — no chain-specific filtering is applied.
 func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, otherDocIDs map[string][]string, batchSigID string) error {
 	entry := BlockEntry{
 		BlockNumber: blockNumber,
@@ -155,31 +162,20 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 		entry.BlockDocID = uuid
 	}
 
-	// Pack transaction IDs
-	if txIDs, ok := otherDocIDs[constants.CollectionTransaction]; ok && len(txIDs) > 0 {
-		packed, err := q.packDocIDs(txIDs)
-		if err != nil {
-			return fmt.Errorf("invalid tx docID: %w", err)
+	if len(otherDocIDs) > 0 {
+		entry.OtherDocIDs = make(map[string][]byte, len(otherDocIDs))
+		for colName, docIDs := range otherDocIDs {
+			if len(docIDs) == 0 {
+				continue
+			}
+			packed, err := q.packDocIDs(docIDs)
+			if err != nil {
+				return fmt.Errorf("invalid docID for %s: %w", colName, err)
+			}
+			if len(packed) > 0 {
+				entry.OtherDocIDs[colName] = packed
+			}
 		}
-		entry.TransactionIDs = packed
-	}
-
-	// Pack log IDs
-	if logIDs, ok := otherDocIDs[constants.CollectionLog]; ok && len(logIDs) > 0 {
-		packed, err := q.packDocIDs(logIDs)
-		if err != nil {
-			return fmt.Errorf("invalid log docID: %w", err)
-		}
-		entry.LogIDs = packed
-	}
-
-	// Pack access list entry IDs
-	if aleIDs, ok := otherDocIDs[constants.CollectionAccessListEntry]; ok && len(aleIDs) > 0 {
-		packed, err := q.packDocIDs(aleIDs)
-		if err != nil {
-			return fmt.Errorf("invalid ALE docID: %w", err)
-		}
-		entry.AccessListIDs = packed
 	}
 
 	if batchSigID != "" {
@@ -205,9 +201,9 @@ func (q *IndexerQueue) DocCount() int {
 	total := 0
 	for _, entry := range q.entries {
 		total++ // block doc itself
-		total += len(entry.TransactionIDs) / uuidSize
-		total += len(entry.LogIDs) / uuidSize
-		total += len(entry.AccessListIDs) / uuidSize
+		for _, packed := range entry.OtherDocIDs {
+			total += len(packed) / uuidSize
+		}
 		if entry.HasBatchSig {
 			total++
 		}
@@ -215,9 +211,21 @@ func (q *IndexerQueue) DocCount() int {
 	return total
 }
 
+// entryDocCount returns the document count for a single entry (block + others + sig).
+func entryDocCount(entry BlockEntry) int {
+	count := 1 // block doc
+	for _, packed := range entry.OtherDocIDs {
+		count += len(packed) / uuidSize
+	}
+	if entry.HasBatchSig {
+		count++
+	}
+	return count
+}
+
 // DrainByDocCount removes the oldest block entries until at least `excess` documents
 // have been accumulated.
-func (q *IndexerQueue) DrainByDocCount(excess int, collections CollectionConfig) *DrainResult {
+func (q *IndexerQueue) DrainByDocCount(excess int, blockCollectionName, blockSigCollectionName string) *DrainResult {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -234,13 +242,7 @@ func (q *IndexerQueue) DrainByDocCount(excess int, collections CollectionConfig)
 	docsAccumulated := 0
 	cutoff := 0
 	for i, entry := range q.entries {
-		docsAccumulated++ // block doc
-		docsAccumulated += len(entry.TransactionIDs) / uuidSize
-		docsAccumulated += len(entry.LogIDs) / uuidSize
-		docsAccumulated += len(entry.AccessListIDs) / uuidSize
-		if entry.HasBatchSig {
-			docsAccumulated++
-		}
+		docsAccumulated += entryDocCount(entry)
 		if docsAccumulated >= excess {
 			cutoff = i + 1
 			break
@@ -259,44 +261,12 @@ func (q *IndexerQueue) DrainByDocCount(excess int, collections CollectionConfig)
 	copy(remaining, q.entries[drainCount:])
 	q.entries = remaining
 
-	// Build DrainResult grouped by collection
-	result := &DrainResult{
-		DocIDsByCollection: make(map[string][]string),
-		BlockCount:         drainCount,
-	}
-
-	var blockIDs []string
-	for _, entry := range drained {
-		blockIDs = append(blockIDs, q.RestoreDocID(entry.BlockDocID))
-
-		if txIDs := q.UnpackDocIDs(entry.TransactionIDs); len(txIDs) > 0 {
-			result.DocIDsByCollection[constants.CollectionTransaction] = append(
-				result.DocIDsByCollection[constants.CollectionTransaction], txIDs...)
-		}
-		if logIDs := q.UnpackDocIDs(entry.LogIDs); len(logIDs) > 0 {
-			result.DocIDsByCollection[constants.CollectionLog] = append(
-				result.DocIDsByCollection[constants.CollectionLog], logIDs...)
-		}
-		if aleIDs := q.UnpackDocIDs(entry.AccessListIDs); len(aleIDs) > 0 {
-			result.DocIDsByCollection[constants.CollectionAccessListEntry] = append(
-				result.DocIDsByCollection[constants.CollectionAccessListEntry], aleIDs...)
-		}
-		if entry.HasBatchSig {
-			result.DocIDsByCollection[constants.CollectionBlockSignature] = append(
-				result.DocIDsByCollection[constants.CollectionBlockSignature], q.RestoreDocID(entry.BatchSigID))
-		}
-	}
-
-	if len(blockIDs) > 0 {
-		result.DocIDsByCollection[collections.BlockCollection] = blockIDs
-	}
-
-	return result
+	return q.buildDrainResult(drained, drainCount, blockCollectionName, blockSigCollectionName)
 }
 
 // Drain removes and returns the oldest entries, keeping only the last `keep` entries.
 // Returns a DrainResult with docIDs grouped by collection name.
-func (q *IndexerQueue) Drain(keep int, collections CollectionConfig) *DrainResult {
+func (q *IndexerQueue) Drain(keep int, blockCollectionName, blockSigCollectionName string) *DrainResult {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -317,7 +287,13 @@ func (q *IndexerQueue) Drain(keep int, collections CollectionConfig) *DrainResul
 	copy(remaining, q.entries[drainCount:])
 	q.entries = remaining
 
-	// Build DrainResult grouped by collection
+	return q.buildDrainResult(drained, drainCount, blockCollectionName, blockSigCollectionName)
+}
+
+// buildDrainResult rebuilds DocIDsByCollection from the drained entries:
+// block docIDs under the block collection name, batch-sig docIDs under the
+// block-signature collection name, and all OtherDocIDs under their own keys.
+func (q *IndexerQueue) buildDrainResult(drained []BlockEntry, drainCount int, blockCollectionName, blockSigCollectionName string) *DrainResult {
 	result := &DrainResult{
 		DocIDsByCollection: make(map[string][]string),
 		BlockCount:         drainCount,
@@ -327,26 +303,20 @@ func (q *IndexerQueue) Drain(keep int, collections CollectionConfig) *DrainResul
 	for _, entry := range drained {
 		blockIDs = append(blockIDs, q.RestoreDocID(entry.BlockDocID))
 
-		if txIDs := q.UnpackDocIDs(entry.TransactionIDs); len(txIDs) > 0 {
-			result.DocIDsByCollection[constants.CollectionTransaction] = append(
-				result.DocIDsByCollection[constants.CollectionTransaction], txIDs...)
-		}
-		if logIDs := q.UnpackDocIDs(entry.LogIDs); len(logIDs) > 0 {
-			result.DocIDsByCollection[constants.CollectionLog] = append(
-				result.DocIDsByCollection[constants.CollectionLog], logIDs...)
-		}
-		if aleIDs := q.UnpackDocIDs(entry.AccessListIDs); len(aleIDs) > 0 {
-			result.DocIDsByCollection[constants.CollectionAccessListEntry] = append(
-				result.DocIDsByCollection[constants.CollectionAccessListEntry], aleIDs...)
+		for colName, packed := range entry.OtherDocIDs {
+			if ids := q.UnpackDocIDs(packed); len(ids) > 0 {
+				result.DocIDsByCollection[colName] = append(
+					result.DocIDsByCollection[colName], ids...)
+			}
 		}
 		if entry.HasBatchSig {
-			result.DocIDsByCollection[constants.CollectionBlockSignature] = append(
-				result.DocIDsByCollection[constants.CollectionBlockSignature], q.RestoreDocID(entry.BatchSigID))
+			result.DocIDsByCollection[blockSigCollectionName] = append(
+				result.DocIDsByCollection[blockSigCollectionName], q.RestoreDocID(entry.BatchSigID))
 		}
 	}
 
-	if len(blockIDs) > 0 {
-		result.DocIDsByCollection[collections.BlockCollection] = blockIDs
+	if len(blockIDs) > 0 && blockCollectionName != "" {
+		result.DocIDsByCollection[blockCollectionName] = blockIDs
 	}
 
 	return result

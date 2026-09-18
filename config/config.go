@@ -9,13 +9,19 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"gopkg.in/yaml.v3"
 )
 
 // CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
+
+// DefaultChainAdapter is the default and currently only supported chain adapter type.
+const DefaultChainAdapter = "evm"
+
+// DefaultLowestBlockQueryLimit is the default row window for the lowest-block
+// number query when converter.lowest_block_query_limit is unset. A window > 1
+// lets the query skip purge residue with a missing or unparsable number.
+const DefaultLowestBlockQueryLimit = 1
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -70,11 +76,12 @@ func (d *DefraDBConfig) Host() string {
 	return d.URL
 }
 
-// ChainConfig represents the EVM chain being indexed.
+// ChainConfig represents the chain being indexed.
 type ChainConfig struct {
 	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
 	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
 	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
+	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -113,15 +120,95 @@ type LoggerConfig struct {
 	Development bool `yaml:"development"`
 }
 
+// PrunerConfig represents pruner configuration for removing old documents.
+type PrunerConfig struct {
+	Enabled         bool  `yaml:"enabled"`
+	MaxBlocks       int64 `yaml:"max_blocks"`      // Number of blocks to retain
+	DocsPerBlock    int   `yaml:"docs_per_block"`  // Average docs per block (~1057 on Ethereum mainnet)
+	PruneThreshold  int64 `yaml:"prune_threshold"` // Deprecated: kept for backward compatibility, unused by pruner
+	IntervalSeconds int   `yaml:"interval_seconds"`
+	PruneHistory    bool  `yaml:"prune_history"`
+	// MaxBlocksPerCycle caps how many blocks one cycle may delete. A cycle's wall time scales with
+	// what it deletes, so without a cap a large backlog produces a cycle long enough that the queue
+	// cannot be checkpointed for hours. Zero leaves a cycle unbounded.
+	MaxBlocksPerCycle int64 `yaml:"max_blocks_per_cycle"`
+}
+
+// MaxDocs returns the effective maximum document count: max_blocks * docs_per_block.
+func (c *PrunerConfig) MaxDocs() int64 {
+	return c.MaxBlocks * int64(c.DocsPerBlock)
+}
+
+// SetDefaults fills in zero-value fields with sensible defaults.
+func (c *PrunerConfig) SetDefaults() {
+	if c.MaxBlocks <= 0 {
+		c.MaxBlocks = 10000
+	}
+	if c.DocsPerBlock <= 0 {
+		c.DocsPerBlock = 1000
+	}
+	if c.IntervalSeconds <= 0 {
+		c.IntervalSeconds = 60
+	}
+}
+
+// DefaultMaxSnapshots is the default number of snapshot files retained when max_snapshots is unset.
+const DefaultMaxSnapshots = 100
+
+// SnapshotConfig holds snapshot configuration.
+type SnapshotConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	Dir             string `yaml:"dir"`
+	BlocksPerFile   int64  `yaml:"blocks_per_file"`
+	IntervalSeconds int    `yaml:"interval_seconds"`
+	// MaxSnapshots is the number of newest snapshot files to retain; older files
+	// (and their companion signature docs) are purged. 0 = DefaultMaxSnapshots,
+	// -1 = unlimited (no purge).
+	MaxSnapshots int `yaml:"max_snapshots"`
+}
+
+// SetDefaults applies default values for unset fields.
+func (c *SnapshotConfig) SetDefaults() {
+	if c.Dir == "" {
+		c.Dir = "./snapshots"
+	}
+	if c.BlocksPerFile <= 0 {
+		c.BlocksPerFile = 1000
+	}
+	if c.IntervalSeconds <= 0 {
+		c.IntervalSeconds = 60
+	}
+	if c.MaxSnapshots == 0 {
+		c.MaxSnapshots = DefaultMaxSnapshots
+	}
+}
+
+// ConverterConfig represents chain converter configuration.
+type ConverterConfig struct {
+	// LowestBlockQueryLimit is the row-window size for the lowest-block
+	// number query. Purge residue can leave rows with a missing or
+	// unparseable number; a window > 1 lets the scan skip them.
+	// Default 1 = legacy single-row query.
+	LowestBlockQueryLimit int `yaml:"lowest_block_query_limit"`
+}
+
+// SetDefaults applies default values for unset fields.
+func (c *ConverterConfig) SetDefaults() {
+	if c.LowestBlockQueryLimit <= 0 {
+		c.LowestBlockQueryLimit = DefaultLowestBlockQueryLimit
+	}
+}
+
 // Config represents the main configuration structure.
 type Config struct {
-	Chain    ChainConfig     `yaml:"chain"`
-	DefraDB  DefraDBConfig   `yaml:"defradb"`
-	Geth     GethConfig      `yaml:"geth"`
-	Indexer  IndexerConfig   `yaml:"indexer"`
-	Pruner   pruner.Config   `yaml:"pruner"`
-	Snapshot snapshot.Config `yaml:"snapshot"`
-	Logger   LoggerConfig    `yaml:"logger"`
+	Chain     ChainConfig     `yaml:"chain"`
+	DefraDB   DefraDBConfig   `yaml:"defradb"`
+	Geth      GethConfig      `yaml:"geth"`
+	Indexer   IndexerConfig   `yaml:"indexer"`
+	Pruner    PrunerConfig    `yaml:"pruner"`
+	Snapshot  SnapshotConfig  `yaml:"snapshot"`
+	Converter ConverterConfig `yaml:"converter"`
+	Logger    LoggerConfig    `yaml:"logger"`
 }
 
 // LoadConfig loads configuration from a YAML file and environment variables.
@@ -164,6 +251,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Chain.Network == "" {
 		cfg.Chain.Network = "Mainnet"
 	}
+	if cfg.Chain.Adapter == "" {
+		cfg.Chain.Adapter = DefaultChainAdapter
+	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
 	}
@@ -189,10 +279,17 @@ func applyDefaults(cfg *Config) {
 
 	// Snapshot defaults.
 	cfg.Snapshot.SetDefaults()
+
+	// Converter defaults.
+	cfg.Converter.SetDefaults()
 }
 
 // validateConfig validates the configuration.
 func validateConfig(cfg *Config) error {
+	if cfg.Chain.Adapter != DefaultChainAdapter {
+		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", cfg.Chain.Adapter, DefaultChainAdapter)
+	}
+
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
 	}
@@ -208,6 +305,25 @@ func validateConfig(cfg *Config) error {
 	if !cfg.DefraDB.Embedded && strings.TrimSpace(cfg.DefraDB.URL) == "" {
 		return fmt.Errorf("external DefraDB requires a non-empty url")
 	}
+
+	if cfg.Snapshot.MaxSnapshots < -1 {
+		return fmt.Errorf("max_snapshots must be >= -1 (0 = default %d, -1 = unlimited)", DefaultMaxSnapshots)
+	}
+
+	// Snapshot coverage must span the pruner retention window so blocks purged
+	// from DefraDB remain recoverable from on-disk snapshots. Skipped when the
+	// pruner is disabled (no retention window to cover), the snapshotter is
+	// disabled (no snapshots to cover it), or max_snapshots is unlimited (-1).
+	if cfg.Snapshot.Enabled && cfg.Pruner.Enabled && cfg.Snapshot.MaxSnapshots > 0 {
+		coverage := int64(cfg.Snapshot.MaxSnapshots) * cfg.Snapshot.BlocksPerFile
+		if coverage < cfg.Pruner.MaxBlocks {
+			return fmt.Errorf(
+				"snapshot coverage (max_snapshots=%d * blocks_per_file=%d = %d) must be >= pruner max_blocks=%d: increase max_snapshots or blocks_per_file, lower max_blocks, or set max_snapshots: -1",
+				cfg.Snapshot.MaxSnapshots, cfg.Snapshot.BlocksPerFile, coverage, cfg.Pruner.MaxBlocks,
+			)
+		}
+	}
+
 	return nil
 }
 
@@ -221,6 +337,7 @@ func applyEnvOverrides(cfg *Config) error {
 	applySchemaEnvOverrides(cfg)
 	applyPrunerEnvOverrides(cfg)
 	applySnapshotEnvOverrides(cfg)
+	applyConverterEnvOverrides(cfg)
 
 	if loggerDebug := os.Getenv("LOGGER_DEBUG"); loggerDebug != "" {
 		if debug, err := strconv.ParseBool(loggerDebug); err == nil {
@@ -340,6 +457,9 @@ func applyChainEnvOverrides(cfg *Config) {
 	}
 	if shinzoHubHost := os.Getenv("SHINZOHUB_REST_BASE"); shinzoHubHost != "" {
 		cfg.Chain.Hub = shinzoHubHost
+	}
+	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
+		cfg.Chain.Adapter = chainAdapter
 	}
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL
@@ -468,6 +588,20 @@ func applySnapshotEnvOverrides(cfg *Config) {
 	if snapshotInterval := os.Getenv("SNAPSHOT_INTERVAL_SECONDS"); snapshotInterval != "" {
 		if n, err := strconv.Atoi(snapshotInterval); err == nil {
 			cfg.Snapshot.IntervalSeconds = n
+		}
+	}
+	if snapshotMaxSnapshots := os.Getenv("SNAPSHOT_MAX_SNAPSHOTS"); snapshotMaxSnapshots != "" {
+		if n, err := strconv.Atoi(snapshotMaxSnapshots); err == nil {
+			cfg.Snapshot.MaxSnapshots = n
+		}
+	}
+}
+
+// applyConverterEnvOverrides applies converter environment variable overrides.
+func applyConverterEnvOverrides(cfg *Config) {
+	if v := os.Getenv("CONVERTER_LOWEST_BLOCK_QUERY_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Converter.LowestBlockQueryLimit = n
 		}
 	}
 }
