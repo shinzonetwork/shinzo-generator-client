@@ -251,8 +251,12 @@ func toInt64(v any) (int64, error) {
 // access-list entries, etc.) from the ConversionResult. It writes the block
 // document first, then writes the remaining groups in order, resolving
 // cross-document link fields (_blockID, _transactionID) via the
-// chain-provided LinkStamper. The block signature is created over the
-// collected CIDs when signing identity is available.
+// chain-provided LinkStamper. Stamping failures are collected as batch errors,
+// which suppress the block signature and surface in Store's returned error.
+// Processing is fail-fast: the first group stamp or write failure stops the
+// remaining groups, since a skipped parent would leave its dependents written
+// without links. The block signature is created over the collected CIDs when
+// signing identity is available.
 func (h *BlockHandler) Store(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -284,30 +288,28 @@ func (h *BlockHandler) Store(
 		return nil, err
 	}
 
-	if result.LinkStamper != nil {
-		result.LinkStamper.StampLinks(result.Groups, blockGroup.Collection, blockGroup.Docs, []string{blockID})
-	}
-
 	allDocIDs := []string{blockID}
 	otherDocIDs := map[string][]string{}
 	var batchErrors []error
 
+	stampGroupLinks(result, blockGroup, []string{blockID}, &batchErrors)
+
 	for _, g := range result.Groups[1:] {
-		if result.LinkStamper != nil {
-			result.LinkStamper.StampLinks(result.Groups, g.Collection, g.Docs, nil)
+		if !stampGroupLinks(result, g, nil, &batchErrors) {
+			break // fail-fast: dependents of this group would be written unlinked
 		}
 
 		ids, err := h.writeGroup(ctx, blockInt, g)
-		if err != nil {
-			batchErrors = append(batchErrors, err)
-		}
-
-		if result.LinkStamper != nil {
-			result.LinkStamper.StampLinks(result.Groups, g.Collection, g.Docs, ids)
-		}
-
 		otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
 		allDocIDs = append(allDocIDs, ids...)
+		if err != nil {
+			batchErrors = append(batchErrors, err)
+			break // fail-fast: a partial write leaves dependents unlinked
+		}
+
+		if !stampGroupLinks(result, g, ids, &batchErrors) {
+			break // fail-fast (unreachable when the pre-write pass passed)
+		}
 	}
 
 	blockSigDocID := h.signStoredBlock(ctx, blockInt, blockHash, allDocIDs, batchErrors, result.SignatureCollection, collector)
@@ -332,6 +334,27 @@ func (h *BlockHandler) Store(
 	}
 
 	return creationResult, nil
+}
+
+// stampGroupLinks stamps a group's documents via the conversion result's
+// LinkStamper, when one is configured. A stamping failure is recorded in
+// batchErrors and reported as false; callers must stop processing the
+// remaining groups (fail-fast), since a skipped parent would leave its
+// dependents written without links. A nil stamper is a no-op.
+func stampGroupLinks(
+	result chains.ConversionResult,
+	group chains.DocumentGroup,
+	docIDs []string,
+	batchErrors *[]error,
+) bool {
+	if result.LinkStamper == nil {
+		return true
+	}
+	if err := result.LinkStamper.StampLinks(result.Groups, group.Collection, group.Docs, docIDs); err != nil {
+		*batchErrors = append(*batchErrors, err)
+		return false
+	}
+	return true
 }
 
 // writeGroup writes a DocumentGroup's docs in batches, returning all docIDs.
@@ -501,6 +524,11 @@ func (h *BlockHandler) createDocsInTxn(
 // groups produced by Convert, minus the signature group).
 // result.SignatureCollection names the collection where the block signature
 // document will be stored.
+//
+// Completeness guard: for each group the store must hold at least as many
+// docs as the group expects. A shortfall means the block was partially
+// indexed (e.g. its stamping failed, leaving only the block doc), and
+// signing fails so an incomplete block never carries a signature.
 func (h *BlockHandler) SignExisting(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -521,6 +549,10 @@ func (h *BlockHandler) SignExisting(
 		docIDs, err := h.queryCollectionDocIDs(ctx, g.Collection, field, blockNumber, blockNumber)
 		if err != nil {
 			return "", fmt.Errorf("query docIDs for %s: %w", g.Collection, err) //nolint:err113
+		}
+		if len(docIDs) < len(g.Docs) {
+			return "", fmt.Errorf("failed to sign incomplete block %d: collection %s has %d stored docs, expected %d",
+				blockNumber, g.Collection, len(docIDs), len(g.Docs))
 		}
 		allDocIDs = append(allDocIDs, docIDs...)
 		collectionNames = append(collectionNames, g.Collection)

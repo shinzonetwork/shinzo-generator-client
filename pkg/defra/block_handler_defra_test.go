@@ -16,6 +16,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -916,6 +917,49 @@ func TestSignExisting_NoIdentity(t *testing.T) {
 	assert.Contains(t, err.Error(), "no identity available for signing")
 }
 
+func TestSignExisting_RefusesIncompleteBlock(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	handler, err := NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+
+	block := mockBlock("0xE10") // 3600
+	tx := mockTransaction("0xaaa3000000000000000000000000000000000000000000000000000000000001", "3600")
+	receipt := mockReceipt("0xaaa3000000000000000000000000000000000000000000000000000000000001", "0xE10")
+
+	// First arrival fails to stamp the tx group; the fail-fast Store leaves
+	// only the block doc stored, with no signature.
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+	txCol := extractCollection(evm.NewCollectionNames("Ethereum__Mainnet"), chains.TypeTransaction)
+	corrupted := false
+	for i := range result.Groups {
+		if result.Groups[i].Collection == txCol {
+			require.NotEmpty(t, result.Groups[i].Docs)
+			result.Groups[i].Docs[0][constants.HashKeyValue] = ""
+			corrupted = true
+		}
+	}
+	require.True(t, corrupted, "transaction group must be present in conversion result")
+
+	_, err = handler.Store(ctxWithIdentity(t), result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "link stamper")
+
+	// Re-arrival with clean data: the completeness guard must fail to sign
+	// the partial block instead of signing over just the block doc.
+	clean := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+	sigCtx := ctxWithIdentity(t)
+	sigDocID, err := handler.SignExisting(sigCtx, clean, block.Hash, 3600)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to sign incomplete block")
+	assert.Empty(t, sigDocID)
+
+	// No signature document may exist for the incomplete block.
+	sigIDs, qErr := handler.queryCollectionDocIDs(sigCtx, clean.SignatureCollection, "blockNumber", 3600, 3600)
+	require.NoError(t, qErr)
+	assert.Empty(t, sigIDs, "an incomplete block must never acquire a signature doc")
+}
+
 // ---------------------------------------------------------------------------
 // Store — transaction with no matching receipt
 // ---------------------------------------------------------------------------
@@ -1020,4 +1064,212 @@ func TestStore_BatchedMode_TransactionsMultipleBatches(t *testing.T) {
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
+}
+
+// ---------------------------------------------------------------------------
+// Store — link stamping error contract
+// ---------------------------------------------------------------------------
+
+func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
+	t.Parallel()
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
+
+	tests := []struct {
+		name         string
+		role         string
+		mutate       func(doc map[string]any)
+		skippedRoles []string
+		writtenRoles []string
+	}{
+		{
+			name:         "tx hash non-string",
+			role:         chains.TypeTransaction,
+			mutate:       func(doc map[string]any) { doc[constants.HashKeyValue] = 12345 },
+			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
+		},
+		{
+			name:         "tx hash key deleted",
+			role:         chains.TypeTransaction,
+			mutate:       func(doc map[string]any) { delete(doc, constants.HashKeyValue) },
+			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
+		},
+		{
+			name:         "tx hash empty string",
+			role:         chains.TypeTransaction,
+			mutate:       func(doc map[string]any) { doc[constants.HashKeyValue] = "" },
+			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
+		},
+		{
+			name:         "log transactionHash non-string",
+			role:         chains.TypeLog,
+			mutate:       func(doc map[string]any) { doc[constants.TransactionHashKeyValue] = 42 },
+			skippedRoles: []string{chains.TypeLog, chains.TypeAccessListEntry},
+			writtenRoles: []string{chains.TypeTransaction},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			td := testutils.SetupTestDefraDB(t)
+			handler, err := NewBlockHandler(td.Node, 1000)
+			require.NoError(t, err)
+
+			tracker := &mockDocIDTracker{}
+			handler.SetDocIDTracker(tracker)
+
+			var signedCIDs []cid.Cid
+			inner := handler.signBatchFn
+			handler.signBatchFn = func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+				signedCIDs = collector.GetCIDs()
+				return inner(ctx, collector)
+			}
+
+			ctx := ctxWithIdentity(t)
+			block := mockBlock("0xDAC") // 3500
+			tx := mockTransaction("0xaaa2000000000000000000000000000000000000000000000000000000000001", "3500")
+			tx.AccessList = []evm.AccessListEntry{
+				{
+					Address:     "0x0000000000000000000000000000000000000004",
+					StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000001"},
+				},
+			}
+			receipt := mockReceipt("0xaaa2000000000000000000000000000000000000000000000000000000000001", "0xDAC")
+
+			result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+
+			// The fixture tx carries an access-list entry so the fail-fast
+			// assertions below actually exercise the ALE group too.
+			aleCol := extractCollection(cols, chains.TypeAccessListEntry)
+			hasALE := false
+			for i := range result.Groups {
+				if result.Groups[i].Collection == aleCol {
+					hasALE = true
+				}
+			}
+			require.True(t, hasALE, "fixture must produce an access-list-entry group")
+
+			// Corrupt the target doc so the stamper's validation fails.
+			targetCol := extractCollection(cols, tc.role)
+			corrupted := false
+			for i := range result.Groups {
+				if result.Groups[i].Collection == targetCol {
+					require.NotEmpty(t, result.Groups[i].Docs)
+					tc.mutate(result.Groups[i].Docs[0])
+					corrupted = true
+				}
+			}
+			require.True(t, corrupted, "%s group must be present in conversion result", tc.role)
+
+			res, err := handler.Store(ctx, result)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "link stamper")
+			require.NotNil(t, res, "creation result is returned alongside the partial-index error")
+			assert.NotEmpty(t, res.BlockID, "block doc is written before the stamping failure")
+			assert.Empty(t, res.BlockSignatureID, "stamp errors must suppress the block signature")
+
+			for _, role := range tc.skippedRoles {
+				skippedCol := extractCollection(cols, role)
+				assert.NotContains(t, res.OtherDocIDs, skippedCol,
+					"the failing group and its dependents must not be written")
+
+				// Strongest proof that nothing was written: count the docs in
+				// the collection itself. Fail-fast must leave it empty.
+				field := "blockNumber"
+				if role == chains.TypeBlock {
+					field = "number"
+				}
+				ids, qErr := handler.queryCollectionDocIDs(ctx, skippedCol, field, 3500, 3500)
+				require.NoError(t, qErr)
+				assert.Empty(t, ids, "fail-fast must leave %s empty in the store", skippedCol)
+			}
+			for _, role := range tc.writtenRoles {
+				writtenCol := extractCollection(cols, role)
+				assert.Contains(t, res.OtherDocIDs, writtenCol, "groups that stamp cleanly must still be written")
+			}
+
+			require.Len(t, tracker.trackedResults, 1)
+			assert.Empty(t, tracker.trackedResults[0].BlockSignatureID, "tracked result must record the unsigned state")
+			assert.Empty(t, signedCIDs, "no signature batch may run for a stamp-failed block")
+		})
+	}
+}
+
+func TestStore_Rearrival_SignsOverStoredCIDs(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
+	handler, err := NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+
+	var signedCIDs []cid.Cid
+	inner := handler.signBatchFn
+	handler.signBatchFn = func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		sig, err := inner(ctx, collector)
+		if err == nil && sig != nil {
+			// Record only signatures that were actually produced: pass 1
+			// runs without an identity, so its signing attempt fails inside
+			// defaultSignBatch after the collector has already been filled.
+			signedCIDs = collector.GetCIDs()
+		}
+		return sig, err
+	}
+
+	// Pass 1 stores without a signing identity (like all other Store tests):
+	// a signature and its re-signature within the same second produce
+	// identical signature documents (createdAt has second precision), whose
+	// content-addressed docIDs collide with "already exists". Signature-doc
+	// idempotency is out of scope for #360, so SignExisting is the only
+	// signer in this test.
+	block := mockBlock("0xD48") // 3400
+	tx := mockTransaction("0xaaa1000000000000000000000000000000000000000000000000000000000001", "3400")
+	receipt := mockReceipt("0xaaa1000000000000000000000000000000000000000000000000000000000001", "0xD48")
+
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+	res, err := handler.Store(context.Background(), result)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.BlockID)
+	assert.Empty(t, res.BlockSignatureID, "pass 1 is stored unsigned (no signing identity)")
+	require.Empty(t, signedCIDs)
+
+	queryStoredDocIDs := func(ctx context.Context) ([]string, []string) {
+		var docIDs, collectionNames []string
+		for _, role := range []string{chains.TypeBlock, chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry} {
+			colName := extractCollection(cols, role)
+			field := "blockNumber"
+			if role == chains.TypeBlock {
+				field = "number"
+			}
+			ids, err := handler.queryCollectionDocIDs(ctx, colName, field, 3400, 3400)
+			require.NoError(t, err)
+			docIDs = append(docIDs, ids...)
+			collectionNames = append(collectionNames, colName)
+		}
+		return docIDs, collectionNames
+	}
+
+	pass1DocIDs, _ := queryStoredDocIDs(context.Background())
+	require.Len(t, pass1DocIDs, 3, "block + tx + log stored by pass 1")
+
+	// Second arrival of the same block (re-index / P2P re-send): the block doc
+	// write fails, the stamper is never invoked, and Store reports the error.
+	result2 := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+	_, err = handler.Store(context.Background(), result2)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+	assert.Empty(t, signedCIDs, "failed re-arrival must not sign")
+
+	// Recovery path: sign over the docs already stored by the first pass.
+	sigCtx := ctxWithIdentity(t)
+	sigDocID, err := handler.SignExisting(sigCtx, result2, block.Hash, 3400)
+	require.NoError(t, err)
+	require.NotEmpty(t, sigDocID)
+
+	pass2DocIDs, collectionNames := queryStoredDocIDs(sigCtx)
+	assert.ElementsMatch(t, pass1DocIDs, pass2DocIDs, "re-arrival must not add or remove documents")
+
+	queriedCIDs, err := handler.defaultCollectDocCIDs(sigCtx, pass2DocIDs, collectionNames)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, sortedCIDStrings(queriedCIDs), sortedCIDStrings(signedCIDs),
+		"re-arrival signature must attest exactly the stored document CIDs (no misaligned links)")
 }
