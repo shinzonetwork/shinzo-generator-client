@@ -1,0 +1,12 @@
+# One per-block reward entry (fee, rent, voting, staking). Lamports is signed:
+# staking/voting rewards are credits, rent and fee can be debits.
+type Solana__Mainnet__Reward {
+    pubkey: String
+    lamports: Int
+    postBalance: String
+    rewardType: String
+    commission: String
+    slot: Int @index
+    # Relationships
+    block: Solana__Mainnet__Block @relation(name: "solana_block_rewards")
+}

@@ -1,0 +1,14 @@
+# A token balance change (one pre/postTokenBalances diff entry). Amounts are
+# stored as strings: token amounts can exceed int64 for zero-decimal
+# large-supply mints.
+type Solana__Mainnet__TokenBalanceChange {
+    mint: String
+    owner: String
+    tokenAccount: String
+    preAmount: String
+    postAmount: String
+    programId: String
+    slot: Int @index
+    # Relationships
+    transaction: Solana__Mainnet__Transaction @relation(name: "solana_transaction_tokenBalances")
+}
