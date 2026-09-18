@@ -81,9 +81,10 @@ func NewConverter(cfg *config.Config) *Converter {
 // Convert implements chains.Converter. It type-asserts rawBlock to *BlockBundle
 // and builds DocumentGroups for block, transactions, logs, and access list
 // entries. The data maps contain only field values — cross-document link fields
-// (_blockID, _transactionID) are NOT set here; they are resolved by
-// BlockHandler.Store via the returned LinkStamper after AddDocument assigns
-// persistent docIDs.
+// (_blockID, _transactionID) are NOT set here; BlockHandler.Store resolves them
+// via the returned LinkStamper: links derivable from already-recorded state are
+// stamped into the docs before each write, and each write's docIDs are
+// recorded afterwards to resolve later groups.
 //
 // Each group is tagged with BatchSize (from config) and BlockNumField (the
 // field name holding the block number in each doc map). The signature
