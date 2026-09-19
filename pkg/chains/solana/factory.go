@@ -13,14 +13,13 @@ import (
 // pkg/chains/solana so this init() runs before any dispatch via
 // chains.NewFetcher/NewConverter/NewCollections.
 //
-// Phase 1 registers the full factory set but only Collections is functional:
-// Fetcher and Converter are implemented in Phases 2-3 of the Solana adapter
-// integration (specs/features/SOLANA-ADAPTER-INTEGRATION.md) and fail fast
-// with an explanatory error until then.
+// The Fetcher is fully implemented (transport + classification); the
+// Converter remains a fail-fast stub until document conversion and link
+// resolution land in a later phase of this integration.
 func init() {
 	chains.RegisterChain(AdapterName, chains.ChainFactories{
-		Fetcher: func(_ *config.Config) (chains.Fetcher, error) {
-			return nil, fmt.Errorf("solana fetcher not yet implemented (planned Phase 2 of the Solana adapter integration)")
+		Fetcher: func(cfg *config.Config) (chains.Fetcher, error) {
+			return NewFetcherFromConfig(cfg)
 		},
 		Converter: func(_ *config.Config) (chains.Converter, error) {
 			return nil, fmt.Errorf("solana converter not yet implemented (planned Phase 3 of the Solana adapter integration)")

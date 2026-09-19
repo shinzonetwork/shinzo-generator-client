@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -769,4 +770,105 @@ func TestProcessBlocks_ErrorAndExisting(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------.
+// Skipped-height (ErrHeightSkipped) handling.
+// ---------------------------------------------------------------------------.
+
+func TestFetchBlockWithRetry_SkippedHeight(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{name: "BareSentinel", err: chains.ErrHeightSkipped},
+		{
+			name: "WrappedSentinel",
+			err:  fmt.Errorf("slot 999 below confirmed tip 1000: %w", chains.ErrHeightSkipped),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &testutils.MockFetcher{
+				FetchBlockFn: func(_ context.Context, _ int64) (any, error) {
+					return nil, tc.err
+				},
+			}
+
+			p := &ConcurrentBlockProcessor{fetcher: mock}
+
+			_, err := p.fetchBlockWithRetry(context.Background(), 999)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, chains.ErrHeightSkipped)
+			// The skipped height must not be confused with the transient
+			// not-found condition: it gets exactly one fetch attempt with no
+			// retry loop at all.
+			assert.Len(t, mock.FetchBlockCalls, 1)
+		})
+	}
+}
+
+func TestFetchBlockWithRetry_SkippedHeightNotNotFound(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	// A skipped error wrapped in a context deadline would otherwise look like
+	// the not-found loop's exit; the important property is that the fetcher
+	// sees exactly one call and the sentinel survives unwrapping.
+	mock := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, _ int64) (any, error) {
+			return nil, fmt.Errorf("classification: %w", chains.ErrHeightSkipped)
+		},
+	}
+
+	p := &ConcurrentBlockProcessor{fetcher: mock}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := p.fetchBlockWithRetry(ctx, 42)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, chains.ErrHeightSkipped)
+	assert.Len(t, mock.FetchBlockCalls, 1, "skipped heights must not be retried")
+}
+
+func TestFetchAndProcessBlock_SkippedHeight(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	mock := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, _ int64) (any, error) {
+			return nil, fmt.Errorf("slot 999 below confirmed tip 1000: %w", chains.ErrHeightSkipped)
+		},
+	}
+	storeCalls := 0
+	signCalls := 0
+	storer := &mockBlockStorer{
+		storeFn: func(context.Context, chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			storeCalls++
+			return nil, nil
+		},
+		signExistingFn: func(context.Context, chains.ConversionResult, string, int64) (string, error) {
+			signCalls++
+			return "", nil
+		},
+	}
+
+	p := &ConcurrentBlockProcessor{
+		fetcher:      mock,
+		blockHandler: storer,
+	}
+
+	result := p.fetchAndProcessBlock(context.Background(), 999)
+	require.NotNil(t, result)
+	assert.True(t, result.Success, "skipped heights commit as success so the window advances")
+	assert.Empty(t, result.BlockID, "no block doc exists, so no doc ID and no signing")
+	assert.Nil(t, result.Error)
+	assert.Zero(t, storeCalls, "no conversion or store for a skipped height")
+	assert.Zero(t, signCalls, "nothing to sign for a skipped height")
 }

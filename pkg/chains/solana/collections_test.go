@@ -177,15 +177,30 @@ func TestFactory_Collections(t *testing.T) {
 	assert.Equal(t, solana.DefaultCollectionPrefix, c.Prefix())
 }
 
-func TestFactory_FetcherAndConverter_NotYetImplemented(t *testing.T) {
+func TestFactory_FetcherAndConverter(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Config{Chain: config.ChainConfig{Adapter: solana.AdapterName}}
+	cfg := &config.Config{
+		Chain: config.ChainConfig{
+			Adapter: solana.AdapterName,
+			Name:    "Solana",
+			Network: "Devnet",
+		},
+		Solana: config.SolanaConfig{
+			RPCURL:    "https://api.devnet.solana.com",
+			Commitment: config.DefaultSolanaCommitment,
+			MaxSupportedTransactionVersion: config.DefaultSolanaMaxSupportedTxVersion,
+		},
+	}
 
+	// The fetcher is fully implemented: it constructs without dialing
+	// (Connect performs the RPC health check).
 	f, err := chains.NewFetcher(cfg)
-	require.Error(t, err)
-	assert.Nil(t, f)
-	assert.Contains(t, err.Error(), "solana fetcher not yet implemented")
+	require.NoError(t, err)
+	require.NotNil(t, f)
+	sf, ok := f.(*solana.Fetcher)
+	require.True(t, ok, "factory must return the concrete *solana.Fetcher")
+	assert.NotNil(t, sf)
 
 	c, err := chains.NewConverter(cfg)
 	require.Error(t, err)
