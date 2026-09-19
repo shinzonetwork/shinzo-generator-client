@@ -1004,7 +1004,7 @@ func TestFetchAndProcessBlock_SkippedHeight(t *testing.T) {
 	storer := &mockBlockStorer{
 		storeFn: func(context.Context, chains.ConversionResult) (*defra.BlockCreationResult, error) {
 			storeCalls++
-			return nil, nil
+			return nil, nil //nolint:nilnil // mock: the skipped path discards the result before use
 		},
 		signExistingFn: func(context.Context, chains.ConversionResult, string, int64) (string, error) {
 			signCalls++

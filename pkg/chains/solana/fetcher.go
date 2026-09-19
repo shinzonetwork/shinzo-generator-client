@@ -11,9 +11,9 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 )
 
-// rpcClient abstracts the subset of *SolanaClient methods used by the
+// rpcClient abstracts the subset of *Client methods used by the
 // fetcher. It exists so tests can inject a lightweight fake without dialing
-// a real RPC endpoint. *SolanaClient satisfies this interface.
+// a real RPC endpoint. *Client satisfies this interface.
 type rpcClient interface {
 	GetBlock(ctx context.Context, slot uint64) (*Block, error)
 	GetBlockFromArchive(ctx context.Context, slot uint64) (*Block, error)
@@ -24,7 +24,7 @@ type rpcClient interface {
 // Compile-time guarantees: the concrete client satisfies the test seam, and
 // Fetcher satisfies the chain-agnostic fetcher contract.
 var (
-	_ rpcClient      = (*SolanaClient)(nil)
+	_ rpcClient      = (*Client)(nil)
 	_ chains.Fetcher = (*Fetcher)(nil)
 )
 
@@ -44,14 +44,14 @@ type Fetcher struct {
 	// values leave connectivity unbounded (the caller's context governs).
 	// The low-level NewFetcher constructor sets client directly and leaves
 	// these blank, making Connect a no-op.
-	nodeURL     string
-	archiveURL  string
-	apiKey      string
-	apiKeyType  string
-	commitment  string
+	nodeURL      string
+	archiveURL   string
+	apiKey       string
+	apiKeyType   string
+	commitment   string
 	maxTxVersion uint64
-	rewards     bool
-	dialTimeout time.Duration
+	rewards      bool
+	dialTimeout  time.Duration
 }
 
 // NewFetcher creates a Fetcher wrapping the given RPC client. Intended for
@@ -67,15 +67,16 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 	if cfg == nil {
 		return nil, errors.NewConfigurationError("solana", "NewFetcherFromConfig", "config is nil", "", nil)
 	}
+	maxTxVersion := uint64(cfg.Solana.MaxSupportedTransactionVersion) //nolint:gosec // config validation normalizes this to a positive default
 	return &Fetcher{
-		nodeURL:       cfg.Solana.RPCURL,
-		archiveURL:    cfg.Solana.ArchiveRPCURL,
-		apiKey:        cfg.Solana.APIKey,
-		apiKeyType:    cfg.Solana.APIKeyType,
-		commitment:    cfg.Solana.Commitment,
-		maxTxVersion:  uint64(cfg.Solana.MaxSupportedTransactionVersion),
-		rewards:       cfg.Solana.RewardsEnabled(),
-		dialTimeout:   time.Duration(cfg.Solana.DialTimeoutSeconds) * time.Second,
+		nodeURL:      cfg.Solana.RPCURL,
+		archiveURL:   cfg.Solana.ArchiveRPCURL,
+		apiKey:       cfg.Solana.APIKey,
+		apiKeyType:   cfg.Solana.APIKeyType,
+		commitment:   cfg.Solana.Commitment,
+		maxTxVersion: maxTxVersion,
+		rewards:      cfg.Solana.RewardsEnabled(),
+		dialTimeout:  time.Duration(cfg.Solana.DialTimeoutSeconds) * time.Second,
 	}, nil
 }
 
@@ -92,7 +93,7 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 		ctx, cancel = context.WithTimeout(ctx, f.dialTimeout)
 		defer cancel()
 	}
-	client, err := NewSolanaClient(ctx, SolanaClientOptions{
+	client, err := NewClient(ctx, ClientOptions{
 		RPCURL:                         f.nodeURL,
 		ArchiveRPCURL:                  f.archiveURL,
 		Commitment:                     f.commitment,
@@ -129,7 +130,10 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
 	}
-	slot := uint64(height)
+	if height < 0 {
+		return nil, fmt.Errorf("invalid height %d: slot numbers are non-negative", height)
+	}
+	slot := uint64(height) //nolint:gosec // guarded non-negative above
 
 	block, err := f.client.GetBlock(ctx, slot)
 	if err == nil {
@@ -216,7 +220,7 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get highest slot: %w", err)
 	}
-	return int64(slot), nil
+	return int64(slot), nil //nolint:gosec // confirmed slots stay far below int64 max
 }
 
 // Close implements chains.Fetcher. It closes the underlying RPC client.

@@ -75,9 +75,6 @@ func testFetcher(client *fakeSlotClient) *Fetcher {
 	return NewFetcher(client)
 }
 
-// newBoolPtr is a table-test helper for the optional rewards flag.
-func newBoolPtr(b bool) *bool { return &b }
-
 // ---------------------------------------------------------------------------
 // NewFetcherFromConfig.
 // ---------------------------------------------------------------------------
@@ -93,7 +90,7 @@ func TestNewFetcherFromConfig(t *testing.T) {
 			APIKeyType:                     "X-Api-Key",
 			Commitment:                     "finalized",
 			MaxSupportedTransactionVersion: 1,
-			Rewards:                        newBoolPtr(false),
+			Rewards:                        new(false),
 			DialTimeoutSeconds:             7,
 		},
 	}
@@ -192,7 +189,7 @@ func TestFetcher_FetchBlock_SkippedBelowTip(t *testing.T) {
 			t.Parallel()
 
 			client := &fakeSlotClient{
-				tip:   1000,
+				tip: 1000,
 				blockFn: func(_ context.Context, _ uint64) (*Block, error) {
 					return nil, tc.err
 				},
@@ -232,7 +229,7 @@ func TestFetcher_FetchBlock_MissingAtOrAboveTip(t *testing.T) {
 
 			client := &fakeSlotClient{
 				tip: 1000,
-				blockFn: func(_ context.Context, slot uint64) (*Block, error) {
+				blockFn: func(_ context.Context, _ uint64) (*Block, error) {
 					return nil, tc.err
 				},
 			}
@@ -295,7 +292,7 @@ func TestFetcher_FetchBlock_CleanedUp_ArchiveSkipClassified(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeSlotClient{
-		tip:   1000,
+		tip: 1000,
 		blockFn: func(_ context.Context, _ uint64) (*Block, error) {
 			return nil, fmt.Errorf("cleaned: %w", errBlockCleanedUp)
 		},
@@ -315,7 +312,7 @@ func TestFetcher_FetchBlock_CleanedUp_NoArchive(t *testing.T) {
 	t.Parallel()
 
 	client := &fakeSlotClient{
-		tip:   1000,
+		tip: 1000,
 		blockFn: func(_ context.Context, _ uint64) (*Block, error) {
 			return nil, fmt.Errorf("cleaned: %w", errBlockCleanedUp)
 		},

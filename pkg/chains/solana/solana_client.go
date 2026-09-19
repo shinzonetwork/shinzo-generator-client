@@ -40,7 +40,7 @@ const (
 	rpcCodeUnsupportedTransactionVersion = -32015
 )
 
-// Sentinel errors returned by SolanaClient so the fetcher can apply policy
+// Sentinel errors returned by Client so the fetcher can apply policy
 // (tip comparison, archive routing) without parsing library error strings.
 // None of these messages contain "not found": that substring belongs to the
 // transient block-pending condition and drives the processor's infinite
@@ -66,8 +66,8 @@ const (
 	retryTransportBackoff = 500 * time.Millisecond
 )
 
-// SolanaClientOptions carries the dial-time parameters for SolanaClient.
-type SolanaClientOptions struct {
+// ClientOptions carries the dial-time parameters for Client.
+type ClientOptions struct {
 	// RPCURL is the main JSON-RPC endpoint. Required.
 	RPCURL string
 	// ArchiveRPCURL optionally points at an archive node for slots below the
@@ -87,12 +87,12 @@ type SolanaClientOptions struct {
 	APIKeyType string
 }
 
-// SolanaClient wraps the JSON-RPC transport for Solana nodes and converts
+// Client wraps the JSON-RPC transport for Solana nodes and converts
 // responses into the package's local types, keeping solana-go SDK types at
 // the call boundary. It is a read-only client: every RPC it issues is safe
 // to re-issue after a transport-level rate-limit retry, and it is safe for
 // concurrent use across slots.
-type SolanaClient struct {
+type Client struct {
 	client        *rpc.Client
 	archiveClient *rpc.Client
 
@@ -101,21 +101,21 @@ type SolanaClient struct {
 	rewards      bool
 }
 
-// NewSolanaClient builds the HTTP transport (rate-limit retry, optional
+// NewClient builds the HTTP transport (rate-limit retry, optional
 // API-key header) and the block client. No network I/O happens here — the
 // HTTP layer dials lazily — so callers perform one cheap RPC (the fetcher's
 // Connect health check) to fail fast on a bad endpoint or key.
-func NewSolanaClient(ctx context.Context, opts SolanaClientOptions) (*SolanaClient, error) {
+func NewClient(ctx context.Context, opts ClientOptions) (*Client, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, errors.NewRPCConnectionFailed("rpc", "NewSolanaClient", "all endpoints",
+		return nil, errors.NewRPCConnectionFailed("rpc", "NewClient", "all endpoints",
 			fmt.Errorf("construction context cancelled before connecting: %w", err))
 	}
 	if opts.RPCURL == "" {
-		return nil, errors.NewConfigurationError("solana", "NewSolanaClient",
+		return nil, errors.NewConfigurationError("solana", "NewClient",
 			"solana rpc_url is empty; set SOLANA_RPC_URL or the config rpc_url", "", nil)
 	}
 
-	c := &SolanaClient{
+	c := &Client{
 		commitment:   rpc.CommitmentType(opts.Commitment),
 		maxTxVersion: &opts.MaxSupportedTransactionVersion,
 		rewards:      opts.Rewards,
@@ -133,7 +133,7 @@ func NewSolanaClient(ctx context.Context, opts SolanaClientOptions) (*SolanaClie
 // rpcClientOpts builds the jsonrpc options for one endpoint: a fresh
 // rate-limit-retrying HTTP transport plus the optional API-key header. A
 // separate transport per endpoint keeps idle-connection pools isolated.
-func rpcClientOpts(opts SolanaClientOptions) *jsonrpc.RPCClientOpts {
+func rpcClientOpts(opts ClientOptions) *jsonrpc.RPCClientOpts {
 	header := http.Header{}
 	if opts.APIKey != "" {
 		name := strings.ToLower(strings.TrimSpace(opts.APIKeyType))
@@ -153,7 +153,7 @@ func rpcClientOpts(opts SolanaClientOptions) *jsonrpc.RPCClientOpts {
 // per configuration. Transport-level outcomes are mapped to package
 // sentinels so the fetcher can classify skip-vs-transient without touching
 // library error strings.
-func (c *SolanaClient) GetBlock(ctx context.Context, slot uint64) (*Block, error) {
+func (c *Client) GetBlock(ctx context.Context, slot uint64) (*Block, error) {
 	out, err := c.getBlock(ctx, slot, c.client)
 	if err != nil {
 		return nil, err
@@ -164,7 +164,7 @@ func (c *SolanaClient) GetBlock(ctx context.Context, slot uint64) (*Block, error
 // GetBlockFromArchive fetches a slot from the archive endpoint, used when
 // the main endpoint reports the block pruned below its ledger floor. Fails
 // with errArchiveNotConfigured when no archive endpoint is configured.
-func (c *SolanaClient) GetBlockFromArchive(ctx context.Context, slot uint64) (*Block, error) {
+func (c *Client) GetBlockFromArchive(ctx context.Context, slot uint64) (*Block, error) {
 	if c.archiveClient == nil {
 		return nil, errArchiveNotConfigured
 	}
@@ -178,7 +178,7 @@ func (c *SolanaClient) GetBlockFromArchive(ctx context.Context, slot uint64) (*B
 // getBlock issues the shared getBlock call shape against either endpoint.
 // Encoding is base64: the SDK's battle-tested decode path, yielding the same
 // fully-parsed transaction structs as the json encoding.
-func (c *SolanaClient) getBlock(ctx context.Context, slot uint64, client *rpc.Client) (*rpc.GetBlockResult, error) {
+func (c *Client) getBlock(ctx context.Context, slot uint64, client *rpc.Client) (*rpc.GetBlockResult, error) {
 	out, err := client.GetBlockWithOpts(ctx, slot, &rpc.GetBlockOpts{
 		Encoding:                       solana.EncodingBase64,
 		TransactionDetails:             rpc.TransactionDetailsFull,
@@ -228,7 +228,7 @@ func classifyBlockError(err error) error {
 // GetSlot returns the current tip at the configured commitment. On Solana
 // the slot is the fetch height, so this both bounds backfill and serves the
 // chains.Fetcher tip query.
-func (c *SolanaClient) GetSlot(ctx context.Context) (uint64, error) {
+func (c *Client) GetSlot(ctx context.Context) (uint64, error) {
 	slot, err := c.client.GetSlot(ctx, c.commitment)
 	if err != nil {
 		return 0, fmt.Errorf("getSlot failed: %w", err)
@@ -237,7 +237,7 @@ func (c *SolanaClient) GetSlot(ctx context.Context) (uint64, error) {
 }
 
 // Close releases idle pooled connections on both endpoints.
-func (c *SolanaClient) Close() error {
+func (c *Client) Close() error {
 	if c.client != nil {
 		_ = c.client.Close()
 	}
@@ -250,7 +250,7 @@ func (c *SolanaClient) Close() error {
 // convertBlock maps the SDK block response into the package's local types.
 // Null-safe: blockTime/blockHeight/commission/computeUnits may be null, and
 // empty collections stay nil rather than being invented.
-func (c *SolanaClient) convertBlock(result *rpc.GetBlockResult, slot uint64) (*Block, error) {
+func (c *Client) convertBlock(result *rpc.GetBlockResult, slot uint64) (*Block, error) {
 	transactions := make([]Transaction, 0, len(result.Transactions))
 	for i := range result.Transactions {
 		tx, err := convertTransactionWithMeta(&result.Transactions[i], slot, i)

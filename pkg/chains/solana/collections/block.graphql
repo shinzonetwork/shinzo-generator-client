@@ -7,7 +7,6 @@ type Solana__Mainnet__Block {
     parentSlot: Int
     blockHeight: Int
     blockTime: Int
-    blockVersion: String
     transactionCount: Int
     rewardCount: Int
     # Relationships

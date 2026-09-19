@@ -2,8 +2,8 @@ package solana
 
 import (
 	"context"
-	stderrors "errors"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,15 +23,14 @@ import (
 // n leading '1's decode to n zero bytes, and 43-char strings starting with a
 // high-value letter decode to exactly 32 bytes (58^42 needs ~246 bits).
 var (
-	fixtureHash0  = strings.Repeat("1", 32)  // blockhash: all-zero hash
-	fixturePrev   = strings.Repeat("Z", 43)  // previous blockhash
-	fixtureKeyA   = strings.Repeat("z", 43)  // static account key 0
-	fixtureKeyB   = strings.Repeat("Z", 43)  // static account key 1
-	fixtureRecent = strings.Repeat("y", 43)  // recent blockhash
-	fixtureKeyW   = strings.Repeat("y", 43)  // ALT-loaded writable key
-	fixtureKeyR   = strings.Repeat("Y", 43)  // ALT-loaded readonly key
-	fixtureSig1   = strings.Repeat("1", 64)  // signature: 64 zero bytes
-	fixtureSig2   = strings.Repeat("z", 87)  // 64-byte signature
+	fixtureHash0  = strings.Repeat("1", 32) // blockhash: all-zero hash
+	fixturePrev   = strings.Repeat("Z", 43) // previous blockhash
+	fixtureKeyA   = strings.Repeat("z", 43) // static account key 0
+	fixtureKeyB   = strings.Repeat("Z", 43) // static account key 1
+	fixtureRecent = strings.Repeat("y", 43) // recent blockhash
+	fixtureKeyW   = strings.Repeat("y", 43) // ALT-loaded writable key
+	fixtureKeyR   = strings.Repeat("Y", 43) // ALT-loaded readonly key
+	fixtureSig1   = strings.Repeat("1", 64) // signature: 64 zero bytes
 )
 
 // ---------------------------------------------------------------------------
@@ -171,9 +170,9 @@ func fixtureResult(t *testing.T, name string) json.RawMessage {
 
 // testClient builds a confirmed-commitment client pointed at the fake
 // server, closed automatically with the test.
-func testClient(t *testing.T, url string, mutate ...func(*SolanaClientOptions)) *SolanaClient {
+func testClient(t *testing.T, url string, mutate ...func(*ClientOptions)) *Client {
 	t.Helper()
-	opts := SolanaClientOptions{
+	opts := ClientOptions{
 		RPCURL:                         url,
 		Commitment:                     "confirmed",
 		MaxSupportedTransactionVersion: 1,
@@ -182,7 +181,7 @@ func testClient(t *testing.T, url string, mutate ...func(*SolanaClientOptions)) 
 	for _, fn := range mutate {
 		fn(&opts)
 	}
-	client, err := NewSolanaClient(context.Background(), opts)
+	client, err := NewClient(context.Background(), opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 	return client
@@ -196,21 +195,21 @@ func getSlotResultBody(n uint64) string {
 // Construction.
 // ---------------------------------------------------------------------------
 
-func TestNewSolanaClient_EmptyURL(t *testing.T) {
+func TestNewClient_EmptyURL(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewSolanaClient(context.Background(), SolanaClientOptions{})
+	_, err := NewClient(context.Background(), ClientOptions{})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "rpc_url is empty")
 }
 
-func TestNewSolanaClient_ContextCancelled(t *testing.T) {
+func TestNewClient_ContextCancelled(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := NewSolanaClient(ctx, SolanaClientOptions{RPCURL: "http://localhost:1"})
+	_, err := NewClient(ctx, ClientOptions{RPCURL: "http://localhost:1"})
 	require.Error(t, err)
 }
 
@@ -384,7 +383,7 @@ func TestGetBlock_ErrorClassification(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			srv := newFakeRPCServer(t, func(method string) (int, http.Header, string) {
+			srv := newFakeRPCServer(t, func(_ string) (int, http.Header, string) {
 				return 0, nil, jsonRPCErrorEnvelope(tc.code, tc.message)
 			})
 			client := testClient(t, srv.URL)
@@ -450,7 +449,7 @@ func TestGetBlockFromArchive_ReturnsBlock(t *testing.T) {
 		return 0, nil, getSlotResultBody(1000)
 	})
 
-	client, err := NewSolanaClient(context.Background(), SolanaClientOptions{
+	client, err := NewClient(context.Background(), ClientOptions{
 		RPCURL:                         mainSrv.URL,
 		ArchiveRPCURL:                  archiveSrv.URL,
 		Commitment:                     "confirmed",
@@ -533,7 +532,7 @@ func TestRetryTransport_HonorsRetryAfterAndContext(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
 
-	client, err := NewSolanaClient(context.Background(), SolanaClientOptions{
+	client, err := NewClient(context.Background(), ClientOptions{
 		RPCURL:     srv.URL,
 		Commitment: "confirmed",
 	})
@@ -566,7 +565,7 @@ func TestGetBlock_SendsAPIKeyHeader(t *testing.T) {
 		}
 		return 0, nil, jsonRPCResult(t, fixtureResult(t, "getBlock_confirmed_full.json"))
 	})
-	client := testClient(t, srv.URL, func(opts *SolanaClientOptions) {
+	client := testClient(t, srv.URL, func(opts *ClientOptions) {
 		opts.APIKey = "sample-api-key"
 		opts.APIKeyType = "X-Api-Key"
 	})
@@ -576,7 +575,7 @@ func TestGetBlock_SendsAPIKeyHeader(t *testing.T) {
 
 	headers, _ := srv.requestHeaders(t, "getSlot")
 	require.NotNil(t, headers)
-	assert.Equal(t, "sample-api-key", headers.Get("x-api-key"))
+	assert.Equal(t, "sample-api-key", headers.Get("X-Api-Key"))
 }
 
 func TestGetBlock_NoAPIKeySendsNoHeader(t *testing.T) {
@@ -592,7 +591,7 @@ func TestGetBlock_NoAPIKeySendsNoHeader(t *testing.T) {
 
 	headers, _ := srv.requestHeaders(t, "getSlot")
 	require.NotNil(t, headers)
-	assert.Empty(t, headers.Get("x-api-key"), "no API key configured, so no auth header")
+	assert.Empty(t, headers.Get("X-Api-Key"), "no API key configured, so no auth header")
 }
 
 // TestGetBlock_CarriesGetBlockParameters proves the wire request carries the
@@ -607,7 +606,7 @@ func TestGetBlock_CarriesGetBlockParameters(t *testing.T) {
 		}
 		return 0, nil, getSlotResultBody(1000)
 	})
-	client := testClient(t, srv.URL, func(opts *SolanaClientOptions) {
+	client := testClient(t, srv.URL, func(opts *ClientOptions) {
 		opts.Rewards = false
 	})
 

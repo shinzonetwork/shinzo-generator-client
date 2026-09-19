@@ -187,14 +187,14 @@ func TestFactory_FetcherAndConverter(t *testing.T) {
 			Network: "Devnet",
 		},
 		Solana: config.SolanaConfig{
-			RPCURL:    "https://api.devnet.solana.com",
-			Commitment: config.DefaultSolanaCommitment,
+			RPCURL:                         "https://api.devnet.solana.com",
+			Commitment:                     config.DefaultSolanaCommitment,
 			MaxSupportedTransactionVersion: config.DefaultSolanaMaxSupportedTxVersion,
 		},
 	}
 
-	// The fetcher is fully implemented: it constructs without dialing
-	// (Connect performs the RPC health check).
+	// Both fetcher and converter construct without dialing (Connect
+	// performs the RPC health check).
 	f, err := chains.NewFetcher(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, f)
@@ -203,7 +203,14 @@ func TestFactory_FetcherAndConverter(t *testing.T) {
 	assert.NotNil(t, sf)
 
 	c, err := chains.NewConverter(cfg)
-	require.Error(t, err)
-	assert.Nil(t, c)
-	assert.Contains(t, err.Error(), "solana converter not yet implemented")
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	sc, ok := c.(*solana.Converter)
+	require.True(t, ok, "factory must return the concrete *solana.Converter")
+	assert.Equal(t, "Solana__Devnet", sc.Collections().Prefix(), "converter must use the configured prefix")
+	assert.Equal(t, "Solana__Devnet__BlockSignature", sc.SignatureCollection())
+
+	sdl, err := c.GetSchema()
+	require.NoError(t, err)
+	assert.Contains(t, sdl, "type Solana__Devnet__Block {")
 }

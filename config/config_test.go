@@ -682,9 +682,6 @@ func TestSolanaEnvOverrides(t *testing.T) {
 	})
 }
 
-//go:fix inline
-func boolPtr(b bool) *bool { return new(b) }
-
 func TestLoadConfig_DefaultChainAdapter(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
