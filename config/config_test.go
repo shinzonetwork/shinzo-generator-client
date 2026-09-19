@@ -603,7 +603,7 @@ func TestValidateConfig_SolanaCommitment(t *testing.T) {
 		{"confirmed valid", DefaultSolanaCommitment, false},
 		{"finalized valid", "finalized", false},
 		{"processed rejected", "processed", true},
-		{"typo rejected", "confrimed", true},
+		{"unknown rejected", "confirmed-with-suffix", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -644,8 +644,8 @@ func TestSolanaRewardsEnabled(t *testing.T) {
 		want    bool
 	}{
 		{"nil means enabled", nil, true},
-		{"explicit true", boolPtr(true), true},
-		{"explicit false", boolPtr(false), false},
+		{"explicit true", new(true), true},
+		{"explicit false", new(false), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -663,11 +663,15 @@ func TestSolanaEnvOverrides(t *testing.T) {
 		t.Setenv("SOLANA_WS_URL", "wss://api.devnet.solana.com")
 		t.Setenv("SOLANA_COMMITMENT", "finalized")
 		t.Setenv("SOLANA_ARCHIVE_RPC_URL", "https://archive.example.com")
+		t.Setenv("SOLANA_API_KEY", "sample-key")
+		t.Setenv("SOLANA_API_KEY_TYPE", "X-Api-Key")
 		applySolanaEnvOverrides(cfg)
 		assert.Equal(t, "https://api.devnet.solana.com", cfg.Solana.RPCURL)
 		assert.Equal(t, "wss://api.devnet.solana.com", cfg.Solana.WsURL)
 		assert.Equal(t, "finalized", cfg.Solana.Commitment)
 		assert.Equal(t, "https://archive.example.com", cfg.Solana.ArchiveRPCURL)
+		assert.Equal(t, "sample-key", cfg.Solana.APIKey)
+		assert.Equal(t, "X-Api-Key", cfg.Solana.APIKeyType)
 	})
 
 	t.Run("empty ignored", func(t *testing.T) {
@@ -678,7 +682,8 @@ func TestSolanaEnvOverrides(t *testing.T) {
 	})
 }
 
-func boolPtr(b bool) *bool { return &b }
+//go:fix inline
+func boolPtr(b bool) *bool { return new(b) }
 
 func TestLoadConfig_DefaultChainAdapter(t *testing.T) {
 	t.Parallel()

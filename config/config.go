@@ -100,6 +100,12 @@ const DefaultSolanaMaxSupportedTxVersion = 1
 type SolanaConfig struct {
 	RPCURL string `yaml:"rpc_url"`
 	WsURL  string `yaml:"ws_url"`
+	// APIKey enables header-authenticated RPC providers when non-empty.
+	// Keys embedded in the URL (Helius-style paths) need no API key.
+	APIKey string `yaml:"api_key"`
+	// APIKeyType is the header name carrying APIKey (e.g. "x-api-key");
+	// lowercased and defaulted to x-api-key when empty.
+	APIKeyType string `yaml:"api_key_type"`
 	// Commitment is the Solana commitment level used for block fetching.
 	// Only "confirmed" and "finalized" are valid; block RPC methods reject
 	// "processed".
@@ -500,6 +506,12 @@ func applySolanaEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("SOLANA_ARCHIVE_RPC_URL"); v != "" {
 		cfg.Solana.ArchiveRPCURL = v
+	}
+	if v := os.Getenv("SOLANA_API_KEY"); v != "" {
+		cfg.Solana.APIKey = v
+	}
+	if v := os.Getenv("SOLANA_API_KEY_TYPE"); v != "" {
+		cfg.Solana.APIKeyType = v
 	}
 }
 
