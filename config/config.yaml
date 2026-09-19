@@ -6,7 +6,7 @@
 chain:
   name: "Ethereum"       # Chain name (env: CHAIN_NAME)
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
-  adapter: "evm"         # Chain adapter: "evm" (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+  adapter: "evm"         # Chain adapter: "evm" (default) or "solana" (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
@@ -40,6 +40,17 @@ geth:
   api_key: "${GETH_API_KEY}"
   api_key_type: "${GETH_API_KEY_TYPE}"
   dial_timeout_seconds: 10     # Positive: bounds the startup WebSocket dial (seconds); WS timeout with HTTP connected starts HTTP-only. 0 or negative = unbounded (env: GETH_DIAL_TIMEOUT_SECONDS)
+# Solana section is consumed by the "solana" chain adapter (chain.adapter: "solana").
+solana:
+  rpc_url: ""    # Solana JSON-RPC endpoint (env: SOLANA_RPC_URL)
+  ws_url: ""     # Solana websocket endpoint (env: SOLANA_WS_URL)
+  commitment: "confirmed"   # "confirmed" (default) or "finalized"; block RPC methods reject "processed" (env: SOLANA_COMMITMENT)
+  max_supported_transaction_version: 1  # Passed to getBlock; blocks with versioned (v0+) txs fail with RPC error -32015 without it
+  rewards: true  # Fetch per-block rewards; omit (or nil) = enabled
+  archive_rpc_url: ""   # Optional archive endpoint for historical backfill below the full-node ledger floor (env: SOLANA_ARCHIVE_RPC_URL)
+  api_key: ""    # Header-auth RPC providers (e.g. x-api-key); leave empty for keys embedded in the URL (env: SOLANA_API_KEY)
+  api_key_type: ""  # Header name carrying api_key; defaults to x-api-key when empty (env: SOLANA_API_KEY_TYPE)
+  dial_timeout_seconds: 10     # Positive: bounds the startup RPC Connect health check (seconds); 0 or negative = unbounded
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
   concurrent_blocks: 1      # Number of blocks to process concurrently

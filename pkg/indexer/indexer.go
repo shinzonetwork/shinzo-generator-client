@@ -690,6 +690,21 @@ func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 
 	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
 	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
+	adapter := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Adapter))
+	if adapter == "" {
+		adapter = config.DefaultChainAdapter
+	}
+
+	if adapter == config.SolanaChainAdapter {
+		// TODO(solana): the ShinzoHub Solana chain identifier is still undefined
+		// (Solana has no EIP-155-style chain ID); 0 is a placeholder pending the
+		// hub contract. See specs/features/SOLANA-ADAPTER-INTEGRATION.md §3.5.
+		if (name == "" || name == "solana") && (network == "" || network == "mainnet") {
+			return "solana", 0
+		}
+		return "", 0
+	}
+
 	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
 		return "ethereum", 1
 	}

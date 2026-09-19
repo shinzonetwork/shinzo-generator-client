@@ -15,8 +15,11 @@ import (
 // CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
 
-// DefaultChainAdapter is the default and currently only supported chain adapter type.
+// DefaultChainAdapter is the default chain adapter type.
 const DefaultChainAdapter = "evm"
+
+// SolanaChainAdapter is the chain adapter name for the Solana chain family.
+const SolanaChainAdapter = "solana"
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
@@ -69,7 +72,7 @@ type ChainConfig struct {
 	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
 	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
 	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default) or SolanaChainAdapter. (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -81,6 +84,49 @@ type GethConfig struct {
 	// DialTimeoutSeconds bounds the startup RPC/WS dial phase when positive.
 	// 0 or negative = unbounded dial; the caller's context governs.
 	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
+}
+
+// DefaultSolanaCommitment is the default commitment level used by the Solana
+// adapter for block fetching.
+const DefaultSolanaCommitment = "confirmed"
+
+// DefaultSolanaMaxSupportedTxVersion is the default maxSupportedTransactionVersion
+// passed to getBlock calls. Blocks containing versioned (v0+) transactions fail
+// with RPC error -32015 unless a supported version is declared.
+const DefaultSolanaMaxSupportedTxVersion = 1
+
+// SolanaConfig represents Solana node configuration. It is consumed by the
+// "solana" chain adapter; the "geth" section is the EVM counterpart.
+type SolanaConfig struct {
+	RPCURL string `yaml:"rpc_url"`
+	WsURL  string `yaml:"ws_url"`
+	// APIKey enables header-authenticated RPC providers when non-empty.
+	// Keys embedded in the URL (Helius-style paths) need no API key.
+	APIKey string `yaml:"api_key"`
+	// APIKeyType is the header name carrying APIKey (e.g. "x-api-key");
+	// lowercased and defaulted to x-api-key when empty.
+	APIKeyType string `yaml:"api_key_type"`
+	// Commitment is the Solana commitment level used for block fetching.
+	// Only "confirmed" and "finalized" are valid; block RPC methods reject
+	// "processed".
+	Commitment string `yaml:"commitment"`
+	// MaxSupportedTransactionVersion is passed as maxSupportedTransactionVersion
+	// on getBlock calls. 0 or negative = DefaultSolanaMaxSupportedTxVersion.
+	MaxSupportedTransactionVersion int `yaml:"max_supported_transaction_version"`
+	// Rewards controls whether per-block rewards are fetched. Nil = enabled.
+	Rewards *bool `yaml:"rewards"`
+	// ArchiveRPCURL optionally routes historical backfill (slots below the
+	// full-node ledger floor) to an archive endpoint. Empty = disabled.
+	ArchiveRPCURL string `yaml:"archive_rpc_url"`
+	// DialTimeoutSeconds bounds the startup RPC/WS dial phase when positive.
+	// 0 or negative = unbounded dial; the caller's context governs.
+	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
+}
+
+// RewardsEnabled reports whether block rewards should be fetched. A nil
+// Rewards pointer means enabled.
+func (s *SolanaConfig) RewardsEnabled() bool {
+	return s.Rewards == nil || *s.Rewards
 }
 
 // IndexerConfig represents indexer configuration.
@@ -195,6 +241,7 @@ type Config struct {
 	Chain     ChainConfig     `yaml:"chain"`
 	DefraDB   DefraDBConfig   `yaml:"defradb"`
 	Geth      GethConfig      `yaml:"geth"`
+	Solana    SolanaConfig    `yaml:"solana"`
 	Indexer   IndexerConfig   `yaml:"indexer"`
 	Pruner    PrunerConfig    `yaml:"pruner"`
 	Snapshot  SnapshotConfig  `yaml:"snapshot"`
@@ -243,6 +290,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Chain.Adapter == "" {
 		cfg.Chain.Adapter = DefaultChainAdapter
 	}
+	if cfg.Solana.Commitment == "" {
+		cfg.Solana.Commitment = DefaultSolanaCommitment
+	}
+	if cfg.Solana.MaxSupportedTransactionVersion <= 0 {
+		cfg.Solana.MaxSupportedTransactionVersion = DefaultSolanaMaxSupportedTxVersion
+	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
 	}
@@ -275,8 +328,18 @@ func applyDefaults(cfg *Config) {
 
 // validateConfig validates the configuration.
 func validateConfig(cfg *Config) error {
-	if cfg.Chain.Adapter != DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", cfg.Chain.Adapter, DefaultChainAdapter)
+	switch cfg.Chain.Adapter {
+	case DefaultChainAdapter, SolanaChainAdapter:
+	default:
+		return fmt.Errorf("chain adapter %q not yet implemented: supported adapters are %q and %q", cfg.Chain.Adapter, DefaultChainAdapter, SolanaChainAdapter)
+	}
+
+	if cfg.Chain.Adapter == SolanaChainAdapter {
+		switch cfg.Solana.Commitment {
+		case DefaultSolanaCommitment, "finalized":
+		default:
+			return fmt.Errorf("invalid solana commitment %q: must be one of confirmed, finalized", cfg.Solana.Commitment)
+		}
 	}
 
 	if cfg.Indexer.StartHeight < 0 {
@@ -320,6 +383,7 @@ func validateConfig(cfg *Config) error {
 func applyEnvOverrides(cfg *Config) {
 	applyDefraEnvOverrides(cfg)
 	applyChainEnvOverrides(cfg)
+	applySolanaEnvOverrides(cfg)
 	applyIndexerEnvOverrides(cfg)
 	applySchemaEnvOverrides(cfg)
 	applyPrunerEnvOverrides(cfg)
@@ -426,6 +490,28 @@ func applyChainEnvOverrides(cfg *Config) {
 		if n, err := strconv.Atoi(gethDialTimeout); err == nil {
 			cfg.Geth.DialTimeoutSeconds = n
 		}
+	}
+}
+
+// applySolanaEnvOverrides applies Solana environment variable overrides.
+func applySolanaEnvOverrides(cfg *Config) {
+	if v := os.Getenv("SOLANA_RPC_URL"); v != "" {
+		cfg.Solana.RPCURL = v
+	}
+	if v := os.Getenv("SOLANA_WS_URL"); v != "" {
+		cfg.Solana.WsURL = v
+	}
+	if v := os.Getenv("SOLANA_COMMITMENT"); v != "" {
+		cfg.Solana.Commitment = v
+	}
+	if v := os.Getenv("SOLANA_ARCHIVE_RPC_URL"); v != "" {
+		cfg.Solana.ArchiveRPCURL = v
+	}
+	if v := os.Getenv("SOLANA_API_KEY"); v != "" {
+		cfg.Solana.APIKey = v
+	}
+	if v := os.Getenv("SOLANA_API_KEY_TYPE"); v != "" {
+		cfg.Solana.APIKeyType = v
 	}
 }
 

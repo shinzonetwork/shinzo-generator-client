@@ -570,8 +570,8 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 		errContains  string
 	}{
 		{"evm valid", DefaultChainAdapter, false, ""},
+		{"solana valid", SolanaChainAdapter, false, ""},
 		{"cosmos rejected", "cosmos", true, "not yet implemented"},
-		{"solana rejected", "solana", true, "not yet implemented"},
 		{"empty rejected", "", true, "not yet implemented"},
 	}
 	for _, tt := range tests {
@@ -580,6 +580,7 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
 			cfg.Chain.Adapter = tt.chainAdapter
+			cfg.Solana.Commitment = DefaultSolanaCommitment
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			err := validateConfig(cfg)
 			if tt.shouldError {
@@ -591,6 +592,98 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateConfig_SolanaCommitment(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		commitment  string
+		shouldError bool
+	}{
+		{"confirmed valid", DefaultSolanaCommitment, false},
+		{"finalized valid", "finalized", false},
+		{"processed rejected", "processed", true},
+		{"unknown rejected", "confirmed-with-suffix", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = SolanaChainAdapter
+			cfg.Solana.Commitment = tt.commitment
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid solana commitment")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSolanaDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{}
+	applyDefaults(cfg)
+
+	assert.Equal(t, DefaultSolanaCommitment, cfg.Solana.Commitment)
+	assert.Equal(t, DefaultSolanaMaxSupportedTxVersion, cfg.Solana.MaxSupportedTransactionVersion)
+	assert.True(t, cfg.Solana.RewardsEnabled(), "nil Rewards should mean enabled")
+}
+
+func TestSolanaRewardsEnabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rewards *bool
+		want    bool
+	}{
+		{"nil means enabled", nil, true},
+		{"explicit true", new(true), true},
+		{"explicit false", new(false), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := &SolanaConfig{Rewards: tt.rewards}
+			assert.Equal(t, tt.want, s.RewardsEnabled())
+		})
+	}
+}
+
+func TestSolanaEnvOverrides(t *testing.T) {
+	t.Run("all set", func(t *testing.T) {
+		cfg := &Config{}
+		t.Setenv("SOLANA_RPC_URL", "https://api.devnet.solana.com")
+		t.Setenv("SOLANA_WS_URL", "wss://api.devnet.solana.com")
+		t.Setenv("SOLANA_COMMITMENT", "finalized")
+		t.Setenv("SOLANA_ARCHIVE_RPC_URL", "https://archive.example.com")
+		t.Setenv("SOLANA_API_KEY", "sample-key")
+		t.Setenv("SOLANA_API_KEY_TYPE", "X-Api-Key")
+		applySolanaEnvOverrides(cfg)
+		assert.Equal(t, "https://api.devnet.solana.com", cfg.Solana.RPCURL)
+		assert.Equal(t, "wss://api.devnet.solana.com", cfg.Solana.WsURL)
+		assert.Equal(t, "finalized", cfg.Solana.Commitment)
+		assert.Equal(t, "https://archive.example.com", cfg.Solana.ArchiveRPCURL)
+		assert.Equal(t, "sample-key", cfg.Solana.APIKey)
+		assert.Equal(t, "X-Api-Key", cfg.Solana.APIKeyType)
+	})
+
+	t.Run("empty ignored", func(t *testing.T) {
+		cfg := &Config{Solana: SolanaConfig{RPCURL: "https://keep-me"}}
+		t.Setenv("SOLANA_RPC_URL", "")
+		applySolanaEnvOverrides(cfg)
+		assert.Equal(t, "https://keep-me", cfg.Solana.RPCURL, "empty SOLANA_RPC_URL should not override")
+	})
+}
+
+//go:fix inline
+func boolPtr(b bool) *bool { return new(b) }
 
 func TestLoadConfig_DefaultChainAdapter(t *testing.T) {
 	t.Parallel()
