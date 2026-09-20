@@ -51,6 +51,9 @@ solana:
   api_key: ""    # Header-auth RPC providers (e.g. x-api-key); leave empty for keys embedded in the URL (env: SOLANA_API_KEY)
   api_key_type: ""  # Header name carrying api_key; defaults to x-api-key when empty (env: SOLANA_API_KEY_TYPE)
   dial_timeout_seconds: 10     # Positive: bounds the startup RPC Connect health check (seconds); 0 or negative = unbounded
+  # Throughput tuning (see indexer comments below): Solana's ~150 slots/min tip rate
+  # and hot slots of ~30k docs are the scaling targets; instruction-heavy group writes
+  # per slot are batched by indexer.max_docs_per_txn (= group BatchSize in this adapter).
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
   concurrent_blocks: 1      # Number of blocks to process concurrently
@@ -59,6 +62,13 @@ indexer:
   max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
   max_log_docs_per_batch: 125  # Per-batch size for logs (0 = use max_docs_per_txn)
   max_ale_docs_per_batch: 500  # Per-batch size for ALEs (0 = use max_docs_per_txn)
+  # blocks_per_minute throughput notes:
+  #  - Solana produces ~2.5 slots/sec (~150/min): indexing in real time requires
+  #    blocks_per_minute >= 150 plus catch-up headroom (300–600 recommended for mainnet).
+  #    60 throttles the tip behind by design.
+  #  - concurrent_blocks 1 will not keep up on hot slots (~30k docs/slot); raise with
+  #    measured docs/sec from: go test ./pkg/chains/solana/ -run '^$' \
+  #      -bench 'BenchmarkSolanaStoreSlot|BenchmarkSolanaIndexSlots' -benchtime 5x
   blocks_per_minute: 60     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup

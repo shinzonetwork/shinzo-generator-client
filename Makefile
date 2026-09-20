@@ -89,14 +89,26 @@ test-local:
 integration-test:
 	@echo "🧪 Running integration tests..."
 	@echo "📦 Mock tests (fast):"
-	@go test tags=integration -v ./integration/
+	@go test -tags=integration -v ./integration/
 	@echo ""
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
-		go test tags=live -v ./integration/live/ -timeout=20s; \
-	else \ 
+		go test -tags=live -v ./integration/live/ -timeout=20s; \
+	else \
 		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
 	fi
+
+# Solana live integration suite: RPC from SOLANA_RPC_URL (defaults to the
+# public devnet endpoint inside the suite) or a paid endpoint plus
+# SOLANA_LIVE_NETWORK=Mainnet for realistic volumes.
+.PHONY: solana-live-test
+solana-live-test:
+	@echo "🧪 Running solana live integration tests..."
+	@if [ -z "$(SOLANA_RPC_URL)" ] && [ -z "$(SOLANA_LIVE)" ]; then \
+		echo "⚠️  Set SOLANA_RPC_URL (paid endpoint) or SOLANA_LIVE=1 (public devnet) to run"; \
+		exit 1; \
+	fi
+	@go test -tags=live -v ./integration/live/solana/ -timeout=400s
 
 coverage:
 	go test ./... -coverprofile=coverage.out

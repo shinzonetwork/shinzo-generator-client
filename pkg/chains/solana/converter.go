@@ -245,10 +245,11 @@ func toI64Slice(values []uint64) []int64 {
 
 // innerParentRef carries one inner instruction's parentage for the
 // LinkStamper: the parent transaction's signature and the parent outer
-// instruction's index within that transaction. Instruction docs carry no tx
-// identity field in the schema, so the stamper resolves links from these
-// parallel arrays (one entry per doc, in doc order) — the same pattern the
-// EVM adapter uses for access-list entries.
+// instruction's index within that transaction. Instruction docs carry the tx
+// signature only as a data field (the duplicate-content join field), so the
+// stamper resolves links from these parallel arrays (one entry per doc, in
+// doc order) — the same pattern the EVM adapter uses for access-list
+// entries.
 type innerParentRef struct {
 	txSignature string
 	outerIndex  int
@@ -281,12 +282,13 @@ func (c *Converter) buildInstructionDocs(block *Block) (
 		for k := range tx.Instructions {
 			instr := &tx.Instructions[k]
 			doc := map[string]any{
-				ProgramIDFieldName:        instr.ProgramID,
-				AccountsFieldName:         instr.Accounts,
-				DataFieldName:             instr.Data,
-				InstructionIndexFieldName: instr.InstructionIndex,
-				InnerIndexFieldName:       instr.InnerIndex,
-				SlotFieldName:             i64(block.Slot),
+				ProgramIDFieldName:            instr.ProgramID,
+				AccountsFieldName:             instr.Accounts,
+				DataFieldName:                 instr.Data,
+				InstructionIndexFieldName:     instr.InstructionIndex,
+				InnerIndexFieldName:           instr.InnerIndex,
+				TransactionSignatureFieldName: tx.Signature,
+				SlotFieldName:                 i64(block.Slot),
 			}
 			outerDocs = append(outerDocs, doc)
 			outerRefs = append(outerRefs, tx.Signature)
@@ -301,13 +303,14 @@ func (c *Converter) buildInstructionDocs(block *Block) (
 					stackHeight = int64(*instr.StackHeight)
 				}
 				doc := map[string]any{
-					ProgramIDFieldName:        instr.ProgramID,
-					AccountsFieldName:         instr.Accounts,
-					DataFieldName:             instr.Data,
-					InstructionIndexFieldName: instr.InstructionIndex,
-					InnerIndexFieldName:       instr.InnerIndex,
-					StackHeightFieldName:      stackHeight,
-					SlotFieldName:             i64(block.Slot),
+					ProgramIDFieldName:            instr.ProgramID,
+					AccountsFieldName:             instr.Accounts,
+					DataFieldName:                 instr.Data,
+					InstructionIndexFieldName:     instr.InstructionIndex,
+					InnerIndexFieldName:           instr.InnerIndex,
+					StackHeightFieldName:          stackHeight,
+					TransactionSignatureFieldName: tx.Signature,
+					SlotFieldName:                 i64(block.Slot),
 				}
 				innerDocs = append(innerDocs, doc)
 				innerRefs = append(innerRefs, innerParentRef{
@@ -341,7 +344,7 @@ func (c *Converter) buildTokenBalanceChangeDocs(block *Block) ([]map[string]any,
 
 		for _, accountIndex := range unionAccountIndexes(pre, post) {
 			docs = append(docs, c.buildTokenBalanceChangeData(
-				tx.Slot, accountIndex, pre[accountIndex], post[accountIndex], committed))
+				tx.Slot, tx.Signature, accountIndex, pre[accountIndex], post[accountIndex], committed))
 			refs = append(refs, tx.Signature)
 		}
 	}
@@ -392,9 +395,10 @@ func unionAccountIndexes(pre, post map[uint16]TokenBalance) []uint16 {
 // (mint, owner, programId) prefer the post entry — the transaction's
 // end-state — falling back to pre. Amounts are raw strings (token amounts
 // can exceed int64); a nil amount marks the side where the account had no
-// balance entry.
+// balance entry. txSignature is stored as the join field making the doc's
+// content unique per parent transaction (see TransactionSignatureFieldName).
 func (c *Converter) buildTokenBalanceChangeData(
-	slot uint64, accountIndex uint16, pre, post TokenBalance, committed []string,
+	slot uint64, txSignature string, accountIndex uint16, pre, post TokenBalance, committed []string,
 ) map[string]any {
 	identity := post
 	// The zero value means "no entry on this side": fall back to the other
@@ -411,13 +415,14 @@ func (c *Converter) buildTokenBalanceChangeData(
 		postAmount = post.Amount
 	}
 	return map[string]any{
-		MintFieldName:         identity.Mint,
-		OwnerFieldName:        identity.Owner,
-		TokenAccountFieldName: resolveKey(committed, uint64(accountIndex)),
-		PreAmountFieldName:    preAmount,
-		PostAmountFieldName:   postAmount,
-		ProgramIDFieldName:    identity.ProgramID,
-		SlotFieldName:         i64(slot),
+		MintFieldName:                 identity.Mint,
+		OwnerFieldName:                identity.Owner,
+		TokenAccountFieldName:         resolveKey(committed, uint64(accountIndex)),
+		PreAmountFieldName:            preAmount,
+		PostAmountFieldName:           postAmount,
+		ProgramIDFieldName:            identity.ProgramID,
+		TransactionSignatureFieldName: txSignature,
+		SlotFieldName:                 i64(slot),
 	}
 }
 

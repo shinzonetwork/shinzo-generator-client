@@ -60,6 +60,14 @@ const (
 	InstructionIndexFieldName = "instructionIndex"
 	InnerIndexFieldName       = "innerIndex"
 	StackHeightFieldName      = "stackHeight"
+	// TransactionSignatureFieldName carries the parent transaction's
+	// signature on instruction and token-balance-change documents. DefraDB
+	// docIDs are content hashes, so without it two byte-identical documents
+	// in one slot (identical memo transfers are routine on mainnet) collide
+	// on one docID and the batch's docIDs are dropped, leaving the block
+	// unsigned. It is a data field, not a link field: the LinkStamper still
+	// resolves _transactionID from the converter's parallel ref arrays.
+	TransactionSignatureFieldName = "transactionSignature"
 )
 
 // TokenBalanceChange document field names.

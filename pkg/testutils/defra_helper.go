@@ -40,16 +40,16 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 // SetupTestDefraDBWithSchema creates and starts an in-memory DefraDB node with a provided schema.
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
-func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
-	t.Helper()
+func SetupTestDefraDBWithSchema(tb testing.TB, schemaSDL string) *TestDefraDB {
+	tb.Helper()
 
 	// Initialize logger if not already done
 	logger.InitConsoleOnly(true)
 
 	ctx := context.Background()
-	tmpDir := t.TempDir()
+	tmpDir := tb.TempDir()
 
-	port := getFreePort(t)
+	port := getFreePort(tb)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	opts := options.Node().
@@ -60,19 +60,19 @@ func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 
 	defraNode, err := node.New(ctx, opts)
 	if err != nil {
-		t.Fatalf("Failed to create DefraDB node: %v", err)
+		tb.Fatalf("Failed to create DefraDB node: %v", err)
 	}
 
 	err = defraNode.Start(ctx)
 	if err != nil {
-		t.Fatalf("Failed to start DefraDB node: %v", err)
+		tb.Fatalf("Failed to start DefraDB node: %v", err)
 	}
 
 	// Apply schema
 	_, err = defraNode.DB.AddCollection(ctx, schemaSDL)
 	if err != nil && !strings.Contains(err.Error(), errors.ErrStrCollectionAlreadyExists) {
 		_ = defraNode.Close(ctx)
-		t.Fatalf("Failed to apply schema: %v", err)
+		tb.Fatalf("Failed to apply schema: %v", err)
 	}
 
 	td := &TestDefraDB{
@@ -81,7 +81,7 @@ func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 		Port: port,
 	}
 
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		_ = defraNode.Close(context.Background())
 	})
 
@@ -89,11 +89,11 @@ func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 }
 
 // getFreePort returns a free TCP port on localhost.
-func getFreePort(t *testing.T) int {
-	t.Helper()
+func getFreePort(tb testing.TB) int {
+	tb.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("Failed to get free port: %v", err)
+		tb.Fatalf("Failed to get free port: %v", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()

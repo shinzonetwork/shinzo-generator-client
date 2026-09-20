@@ -3,6 +3,11 @@
 # instructions link back to their parent instruction; outer instructions have
 # no parent.
 type Solana__Mainnet__Instruction {
+    # Parent transaction's signature. DefraDB docIDs are content hashes, so two
+    # byte-identical instructions in different transactions (identical memo
+    # transfers) would otherwise collide on one document; this field makes
+    # every instruction's content unique.
+    transactionSignature: String
     programId: String
     accounts: [String]
     data: String

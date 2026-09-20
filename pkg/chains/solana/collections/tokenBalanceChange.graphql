@@ -2,6 +2,10 @@
 # stored as strings: token amounts can exceed int64 for zero-decimal
 # large-supply mints.
 type Solana__Mainnet__TokenBalanceChange {
+    # Parent transaction's signature, for the same duplicate-content reason as
+    # the Instruction collection: identical token transfers in one slot would
+    # otherwise collide on their content-hash docID.
+    transactionSignature: String
     mint: String
     owner: String
     tokenAccount: String

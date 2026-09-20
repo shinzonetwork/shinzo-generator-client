@@ -26,11 +26,13 @@ type instructionKey struct {
 // rewards); StampBeforeWrite consumes that state to stamp link fields into
 // docs before they are written.
 //
-// Because instruction docs carry no transaction-identity field in the
-// schema, parentage comes from the parallel ref arrays the converter passes
-// at construction (one entry per doc, in doc order) — the EVM
-// aleParentRefs pattern extended with a second link level for CPI
-// instructions.
+// Instruction docs do carry the parent transaction's signature as a data
+// field (transactionSignature, the duplicate-content join field), but
+// parentage still comes from the parallel ref arrays the converter passes at
+// construction (one entry per doc, in doc order) — the EVM aleParentRefs
+// pattern extended with a second link level for CPI instructions. The refs
+// avoid re-parsing doc maps for stamping and keep the stamper independent of
+// any future join-field rename.
 type solanaLinkStamper struct {
 	outerRefs []string         // per outer instruction doc: parent tx signature
 	innerRefs []innerParentRef // per inner instruction doc: parent tx sig + outer index

@@ -2,6 +2,7 @@ package solana
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"github.com/sourcenetwork/defradb/client"
@@ -348,6 +349,8 @@ func TestConvert_InstructionData(t *testing.T) {
 	assert.Equal(t, tx.Instructions[0].Data, outer[DataFieldName])
 	assert.Equal(t, 0, outer[InstructionIndexFieldName])
 	assert.Equal(t, 0, outer[InnerIndexFieldName])
+	assert.Equal(t, tx.Signature, outer[TransactionSignatureFieldName],
+		"outer docs carry the parent tx signature (duplicate-content join field)")
 	assert.Equal(t, int64(slot), outer[SlotFieldName])
 	_, hasStackHeight := outer[StackHeightFieldName]
 	assert.False(t, hasStackHeight, "outer docs must omit the stackHeight key (stamper inner/outer discriminator)")
@@ -357,6 +360,8 @@ func TestConvert_InstructionData(t *testing.T) {
 	assert.Equal(t, 0, inner[InstructionIndexFieldName], "inner instructionIndex is the parent outer's index")
 	assert.Equal(t, 0, inner[InnerIndexFieldName])
 	assert.Equal(t, int64(2), inner[StackHeightFieldName], "inner docs always carry the stackHeight key")
+	assert.Equal(t, tx.Signature, inner[TransactionSignatureFieldName],
+		"inner docs carry the parent tx signature (duplicate-content join field)")
 }
 
 // TestConvert_InstructionStackHeightInvariant pins the key-presence
@@ -432,6 +437,8 @@ func TestConvert_TokenBalanceChangeData(t *testing.T) {
 	assert.Equal(t, "100", doc[PreAmountFieldName])
 	assert.Equal(t, "150", doc[PostAmountFieldName])
 	assert.Equal(t, tx.PostTokenBalances[0].ProgramID, doc[ProgramIDFieldName])
+	assert.Equal(t, tx.Signature, doc[TransactionSignatureFieldName],
+		"token balance change docs carry the parent tx signature (duplicate-content join field)")
 	assert.Equal(t, int64(slot), doc[SlotFieldName])
 }
 
@@ -516,6 +523,63 @@ func TestConvert_RewardCommission(t *testing.T) {
 	vote := result.Groups[5].Docs[1]
 	assert.Equal(t, "5", vote[CommissionFieldName], "commission stored as string when present")
 	assert.Equal(t, "Voting", vote[RewardTypeFieldName])
+}
+
+// TestConvert_DuplicateInstructionContent_UniqueDocs pins the risk-#7 join
+// field against DefraDB content-hash docIDs: two transactions in one slot
+// carrying byte-identical instruction data (identical memo transfers) and
+// identical token balances must produce instruction and token-balance-change
+// docs that differ — otherwise AddManyDocuments collides them on one docID
+// and the block never signs.
+func TestConvert_DuplicateInstructionContent_UniqueDocs(t *testing.T) {
+	t.Parallel()
+	c := NewConverter(testConfig())
+
+	slot := uint64(515)
+	shared := fakeInstruction(0, 0, "dup-content")
+	shared.StackHeight = nil
+
+	inner := fakeInstruction(0, 0, "dup-content")
+	stackHeight := uint16(2)
+	inner.StackHeight = &stackHeight
+
+	mkTx := func(seed string) Transaction {
+		tx := fakeTransaction(slot, 0, seed)
+		tx.Instructions = []Instruction{shared}
+		tx.InnerInstructions = []InnerInstructionGroup{{Index: 0, Instructions: []Instruction{inner}}}
+		tx.PreTokenBalances = []TokenBalance{{AccountIndex: 1, Mint: "mint", Owner: "owner", Amount: "1"}}
+		tx.PostTokenBalances = []TokenBalance{{AccountIndex: 1, Mint: "mint", Owner: "owner", Amount: "2"}}
+		return tx
+	}
+
+	block := fakeBlockWithTxs(slot, mkTx("dup-a"), mkTx("dup-b"))
+	result, err := c.Convert(context.Background(), block)
+	require.NoError(t, err)
+
+	outerGroup, innerGroup, tbcGroup := result.Groups[2], result.Groups[3], result.Groups[4]
+	require.Len(t, outerGroup.Docs, 2)
+	require.Len(t, innerGroup.Docs, 2)
+	require.Len(t, tbcGroup.Docs, 2)
+
+	sigA := fakeSignature("dup-a")
+	sigB := fakeSignature("dup-b")
+	assert.NotEqual(t, sigA, sigB)
+	for name, group := range map[string]chains.DocumentGroup{
+		"outer": outerGroup, "inner": innerGroup, "tokenBalance": tbcGroup,
+	} {
+		assert.Equal(t, sigA, group.Docs[0][TransactionSignatureFieldName], "%s doc 0 join field", name)
+		assert.Equal(t, sigB, group.Docs[1][TransactionSignatureFieldName], "%s doc 1 join field", name)
+		assert.NotEqual(t, group.Docs[0], group.Docs[1],
+			"%s docs with identical payload content must not be byte-identical", name)
+	}
+
+	// Without the join field the two outer maps would be identical: strip the
+	// join field and compare — this pins that the join field is the ONLY
+	// difference, so the dup coverage exercised by the spike is real.
+	strippedA, strippedB := maps.Clone(outerGroup.Docs[0]), maps.Clone(outerGroup.Docs[1])
+	delete(strippedA, TransactionSignatureFieldName)
+	delete(strippedB, TransactionSignatureFieldName)
+	assert.Equal(t, strippedA, strippedB, "payloads must be genuinely identical; only the join field differentiates")
 }
 
 // ---------------------------------------------------------------------------
