@@ -103,4 +103,4 @@ const (
 )
 
 // GeneratorVersion is the current version of the Shinzo Network Generator.
-const GeneratorVersion = "0.6.5.4"
+const GeneratorVersion = "0.6.6"
