@@ -436,9 +436,13 @@ func TestStopIndexing_DuringStart_WaitsForStart(t *testing.T) {
 //
 // The park happens inside the newBlockHandlerFn seam, which ignores context —
 // so the stop's init cancellation cannot preempt it, and the release
-// deterministically produces a GENUINE init failure. A genuine failure makes
-// the error guard call StopIndexing concurrently with the parked external
-// Stop: exactly the pairing stopMu must serialize.
+// deterministically produces a GENUINE init failure. The external stop is
+// only spawned after the start has signalled (via enteredSeam) that it is
+// parked there: spawning it earlier would let the cancellation abort the
+// context-aware Defra readiness wait and produce a mapped-to-nil abort
+// instead of a genuine failure. A genuine failure makes the error guard call
+// StopIndexing concurrently with the parked external Stop: exactly the
+// pairing stopMu must serialize.
 func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -470,8 +474,13 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 			close(releaseSeam)
 		}
 	}
+	enteredSeam := make(chan struct{}, 1)
 	original := newBlockHandlerFn
 	newBlockHandlerFn = func(_ *node.Node, _ int) (*defra.BlockHandler, error) {
+		select {
+		case enteredSeam <- struct{}{}:
+		default:
+		}
 		<-releaseSeam
 		return nil, errors.New("forced block handler failure")
 	}
@@ -495,12 +504,18 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 	errCh := startIndexingBackground(t, indexer)
 
 	// Park: fetcher, defraNode and networkHandler are all assigned before the
-	// block handler stage.
-	require.Eventually(t, func() bool {
-		indexer.mutex.RLock()
-		defer indexer.mutex.RUnlock()
-		return indexer.startInProgress
-	}, 10*time.Second, 10*time.Millisecond, "StartIndexing never entered its init phase")
+	// block handler stage. The external stop may only be spawned once init is
+	// deterministically parked at the context-blind seam — before that, its
+	// init cancellation would preempt the start through the context-aware
+	// Defra readiness wait and abort it (the mapped-to-nil abort path, which
+	// is what TestStopIndexing_DuringStart_WaitsForStart exercises).
+	select {
+	case <-enteredSeam:
+	case startErr := <-errCh:
+		t.Fatalf("StartIndexing failed before reaching the park: %v", startErr)
+	case <-time.After(30 * time.Second):
+		t.Fatal("StartIndexing never reached the block handler stage")
+	}
 
 	// Start the external stop while init is parked: it cancels the init
 	// context (no effect on the context-blind seam) and waits for settle.

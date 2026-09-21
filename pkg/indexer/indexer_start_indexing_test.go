@@ -905,7 +905,7 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 			name: "WaitForDefraDB error",
 			setupSeam: func() func() {
 				original := waitForDefraDBFn
-				waitForDefraDBFn = func(_ string) error {
+				waitForDefraDBFn = func(_ context.Context, _ string) error {
 					return errors.New("forced WaitForDefraDB failure")
 				}
 				return func() { waitForDefraDBFn = original }
