@@ -127,9 +127,6 @@ func assertSolanaSignatureDocCount(ctx context.Context, t *testing.T, td *testut
 	assert.Len(t, sigs, want)
 }
 
-//go:fix inline
-func uint8Ptr(v uint8) *uint8 { return new(v) }
-
 // seedSolanaBlocks stores slots [start, end] through the production path and
 // requires each block to have signed.
 func (f *solanaSnapshotFixture) seedSolanaBlocks(ctx context.Context, t *testing.T, start, end int64) {

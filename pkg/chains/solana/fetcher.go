@@ -48,10 +48,15 @@ type Fetcher struct {
 	archiveURL   string
 	apiKey       string
 	apiKeyType   string
+	wsURL        string
 	commitment   string
 	maxTxVersion uint64
 	rewards      bool
 	dialTimeout  time.Duration
+
+	// notifier drives the WS slotSubscribe hint gate. nil unless Connect
+	// launched one (wsURL configured); all methods are nil-safe.
+	notifier *slotNotifier
 }
 
 // NewFetcher creates a Fetcher wrapping the given RPC client. Intended for
@@ -73,6 +78,7 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		archiveURL:   cfg.Solana.ArchiveRPCURL,
 		apiKey:       cfg.Solana.APIKey,
 		apiKeyType:   cfg.Solana.APIKeyType,
+		wsURL:        cfg.Solana.WsURL,
 		commitment:   cfg.Solana.Commitment,
 		maxTxVersion: maxTxVersion,
 		rewards:      cfg.Solana.RewardsEnabled(),
@@ -112,6 +118,17 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 		return errors.NewRPCConnectionFailed("solana", "Fetcher.Connect", f.nodeURL, err)
 	}
 	f.client = client
+
+	// Soft-fail WS hint gate: the connection loop owns dialing and retries
+	// forever with capped backoff, so a websocket failure here never blocks
+	// startup — FetchBlock simply fetches blind until hints flow.
+	if f.wsURL != "" {
+		f.notifier = newSlotNotifier(f.wsURL, f.apiKey, f.apiKeyType)
+		// WithoutCancel detaches the notifier from this ctx, which may be a
+		// dial-timeout ctx that is cancelled as soon as Connect returns; the
+		// notifier must outlive it and shut down only via Fetcher.Close.
+		f.notifier.start(context.WithoutCancel(ctx))
+	}
 	return nil
 }
 
@@ -126,6 +143,15 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 //   - pruned below the node's ledger floor → archive endpoint when
 //     configured, otherwise a hard error so operators learn that deep
 //     backfill needs SOLANA_ARCHIVE_RPC_URL
+//
+// When Connect launched the WS hint gate (ws_url configured), FetchBlock
+// first waits for a slotSubscribe notification at or above the slot —
+// advisory readiness at processed commitment, bounded by the stall timeout
+// (silence flips to immediate blind fetches) — replacing the previous
+// getBlock-poll-every-3s alignment with one fetch attempt right when the
+// slot is likely fetchable. Without the gate, or once the gate is open, the
+// behavior is byte-identical to the classification rules above. The tip
+// query in classifyMissingSlot and the archive route are never gated.
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
@@ -134,6 +160,10 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 		return nil, fmt.Errorf("invalid height %d: slot numbers are non-negative", height)
 	}
 	slot := uint64(height) //nolint:gosec // guarded non-negative above
+
+	if err := f.waitSlotHinted(ctx, slot); err != nil {
+		return nil, err
+	}
 
 	block, err := f.client.GetBlock(ctx, slot)
 	if err == nil {
@@ -149,6 +179,14 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	}
 
 	return nil, err
+}
+
+// waitSlotHinted blocks until the slot was observed as processed by the WS
+// hint gate, or fetching is otherwise safe to attempt: gate disabled, stall
+// timeout expired (blind mode), or notifier stopped — each returns
+// immediately. Only ctx cancellation produces an error.
+func (f *Fetcher) waitSlotHinted(ctx context.Context, slot uint64) error {
+	return f.notifier.AwaitHint(ctx, slot)
 }
 
 // fetchPrunedBlock routes a block below the main node's ledger floor to the
@@ -223,8 +261,10 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	return int64(slot), nil //nolint:gosec // confirmed slots stay far below int64 max
 }
 
-// Close implements chains.Fetcher. It closes the underlying RPC client.
+// Close implements chains.Fetcher. It stops the WS hint gate (releasing any
+// FetchBlock waiters) and closes the underlying RPC client.
 func (f *Fetcher) Close() error {
+	f.notifier.stop()
 	if f.client != nil {
 		return f.client.Close()
 	}

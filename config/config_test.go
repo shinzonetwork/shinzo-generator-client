@@ -624,6 +624,41 @@ func TestValidateConfig_SolanaCommitment(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_SolanaWsURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		wsURL       string
+		shouldError bool
+	}{
+		{"empty allowed (polling)", "", false},
+		{"ws valid", "ws://127.0.0.1:8900", false},
+		{"wss valid", "wss://api.devnet.solana.com", false},
+		{"https rejected", "https://api.devnet.solana.com", true},
+		{"http rejected", "http://127.0.0.1:8900", true},
+		{"tcp rejected", "tcp://127.0.0.1:8900", true},
+		{"no scheme rejected", "api.devnet.solana.com", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = SolanaChainAdapter
+			cfg.Solana.Commitment = DefaultSolanaCommitment
+			cfg.Solana.WsURL = tt.wsURL
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid solana ws_url")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestSolanaDefaults(t *testing.T) {
 	t.Parallel()
 

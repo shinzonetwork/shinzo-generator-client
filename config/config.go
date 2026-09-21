@@ -340,6 +340,19 @@ func validateConfig(cfg *Config) error {
 		default:
 			return fmt.Errorf("invalid solana commitment %q: must be one of confirmed, finalized", cfg.Solana.Commitment)
 		}
+
+		// A broken websocket degrades silently to HTTP polling, so a typo in
+		// the ws_url scheme must fail loudly here rather than quietly
+		// disabling the slot notification gate.
+		if u := strings.TrimSpace(cfg.Solana.WsURL); u != "" {
+			scheme := u
+			if before, _, ok := strings.Cut(u, "://"); ok {
+				scheme = before
+			}
+			if scheme != "ws" && scheme != "wss" {
+				return fmt.Errorf("invalid solana ws_url %q: must use the ws:// or wss:// scheme", cfg.Solana.WsURL)
+			}
+		}
 	}
 
 	if cfg.Indexer.StartHeight < 0 {

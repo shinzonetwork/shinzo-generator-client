@@ -54,6 +54,7 @@ var (
 	liveInstrCol   = ""
 	liveSigCol     = ""
 	indexerStarted = false
+	liveWsEnabled  = false // SOLANA_WS_URL was set: the suite runs with the hint gate active
 
 	liveIndexer *indexer.ChainIndexer
 )
@@ -74,6 +75,14 @@ func TestMain(m *testing.M) {
 		network = "Devnet"
 	}
 	setLiveCollections(network)
+
+	// WS notifications are opt-in: when SOLANA_WS_URL is set the whole suite
+	// runs with the hint gate active and TestLiveSolanaWSNotificationIndexing
+	// exercises the notification-driven path; unset keeps polling only.
+	liveWsEnabled = os.Getenv("SOLANA_WS_URL") != ""
+	if liveWsEnabled {
+		logger.Testf("SOLANA_WS_URL set - slot notifications enabled: %s", os.Getenv("SOLANA_WS_URL"))
+	}
 
 	_ = os.RemoveAll("./.defra")   //nolint:gosec // fresh store per run
 	defer os.RemoveAll("./.defra") //nolint:gosec
@@ -98,6 +107,7 @@ func TestMain(m *testing.M) {
 		},
 		Solana: config.SolanaConfig{
 			RPCURL:                         rpcURL,
+			WsURL:                          os.Getenv("SOLANA_WS_URL"),
 			APIKey:                         os.Getenv("SOLANA_API_KEY"),
 			APIKeyType:                     os.Getenv("SOLANA_API_KEY_TYPE"),
 			Commitment:                     config.DefaultSolanaCommitment,
@@ -371,5 +381,31 @@ func TestLiveSolanaIndexingAdvances(t *testing.T) {
 		logger.Testf("✓ Indexed %d new solana slots in 30s", final-initial)
 	} else {
 		logger.Test("~ No new slots in 30s (devnet rate limits may throttle; tolerated)")
+	}
+}
+
+// TestLiveSolanaWSNotificationIndexing verifies the slotSubscribe-driven
+// path against the real provider: with SOLANA_WS_URL configured the indexer
+// advances across an idle window on notifications (the hint gate with its
+// blind-poll fallback makes a broken websocket indistinguishable from a
+// throttled endpoint here — the deterministic notification behavior is
+// pinned by the in-process ws tests in pkg/chains/solana).
+func TestLiveSolanaWSNotificationIndexing(t *testing.T) {
+	requireLiveIndexer(t)
+	if !liveWsEnabled {
+		t.Skip("SOLANA_WS_URL not set - the suite is running with HTTP polling only")
+	}
+
+	initial := liveCount(t, liveBlockCol)
+	require.Positive(t, initial)
+
+	time.Sleep(30 * time.Second)
+
+	final := liveCount(t, liveBlockCol)
+	assert.GreaterOrEqual(t, final, initial, "block count must never regress")
+	if final > initial {
+		logger.Testf("✓ Indexed %d new solana slots in 30s with slot notifications enabled", final-initial)
+	} else {
+		logger.Test("~ No new slots in 30s with notifications enabled (devnet rate limits may throttle; tolerated)")
 	}
 }

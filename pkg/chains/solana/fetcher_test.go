@@ -70,6 +70,18 @@ func (f *fakeSlotClient) calls() (block, archive, tipCalls, closeCalls int) {
 	return f.blockCalls, f.archiveCalls, f.tipCalls, f.closeCalls
 }
 
+func (f *fakeSlotClient) blockCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.blockCalls
+}
+
+func (f *fakeSlotClient) closeCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.closeCalls
+}
+
 // testFetcher wires a fetcher with a pre-connected fake client.
 func testFetcher(client *fakeSlotClient) *Fetcher {
 	return NewFetcher(client)
