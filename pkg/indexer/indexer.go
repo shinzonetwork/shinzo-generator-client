@@ -103,11 +103,15 @@ type ChainIndexer struct {
 
 // IsStarted returns true if the indexer has been started.
 func (i *ChainIndexer) IsStarted() bool {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.isStarted
 }
 
 // HasIndexedAtLeastOneBlock returns true if at least one block has been indexed.
 func (i *ChainIndexer) HasIndexedAtLeastOneBlock() bool {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.hasIndexedAtLeastOneBlock
 }
 
@@ -212,7 +216,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 		return err
 	}
 
-	i.shouldIndex = true
+	// Init succeeded: indexing intent is set here, isStarted only flips on
+	// once the indexing loop takes over (runConcurrentIndexing).
+	i.setLifecycleFlags(true, false)
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
 	// 7. Init services (pruner/snapshot/health — now take converter)
@@ -248,7 +254,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler
 
-		if err := waitForDefraDBFn(defraNode.APIURL); err != nil {
+		if err := waitForDefraDBFn(ctx, defraNode.APIURL); err != nil {
 			return ctx, err
 		}
 
@@ -261,7 +267,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 			logger.Sugar.Info("Identity context initialized for block signing")
 		}
 	} else {
-		if err := waitForDefraDBFn(cfg.DefraDB.URL); err != nil {
+		if err := waitForDefraDBFn(ctx, cfg.DefraDB.URL); err != nil {
 			return ctx, err
 		}
 		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, i.converter.Collections()); err != nil {
@@ -440,8 +446,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	startBlock int64,
 	cfg *config.Config,
 ) error {
-	i.shouldIndex = true
-	i.isStarted = true
+	i.setLifecycleFlags(true, true)
 
 	ctx, cancel := context.WithCancelCause(ctx)
 	done := make(chan struct{})
@@ -480,7 +485,9 @@ func (i *ChainIndexer) runConcurrentIndexing(
 
 	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
 		i.updateBlockInfo(blockNum)
+		i.mutex.Lock()
 		i.hasIndexedAtLeastOneBlock = true
+		i.mutex.Unlock()
 	})
 	if errors.Is(context.Cause(ctx), errIndexingStopped) {
 		return nil
@@ -607,8 +614,7 @@ func (i *ChainIndexer) StopIndexing() {
 // nil-checked, so a repeated serialized Stop is a benign no-op, and a
 // mid-init abort still releases each component already assigned.
 func (i *ChainIndexer) teardownSubsystems() {
-	i.shouldIndex = false
-	i.isStarted = false
+	i.setLifecycleFlags(false, false)
 
 	// Stop snapshotter before pruner (capture data before it's pruned)
 	if i.snapshotter != nil {
@@ -784,6 +790,17 @@ func (i *ChainIndexer) updateBlockInfo(blockNum int64) {
 	defer i.mutex.Unlock()
 	i.currentBlock = blockNum
 	i.lastProcessedTime = time.Now()
+}
+
+// setLifecycleFlags updates shouldIndex/isStarted together under the mutex:
+// health endpoints read these flags concurrently with start/stop transitions,
+// so both the writers and the accessors (IsStarted, HasIndexedAtLeastOneBlock,
+// IsHealthy) share i.mutex instead of touching the bare fields.
+func (i *ChainIndexer) setLifecycleFlags(shouldIndex, isStarted bool) {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.shouldIndex = shouldIndex
+	i.isStarted = isStarted
 }
 
 // execCommand is a variable to allow mocking exec.Command in tests. It is used by openBrowser to launch the default web browser.

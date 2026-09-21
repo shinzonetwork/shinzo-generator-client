@@ -26,8 +26,10 @@ const (
 var errDefraDBNotReady = errors.New("DefraDB failed to become ready") //nolint:gochecknoglobals
 
 // WaitForDefraDB waits for a DefraDB instance to be ready by checking the GraphQL endpoint.
-// It retries until the endpoint responds successfully or until max attempts are reached.
-func WaitForDefraDB(url string) error {
+// It retries until the endpoint responds successfully, until max attempts are
+// reached, or until ctx is cancelled — the context lets a shutdown abort the
+// wait instead of leaving init doomed behind a timed-out stop.
+func WaitForDefraDB(ctx context.Context, url string) error {
 	fmt.Println("Waiting for defra...")
 
 	graphqlURL := strings.TrimSuffix(url, "/") + GraphQLEndpointPath
@@ -43,7 +45,7 @@ func WaitForDefraDB(url string) error {
 	for attempt := 1; attempt <= DefraDBReadyMaxAttempts; attempt++ {
 		// Create request
 		req, err := http.NewRequestWithContext(
-			context.Background(),
+			ctx,
 			"POST",
 			graphqlURL,
 			strings.NewReader(query),
@@ -57,7 +59,12 @@ func WaitForDefraDB(url string) error {
 		// Make request
 		resp, err := client.Do(req)
 		if err != nil {
-			time.Sleep(DefraDBReadyRetryDelay)
+			if ctx.Err() != nil {
+				return fmt.Errorf("wait for DefraDB aborted: %w", ctx.Err())
+			}
+			if !sleepRetryDelay(ctx) {
+				return fmt.Errorf("wait for DefraDB aborted: %w", ctx.Err())
+			}
 			continue
 		}
 
@@ -70,8 +77,21 @@ func WaitForDefraDB(url string) error {
 		fmt.Printf("Attempt %d failed... Trying again\n", attempt)
 
 		_ = resp.Body.Close()
-		time.Sleep(DefraDBReadyRetryDelay)
+		if !sleepRetryDelay(ctx) {
+			return fmt.Errorf("wait for DefraDB aborted: %w", ctx.Err())
+		}
 	}
 
 	return fmt.Errorf("%w after %d retry attempts", errDefraDBNotReady, DefraDBReadyMaxAttempts)
+}
+
+// sleepRetryDelay pauses between readiness attempts, returning false when the
+// context is cancelled first so the wait can abort promptly.
+func sleepRetryDelay(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(DefraDBReadyRetryDelay):
+		return true
+	}
 }
