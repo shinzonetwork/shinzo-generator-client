@@ -1983,6 +1983,7 @@ func TestNewEthereumClient_WSBlackHole_DeadlineAbortsDial(t *testing.T) {
 			assert.Error(t, err)
 			assert.Nil(t, client)
 			assertDeadlineError(t, err)
+			assert.ErrorIs(t, err, errWSDialAborted)
 			assert.Less(t, elapsed, 5*time.Second, "dial must abort on the context deadline, not on OS-level timeouts")
 		})
 	}
@@ -2084,5 +2085,19 @@ func TestNewEthereumClient_ParentDeadlineMidWSDial_FailsFast(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, client)
 	assertDeadlineError(t, err)
+	assert.ErrorIs(t, err, errWSDialAborted)
 	assert.Less(t, elapsed, 5*time.Second, "the caller deadline must abort startup even with HTTP connected")
+}
+
+func TestEthereumClient_NilClientGuard_ReturnsSentinel(t *testing.T) {
+	t.Parallel()
+	// Both transports unset: every getter's nil-client guard classifies via
+	// the errNoClientAvailable sentinel.
+	c := &EthereumClient{}
+
+	_, err := c.GetLatestBlock(t.Context())
+	assert.ErrorIs(t, err, errNoClientAvailable)
+
+	_, err = c.GetLatestBlockNumber(t.Context())
+	assert.ErrorIs(t, err, errNoClientAvailable)
 }
