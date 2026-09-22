@@ -11,8 +11,19 @@ GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
 
+# Version injected into the binary at build time via -ldflags (git tag plus
+# commit offset and dirty state; falls back to "dev" outside a git repo).
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 build:
-	go build -o bin/block_poster cmd/block_poster/main.go
+	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/pkg/indexer.Version=$(VERSION)" -o bin/block_poster cmd/block_poster/main.go
+	@if [ "$(VERSION)" = "dev" ]; then \
+		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+	elif grep -aFq "$(VERSION)" bin/block_poster; then \
+		echo "✅ version injected: $(VERSION)"; \
+	else \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
+	fi
 
 start:
 	./bin/block_poster
