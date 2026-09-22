@@ -152,27 +152,54 @@ func rpcClientOpts(opts ClientOptions) *jsonrpc.RPCClientOpts {
 // metadata (including inner instructions and token balances), and rewards
 // per configuration. Transport-level outcomes are mapped to package
 // sentinels so the fetcher can classify skip-vs-transient without touching
-// library error strings.
+// library error strings. Each call records its network round-trip and local
+// conversion time into the rpcStats collector carried by ctx (no-op when
+// absent).
 func (c *Client) GetBlock(ctx context.Context, slot uint64) (*Block, error) {
+	stats := rpcStatsFrom(ctx)
+	netStart := time.Now()
 	out, err := c.getBlock(ctx, slot, c.client)
+	netDur := time.Since(netStart)
 	if err != nil {
+		stats.record("GetBlock", netDur, 0, true)
 		return nil, err
 	}
-	return c.convertBlock(out, slot)
+
+	localStart := time.Now()
+	block, convErr := c.convertBlock(out, slot)
+	if convErr != nil {
+		stats.record("GetBlock", netDur, 0, true)
+		return nil, convErr
+	}
+	stats.record("GetBlock", netDur, time.Since(localStart), false)
+	return block, nil
 }
 
 // GetBlockFromArchive fetches a slot from the archive endpoint, used when
 // the main endpoint reports the block pruned below its ledger floor. Fails
-// with errArchiveNotConfigured when no archive endpoint is configured.
+// with errArchiveNotConfigured when no archive endpoint is configured (no
+// RPC is issued, so nothing is recorded for that case).
 func (c *Client) GetBlockFromArchive(ctx context.Context, slot uint64) (*Block, error) {
 	if c.archiveClient == nil {
 		return nil, errArchiveNotConfigured
 	}
+	stats := rpcStatsFrom(ctx)
+	netStart := time.Now()
 	out, err := c.getBlock(ctx, slot, c.archiveClient)
+	netDur := time.Since(netStart)
 	if err != nil {
+		stats.record("GetBlockFromArchive", netDur, 0, true)
 		return nil, err
 	}
-	return c.convertBlock(out, slot)
+
+	localStart := time.Now()
+	block, convErr := c.convertBlock(out, slot)
+	if convErr != nil {
+		stats.record("GetBlockFromArchive", netDur, 0, true)
+		return nil, convErr
+	}
+	stats.record("GetBlockFromArchive", netDur, time.Since(localStart), false)
+	return block, nil
 }
 
 // getBlock issues the shared getBlock call shape against either endpoint.
@@ -227,12 +254,17 @@ func classifyBlockError(err error) error {
 
 // GetSlot returns the current tip at the configured commitment. On Solana
 // the slot is the fetch height, so this both bounds backfill and serves the
-// chains.Fetcher tip query.
+// chains.Fetcher tip query. There is no local conversion, so only the
+// network round-trip is recorded.
 func (c *Client) GetSlot(ctx context.Context) (uint64, error) {
+	stats := rpcStatsFrom(ctx)
+	netStart := time.Now()
 	slot, err := c.client.GetSlot(ctx, c.commitment)
 	if err != nil {
+		stats.record("GetSlot", time.Since(netStart), 0, true)
 		return 0, fmt.Errorf("getSlot failed: %w", err)
 	}
+	stats.record("GetSlot", time.Since(netStart), 0, false)
 	return slot, nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
 // rpcClient abstracts the subset of *Client methods used by the
@@ -152,7 +153,29 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 // slot is likely fetchable. Without the gate, or once the gate is open, the
 // behavior is byte-identical to the classification rules above. The tip
 // query in classifyMissingSlot and the archive route are never gated.
+//
+// On success the per-RPC latency summary (network round-trip vs local
+// conversion, one aggregate per method) is logged at info level; the hint
+// wait sits outside the timed regions, so a stalled gate never inflates
+// the numbers.
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
+	// Per-fetch RPC latency accounting: the collector rides the context so
+	// every Client call in the fetch — block fetch, archive route, and the
+	// tip query that classifies missing slots — records into one summary.
+	stats := newRPCStats()
+	block, err := f.fetchBlock(withRPCStats(ctx, stats), height)
+	if err == nil {
+		if detail := stats.render(); detail != "" {
+			logger.Sugar.Infof("Block %d (rpc detail): %s", height, detail)
+		}
+	}
+	return block, err
+}
+
+// fetchBlock performs the hinted fetch and skip/transient classification
+// for FetchBlock; split out so the public method stays a thin wrapper
+// around the latency-collected call tree.
+func (f *Fetcher) fetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
 	}
@@ -249,8 +272,23 @@ func transientNotFound(slot uint64, cause error) error {
 }
 
 // FetchHighestBlockNumber implements chains.Fetcher. The current tip at the
-// configured commitment — for Solana the slot is the height.
+// configured commitment — for Solana the slot is the height. The tip
+// query's latency summary is logged at info level on success; the call site
+// is startup-only, so the added log volume is negligible.
 func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
+	stats := newRPCStats()
+	slot, err := f.currentSlot(withRPCStats(ctx, stats))
+	if err != nil {
+		return 0, err
+	}
+	if detail := stats.render(); detail != "" {
+		logger.Sugar.Infof("chain tip (rpc): %s", detail)
+	}
+	return int64(slot), nil //nolint:gosec // confirmed slots stay far below int64 max
+}
+
+// currentSlot issues the tip query for FetchHighestBlockNumber.
+func (f *Fetcher) currentSlot(ctx context.Context) (uint64, error) {
 	if f.client == nil {
 		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchHighestBlockNumber")
 	}
@@ -258,7 +296,7 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get highest slot: %w", err)
 	}
-	return int64(slot), nil //nolint:gosec // confirmed slots stay far below int64 max
+	return slot, nil
 }
 
 // Close implements chains.Fetcher. It stops the WS hint gate (releasing any
