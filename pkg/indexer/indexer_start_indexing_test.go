@@ -258,7 +258,7 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				ConcurrentBlocks: 1,
 				ReceiptWorkers:   2,
 				MaxDocsPerTxn:    100,
-				HealthServerPort: 19876, // Enable health server on a high port.
+				HealthServerPort: freeHealthPort(t), // Enable health server on a free port.
 				StartBuffer:      10,
 			},
 			wait: func(t *testing.T, _ *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
@@ -285,7 +285,7 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				ConcurrentBlocks: 1, // concurrent
 				ReceiptWorkers:   2,
 				MaxDocsPerTxn:    100,
-				HealthServerPort: 19876, // enable health server.
+				HealthServerPort: freeHealthPort(t), // enable health server.
 				StartBuffer:      10,
 			},
 			pruner: &config.PrunerConfig{
@@ -455,7 +455,7 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				ConcurrentBlocks:   1,
 				ReceiptWorkers:     2,
 				MaxDocsPerTxn:      100,
-				HealthServerPort:   8080,
+				HealthServerPort:   freeHealthPort(t),
 				OpenBrowserOnStart: false, // This should be true but is annoying because the server is already dead.
 				StartBuffer:        10,
 			},
@@ -498,7 +498,7 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				ConcurrentBlocks: 1,
 				ReceiptWorkers:   2,
 				MaxDocsPerTxn:    100,
-				HealthServerPort: 19878, // Enable health server.
+				HealthServerPort: freeHealthPort(t), // Enable health server.
 				StartBuffer:      10,
 			},
 			wait: func(t *testing.T, count *atomic.Int64, blockCh <-chan struct{}, errCh <-chan error) {
