@@ -437,7 +437,9 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	}
 	applyRequiredP2PDefaults(cfg)
 
-	logger.Init(cfg.Logger.Development)
+	if logger.Sugar == nil {
+		logger.Init(cfg.Logger.Development)
+	}
 
 	nodeIdentity, libp2pKeyBytes, err := getNodeIdentityAndP2PKeyBytes(cfg)
 	if err != nil {
@@ -583,7 +585,9 @@ func (c *Client) Start(ctx context.Context) error {
 
 	applyRequiredP2PDefaults(c.config)
 
-	logger.Init(c.config.Logger.Development)
+	if logger.Sugar == nil {
+		logger.Init(c.config.Logger.Development)
+	}
 
 	nodeIdentity, libp2pKeyBytes, err := getNodeIdentityAndP2PKeyBytes(c.config)
 	if err != nil {
