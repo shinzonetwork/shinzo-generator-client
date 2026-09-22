@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -591,4 +592,26 @@ func TestPruneQueueFilePath(t *testing.T) {
 	tmpDir := t.TempDir()
 	queueFilePath := filepath.Join(tmpDir, "prune_queue.gob")
 	assert.Contains(t, queueFilePath, "prune_queue.gob")
+}
+
+// freeHealthPort returns a port that is free at the time of the call, for tests
+// that need the health server enabled (port 0 disables it). Hard-coded ports
+// collide between parallel tests and across -count=N iterations, where the
+// previous iteration's listener may not have been released yet.
+func freeHealthPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := l.Addr().(*net.TCPAddr).Port
+	require.NoError(t, l.Close())
+	return port
+}
+
+// TestMain initializes the logger once for the whole package (console only, no
+// log files) so individual tests do not reconfigure it and DefraDB startup does
+// not write a logs directory into the package source tree.
+func TestMain(m *testing.M) {
+	os.Setenv("NO_LOG_FILES", "1")
+	logger.InitConsoleOnly(true)
+	os.Exit(m.Run())
 }
