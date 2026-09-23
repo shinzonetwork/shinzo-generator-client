@@ -179,8 +179,8 @@ func TestConvert_EmptyBlock(t *testing.T) {
 	require.Len(t, result.Groups[0].Docs, 1)
 	assert.Equal(t, int64(42), result.Groups[0].Docs[0][NumberFieldName])
 	assert.Equal(t, c.collections.BlockSignature, result.SignatureCollection)
-	assert.Equal(t, HashKeyName, result.Groups[0].BlockHashField,
-		"block group should have BlockHashField set to HashKeyName")
+	assert.Equal(t, HashFieldName, result.Groups[0].BlockHashField,
+		"block group should have BlockHashField set to HashFieldName")
 }
 
 func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
@@ -217,13 +217,13 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	require.GreaterOrEqual(t, len(result.Groups), 2)
 	assert.Equal(t, c.collections.Block, result.Groups[0].Collection)
 	require.Len(t, result.Groups[0].Docs, 1)
-	assert.Equal(t, block.Hash, result.Groups[0].Docs[0][HashKeyName])
+	assert.Equal(t, block.Hash, result.Groups[0].Docs[0][HashFieldName])
 
 	// Transaction group
 	assert.Equal(t, c.collections.Transaction, result.Groups[1].Collection)
 	require.Len(t, result.Groups[1].Docs, 1)
 	txData := result.Groups[1].Docs[0]
-	assert.Equal(t, txHash, txData[HashKeyName])
+	assert.Equal(t, txHash, txData[HashFieldName])
 	assert.Empty(t, result.Groups[1].BlockHashField,
 		"non-block groups should have empty BlockHashField")
 

@@ -121,7 +121,7 @@ func (c *Converter) Convert(
 			Docs:           []map[string]any{blockData},
 			BatchSize:      defaultBatch,
 			BlockNumField:  NumberFieldName,
-			BlockHashField: HashKeyName,
+			BlockHashField: HashFieldName,
 		},
 	}
 	if len(txDocs) > 0 {
@@ -324,7 +324,7 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 // buildBlockData builds the data map for a block document.
 func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any {
 	return map[string]any{
-		HashKeyName:               block.Hash,
+		HashFieldName:             block.Hash,
 		NumberFieldName:           blockInt,
 		TimestampFieldName:        block.Timestamp,
 		ParentHashFieldName:       block.ParentHash,
@@ -353,7 +353,7 @@ func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any 
 func (c *Converter) buildTransactionData(tx *Transaction) map[string]any {
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	return map[string]any{
-		HashKeyName:                    tx.Hash,
+		HashFieldName:                  tx.Hash,
 		constants.BlockNumberFieldName: txBlockNum,
 		constants.BlockHashFieldName:   tx.BlockHash,
 		TransactionIndexFieldName:      tx.TransactionIndex,
@@ -387,7 +387,7 @@ func (c *Converter) buildLogData(logEntry *Log) map[string]any {
 		"topics":                       logEntry.Topics,
 		"data":                         logEntry.Data,
 		constants.BlockNumberFieldName: logBlockNum,
-		TransactionHashKeyName:         logEntry.TransactionHash,
+		TransactionHashFieldName:       logEntry.TransactionHash,
 		TransactionIndexFieldName:      logEntry.TransactionIndex,
 		constants.BlockHashFieldName:   logEntry.BlockHash,
 		"logIndex":                     logEntry.LogIndex,
