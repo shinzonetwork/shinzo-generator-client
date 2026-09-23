@@ -145,6 +145,32 @@ func TestApplyDefaults_PresetValuesPreserved(t *testing.T) {
 	assert.Equal(t, 50, cfg.Indexer.StartBuffer, "StartBuffer")
 }
 
+func TestApplyDefaults_ConcurrentBlocksPolygon(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		chainName string
+		preset    int
+		want      int
+	}{
+		{"polygon gets 16", "Polygon", 0, 16},
+		{"polygon case-insensitive", "polygon", 0, 16},
+		{"ethereum gets 8", "Ethereum", 0, 8},
+		{"empty chain gets 8", "", 0, 8},
+		{"explicit value wins on polygon", "Polygon", 32, 32},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.Chain.Name = tt.chainName
+			cfg.Indexer.ConcurrentBlocks = tt.preset
+			applyDefaults(cfg)
+			assert.Equal(t, tt.want, cfg.Indexer.ConcurrentBlocks)
+		})
+	}
+}
+
 func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}

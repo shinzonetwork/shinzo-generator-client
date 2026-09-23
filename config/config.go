@@ -23,6 +23,12 @@ const DefaultChainAdapter = "evm"
 // lets the query skip purge residue with a missing or unparsable number.
 const DefaultLowestBlockQueryLimit = 1
 
+// defaultConcurrentBlocksPolygon is the worker count Polygon gets when
+// concurrent_blocks is unset. Polygon's ~1.6s block time outpaces the
+// Ethereum default of 8 (DefraDB store latency is the bottleneck), so the
+// generator drifts behind the tip without this.
+const defaultConcurrentBlocksPolygon = 16
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	BootstrapPeers      []string `yaml:"bootstrap_peers"`
@@ -242,6 +248,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
+		if strings.EqualFold(strings.TrimSpace(cfg.Chain.Name), "Polygon") {
+			cfg.Indexer.ConcurrentBlocks = defaultConcurrentBlocksPolygon
+		}
 	}
 	if cfg.Indexer.ReceiptWorkers <= 0 {
 		cfg.Indexer.ReceiptWorkers = 16
