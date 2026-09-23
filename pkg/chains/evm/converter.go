@@ -62,6 +62,12 @@ func chainPrefixFromConfig(cfg *config.Config) string {
 type Converter struct {
 	collections *CollectionNames
 	cfg         *config.Config
+
+	// Builder funcs are selected once in NewConverter from the chain variant
+	// (derived from chain.name via the collection prefix). The Ethereum
+	// variant is the original buildBlockData/buildTransactionData, unchanged.
+	buildBlockDataFn       func(*Block, int64) map[string]any
+	buildTransactionDataFn func(*Transaction) map[string]any
 }
 
 // Compile-time guarantee that Converter implements chains.Converter.
@@ -72,10 +78,18 @@ var _ chains.Converter = (*Converter)(nil)
 // (Ethereum__Mainnet), matching chainPrefixFromConfig behaviour.
 func NewConverter(cfg *config.Config) *Converter {
 	prefix := chainPrefixFromConfig(cfg)
-	return &Converter{
+	c := &Converter{
 		collections: NewCollectionNames(prefix),
 		cfg:         cfg,
 	}
+	if variantFromPrefix(prefix) == variantPolygon {
+		c.buildBlockDataFn = c.buildPolygonBlockData
+		c.buildTransactionDataFn = c.buildPolygonTransactionData
+	} else {
+		c.buildBlockDataFn = c.buildBlockData
+		c.buildTransactionDataFn = c.buildTransactionData
+	}
+	return c
 }
 
 // Convert implements chains.Converter. It type-asserts rawBlock to *BlockBundle
@@ -107,7 +121,7 @@ func (c *Converter) Convert(
 		return chains.ConversionResult{}, fmt.Errorf("converter: parse block number: %w", err)
 	}
 
-	blockData := c.buildBlockData(bundle.Block, blockInt)
+	blockData := c.buildBlockDataFn(bundle.Block, blockInt)
 	txDocs := c.buildTransactionDocs(bundle)
 	receiptMap := c.buildReceiptMap(bundle.Receipts)
 	logDocs := c.buildLogDocs(bundle.Transactions, receiptMap)
@@ -203,7 +217,7 @@ func (c *Converter) buildTransactionDocs(bundle *BlockBundle) []map[string]any {
 		if tx == nil {
 			continue
 		}
-		docs = append(docs, c.buildTransactionData(tx))
+		docs = append(docs, c.buildTransactionDataFn(tx))
 	}
 	return docs
 }
