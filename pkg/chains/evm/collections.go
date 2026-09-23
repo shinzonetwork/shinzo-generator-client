@@ -27,6 +27,7 @@ const (
 // generic BlockHandler.
 type CollectionNames struct {
 	prefix            string
+	variant           chainVariant
 	Block             string
 	BlockSignature    string
 	SnapshotSignature string
@@ -41,8 +42,16 @@ var _ chains.Collections = (*CollectionNames)(nil)
 // NewCollectionNames creates EVM collection names using the given prefix
 // (e.g. "Arbitrum__Mainnet").
 func NewCollectionNames(prefix string) *CollectionNames {
+	return newCollectionNames(prefix, variantFromPrefix(prefix))
+}
+
+// newCollectionNames creates collection names with an already-resolved chain
+// variant. Converter construction uses this so document builders and SDL file
+// selection cannot disagree about the configured chain.
+func newCollectionNames(prefix string, variant chainVariant) *CollectionNames {
 	return &CollectionNames{
 		prefix:            prefix,
+		variant:           variant,
 		Block:             fmt.Sprintf("%s__Block", prefix),
 		BlockSignature:    fmt.Sprintf("%s__BlockSignature", prefix),
 		SnapshotSignature: fmt.Sprintf("%s__SnapshotSignature", prefix),
@@ -88,10 +97,19 @@ func (c *CollectionNames) SchemaApplyOrder() []string {
 func (c *CollectionNames) CollectionFileForType(typeName string) string {
 	prefix := c.prefix + "__"
 	suffix := strings.TrimPrefix(typeName, prefix)
-	if suffix == typeName {
+	if suffix == "" || suffix == typeName {
 		return ""
 	}
-	return strings.ToLower(suffix[:1]) + suffix[1:] + ".graphql"
+	filename := strings.ToLower(suffix[:1]) + suffix[1:] + ".graphql"
+	if c.variant == polygonVariant {
+		switch suffix {
+		case "Block":
+			return "polygonBlock.graphql"
+		case "Transaction":
+			return "polygonTransaction.graphql"
+		}
+	}
+	return filename
 }
 
 // GetCollection returns the collection name for the given role string.

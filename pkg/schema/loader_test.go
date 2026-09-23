@@ -85,3 +85,18 @@ func TestPrecomputeCollectionSDLs_PrefixReplacement(t *testing.T) {
 	assert.Contains(t, sdl, prefix, "SDL should contain the chain prefix")
 	assert.NotContains(t, sdl, evm.DefaultCollectionPrefix, "SDL should not contain default prefix")
 }
+
+func TestPrecomputeCollectionSDLs_PolygonUsesStableRoleKeys(t *testing.T) {
+	t.Parallel()
+
+	collections := evm.NewCollectionNames("Polygon__Mainnet")
+	cache, err := schema.PrecomputeCollectionSDLs(collections)
+	require.NoError(t, err)
+
+	assert.Contains(t, cache, "block")
+	assert.Contains(t, cache, "transaction")
+	assert.NotContains(t, cache, "polygonBlock")
+	assert.NotContains(t, cache, "polygonTransaction")
+	assert.Contains(t, cache["transaction"], "yParity: String")
+	assert.NotContains(t, cache["transaction"], "effectiveGasPrice: String")
+}

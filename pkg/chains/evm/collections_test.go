@@ -84,6 +84,7 @@ func TestCollectionFileForType(t *testing.T) {
 		{"SnapshotSignature", CollectionSnapshotSignature, "snapshotSignature.graphql"},
 		{"UnknownPrefix", "UnknownPrefix__Block", ""},
 		{"NoPrefix", "Block", ""},
+		{"EmptySuffix", DefaultCollectionPrefix + "__", ""},
 		{"Empty", "", ""},
 	}
 
@@ -93,6 +94,16 @@ func TestCollectionFileForType(t *testing.T) {
 			assert.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+func TestPolygonCollectionFileForType(t *testing.T) {
+	t.Parallel()
+	c := NewCollectionNames("Polygon__Mainnet")
+
+	assert.Equal(t, "polygonBlock.graphql", c.CollectionFileForType(c.Block))
+	assert.Equal(t, "polygonTransaction.graphql", c.CollectionFileForType(c.Transaction))
+	assert.Equal(t, "log.graphql", c.CollectionFileForType(c.Log))
+	assert.Equal(t, "accessListEntry.graphql", c.CollectionFileForType(c.AccessListEntry))
 }
 
 func TestNewCollectionNames(t *testing.T) {

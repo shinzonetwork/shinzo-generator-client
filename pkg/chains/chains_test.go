@@ -22,6 +22,29 @@ func TestNewCollections_NilConfig_DefaultsToEVM(t *testing.T) {
 	assert.Equal(t, evm.DefaultCollections(), c.AllCollections())
 }
 
+func TestPolygonFactoriesUseSameVariant(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Chain: config.ChainConfig{
+			Name:    "Polygon",
+			Network: "Mainnet",
+			Adapter: config.DefaultChainAdapter,
+		},
+	}
+	converter, err := chains.NewConverter(cfg)
+	require.NoError(t, err)
+	collections, err := chains.NewCollections(cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, collections.Prefix(), converter.Collections().Prefix())
+	assert.Equal(t, collections.AllCollections(), converter.GetCollections())
+	sdl, err := converter.GetSchema()
+	require.NoError(t, err)
+	assert.Contains(t, sdl, "type Polygon__Mainnet__Transaction")
+	assert.Contains(t, sdl, "yParity: String")
+}
+
 func TestUnregisteredAdapter(t *testing.T) {
 	t.Parallel()
 

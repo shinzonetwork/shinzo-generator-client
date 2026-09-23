@@ -81,10 +81,8 @@ func ListCollections(collections chains.Collections) []CollectionEntry {
 	order := collections.SchemaApplyOrder()
 	entries := make([]CollectionEntry, 0, len(order))
 	for _, typeName := range order {
-		filename := collections.CollectionFileForType(typeName)
-		stem := strings.TrimSuffix(filename, ".graphql")
 		entries = append(entries, CollectionEntry{
-			Name:     stem,
+			Name:     collectionRole(collections, typeName),
 			TypeName: typeName,
 		})
 	}
@@ -105,7 +103,7 @@ func PrecomputeCollectionSDLs(collections chains.Collections) (map[string]string
 		if filename == "" {
 			continue
 		}
-		stem := strings.TrimSuffix(filename, ".graphql")
+		stem := collectionRole(collections, typeName)
 		sdl, err := LoadCollectionSDLForChain(collections, filename)
 		if err != nil {
 			return nil, fmt.Errorf("load collection SDL %s for prefix %s: %w", filename, collections.Prefix(), err)
@@ -113,6 +111,17 @@ func PrecomputeCollectionSDLs(collections chains.Collections) (map[string]string
 		cache[stem] = sdl
 	}
 	return cache, nil
+}
+
+// collectionRole returns the stable API/cache key for a collection type. It
+// intentionally derives the role from the type name rather than its SDL file,
+// because chain variants may use a different backing file for the same role.
+func collectionRole(collections chains.Collections, typeName string) string {
+	suffix := strings.TrimPrefix(typeName, collections.Prefix()+"__")
+	if suffix == "" || suffix == typeName {
+		return ""
+	}
+	return strings.ToLower(suffix[:1]) + suffix[1:]
 }
 
 // LoadSchemaSDL reads all collections/*.graphql files in dependency order

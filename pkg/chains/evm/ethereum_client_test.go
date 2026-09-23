@@ -907,6 +907,56 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGetBlockByNumber_BorStateSyncTransaction(t *testing.T) {
+	t.Parallel()
+	txHash := "0x000000000000000000000000000000000000000000000000000000000000007e"
+	tx := map[string]any{
+		"hash":             txHash,
+		"blockHash":        "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"blockNumber":      "0x64",
+		"from":             "0xffffffffffffffffffffffffffffffffffffffff",
+		"to":               "0x0000000000000000000000000000000000001001",
+		"value":            "0x0",
+		"gas":              "0x1e8480",
+		"gasPrice":         "0x0",
+		"input":            "0x1234",
+		"nonce":            "0x0",
+		"transactionIndex": "0x0",
+		"type":             "0x7e",
+		"chainId":          "0x89",
+		"v":                "0x1c",
+		"r":                "0x0",
+		"s":                "0x0",
+	}
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			return fullBlockResponse("0x64", []any{tx}), nil
+		default:
+			return "0x1", nil
+		}
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(server.URL, "", "", "X-Api-Key")
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	block, err := client.GetBlockByNumber(context.Background(), big.NewInt(100))
+	require.NoError(t, err)
+	require.Len(t, block.Transactions, 1)
+	deposit := block.Transactions[0]
+	assert.Equal(t, txHash, deposit.Hash)
+	assert.Equal(t, "126", deposit.Type)
+	assert.Equal(t, "28", deposit.V)
+	assert.Equal(t, "137", deposit.ChainID)
+	assert.Equal(t, ZeroAddress, deposit.From, "unsigned Bor state-sync transactions use the zero-address fallback")
+
+	converter := NewConverter(polygonTestConfig())
+	doc := converter.buildTransactionData(&deposit)
+	assert.Equal(t, "1", doc["yParity"])
+}
+
 // --- GetTransactionReceipt with mock server ---
 
 func TestGetTransactionReceipt_Success(t *testing.T) {

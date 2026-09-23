@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -204,6 +206,10 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
 		if err != nil {
 			if errors.IsErrUnsupportedTxType(err) {
+				compatibleBlock, fallbackErr := c.getCompatibleBlockByNumber(ctx, client, targetBlockNumber)
+				if fallbackErr == nil {
+					return compatibleBlock, nil
+				}
 
 				if retries < MaxErigonRetries-1 {
 					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks.
@@ -243,10 +249,182 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
 	if err != nil {
+		if errors.IsErrUnsupportedTxType(err) {
+			compatibleBlock, fallbackErr := c.getCompatibleBlockByNumber(ctx, client, blockNumber)
+			if fallbackErr == nil {
+				return compatibleBlock, nil
+			}
+			return nil, fmt.Errorf("failed to decode supported Polygon transaction in block %v: %w", blockNumber, fallbackErr)
+		}
 		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
 	}
 
 	return c.convertGethBlock(gethBlock), nil
+}
+
+// getCompatibleBlockByNumber handles EVM blocks containing Bor's unsigned
+// state-sync transaction type (0x7e), which upstream go-ethereum deliberately
+// rejects as an unknown transaction envelope. Standard transactions continue
+// through go-ethereum's decoder; only 0x7e is decoded locally.
+func (c *EthereumClient) getCompatibleBlockByNumber(
+	ctx context.Context,
+	client *ethclient.Client,
+	blockNumber *big.Int,
+) (*Block, error) {
+	var raw json.RawMessage
+	if err := client.Client().CallContext(ctx, &raw, "eth_getBlockByNumber", rpcBlockNumberArg(blockNumber), true); err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, fmt.Errorf("block not found")
+	}
+
+	var header *ethtypes.Header
+	if err := json.Unmarshal(raw, &header); err != nil {
+		return nil, fmt.Errorf("decode block header: %w", err)
+	}
+	if header == nil {
+		return nil, fmt.Errorf("block not found")
+	}
+	var body struct {
+		Hash         string            `json:"hash"`
+		Size         string            `json:"size"`
+		Transactions []json.RawMessage `json:"transactions"`
+		Uncles       []string          `json:"uncles"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, fmt.Errorf("decode block body: %w", err)
+	}
+
+	block := blockFromHeader(header, body.Hash, body.Size, body.Uncles)
+	block.Transactions = make([]Transaction, 0, len(body.Transactions))
+	gethBlock := ethtypes.NewBlockWithHeader(header)
+	for index, rawTx := range body.Transactions {
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(rawTx, &envelope); err != nil {
+			return nil, fmt.Errorf("decode transaction %d envelope: %w", index, err)
+		}
+		txType, ok := parseNumericString(envelope.Type)
+		if ok && txType == 0x7e {
+			tx, err := decodeBorStateSyncTransaction(rawTx, body.Hash, header.Number.Uint64(), index)
+			if err != nil {
+				return nil, fmt.Errorf("decode Bor state-sync transaction %d: %w", index, err)
+			}
+			block.Transactions = append(block.Transactions, tx)
+			continue
+		}
+
+		var gethTx ethtypes.Transaction
+		if err := json.Unmarshal(rawTx, &gethTx); err != nil {
+			return nil, fmt.Errorf("decode transaction %d: %w", index, err)
+		}
+		block.Transactions = append(block.Transactions, *c.convertTransaction(&gethTx, gethBlock, index))
+	}
+	return block, nil
+}
+
+func blockFromHeader(header *ethtypes.Header, hash, size string, uncles []string) *Block {
+	if hash == "" {
+		hash = header.Hash().Hex()
+	}
+	return &Block{
+		Hash:             hash,
+		Number:           header.Number.String(),
+		Timestamp:        fmt.Sprintf("%d", header.Time),
+		ParentHash:       header.ParentHash.Hex(),
+		Difficulty:       header.Difficulty.String(),
+		TotalDifficulty:  "",
+		GasUsed:          fmt.Sprintf("%d", header.GasUsed),
+		GasLimit:         fmt.Sprintf("%d", header.GasLimit),
+		BaseFeePerGas:    bigIntString(header.BaseFee),
+		Nonce:            fmt.Sprintf("%d", header.Nonce.Uint64()),
+		Miner:            header.Coinbase.Hex(),
+		Size:             hexQuantityToDecimal(size),
+		StateRoot:        header.Root.Hex(),
+		Sha3Uncles:       header.UncleHash.Hex(),
+		TransactionsRoot: header.TxHash.Hex(),
+		ReceiptsRoot:     header.ReceiptHash.Hex(),
+		LogsBloom:        common.Bytes2Hex(header.Bloom.Bytes()),
+		ExtraData:        common.Bytes2Hex(header.Extra),
+		MixHash:          header.MixDigest.Hex(),
+		Uncles:           uncles,
+	}
+}
+
+func decodeBorStateSyncTransaction(raw json.RawMessage, blockHash string, blockNumber uint64, fallbackIndex int) (Transaction, error) {
+	var tx struct {
+		Hash                 string            `json:"hash"`
+		To                   string            `json:"to"`
+		Value                string            `json:"value"`
+		Gas                  string            `json:"gas"`
+		GasPrice             string            `json:"gasPrice"`
+		MaxFeePerGas         string            `json:"maxFeePerGas"`
+		MaxPriorityFeePerGas string            `json:"maxPriorityFeePerGas"`
+		Input                string            `json:"input"`
+		Nonce                string            `json:"nonce"`
+		TransactionIndex     string            `json:"transactionIndex"`
+		Type                 string            `json:"type"`
+		ChainID              string            `json:"chainId"`
+		AccessList           []AccessListEntry `json:"accessList"`
+		V                    string            `json:"v"`
+		R                    string            `json:"r"`
+		S                    string            `json:"s"`
+	}
+	if err := json.Unmarshal(raw, &tx); err != nil {
+		return Transaction{}, err
+	}
+	index := fallbackIndex
+	if parsed, ok := parseNumericString(tx.TransactionIndex); ok {
+		index = int(parsed) //nolint:gosec // RPC transaction indices are bounded by block size.
+	}
+	return Transaction{
+		Hash:                 tx.Hash,
+		BlockHash:            blockHash,
+		BlockNumber:          fmt.Sprintf("%d", blockNumber),
+		From:                 ZeroAddress,
+		To:                   tx.To,
+		Value:                hexQuantityToDecimal(tx.Value),
+		Gas:                  hexQuantityToDecimal(tx.Gas),
+		GasPrice:             hexQuantityToDecimal(tx.GasPrice),
+		MaxFeePerGas:         hexQuantityToDecimal(tx.MaxFeePerGas),
+		MaxPriorityFeePerGas: hexQuantityToDecimal(tx.MaxPriorityFeePerGas),
+		Input:                tx.Input,
+		Nonce:                hexQuantityToDecimal(tx.Nonce),
+		TransactionIndex:     index,
+		Type:                 hexQuantityToDecimal(tx.Type),
+		ChainID:              hexQuantityToDecimal(tx.ChainID),
+		AccessList:           tx.AccessList,
+		V:                    hexQuantityToDecimal(tx.V),
+		R:                    hexQuantityToDecimal(tx.R),
+		S:                    hexQuantityToDecimal(tx.S),
+	}, nil
+}
+
+func hexQuantityToDecimal(value string) string {
+	if value == "" {
+		return ""
+	}
+	parsed, ok := new(big.Int).SetString(strings.TrimPrefix(strings.TrimPrefix(value, "0x"), "0X"), 16)
+	if !ok {
+		return value
+	}
+	return parsed.String()
+}
+
+func bigIntString(value *big.Int) string {
+	if value == nil {
+		return ""
+	}
+	return value.String()
+}
+
+func rpcBlockNumberArg(number *big.Int) string {
+	if number == nil {
+		return "latest"
+	}
+	return hexutil.EncodeBig(number)
 }
 
 // GetNetworkID returns the network ID.
