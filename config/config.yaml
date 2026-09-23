@@ -4,9 +4,9 @@
 # Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
 # Collection names are derived as: {name}__{network}__Block, etc.
 chain:
-  name: "Ethereum"       # Chain name (env: CHAIN_NAME)
+  name: "Solana"       # Chain name (env: CHAIN_NAME)
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
-  adapter: "evm"         # Chain adapter: "evm" (default) or "solana" (env: CHAIN_ADAPTER)
+  adapter: "solana"         # Chain adapter: "evm" (default) or "solana" (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
@@ -42,16 +42,16 @@ geth:
   dial_timeout_seconds: 10     # Positive: bounds the startup WebSocket dial (seconds); WS timeout with HTTP connected starts HTTP-only. 0 or negative = unbounded (env: GETH_DIAL_TIMEOUT_SECONDS)
 # Solana section is consumed by the "solana" chain adapter (chain.adapter: "solana").
 solana:
-  rpc_url: ""    # Solana JSON-RPC endpoint (env: SOLANA_RPC_URL)
-  ws_url: ""     # Solana websocket endpoint (env: SOLANA_WS_URL); when set, slotSubscribe notifications drive fetch timing (recommended); empty = HTTP polling
+  rpc_url: "${SOLANA_RPC_URL}"    # Solana JSON-RPC endpoint (env: SOLANA_RPC_URL)
+  ws_url: "${SOLANA_WS_URL}"     # Solana websocket endpoint (env: SOLANA_WS_URL); when set, slotSubscribe notifications drive fetch timing (recommended); empty = HTTP polling
   commitment: "confirmed"   # "confirmed" (default) or "finalized"; block RPC methods reject "processed" (env: SOLANA_COMMITMENT)
   max_supported_transaction_version: 1  # Passed to getBlock; blocks with versioned (v0+) txs fail with RPC error -32015 without it
   rewards: true  # Fetch per-block rewards; omit (or nil) = enabled
-  archive_rpc_url: ""   # Optional archive endpoint for historical backfill below the full-node ledger floor (env: SOLANA_ARCHIVE_RPC_URL)
-  api_key: ""    # Header-auth RPC providers (e.g. x-api-key); leave empty for keys embedded in the URL (env: SOLANA_API_KEY)
-  api_key_type: ""  # Header name carrying api_key; defaults to x-api-key when empty (env: SOLANA_API_KEY_TYPE)
+  archive_rpc_url: "${SOLANA_ARCHIVE_RPC_URL}"   # Optional archive endpoint for historical backfill below the full-node ledger floor (env: SOLANA_ARCHIVE_RPC_URL)
+  api_key: "${SOLANA_API_KEY}" # Header-auth RPC providers (e.g. x-api-key); leave empty for keys embedded in the URL (env: SOLANA_API_KEY)
+  api_key_type: "${SOLANA_API_KEY_TYPE}"  # Header name carrying api_key; defaults to x-api-key when empty (env: SOLANA_API_KEY_TYPE)
   dial_timeout_seconds: 10     # Positive: bounds the startup RPC Connect health check (seconds); 0 or negative = unbounded
-  # Throughput tuning (see indexer comments below): Solana's ~150 slots/min tip rate
+  # Throughput tuning (see indexer comments below): Solana's ~240 slots/min tip rate
   # and hot slots of ~30k docs are the scaling targets; instruction-heavy group writes
   # per slot are batched by indexer.max_docs_per_txn (= group BatchSize in this adapter).
 indexer:
@@ -69,10 +69,10 @@ indexer:
   #  - concurrent_blocks 1 will not keep up on hot slots (~30k docs/slot); raise with
   #    measured docs/sec from: go test ./pkg/chains/solana/ -run '^$' \
   #      -bench 'BenchmarkSolanaStoreSlot|BenchmarkSolanaIndexSlots' -benchtime 5x
-  blocks_per_minute: 60     # Block indexing rate limit
+  blocks_per_minute: 300     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
-  start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
+  start_buffer: 0        # Start this many blocks before chain tip when skipping ahead
   schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
   # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
   # You MUST set keys via the SCHEMA_API_KEYS environment variable (comma-separated).
