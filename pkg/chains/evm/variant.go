@@ -42,7 +42,7 @@ func variantFromPrefix(prefix string) chainVariant {
 // the Polygon schema.
 func (c *Converter) buildPolygonBlockData(block *Block, blockInt int64) map[string]any {
 	d := c.buildBlockData(block, blockInt)
-	delete(d, "totalDifficulty")
+	delete(d, totalDifficultyKey)
 	return d
 }
 
@@ -71,7 +71,7 @@ func yParity(txType, v string) string {
 	switch t {
 	case 0:
 		return ""
-	case 1, 2, 126, 127: // 0x1, 0x2, 0x7e, 0x7f
+	case 1, 2, 126, 127: //nolint:mnd // 0x1, 0x2, 0x7e, 0x7f
 	default:
 		return ""
 	}
@@ -80,9 +80,9 @@ func yParity(txType, v string) string {
 		return ""
 	}
 	switch vv {
-	case 0, 27: // 0x0, 0x1b
+	case 0, 27: //nolint:mnd // 0x0, 0x1b
 		return "0"
-	case 1, 28: // 0x1, 0x1c
+	case 1, 28: //nolint:mnd // 0x1, 0x1c
 		return "1"
 	}
 	return ""

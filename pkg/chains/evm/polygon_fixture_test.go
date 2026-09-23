@@ -58,7 +58,7 @@ func TestPolygonFixture_DecodeAndConvert(t *testing.T) {
 
 	c, err := NewEthereumClient(srv.URL, "", "", "")
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	blockNum := big.NewInt(93954400)
 

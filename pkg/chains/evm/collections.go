@@ -59,8 +59,8 @@ func NewCollectionNames(prefix string) *CollectionNames {
 	}
 	if variantFromPrefix(prefix) == variantPolygon {
 		c.files = map[string]string{
-			"block":       "polygon/block.graphql",
-			"transaction": "polygon/transaction.graphql",
+			chains.TypeBlock:       "polygon/block.graphql",
+			chains.TypeTransaction: "polygon/transaction.graphql",
 		}
 	}
 	return c

@@ -18,6 +18,7 @@ import (
 // can assert how many round-trips a code path made.
 type rpcFixtureServer struct {
 	*httptest.Server
+
 	requests atomic.Int32
 }
 
@@ -140,7 +141,7 @@ func TestGetBlockByNumber_RawFallbackOnUnsupportedTxType(t *testing.T) {
 
 	c, err := NewEthereumClient(srv.URL, "", "", "")
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	// The fixture contains a 0x7f tx: the direct go-ethereum decode must
 	// reject it, proving this test exercises the fallback.
@@ -194,7 +195,7 @@ func TestGetBlockByNumber_NoFallbackOnOtherErrors(t *testing.T) {
 
 	c, err := NewEthereumClient(srv.URL, "", "", "")
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	_, err = c.GetBlockByNumber(context.Background(), big.NewInt(16))
 	require.Error(t, err)

@@ -28,6 +28,10 @@ const (
 	// highestBlockQueryLimit keeps the tip query at a single row: corruption
 	// at the highest block indicates a writer bug, not purge residue.
 	highestBlockQueryLimit = 1
+
+	// totalDifficultyKey is the block doc field dropped by the Polygon variant
+	// (dead: hardcoded "" at the client, never populated from RPC).
+	totalDifficultyKey = "totalDifficulty"
 )
 
 // chainPrefixFromConfig derives the collection prefix (e.g. "Ethereum__Mainnet")
@@ -343,7 +347,7 @@ func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any 
 		constants.TimestampKeyValue:        block.Timestamp,
 		constants.ParentHashKeyValue:       block.ParentHash,
 		constants.DifficultyKeyValue:       block.Difficulty,
-		"totalDifficulty":                  block.TotalDifficulty,
+		totalDifficultyKey:                 block.TotalDifficulty,
 		constants.GasUsedKeyValue:          block.GasUsed,
 		constants.GasLimitKeyValue:         block.GasLimit,
 		"baseFeePerGas":                    block.BaseFeePerGas,

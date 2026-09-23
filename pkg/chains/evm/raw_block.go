@@ -166,7 +166,7 @@ func hexToDec(s string) string {
 	if !strings.HasPrefix(s, "0x") {
 		return s
 	}
-	n, ok := new(big.Int).SetString(s[2:], 16)
+	n, ok := new(big.Int).SetString(s[2:], 16) //nolint:mnd // hex base
 	if !ok {
 		return s
 	}
@@ -176,5 +176,5 @@ func hexToDec(s string) string {
 // hexToInt converts a 0x-prefixed hex quantity to an int.
 func hexToInt(s string) (int, error) {
 	n, err := hexutil.DecodeUint64(s)
-	return int(n), err
+	return int(n), err //nolint:gosec // transaction indices fit in int
 }
