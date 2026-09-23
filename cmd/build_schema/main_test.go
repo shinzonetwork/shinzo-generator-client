@@ -44,6 +44,19 @@ func TestRun_PrefixReplacesAllCollectionTypes(t *testing.T) {
 	}
 }
 
+func TestRun_PolygonVariantSchema(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--prefix", "Polygon__Mainnet"}, &buf))
+	sdl := buf.String()
+
+	assert.Contains(t, sdl, "type Polygon__Mainnet__Block")
+	assert.Contains(t, sdl, "type Polygon__Mainnet__Transaction")
+	assert.Contains(t, sdl, "yParity: String")
+	assert.NotContains(t, sdl, "totalDifficulty: String")
+	assert.NotContains(t, sdl, "effectiveGasPrice: String")
+}
+
 func TestRun_InvalidFlag(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer

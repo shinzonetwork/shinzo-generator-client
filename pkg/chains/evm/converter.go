@@ -62,6 +62,8 @@ func chainPrefixFromConfig(cfg *config.Config) string {
 type Converter struct {
 	collections *CollectionNames
 	cfg         *config.Config
+	buildBlock  func(*Block, int64) map[string]any
+	buildTx     func(*Transaction) map[string]any
 }
 
 // Compile-time guarantee that Converter implements chains.Converter.
@@ -72,10 +74,19 @@ var _ chains.Converter = (*Converter)(nil)
 // (Ethereum__Mainnet), matching chainPrefixFromConfig behaviour.
 func NewConverter(cfg *config.Config) *Converter {
 	prefix := chainPrefixFromConfig(cfg)
-	return &Converter{
-		collections: NewCollectionNames(prefix),
+	variant := variantFromPrefix(prefix)
+	c := &Converter{
+		collections: newCollectionNames(prefix, variant),
 		cfg:         cfg,
 	}
+	if variant == polygonVariant {
+		c.buildBlock = buildPolygonBlockData
+		c.buildTx = buildPolygonTransactionData
+	} else {
+		c.buildBlock = buildEthereumBlockData
+		c.buildTx = buildEthereumTransactionData
+	}
+	return c
 }
 
 // Convert implements chains.Converter. It type-asserts rawBlock to *BlockBundle
@@ -323,6 +334,10 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 
 // buildBlockData builds the data map for a block document.
 func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any {
+	return c.buildBlock(block, blockInt)
+}
+
+func buildEthereumBlockData(block *Block, blockInt int64) map[string]any {
 	return map[string]any{
 		constants.HashKeyValue:             block.Hash,
 		constants.NumberFieldValue:         blockInt,
@@ -351,6 +366,10 @@ func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any 
 // Link fields (_blockID) are NOT set here; BlockHandler.Store resolves them
 // after AddDocument assigns the block's persistent docID.
 func (c *Converter) buildTransactionData(tx *Transaction) map[string]any {
+	return c.buildTx(tx)
+}
+
+func buildEthereumTransactionData(tx *Transaction) map[string]any {
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	return map[string]any{
 		constants.HashKeyValue:              tx.Hash,
@@ -375,6 +394,60 @@ func (c *Converter) buildTransactionData(tx *Transaction) map[string]any {
 		constants.EffectiveGasPriceKeyValue: tx.EffectiveGasPrice,
 		constants.StatusKeyValue:            tx.Status,
 	}
+}
+
+func buildPolygonBlockData(block *Block, blockInt int64) map[string]any {
+	data := buildEthereumBlockData(block, blockInt)
+	delete(data, "totalDifficulty")
+	return data
+}
+
+func buildPolygonTransactionData(tx *Transaction) map[string]any {
+	data := buildEthereumTransactionData(tx)
+	delete(data, constants.StatusKeyValue)
+	delete(data, constants.CumulativeGasUsedKeyValue)
+	delete(data, constants.EffectiveGasPriceKeyValue)
+	data["yParity"] = polygonYParity(tx.Type, tx.V)
+	return data
+}
+
+// polygonYParity derives Polygon's parity field from the transaction type and
+// signature V value. Both RPC hex strings and the decimal strings emitted by
+// convertTransaction are accepted.
+func polygonYParity(txType, v string) string {
+	typeValue, ok := parseNumericString(txType)
+	if !ok || typeValue == 0 {
+		return ""
+	}
+	if typeValue != 1 && typeValue != 2 && typeValue != 0x7e {
+		return ""
+	}
+	vValue, ok := parseNumericString(v)
+	if !ok {
+		return ""
+	}
+	switch vValue {
+	case 0, 27:
+		return "0"
+	case 1, 28:
+		return "1"
+	default:
+		return ""
+	}
+}
+
+func parseNumericString(value string) (uint64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	base := 10
+	if strings.HasPrefix(value, "0x") || strings.HasPrefix(value, "0X") {
+		base = 16
+		value = value[2:]
+	}
+	parsed, err := strconv.ParseUint(value, base, 64)
+	return parsed, err == nil
 }
 
 // buildLogData builds the data map for a log document.

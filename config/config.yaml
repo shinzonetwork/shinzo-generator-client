@@ -1,7 +1,8 @@
 # Default configuration - environment variables will override these
 
 # Chain configuration - identifies which EVM chain to index
-# Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
+# Supported chains: Ethereum and Polygon have dedicated document/schema variants;
+# other EVM chain names currently use the Ethereum-compatible variant.
 # Collection names are derived as: {name}__{network}__Block, etc.
 chain:
   name: "Ethereum"       # Chain name (env: CHAIN_NAME)

@@ -741,6 +741,9 @@ func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
 		return "ethereum", 1
 	}
+	if name == "polygon" && network == "mainnet" {
+		return "polygon", 137
+	}
 
 	return "", 0
 }
