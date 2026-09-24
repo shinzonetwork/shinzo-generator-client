@@ -41,6 +41,9 @@ type DefraDBP2PConfig struct {
 // DefraDBStoreConfig represents store configuration for DefraDB.
 type DefraDBStoreConfig struct {
 	Path string `yaml:"path"`
+	// When true the embedded node keeps its data purely in memory. The path
+	// below is still used for the P2P keyring, prune queue, and snapshots.
+	InMemory bool `yaml:"in_memory"`
 	// Badger memory configuration
 	BlockCacheMB int64 `yaml:"block_cache_mb"`
 	MemTableMB   int64 `yaml:"memtable_mb"`
@@ -440,6 +443,11 @@ func applyDefraEnvOverrides(cfg *Config) {
 	}
 	if storePath := os.Getenv("DEFRADB_STORE_PATH"); storePath != "" {
 		cfg.DefraDB.Store.Path = storePath
+	}
+	if inMemory := os.Getenv("DEFRADB_STORE_IN_MEMORY"); inMemory != "" {
+		if parsed, err := strconv.ParseBool(inMemory); err == nil {
+			cfg.DefraDB.Store.InMemory = parsed
+		}
 	}
 	if blockCacheMB := os.Getenv("DEFRADB_BLOCK_CACHE_MB"); blockCacheMB != "" {
 		if n, err := strconv.ParseInt(blockCacheMB, 10, 64); err == nil {

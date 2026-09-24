@@ -258,6 +258,24 @@ func TestApplyEnvOverrides_StoreConfig(t *testing.T) {
 	assert.Equal(t, 20, cfg.DefraDB.Store.NumLevelZeroTablesStall, "Store.NumLevelZeroTablesStall")
 }
 
+func TestApplyEnvOverrides_StoreInMemory(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("DEFRADB_STORE_IN_MEMORY", "true")
+	applyEnvOverrides(cfg)
+	assert.True(t, cfg.DefraDB.Store.InMemory, "Store.InMemory")
+
+	cfg = &Config{}
+	t.Setenv("DEFRADB_STORE_IN_MEMORY", "false")
+	applyEnvOverrides(cfg)
+	assert.False(t, cfg.DefraDB.Store.InMemory, "Store.InMemory")
+
+	cfg = &Config{}
+	t.Setenv("DEFRADB_STORE_IN_MEMORY", "not_a_bool")
+	applyEnvOverrides(cfg)
+	// Should be silently ignored
+	assert.False(t, cfg.DefraDB.Store.InMemory, "Store.InMemory should remain false for invalid bool")
+}
+
 func TestApplyEnvOverrides_StoreConfig_InvalidValues(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_BLOCK_CACHE_MB", "not_a_number")
