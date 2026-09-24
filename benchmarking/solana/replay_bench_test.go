@@ -11,7 +11,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"sort"
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -217,10 +218,28 @@ func writeReplayEnvelope(w http.ResponseWriter, envelope map[string]any) {
 // Benchmark runner.
 // ---------------------------------------------------------------------------
 
+// replayMaxBlocks caps how many processable blocks the benchmark indexes.
+// 0 (default) indexes the whole captured range. Skipped slots do not count
+// toward the cap. Set via SOLANA_REPLAY_MAX_BLOCKS.
+func replayMaxBlocks(t *testing.T) int {
+	t.Helper()
+	raw := os.Getenv("SOLANA_REPLAY_MAX_BLOCKS")
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		t.Fatalf("invalid SOLANA_REPLAY_MAX_BLOCKS=%q: use a non-negative integer", raw)
+	}
+	return n
+}
+
 // runReplayBenchmark drives every captured slot through the production
 // pipeline sequentially and returns the per-block wall times plus the
 // skipped-slot count. Skipped slots stay out of the timing sample: the
 // production processor's lag budget is consumed by real blocks.
+// SOLANA_REPLAY_MAX_BLOCKS caps the sample to the first N processable
+// blocks; when set, remaining slots are left unindexed.
 func runReplayBenchmark(
 	t *testing.T,
 	fx *replayFixture,
@@ -248,8 +267,14 @@ func runReplayBenchmark(
 	_, err = store.handler.Store(store.ctx, warm)
 	require.NoError(t, err)
 
+	maxBlocks := replayMaxBlocks(t)
+
 	durations = make([]time.Duration, 0, fx.EndSlot-fx.StartSlot+1)
 	for slot := fx.StartSlot; slot <= fx.EndSlot; slot++ {
+		if maxBlocks > 0 && len(durations) == maxBlocks {
+			t.Logf("processing capped: %d processable blocks indexed, remaining slots left unindexed", maxBlocks)
+			break
+		}
 		blockStart := time.Now()
 
 		fetched, err := fetcher.FetchBlock(store.ctx, int64(slot))
@@ -279,10 +304,7 @@ func runReplayBenchmark(
 
 // percentileIndex returns the nearest-rank percentile of a sorted slice.
 func percentileIndex(n int, pct float64) int {
-	idx := int(pct*float64(n) + 0.9999)
-	if idx < 1 {
-		idx = 1
-	}
+	idx := max(int(pct*float64(n)+0.9999), 1)
 	if idx > n {
 		idx = n
 	}
@@ -312,7 +334,7 @@ func TestSolanaReplayProcessingBenchmark(t *testing.T) {
 		"no slot was processed (all %d skipped) — the capture holds no processable blocks", skipped)
 
 	sorted := append([]time.Duration(nil), durations...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	slices.Sort(sorted)
 
 	var total int64
 	for _, d := range durations {
@@ -323,8 +345,14 @@ func TestSolanaReplayProcessingBenchmark(t *testing.T) {
 	p50 := sorted[percentileIndex(len(sorted), 0.50)]
 	p95 := sorted[percentileIndex(len(sorted), 0.95)]
 
+	maxBlocks := replayMaxBlocks(t)
+
 	t.Logf("=== Solana replay benchmark: slots %d-%d ===", fx.StartSlot, fx.EndSlot)
+	t.Logf("backend: %s", benchBackendName(benchDefraInMemory(t)))
 	t.Logf("blocks processed: %d   skipped: %d", len(durations), skipped)
+	if maxBlocks > 0 {
+		t.Logf("sample: first %d processable blocks (SOLANA_REPLAY_MAX_BLOCKS)", maxBlocks)
+	}
 	t.Logf("avg: %s   min: %s   p50: %s   p95: %s   max: %s",
 		durMs(avg), durMs(minDur), durMs(p50), durMs(p95), durMs(maxDur))
 	t.Logf("total: %s for %d blocks", durMs(time.Duration(total)), len(durations))

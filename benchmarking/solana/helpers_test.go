@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -229,9 +230,35 @@ type benchStore struct {
 	conv    *solana.Converter
 }
 
-// newBenchStore stands up an embedded DefraDB with the real solana schema, a
-// production BlockHandler, and a signing identity context — the same stack
-// the indexer runs in production. Works for both *testing.T and *testing.B.
+// benchDefraInMemory reports whether the bench store should run DefraDB in
+// memory. Disk-backed is the default (matching the production default);
+// set BENCH_DEFRADB_IN_MEMORY=true to opt in. In-memory runs are measurably
+// slower and pair well with SOLANA_REPLAY_MAX_BLOCKS sampling.
+func benchDefraInMemory(tb testing.TB) bool {
+	tb.Helper()
+	raw := os.Getenv("BENCH_DEFRADB_IN_MEMORY")
+	if raw == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		tb.Fatalf("invalid BENCH_DEFRADB_IN_MEMORY=%q: use true or false", raw)
+	}
+	return parsed
+}
+
+func benchBackendName(inMemory bool) string {
+	if inMemory {
+		return "defra-in-memory"
+	}
+	return "defra-disk"
+}
+
+// newBenchStore stands up an embedded DefraDB via the shared testutils
+// helpers (disk-backed by default; in-memory via BENCH_DEFRADB_IN_MEMORY=true)
+// with the real solana schema, a production BlockHandler, and a signing
+// identity context — the same stack the indexer runs in production. Works
+// for both *testing.T and *testing.B.
 func newBenchStore(tb testing.TB, maxDocsPerTxn int) *benchStore {
 	tb.Helper()
 
@@ -243,7 +270,16 @@ func newBenchStore(tb testing.TB, maxDocsPerTxn int) *benchStore {
 
 	sdl, err := conv.GetSchema()
 	require.NoError(tb, err)
-	td := testutils.SetupTestDefraDBWithSchema(tb, sdl)
+
+	inMemory := benchDefraInMemory(tb)
+	tb.Logf("bench DefraDB backend: %s", benchBackendName(inMemory))
+
+	var td *testutils.TestDefraDB
+	if inMemory {
+		td = testutils.SetupTestDefraDBWithSchemaInMemory(tb, sdl)
+	} else {
+		td = testutils.SetupTestDefraDBWithSchema(tb, sdl)
+	}
 
 	handler, err := defra.NewBlockHandler(td.Node, maxDocsPerTxn)
 	require.NoError(tb, err)

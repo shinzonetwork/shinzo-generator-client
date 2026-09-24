@@ -926,6 +926,7 @@ func TestProcessBlocks_ShutdownDrainsSigners(t *testing.T) {
 		t.Fatal("ProcessBlocks did not return after the signer finished")
 	}
 }
+
 // Skipped-height (ErrHeightSkipped) handling.
 // ---------------------------------------------------------------------------.
 

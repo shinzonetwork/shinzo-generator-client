@@ -124,6 +124,7 @@ solana-bench-fetch:
 .PHONY: solana-bench-replay
 solana-bench-replay:
 	@echo "🏁 Running the Solana replay benchmark (target: 100ms/block avg)..."
+	@go clean -testcache 
 	@go test -tags bench ./benchmarking/solana -run 'TestSolanaReplayProcessingBenchmark' -v -timeout 30m
 
 .PHONY: solana-bench-synthetic

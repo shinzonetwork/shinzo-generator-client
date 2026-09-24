@@ -23,7 +23,7 @@ defradb:
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
     path: "./.defra"
-    in_memory: false   # Keep block data in memory only (env: DEFRADB_STORE_IN_MEMORY). path is still used for the keyring, prune queue, and snapshots. Data is lost on restart; indexing resumes from the chain tip.
+    in_memory: false  # Opt in via env DEFRADB_STORE_IN_MEMORY=true. Keeps block data in memory only: data is lost on restart and indexing resumes from the chain tip. path is still used for the keyring, prune queue, and snapshots.
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size
     memtable_mb: 64      # Memtable size

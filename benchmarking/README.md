@@ -13,7 +13,25 @@ Two harnesses live here:
 | Synthetic | `synthetic_data_test.go` | Synthetic hot-slot shapes through Convert → Store, plus the full `ConcurrentBlockProcessor` path |
 
 The shared stack (embedded DefraDB, BlockHandler, signing identity, fake RPC
-client) lives in `helpers_test.go`.
+client) lives in `helpers_test.go`. Node setup is delegated to the shared
+`pkg/testutils` helpers.
+
+### DefraDB backend toggle
+
+By default the embedded node is disk-backed (temp dir), matching the
+production default. Set `BENCH_DEFRADB_IN_MEMORY=true` to opt into a purely
+in-memory store — useful for isolating pipeline cost from storage cost, but
+measurably slower for large writes. An invalid value fails the run
+immediately rather than silently measuring the wrong backend.
+
+```sh
+# default (disk-backed, matches prod)
+make solana-bench-synthetic
+
+# in-memory (slower store path)
+BENCH_DEFRADB_IN_MEMORY=true make solana-bench-synthetic
+BENCH_DEFRADB_IN_MEMORY=true make solana-bench-replay
+```
 
 ## Replay benchmark (real mainnet blocks, 100ms/block target)
 
@@ -59,6 +77,16 @@ go test -tags bench ./benchmarking/solana \
 
 A missing fixture skips the test with regeneration instructions. A different
 capture can be selected via `SOLANA_REPLAY_FIXTURE=/path/to/file.json`.
+
+For cheap runs (slow hosts, or the in-memory backend) cap the sample:
+
+```sh
+# index only the first 20 processable blocks (skipped slots don't count)
+SOLANA_REPLAY_MAX_BLOCKS=20 make solana-bench-replay
+```
+
+The report notes the sample size; the default (unset or 0) indexes the
+whole range.
 
 ### 3. Read the report
 
