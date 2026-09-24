@@ -575,7 +575,7 @@ func TestConvert_DuplicateInstructionContent_UniqueDocs(t *testing.T) {
 
 	// Without the join field the two outer maps would be identical: strip the
 	// join field and compare — this pins that the join field is the ONLY
-	// difference, so the dup coverage exercised by the spike is real.
+	// difference, so the dup coverage exercised by the benchmarking suite is real.
 	strippedA, strippedB := maps.Clone(outerGroup.Docs[0]), maps.Clone(outerGroup.Docs[1])
 	delete(strippedA, TransactionSignatureFieldName)
 	delete(strippedB, TransactionSignatureFieldName)

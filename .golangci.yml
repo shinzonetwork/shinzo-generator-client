@@ -2,6 +2,10 @@ version: "2"
 run:
   timeout: 10m
   modules-download-mode: readonly
+  # Keep the benchmarking suite (//go:build bench) linted
+  # alongside production code on every lint run.
+  build-tags:
+    - bench
 linters:
   default: standard
   enable:
