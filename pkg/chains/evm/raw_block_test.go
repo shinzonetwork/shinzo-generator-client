@@ -210,4 +210,38 @@ func TestHexToDec(t *testing.T) {
 	assert.Equal(t, "already-decimal", hexToDec("already-decimal"))
 	assert.Equal(t, "100", hexToDec("100"))
 	assert.Equal(t, "", hexToDec(""))
+	assert.Equal(t, "0xZZ", hexToDec("0xZZ"), "unparseable hex passes through unchanged")
+}
+
+func TestGetBlockByNumberRaw_RPCError(t *testing.T) {
+	t.Parallel()
+	srv := newRPCFixtureServer(t, []byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"boom"}}`))
+
+	c, err := NewEthereumClient(srv.URL, "", "", "")
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	_, err = c.getBlockByNumberRaw(context.Background(), c.httpClient, big.NewInt(16))
+	require.ErrorContains(t, err, "boom")
+}
+
+func TestGetBlockByNumberRaw_BadJSON(t *testing.T) {
+	t.Parallel()
+	srv := newRPCFixtureServer(t, []byte(`{"jsonrpc":"2.0","id":1,"result":"not-a-block"}`))
+
+	c, err := NewEthereumClient(srv.URL, "", "", "")
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	_, err = c.getBlockByNumberRaw(context.Background(), c.httpClient, big.NewInt(16))
+	require.ErrorContains(t, err, "decode raw block")
+}
+
+func TestRawTxDecode_UnsignedGetsZeroAddress(t *testing.T) {
+	t.Parallel()
+	tx := (&rawTx{}).decode()
+	assert.Equal(t, ZeroAddress, tx.From, "unsigned transaction falls back to the zero address")
+	assert.Empty(t, tx.To)
+	assert.Empty(t, tx.Type)
+	assert.NotNil(t, tx.AccessList)
 }
