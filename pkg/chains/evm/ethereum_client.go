@@ -243,6 +243,14 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
 	if err != nil {
+		if errors.IsErrUnsupportedTxType(err) {
+			// Bor state-sync transactions (type 0x7f) are rejected by
+			// go-ethereum's decoder. Re-fetch as raw JSON and decode
+			// tolerantly. Never fires on Ethereum: all its live transaction
+			// types are supported.
+			logger.Sugar.Warnf("Block %v: %v, using raw decode fallback", blockNumber, err)
+			return c.getBlockByNumberRaw(ctx, client, blockNumber)
+		}
 		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
 	}
 

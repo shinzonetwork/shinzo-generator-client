@@ -4,6 +4,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -27,7 +28,7 @@ var (
 // The loader swaps this with collections.Prefix() at load time.
 const embeddedPrefix = "Ethereum__Mainnet"
 
-//go:embed collections/*.graphql
+//go:embed collections/*.graphql collections/polygon/*.graphql
 var collectionFS embed.FS
 
 // CollectionEntry represents a named collection with its GraphQL type name.
@@ -82,7 +83,10 @@ func ListCollections(collections chains.Collections) []CollectionEntry {
 	entries := make([]CollectionEntry, 0, len(order))
 	for _, typeName := range order {
 		filename := collections.CollectionFileForType(typeName)
-		stem := strings.TrimSuffix(filename, ".graphql")
+		// path.Base keeps API-facing stems clean when a variant file lives in
+		// a subdirectory (e.g. "polygon/block.graphql" -> "block"); for flat
+		// files it is the identity.
+		stem := path.Base(strings.TrimSuffix(filename, ".graphql"))
 		entries = append(entries, CollectionEntry{
 			Name:     stem,
 			TypeName: typeName,
@@ -105,7 +109,7 @@ func PrecomputeCollectionSDLs(collections chains.Collections) (map[string]string
 		if filename == "" {
 			continue
 		}
-		stem := strings.TrimSuffix(filename, ".graphql")
+		stem := path.Base(strings.TrimSuffix(filename, ".graphql"))
 		sdl, err := LoadCollectionSDLForChain(collections, filename)
 		if err != nil {
 			return nil, fmt.Errorf("load collection SDL %s for prefix %s: %w", filename, collections.Prefix(), err)

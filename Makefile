@@ -91,6 +91,14 @@ coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 
+polygon-acceptance-test:
+	@if [ -z "$(POLYGON_RPC_URL)" ]; then \
+		echo "Skipping - POLYGON_RPC_URL not set"; \
+	else \
+		go test -tags live ./integration/live_polygon/ -run TestPolygonGeneratorStaysAtTip \
+			-count=1 -timeout $(or $(POLYGON_ACCEPTANCE_TIMEOUT),30m) -v; \
+	fi
+
 lint:
 	@echo "🔍 Running golangci-lint..."
 	@golangci-lint run ./...

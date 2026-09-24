@@ -33,15 +33,22 @@ type CollectionNames struct {
 	Transaction       string
 	AccessListEntry   string
 	Log               string
+
+	// files optionally overrides the .graphql file used for a collection stem
+	// (e.g. "block" -> "polygon/block.graphql"). Nil for the Ethereum shape,
+	// which uses the default <stem>.graphql mapping.
+	files map[string]string
 }
 
 // Compile-time guarantee that CollectionNames implements chains.Collections.
 var _ chains.Collections = (*CollectionNames)(nil)
 
 // NewCollectionNames creates EVM collection names using the given prefix
-// (e.g. "Arbitrum__Mainnet").
+// (e.g. "Arbitrum__Mainnet"). The chain variant is resolved from the prefix
+// here, so the Converter and the schema file set switch on the same
+// chain.name-derived decision.
 func NewCollectionNames(prefix string) *CollectionNames {
-	return &CollectionNames{
+	c := &CollectionNames{
 		prefix:            prefix,
 		Block:             fmt.Sprintf("%s__Block", prefix),
 		BlockSignature:    fmt.Sprintf("%s__BlockSignature", prefix),
@@ -50,6 +57,13 @@ func NewCollectionNames(prefix string) *CollectionNames {
 		AccessListEntry:   fmt.Sprintf("%s__AccessListEntry", prefix),
 		Log:               fmt.Sprintf("%s__Log", prefix),
 	}
+	if variantFromPrefix(prefix) == variantPolygon {
+		c.files = map[string]string{
+			chains.TypeBlock:       "polygon/block.graphql",
+			chains.TypeTransaction: "polygon/transaction.graphql",
+		}
+	}
+	return c
 }
 
 // Prefix returns the chain prefix (e.g. "Ethereum__Mainnet").
@@ -84,14 +98,20 @@ func (c *CollectionNames) SchemaApplyOrder() []string {
 
 // CollectionFileForType maps a collection type name to its .graphql filename.
 // e.g. "Ethereum__Mainnet__Block" → "block.graphql"
-// Returns empty string if the type name does not match this chain's prefix.
+// Variant file overrides (Polygon block/transaction) win over the default
+// <stem>.graphql mapping. Returns empty string if the type name does not
+// match this chain's prefix.
 func (c *CollectionNames) CollectionFileForType(typeName string) string {
 	prefix := c.prefix + "__"
 	suffix := strings.TrimPrefix(typeName, prefix)
 	if suffix == typeName {
 		return ""
 	}
-	return strings.ToLower(suffix[:1]) + suffix[1:] + ".graphql"
+	stem := strings.ToLower(suffix[:1]) + suffix[1:]
+	if f, ok := c.files[stem]; ok {
+		return f
+	}
+	return stem + ".graphql"
 }
 
 // GetCollection returns the collection name for the given role string.
