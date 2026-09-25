@@ -247,7 +247,7 @@ func runReplayBenchmark(
 	t.Helper()
 
 	srv := newReplayServer(t, fx)
-	store := newBenchStore(t, 1000)
+	store := newBenchStore(t, 100)
 
 	client, err := solana.NewClient(context.Background(), solana.ClientOptions{
 		RPCURL:                         srv.URL,

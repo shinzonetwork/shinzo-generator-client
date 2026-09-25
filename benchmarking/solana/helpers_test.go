@@ -46,7 +46,7 @@ func benchConfig() *config.Config {
 			MaxSupportedTransactionVersion: config.DefaultSolanaMaxSupportedTxVersion,
 		},
 		Indexer: config.IndexerConfig{
-			MaxDocsPerTxn: 1000,
+			MaxDocsPerTxn: 100,
 		},
 	}
 }
