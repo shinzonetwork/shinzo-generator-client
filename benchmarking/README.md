@@ -19,18 +19,26 @@ client) lives in `helpers_test.go`. Node setup is delegated to the shared
 ### DefraDB backend toggle
 
 By default the embedded node is disk-backed (temp dir), matching the
-production default. Set `BENCH_DEFRADB_IN_MEMORY=true` to opt into a purely
-in-memory store — useful for isolating pipeline cost from storage cost, but
-measurably slower for large writes. An invalid value fails the run
-immediately rather than silently measuring the wrong backend.
+production default. `BENCH_DEFRADB_BACKEND` selects the storage engine:
+
+| Backend | Store | Notes |
+|---|---|---|
+| `disk` (default) | badger, temp dir | Production parity |
+| `memory` | corekv b-tree | Uncapped transactions, but a single commit lock — slowest on large writes |
+| `badger-memory` | badger in-memory mode | **Unavailable at the current defradb pin** (fails fast): the pinned build hardcodes a 256-byte badger value threshold that rejects every in-memory write above it. Returns once the defradb pin carries the store threshold fix. |
+
+The disk backend carries badger's ~9.7MB/transaction ceiling, so "Txn is too
+big" can fire at large docs-per-txn (replay runs 100 docs/txn; synthetic pins
+use 1000). An invalid value fails the run immediately rather than silently
+measuring the wrong backend; the legacy `BENCH_DEFRADB_IN_MEMORY` variable was
+replaced and also fails loudly.
 
 ```sh
 # default (disk-backed, matches prod)
 make solana-bench-synthetic
 
-# in-memory (slower store path)
-BENCH_DEFRADB_IN_MEMORY=true make solana-bench-synthetic
-BENCH_DEFRADB_IN_MEMORY=true make solana-bench-replay
+# corekv memory (uncapped, single commit lock)
+BENCH_DEFRADB_BACKEND=memory make solana-bench-synthetic
 ```
 
 ## Replay benchmark (real mainnet blocks, 100ms/block target)

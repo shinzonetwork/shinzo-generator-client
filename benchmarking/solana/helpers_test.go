@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"sync"
 	"testing"
 
@@ -230,35 +229,55 @@ type benchStore struct {
 	conv    *solana.Converter
 }
 
-// benchDefraInMemory reports whether the bench store should run DefraDB in
-// memory. Disk-backed is the default (matching the production default);
-// set BENCH_DEFRADB_IN_MEMORY=true to opt in. In-memory runs are measurably
-// slower and pair well with SOLANA_REPLAY_MAX_BLOCKS sampling.
-func benchDefraInMemory(tb testing.TB) bool {
+// benchBackend values name the storage engine the bench node runs on.
+type benchBackend int
+
+const (
+	benchBackendDisk benchBackend = iota
+	benchBackendMemory
+	backendBadgerMemory
+)
+
+// benchDefraBackend resolves BENCH_DEFRADB_BACKEND: disk (the default,
+// matching production) or memory (corekv b-tree, uncapped transactions).
+// badger-memory is recognized but fails fast: the pinned defradb build
+// hardcodes a 256-byte badger value threshold that rejects every
+// in-memory write above it. The legacy BENCH_DEFRADB_IN_MEMORY variable
+// fails loudly so a stale invocation cannot silently measure a different
+// backend.
+func benchDefraBackend(tb testing.TB) benchBackend {
 	tb.Helper()
-	raw := os.Getenv("BENCH_DEFRADB_IN_MEMORY")
-	if raw == "" {
-		return false
+	if raw, ok := os.LookupEnv("BENCH_DEFRADB_IN_MEMORY"); ok {
+		tb.Fatalf("BENCH_DEFRADB_IN_MEMORY was replaced by BENCH_DEFRADB_BACKEND=disk|memory|badger-memory (legacy value %q is not honored)", raw)
 	}
-	parsed, err := strconv.ParseBool(raw)
-	if err != nil {
-		tb.Fatalf("invalid BENCH_DEFRADB_IN_MEMORY=%q: use true or false", raw)
+	switch raw := os.Getenv("BENCH_DEFRADB_BACKEND"); raw {
+	case "", "disk":
+		return benchBackendDisk
+	case "memory":
+		return benchBackendMemory
+	case "badger-memory":
+		tb.Fatalf("BENCH_DEFRADB_BACKEND=badger-memory is not supported by the pinned defradb build: its 256-byte hardcoded badger value threshold rejects every in-memory write above it")
+		return benchBackendDisk
+	default:
+		tb.Fatalf("invalid BENCH_DEFRADB_BACKEND=%q: use disk, memory, or badger-memory", raw)
+		return benchBackendDisk
 	}
-	return parsed
 }
 
-func benchBackendName(inMemory bool) string {
-	if inMemory {
+func benchBackendName(backend benchBackend) string {
+	switch backend {
+	case benchBackendMemory:
 		return "defra-in-memory"
+	default:
+		return "defra-disk"
 	}
-	return "defra-disk"
 }
 
 // newBenchStore stands up an embedded DefraDB via the shared testutils
-// helpers (disk-backed by default; in-memory via BENCH_DEFRADB_IN_MEMORY=true)
-// with the real solana schema, a production BlockHandler, and a signing
-// identity context — the same stack the indexer runs in production. Works
-// for both *testing.T and *testing.B.
+// helpers (disk-backed by default; BENCH_DEFRADB_BACKEND selects memory or
+// badger-memory) with the real solana schema, a production BlockHandler, and
+// a signing identity context — the same stack the indexer runs in
+// production. Works for both *testing.T and *testing.B.
 func newBenchStore(tb testing.TB, maxDocsPerTxn int) *benchStore {
 	tb.Helper()
 
@@ -271,13 +290,14 @@ func newBenchStore(tb testing.TB, maxDocsPerTxn int) *benchStore {
 	sdl, err := conv.GetSchema()
 	require.NoError(tb, err)
 
-	inMemory := benchDefraInMemory(tb)
-	tb.Logf("bench DefraDB backend: %s", benchBackendName(inMemory))
+	backend := benchDefraBackend(tb)
+	tb.Logf("bench DefraDB backend: %s", benchBackendName(backend))
 
 	var td *testutils.TestDefraDB
-	if inMemory {
+	switch backend {
+	case benchBackendMemory:
 		td = testutils.SetupTestDefraDBWithSchemaInMemory(tb, sdl)
-	} else {
+	default:
 		td = testutils.SetupTestDefraDBWithSchema(tb, sdl)
 	}
 

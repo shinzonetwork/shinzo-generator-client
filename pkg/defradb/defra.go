@@ -364,10 +364,18 @@ func buildNodeOptions(
 	nb.HTTP().SetAddress(defraURL)
 	nb.DB().SetNodeIdentity(nodeIdentity)
 
-	if cfg.DefraDB.Store.InMemory {
+	switch {
+	case cfg.DefraDB.Store.InMemory:
 		nb.Store().SetType(options.NodeMemoryStore)
 		logger.Sugar.Warn("DefraDB in-memory store enabled: data is lost on restart and indexing resumes from the chain tip")
-	} else {
+	case cfg.DefraDB.Store.BadgerInMemory:
+		// Badger rejects a store path when InMemory is set, so no SetPath here;
+		// the default store type also resolves to badger, but keeping it
+		// explicit documents the intent.
+		nb.Store().SetType(options.NodeBadgerStore)
+		nb.Store().SetBadgerInMemory(true)
+		logger.Sugar.Warn("DefraDB badger in-memory store enabled: data is lost on restart and indexing resumes from the chain tip")
+	default:
 		nb.Store().SetPath(cfg.DefraDB.Store.Path)
 
 		vlogSizeMB := cfg.DefraDB.Store.ValueLogFileSizeMB

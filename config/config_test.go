@@ -276,6 +276,45 @@ func TestApplyEnvOverrides_StoreInMemory(t *testing.T) {
 	assert.False(t, cfg.DefraDB.Store.InMemory, "Store.InMemory should remain false for invalid bool")
 }
 
+func TestApplyEnvOverrides_StoreBadgerInMemory(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("DEFRADB_BADGER_IN_MEMORY", "true")
+	applyEnvOverrides(cfg)
+	assert.True(t, cfg.DefraDB.Store.BadgerInMemory, "Store.BadgerInMemory")
+
+	cfg = &Config{}
+	t.Setenv("DEFRADB_BADGER_IN_MEMORY", "false")
+	applyEnvOverrides(cfg)
+	assert.False(t, cfg.DefraDB.Store.BadgerInMemory, "Store.BadgerInMemory")
+
+	cfg = &Config{}
+	t.Setenv("DEFRADB_BADGER_IN_MEMORY", "not_a_bool")
+	applyEnvOverrides(cfg)
+	// Should be silently ignored
+	assert.False(t, cfg.DefraDB.Store.BadgerInMemory, "Store.BadgerInMemory should remain false for invalid bool")
+}
+
+func TestValidateConfig_BadgerInMemoryUnsupported(t *testing.T) {
+	cfg := &Config{}
+	cfg.Chain.Adapter = DefaultChainAdapter
+	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeNone
+	cfg.DefraDB.Embedded = true
+
+	cfg.DefraDB.Store.InMemory = true
+	require.NoError(t, validateConfig(cfg), "in_memory alone")
+
+	cfg.DefraDB.Store.InMemory = false
+	cfg.DefraDB.Store.BadgerInMemory = true
+	err := validateConfig(cfg)
+	require.Error(t, err, "badger_in_memory alone")
+	assert.Contains(t, err.Error(), "not supported")
+
+	cfg.DefraDB.Store.InMemory = true
+	err = validateConfig(cfg)
+	require.Error(t, err, "both in-memory knobs")
+	assert.Contains(t, err.Error(), "not supported")
+}
+
 func TestApplyEnvOverrides_StoreConfig_InvalidValues(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_BLOCK_CACHE_MB", "not_a_number")

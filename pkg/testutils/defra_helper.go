@@ -37,13 +37,22 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 	return SetupTestDefraDBWithSchema(t, sdl)
 }
 
+// defraBackend selects the storage engine used by setupDefraDB.
+type defraBackend int
+
+const (
+	backendDisk defraBackend = iota
+	backendMemory
+	backendBadgerMemory
+)
+
 // SetupTestDefraDBWithSchema creates and starts a disk-backed DefraDB node
 // with a provided schema. It uses a temporary directory and a random free
 // port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDBWithSchema(tb testing.TB, schemaSDL string) *TestDefraDB {
 	tb.Helper()
-	return setupDefraDB(tb, schemaSDL, false)
+	return setupDefraDB(tb, schemaSDL, backendDisk)
 }
 
 // SetupTestDefraDBWithSchemaInMemory creates and starts an in-memory DefraDB
@@ -53,12 +62,22 @@ func SetupTestDefraDBWithSchema(tb testing.TB, schemaSDL string) *TestDefraDB {
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDBWithSchemaInMemory(tb testing.TB, schemaSDL string) *TestDefraDB {
 	tb.Helper()
-	return setupDefraDB(tb, schemaSDL, true)
+	return setupDefraDB(tb, schemaSDL, backendMemory)
+}
+
+// SetupTestDefraDBWithSchemaBadgerInMemory creates and starts a DefraDB node
+// whose badger store runs fully in memory. Unlike the corekv memory store it
+// keeps the disk backend's transaction limits and conflict semantics, while
+// avoiding all disk I/O.
+// Call the returned cleanup function (or use t.Cleanup) when done.
+func SetupTestDefraDBWithSchemaBadgerInMemory(tb testing.TB, schemaSDL string) *TestDefraDB {
+	tb.Helper()
+	return setupDefraDB(tb, schemaSDL, backendBadgerMemory)
 }
 
 // setupDefraDB is the shared node builder behind the exported helpers; the
 // only difference between the backends is how the store is rooted.
-func setupDefraDB(tb testing.TB, schemaSDL string, inMemory bool) *TestDefraDB {
+func setupDefraDB(tb testing.TB, schemaSDL string, backend defraBackend) *TestDefraDB {
 	tb.Helper()
 
 	// Initialize logger if not already done
@@ -73,9 +92,12 @@ func setupDefraDB(tb testing.TB, schemaSDL string, inMemory bool) *TestDefraDB {
 		SetDisableAPI(false).
 		SetDisableP2P(true)
 	dir := ""
-	if inMemory {
+	switch backend {
+	case backendMemory:
 		opts.Store().SetType(options.NodeMemoryStore)
-	} else {
+	case backendBadgerMemory:
+		opts.Store().SetType(options.NodeBadgerStore).SetBadgerInMemory(true)
+	default:
 		dir = tb.TempDir()
 		opts.Store().SetPath(dir)
 	}

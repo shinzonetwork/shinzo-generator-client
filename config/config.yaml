@@ -24,6 +24,7 @@ defradb:
   store:
     path: "./.defra"
     in_memory: false  # Opt in via env DEFRADB_STORE_IN_MEMORY=true. Keeps block data in memory only: data is lost on restart and indexing resumes from the chain tip. path is still used for the keyring, prune queue, and snapshots.
+    badger_in_memory: false  # Not supported at the current defradb pin: setting it fails config validation. The pinned defradb hardcodes a 256-byte badger value threshold, so badger's in-memory mode rejects every write above it. Use in_memory (corekv) instead; re-enable once the defradb pin carries the store threshold fix.
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size
     memtable_mb: 64      # Memtable size

@@ -44,6 +44,11 @@ type DefraDBStoreConfig struct {
 	// When true the embedded node keeps its data purely in memory. The path
 	// below is still used for the P2P keyring, prune queue, and snapshots.
 	InMemory bool `yaml:"in_memory"`
+	// When true the embedded node runs badger in its in-memory mode: no disk
+	// I/O while keeping badger's transaction limits and conflict semantics. The
+	// path below is still used for the P2P keyring, prune queue, and snapshots.
+	// Mutually exclusive with InMemory.
+	BadgerInMemory bool `yaml:"badger_in_memory"`
 	// Badger memory configuration
 	BlockCacheMB int64 `yaml:"block_cache_mb"`
 	MemTableMB   int64 `yaml:"memtable_mb"`
@@ -374,6 +379,10 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("external DefraDB requires a non-empty url")
 	}
 
+	if cfg.DefraDB.Store.BadgerInMemory {
+		return fmt.Errorf("defradb.store.badger_in_memory is not supported by the pinned defradb build: it hardcodes a 256-byte badger value threshold, so every in-memory write above it fails; use in_memory until the defradb pin carries the store threshold fix")
+	}
+
 	if cfg.Snapshot.MaxSnapshots < -1 {
 		return fmt.Errorf("max_snapshots must be >= -1 (0 = default %d, -1 = unlimited)", DefaultMaxSnapshots)
 	}
@@ -447,6 +456,11 @@ func applyDefraEnvOverrides(cfg *Config) {
 	if inMemory := os.Getenv("DEFRADB_STORE_IN_MEMORY"); inMemory != "" {
 		if parsed, err := strconv.ParseBool(inMemory); err == nil {
 			cfg.DefraDB.Store.InMemory = parsed
+		}
+	}
+	if badgerInMemory := os.Getenv("DEFRADB_BADGER_IN_MEMORY"); badgerInMemory != "" {
+		if parsed, err := strconv.ParseBool(badgerInMemory); err == nil {
+			cfg.DefraDB.Store.BadgerInMemory = parsed
 		}
 	}
 	if blockCacheMB := os.Getenv("DEFRADB_BLOCK_CACHE_MB"); blockCacheMB != "" {

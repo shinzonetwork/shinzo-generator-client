@@ -348,7 +348,7 @@ func TestSolanaReplayProcessingBenchmark(t *testing.T) {
 	maxBlocks := replayMaxBlocks(t)
 
 	t.Logf("=== Solana replay benchmark: slots %d-%d ===", fx.StartSlot, fx.EndSlot)
-	t.Logf("backend: %s", benchBackendName(benchDefraInMemory(t)))
+	t.Logf("backend: %s", benchBackendName(benchDefraBackend(t)))
 	t.Logf("blocks processed: %d   skipped: %d", len(durations), skipped)
 	if maxBlocks > 0 {
 		t.Logf("sample: first %d processable blocks (SOLANA_REPLAY_MAX_BLOCKS)", maxBlocks)
