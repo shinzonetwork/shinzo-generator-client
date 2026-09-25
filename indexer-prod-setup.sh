@@ -5,7 +5,10 @@ networks:
 
 services:
   shinzo-generator:
-    image: ghcr.io/shinzonetwork/shinzo-generator-client:v0.6.5.1-ethereum-mainnet
+    # ethereum-mainnet-latest is a floating tag published automatically on each
+    # release, so this always pulls the newest published generator version.
+    # To pin a specific release instead, use e.g. :v0.6.5.4-ethereum-mainnet.
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:ethereum-mainnet-latest
     user: "1001:1001"
     container_name: shinzo-generator
     restart: unless-stopped

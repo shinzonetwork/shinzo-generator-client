@@ -82,7 +82,7 @@ RUN set -ex && \
     echo "Building for VERSION=${VERSION}, BUILD_DATE=${BUILD_DATE}, VCS_REF=${VCS_REF}, BUILD_TAGS=${BUILD_TAGS}" && \
     mkdir -p bin && \
     CGO_ENABLED=1 go build -v \
-    -ldflags="-w -s -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.gitCommit=${VCS_REF}" \
+    -ldflags="-w -s -X github.com/shinzonetwork/shinzo-generator-client/pkg/indexer.Version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.gitCommit=${VCS_REF}" \
     ${BUILD_TAGS:+-tags="${BUILD_TAGS}"} \
     -o bin/block_poster \
     cmd/block_poster/main.go && \

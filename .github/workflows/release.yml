@@ -28,6 +28,13 @@ jobs:
           go-version-file: 'go.mod'
       - run: make build
 
+      - name: Verify version injection
+        run: |
+          grep -aFq "${{ github.ref_name }}" bin/block_poster || {
+            echo "❌ version injection failed: binary lacks ${{ github.ref_name }} — refusing to publish"
+            exit 1
+          }
+
       - name: Extract chain and network from tag
         id: meta
         run: |
@@ -42,6 +49,7 @@ jobs:
         run: |
           docker build -t ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
                        -t ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest \
+                       --build-arg VERSION=${{ github.ref_name }} \
                        --build-arg CHAIN=${{ steps.meta.outputs.chain }} \
                        --build-arg NETWORK=${{ steps.meta.outputs.network }} .
           echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
