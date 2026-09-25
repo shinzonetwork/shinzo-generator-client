@@ -41,6 +41,10 @@ var (
 	errIndexingStopped = errors.New("indexing stopped")
 )
 
+// Version is the generator version, set at build time via -ldflags (see the
+// Makefile build target); falls back to "dev" when built without injection.
+var Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
+
 const (
 	// ShortDelayTime is a short delay duration used in various places to give time for operations to complete.
 	ShortDelayTime = 500 * time.Millisecond // Give the server time to start.
@@ -144,6 +148,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	if logger.Sugar == nil {
 		logger.Init(cfg.Logger.Development)
 	}
+	logger.Sugar.Infof("Starting Shinzo Network Generator %s", Version)
 
 	defer func() {
 		if err != nil {
@@ -704,12 +709,12 @@ func (i *ChainIndexer) SignMessages(message string) (server.DefraPKRegistration,
 	}
 
 	return server.DefraPKRegistration{
-		PublicKey:   nodePubKey,
-		SignedPKMsg: signedMsg,
-	}, server.PeerIDRegistration{
-		PeerID:        peerPubKey,
-		SignedPeerMsg: peerSignedMsg,
-	}, nil
+			PublicKey:   nodePubKey,
+			SignedPKMsg: signedMsg,
+		}, server.PeerIDRegistration{
+			PeerID:        peerPubKey,
+			SignedPeerMsg: peerSignedMsg,
+		}, nil
 }
 
 // SignRegistrationMessage signs a registration message using only the DefraDB identity key.
