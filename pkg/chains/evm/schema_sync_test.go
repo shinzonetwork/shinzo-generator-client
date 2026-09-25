@@ -4,7 +4,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +53,6 @@ func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
 		{file: "block.graphql", field: MixHashFieldName},
 
 		// Transaction document.
-		{file: "transaction.graphql", field: constants.HashFieldName},
 		{file: "transaction.graphql", field: NonceFieldName},
 		{file: "transaction.graphql", field: TransactionIndexFieldName},
 		{file: "transaction.graphql", field: TypeFieldName},

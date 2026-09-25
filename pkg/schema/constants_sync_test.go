@@ -40,6 +40,7 @@ func TestConstantsMatchCollectionSDL(t *testing.T) {
 		{file: "block.graphql", field: constants.HashFieldName},
 
 		// Data documents carry the block number/hash payload fields.
+		{file: "transaction.graphql", field: constants.HashFieldName},
 		{file: "transaction.graphql", field: constants.BlockNumberFieldName},
 		{file: "transaction.graphql", field: constants.BlockHashFieldName},
 		{file: "log.graphql", field: constants.BlockNumberFieldName},
