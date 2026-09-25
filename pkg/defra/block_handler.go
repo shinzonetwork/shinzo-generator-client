@@ -11,6 +11,7 @@ import (
 
 	cid "github.com/ipfs/go-cid"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -620,32 +621,22 @@ func (h *BlockHandler) SignExisting(
 	return h.signBlockOverCIDs(ctx, blockNumber, blockHash, len(allDocIDs), cids, result.SignatureCollection)
 }
 
-// Field names of the block-signature document, matching the
-// blockSignature collection SDL.
-const (
-	sigFieldBlockNumber       = "blockNumber"
-	sigFieldBlockHash         = "blockHash"
-	sigFieldMerkleRoot        = "merkleRoot"
-	sigFieldCIDCount          = "cidCount"
-	sigFieldCIDs              = "cids"
-	sigFieldSignatureType     = "signatureType"
-	sigFieldSignatureIdentity = "signatureIdentity"
-	sigFieldSignatureValue    = "signatureValue"
-	sigFieldCreatedAt         = "createdAt"
-)
-
 // buildBlockSignatureDocument creates a client.Document for a block signature.
+// Every field name — the block-identity pair included — comes from the
+// shared signature-document contract in pkg/constants, matching the
+// blockSignature collection SDL; the chain layer contributes the values,
+// not the names.
 func (h *BlockHandler) buildBlockSignatureDocument(ctx context.Context, blockSig *node.BatchSignature, blockHash string, blockNumber int64, col client.Collection, sortedCIDStrings []string) (*client.Document, error) {
 	data := map[string]any{
-		sigFieldBlockNumber:       blockNumber,
-		sigFieldBlockHash:         blockHash,
-		sigFieldMerkleRoot:        hex.EncodeToString(blockSig.MerkleRoot),
-		sigFieldCIDCount:          blockSig.CIDCount,
-		sigFieldCIDs:              sortedCIDStrings,
-		sigFieldSignatureType:     blockSig.Header.Type,
-		sigFieldSignatureIdentity: string(blockSig.Header.Identity),
-		sigFieldSignatureValue:    hex.EncodeToString(blockSig.Value),
-		sigFieldCreatedAt:         time.Now().UTC().Format(time.RFC3339),
+		constants.BlockNumberFieldName:       blockNumber,
+		constants.BlockHashFieldName:         blockHash,
+		constants.MerkleRootFieldName:        hex.EncodeToString(blockSig.MerkleRoot),
+		constants.CIDCountFieldName:          blockSig.CIDCount,
+		constants.CIDsFieldName:              sortedCIDStrings,
+		constants.SignatureTypeFieldName:     blockSig.Header.Type,
+		constants.SignatureIdentityFieldName: string(blockSig.Header.Identity),
+		constants.SignatureValueFieldName:    hex.EncodeToString(blockSig.Value),
+		constants.CreatedAtFieldName:         time.Now().UTC().Format(time.RFC3339),
 	}
 	return client.NewDocFromMap(ctx, data, col.Version())
 }

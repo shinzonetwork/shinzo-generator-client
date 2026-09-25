@@ -17,6 +17,7 @@ Push to main → GitHub Actions (test + build) → Push to GHCR → Watchtower p
 | `GETH_RPC_URL` | Yes | Ethereum JSON-RPC endpoint URL |
 | `GETH_WS_URL` | Yes | Ethereum WebSocket endpoint URL |
 | `GETH_API_KEY` | Yes | API key for Ethereum node authentication |
+| `GETH_DIAL_TIMEOUT_SECONDS` | No | Bounds the WebSocket dial phase at startup (seconds); a WS timeout with HTTP connected starts HTTP-only (warning logged); 0 or negative = unbounded (caller context governs) |
 
 ## Workflow Behavior
 

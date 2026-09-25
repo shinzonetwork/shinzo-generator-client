@@ -285,6 +285,15 @@ func TestApplyEnvOverrides_GethConfig(t *testing.T) {
 	assert.Equal(t, "http://geth:8545", cfg.Geth.NodeURL, "Geth.NodeURL")
 	assert.Equal(t, "ws://geth:8546", cfg.Geth.WsURL, "Geth.WsURL")
 	assert.Equal(t, "myapikey", cfg.Geth.APIKey, "Geth.APIKey")
+	assert.Equal(t, 15, cfg.Geth.DialTimeoutSeconds, "Geth.DialTimeoutSeconds")
+}
+
+func TestApplyEnvOverrides_GethConfig_InvalidDialTimeout(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("GETH_DIAL_TIMEOUT_SECONDS", "not_a_number")
+	applyEnvOverrides(cfg)
+
+	assert.Zero(t, cfg.Geth.DialTimeoutSeconds, "Geth.DialTimeoutSeconds should remain 0 for invalid value")
 }
 
 func TestApplyEnvOverrides_IndexerConfig(t *testing.T) {

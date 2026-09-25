@@ -334,11 +334,11 @@ func insertBlockSignature(t *testing.T, td *testutils.TestDefraDB, blockNumber i
 	require.NoError(t, err)
 
 	data := map[string]any{
-		constants.BlockNumberKeyValue: blockNumber,
-		constants.BlockHashKeyValue:   deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
-		constants.MerkleRootKeyValue:  merkleRoot,
-		"cidCount":                    5,
-		"cids":                        []string{"cidA", "cidB"},
+		constants.BlockNumberFieldName: blockNumber,
+		constants.BlockHashFieldName:   deterministicHash(fmt.Sprintf("block-%d", blockNumber)),
+		constants.MerkleRootFieldName:  merkleRoot,
+		"cidCount":                     5,
+		"cids":                         []string{"cidA", "cidB"},
 	}
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
@@ -377,7 +377,7 @@ func newVerifyFixture(t *testing.T, keyType crypto.KeyType) (string, *SnapshotSi
 	mr := hex.EncodeToString(rootData)
 
 	lines := []string{
-		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootKeyValue: mr}}),
+		mustJSON(t, map[string]any{"type": constants.BlockSignatureTypeValue, "data": map[string]any{constants.MerkleRootFieldName: mr}}),
 	}
 	p := writeJSONLFile(t, t.TempDir(), "test.jsonl", lines)
 

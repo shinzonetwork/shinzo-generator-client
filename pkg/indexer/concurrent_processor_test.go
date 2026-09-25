@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -332,6 +333,10 @@ func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
 			result2 := p.fetchAndProcessBlock(context.Background(), tc.blockNum)
 			require.NotNil(t, result2)
 			assert.True(t, result2.Success)
+
+			// Drain any fire-and-forget SignExisting goroutines before the
+			// defra node is torn down by cleanup.
+			p.signWg.Wait()
 		})
 	}
 }
@@ -389,6 +394,7 @@ func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
 			fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 			results := make([]*BlockResult, tc.numProcessors)
+			processors := make([]*ConcurrentBlockProcessor, tc.numProcessors)
 			var wg sync.WaitGroup
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -399,6 +405,7 @@ func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
 				go func(idx int) {
 					defer wg.Done()
 					p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+					processors[idx] = p
 					results[idx] = p.fetchAndProcessBlock(ctx, tc.blockNum)
 				}(i)
 			}
@@ -409,6 +416,14 @@ func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
 			}
 
 			wg.Wait()
+
+			// Drain any fire-and-forget SignExisting goroutines before the
+			// defra node is torn down by cleanup.
+			for _, p := range processors {
+				if p != nil {
+					p.signWg.Wait()
+				}
+			}
 
 			successCount := 0
 			for i, r := range results {
@@ -422,6 +437,67 @@ func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
 			t.Logf("Results: %d/%d succeeded", successCount, tc.numProcessors)
 			assert.GreaterOrEqual(t, successCount, 1, "at least one concurrent block creation should succeed")
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// storeWithRetry — signer goroutines are tracked by signWg (deterministic).
+// ---------------------------------------------------------------------------.
+
+// TestStoreWithRetry_SignersTracked proves that the fire-and-forget
+// SignExisting goroutines spawned on ErrAlreadyExists are tracked by the
+// processor's signWg: signWg.Wait must block until they finish. This is
+// the deterministic mutation detector for the raw-`go` revert — without the
+// signWg tracking, signWg.Wait returns immediately while the signer is
+// still parked below. Pure mocks: no DefraDB, no RPC server.
+func TestStoreWithRetry_SignersTracked(t *testing.T) {
+	t.Parallel()
+
+	signerStarted := make(chan struct{}, 8)
+	releaseSigner := make(chan struct{})
+
+	storer := &mockBlockStorer{
+		// Trigger the ErrAlreadyExists path (IsErrAlreadyExists matches on
+		// the "already exists" substring).
+		storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			return nil, errors.New("already exists")
+		},
+		signExistingFn: func(_ context.Context, _ chains.ConversionResult, _ string, _ int64) (string, error) {
+			select {
+			case signerStarted <- struct{}{}:
+			default:
+			}
+			<-releaseSigner
+			return "mock-sig-id", nil
+		},
+	}
+
+	p := NewConcurrentBlockProcessor(nil, nil, storer, 1, 0)
+
+	result := p.storeWithRetry(context.Background(), 5001, chains.ConversionResult{})
+	require.NotNil(t, result)
+	assert.True(t, result.Success, "already-exists path should report success without waiting for the signer")
+
+	<-signerStarted
+
+	// signWg.Wait must block while the signer is parked on releaseSigner.
+	waitDone := make(chan struct{})
+	go func() {
+		p.signWg.Wait()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+		t.Fatal("signWg.Wait returned while the signer goroutine was still running — signer goroutines are not tracked")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseSigner)
+	select {
+	case <-waitDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("signWg.Wait did not return after the signer finished")
 	}
 }
 
@@ -768,5 +844,85 @@ func TestProcessBlocks_ErrorAndExisting(t *testing.T) {
 				assert.GreaterOrEqual(t, processedBlocks.Load(), tc.wantMinProcessed)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// ProcessBlocks — shutdown drains signer goroutines before returning.
+// ---------------------------------------------------------------------------.
+
+// TestProcessBlocks_ShutdownDrainsSigners proves the production shutdown
+// ordering: ProcessBlocks must not return until every spawned SignExisting
+// goroutine has finished, even after the context is canceled. Under the
+// raw-`go` mutation (signWg tracking reverted), ProcessBlocks returns while
+// the signer is still parked — reintroducing the badger "Unclosed iterator"
+// panic once the defra node is closed underneath it. Pure mocks: no DefraDB,
+// no RPC server.
+func TestProcessBlocks_ShutdownDrainsSigners(t *testing.T) {
+	t.Parallel()
+
+	signerStarted := make(chan struct{}, 8)
+	releaseSigner := make(chan struct{})
+
+	mc := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			return fmt.Sprintf("0x%x", height), nil
+		},
+	}
+
+	mcConv := &testutils.MockConverter{
+		ConvertFn: func(_ context.Context, _ any) (chains.ConversionResult, error) {
+			return chains.ConversionResult{}, nil
+		},
+	}
+
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			return nil, errors.New("already exists")
+		},
+		signExistingFn: func(_ context.Context, _ chains.ConversionResult, _ string, _ int64) (string, error) {
+			select {
+			case signerStarted <- struct{}{}:
+			default:
+			}
+			<-releaseSigner
+			return "mock-sig-id", nil
+		},
+	}
+
+	p := NewConcurrentBlockProcessor(mc, mcConv, storer, 1, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- p.ProcessBlocks(ctx, 1, nil)
+	}()
+
+	// Wait until at least one signer goroutine is running and parked.
+	select {
+	case <-signerStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for a signer goroutine to start")
+	}
+
+	cancel()
+
+	// ProcessBlocks must not return while the signer is parked: shutdown
+	// drains signWg before close(resultChan)/collectWg and before whatever
+	// the caller does next (StopIndexing closes the defra node there).
+	select {
+	case err := <-errCh:
+		t.Fatalf("ProcessBlocks returned while the signer goroutine was still running (err=%v) — shutdown does not drain signers", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(releaseSigner)
+	select {
+	case err := <-errCh:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ProcessBlocks did not return after the signer finished")
 	}
 }
