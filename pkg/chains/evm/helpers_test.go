@@ -135,7 +135,7 @@ func storeResidueBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestD
 	require.NoError(t, err)
 
 	data := c.buildBlockData(fakeBlock(seed), seed)
-	delete(data, constants.NumberFieldValue)
+	delete(data, constants.NumberFieldName)
 
 	doc, err := client.NewDocFromMap(ctx, data, col.Version())
 	require.NoError(t, err)

@@ -42,11 +42,11 @@ func TestSchemaIndexesBlockNumberField(t *testing.T) {
 		collection string
 		field      string
 	}{
-		{blockCol, constants.NumberFieldValue},
-		{txCol, constants.BlockNumberKeyValue},
-		{logCol, constants.BlockNumberKeyValue},
-		{aleCol, constants.BlockNumberKeyValue},
-		{sigCol, constants.BlockNumberKeyValue},
+		{blockCol, constants.NumberFieldName},
+		{txCol, constants.BlockNumberFieldName},
+		{logCol, constants.BlockNumberFieldName},
+		{aleCol, constants.BlockNumberFieldName},
+		{sigCol, constants.BlockNumberFieldName},
 	}
 
 	for _, c := range cases {

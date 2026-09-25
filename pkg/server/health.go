@@ -410,7 +410,11 @@ func (hs *HealthServer) snapshotDownloadHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	f, err := os.Open(filepath.Clean(filePath))
+	// GetSnapshotPath only returns paths whose URL-supplied component is a
+	// plain base name (its filepath.Base check rejects separators), so the
+	// opened file cannot escape the snapshots directory; filepath.Clean is
+	// defense-in-depth for that same invariant.
+	f, err := os.Open(filepath.Clean(filePath)) //nolint:gosec
 	if err != nil {
 		http.Error(w, "Failed to open file", http.StatusInternalServerError)
 		return
