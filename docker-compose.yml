@@ -28,7 +28,8 @@ services:
 
       # DefraDB Configuration (embedded)
       - DEFRADB_KEYRING_SECRET=${DEFRADB_KEYRING_SECRET:-}
-      
+       # In-memory Defra DB store
+      - DEFRADB_STORE_IN_MEMORY=false
       # Generator Configuration
       - INDEXER_START_HEIGHT=${INDEXER_START_HEIGHT:-0}
       - GOMEMLIMIT=14GiB

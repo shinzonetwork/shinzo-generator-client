@@ -22,7 +22,7 @@ type TestDefraDB struct {
 	Port int
 }
 
-// SetupTestDefraDB creates and starts an in-memory DefraDB node with schema applied.
+// SetupTestDefraDB creates and starts a disk-backed DefraDB node with schema applied.
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDB(t *testing.T) *TestDefraDB {
@@ -37,51 +37,96 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 	return SetupTestDefraDBWithSchema(t, sdl)
 }
 
-// SetupTestDefraDBWithSchema creates and starts an in-memory DefraDB node with a provided schema.
-// It uses a temporary directory and a random free port to avoid conflicts.
+// defraBackend selects the storage engine used by setupDefraDB.
+type defraBackend int
+
+const (
+	backendDisk defraBackend = iota
+	backendMemory
+	backendBadgerMemory
+)
+
+// SetupTestDefraDBWithSchema creates and starts a disk-backed DefraDB node
+// with a provided schema. It uses a temporary directory and a random free
+// port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
-func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
-	t.Helper()
+func SetupTestDefraDBWithSchema(tb testing.TB, schemaSDL string) *TestDefraDB {
+	tb.Helper()
+	return setupDefraDB(tb, schemaSDL, backendDisk)
+}
+
+// SetupTestDefraDBWithSchemaInMemory creates and starts an in-memory DefraDB
+// node with a provided schema. Data lives purely in memory, so startup is
+// free of disk I/O — useful for isolating pipeline cost from storage cost,
+// at the price of a slower store path for large writes.
+// Call the returned cleanup function (or use t.Cleanup) when done.
+func SetupTestDefraDBWithSchemaInMemory(tb testing.TB, schemaSDL string) *TestDefraDB {
+	tb.Helper()
+	return setupDefraDB(tb, schemaSDL, backendMemory)
+}
+
+// SetupTestDefraDBWithSchemaBadgerInMemory creates and starts a DefraDB node
+// whose badger store runs fully in memory. Unlike the corekv memory store it
+// keeps the disk backend's transaction limits and conflict semantics, while
+// avoiding all disk I/O.
+// Call the returned cleanup function (or use t.Cleanup) when done.
+func SetupTestDefraDBWithSchemaBadgerInMemory(tb testing.TB, schemaSDL string) *TestDefraDB {
+	tb.Helper()
+	return setupDefraDB(tb, schemaSDL, backendBadgerMemory)
+}
+
+// setupDefraDB is the shared node builder behind the exported helpers; the
+// only difference between the backends is how the store is rooted.
+func setupDefraDB(tb testing.TB, schemaSDL string, backend defraBackend) *TestDefraDB {
+	tb.Helper()
 
 	// Initialize logger if not already done
 	logger.InitConsoleOnly(true)
 
 	ctx := context.Background()
-	tmpDir := t.TempDir()
 
-	port := getFreePort(t)
+	port := getFreePort(tb)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	opts := options.Node().
 		SetDisableAPI(false).
 		SetDisableP2P(true)
-	opts.Store().SetPath(tmpDir)
+	dir := ""
+	switch backend {
+	case backendMemory:
+		opts.Store().SetType(options.NodeMemoryStore)
+	case backendBadgerMemory:
+		opts.Store().SetType(options.NodeBadgerStore).SetBadgerInMemory(true)
+	default:
+		dir = tb.TempDir()
+		opts.Store().SetPath(dir)
+	}
 	opts.HTTP().SetAddress(addr)
 
 	defraNode, err := node.New(ctx, opts)
 	if err != nil {
-		t.Fatalf("Failed to create DefraDB node: %v", err)
+		tb.Fatalf("Failed to create DefraDB node: %v", err)
 	}
 
 	err = defraNode.Start(ctx)
 	if err != nil {
-		t.Fatalf("Failed to start DefraDB node: %v", err)
+		tb.Fatalf("Failed to start DefraDB node: %v", err)
 	}
 
 	// Apply schema
 	_, err = defraNode.DB.AddCollection(ctx, schemaSDL)
 	if err != nil && !strings.Contains(err.Error(), errors.ErrStrCollectionAlreadyExists) {
 		_ = defraNode.Close(ctx)
-		t.Fatalf("Failed to apply schema: %v", err)
+		tb.Fatalf("Failed to apply schema: %v", err)
 	}
 
 	td := &TestDefraDB{
 		Node: defraNode,
-		Dir:  tmpDir,
+		Dir:  dir,
 		Port: port,
 	}
 
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		_ = defraNode.Close(context.Background())
 	})
 
@@ -89,11 +134,11 @@ func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 }
 
 // getFreePort returns a free TCP port on localhost.
-func getFreePort(t *testing.T) int {
-	t.Helper()
+func getFreePort(tb testing.TB) int {
+	tb.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("Failed to get free port: %v", err)
+		tb.Fatalf("Failed to get free port: %v", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()

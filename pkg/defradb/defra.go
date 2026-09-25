@@ -361,16 +361,30 @@ func buildNodeOptions(
 		SetDisableAPI(false).
 		SetDisableP2P(false)
 	nb.P2P().SetEnablePubSub(true)
-	nb.Store().SetPath(cfg.DefraDB.Store.Path)
 	nb.HTTP().SetAddress(defraURL)
 	nb.DB().SetNodeIdentity(nodeIdentity)
 
-	vlogSizeMB := cfg.DefraDB.Store.ValueLogFileSizeMB
-	if vlogSizeMB <= 0 {
-		vlogSizeMB = defaultBadgerValueLogFileSizeMB
+	switch {
+	case cfg.DefraDB.Store.InMemory:
+		nb.Store().SetType(options.NodeMemoryStore)
+		logger.Sugar.Warn("DefraDB in-memory store enabled: data is lost on restart and indexing resumes from the chain tip")
+	case cfg.DefraDB.Store.BadgerInMemory:
+		// Badger rejects a store path when InMemory is set, so no SetPath here;
+		// the default store type also resolves to badger, but keeping it
+		// explicit documents the intent.
+		nb.Store().SetType(options.NodeBadgerStore)
+		nb.Store().SetBadgerInMemory(true)
+		logger.Sugar.Warn("DefraDB badger in-memory store enabled: data is lost on restart and indexing resumes from the chain tip")
+	default:
+		nb.Store().SetPath(cfg.DefraDB.Store.Path)
+
+		vlogSizeMB := cfg.DefraDB.Store.ValueLogFileSizeMB
+		if vlogSizeMB <= 0 {
+			vlogSizeMB = defaultBadgerValueLogFileSizeMB
+		}
+		nb.Store().SetBadgerFileSize(vlogSizeMB << log2BytesPerMebibyte)
+		logger.Sugar.Infof("Badger value log file size: %dMB", vlogSizeMB)
 	}
-	nb.Store().SetBadgerFileSize(vlogSizeMB << log2BytesPerMebibyte)
-	logger.Sugar.Infof("Badger value log file size: %dMB", vlogSizeMB)
 
 	if len(listenAddress) > 0 {
 		nb.P2P().SetListenAddresses(listenAddress)

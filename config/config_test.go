@@ -258,6 +258,63 @@ func TestApplyEnvOverrides_StoreConfig(t *testing.T) {
 	assert.Equal(t, 20, cfg.DefraDB.Store.NumLevelZeroTablesStall, "Store.NumLevelZeroTablesStall")
 }
 
+func TestApplyEnvOverrides_StoreInMemory(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("DEFRADB_STORE_IN_MEMORY", "true")
+	applyEnvOverrides(cfg)
+	assert.True(t, cfg.DefraDB.Store.InMemory, "Store.InMemory")
+
+	cfg = &Config{}
+	t.Setenv("DEFRADB_STORE_IN_MEMORY", "false")
+	applyEnvOverrides(cfg)
+	assert.False(t, cfg.DefraDB.Store.InMemory, "Store.InMemory")
+
+	cfg = &Config{}
+	t.Setenv("DEFRADB_STORE_IN_MEMORY", "not_a_bool")
+	applyEnvOverrides(cfg)
+	// Should be silently ignored
+	assert.False(t, cfg.DefraDB.Store.InMemory, "Store.InMemory should remain false for invalid bool")
+}
+
+func TestApplyEnvOverrides_StoreBadgerInMemory(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("DEFRADB_BADGER_IN_MEMORY", "true")
+	applyEnvOverrides(cfg)
+	assert.True(t, cfg.DefraDB.Store.BadgerInMemory, "Store.BadgerInMemory")
+
+	cfg = &Config{}
+	t.Setenv("DEFRADB_BADGER_IN_MEMORY", "false")
+	applyEnvOverrides(cfg)
+	assert.False(t, cfg.DefraDB.Store.BadgerInMemory, "Store.BadgerInMemory")
+
+	cfg = &Config{}
+	t.Setenv("DEFRADB_BADGER_IN_MEMORY", "not_a_bool")
+	applyEnvOverrides(cfg)
+	// Should be silently ignored
+	assert.False(t, cfg.DefraDB.Store.BadgerInMemory, "Store.BadgerInMemory should remain false for invalid bool")
+}
+
+func TestValidateConfig_BadgerInMemoryUnsupported(t *testing.T) {
+	cfg := &Config{}
+	cfg.Chain.Adapter = DefaultChainAdapter
+	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeNone
+	cfg.DefraDB.Embedded = true
+
+	cfg.DefraDB.Store.InMemory = true
+	require.NoError(t, validateConfig(cfg), "in_memory alone")
+
+	cfg.DefraDB.Store.InMemory = false
+	cfg.DefraDB.Store.BadgerInMemory = true
+	err := validateConfig(cfg)
+	require.Error(t, err, "badger_in_memory alone")
+	assert.Contains(t, err.Error(), "not supported")
+
+	cfg.DefraDB.Store.InMemory = true
+	err = validateConfig(cfg)
+	require.Error(t, err, "both in-memory knobs")
+	assert.Contains(t, err.Error(), "not supported")
+}
+
 func TestApplyEnvOverrides_StoreConfig_InvalidValues(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_BLOCK_CACHE_MB", "not_a_number")
@@ -570,8 +627,8 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 		errContains  string
 	}{
 		{"evm valid", DefaultChainAdapter, false, ""},
+		{"solana valid", SolanaChainAdapter, false, ""},
 		{"cosmos rejected", "cosmos", true, "not yet implemented"},
-		{"solana rejected", "solana", true, "not yet implemented"},
 		{"empty rejected", "", true, "not yet implemented"},
 	}
 	for _, tt := range tests {
@@ -580,6 +637,7 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
 			cfg.Chain.Adapter = tt.chainAdapter
+			cfg.Solana.Commitment = DefaultSolanaCommitment
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			err := validateConfig(cfg)
 			if tt.shouldError {
@@ -590,6 +648,130 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateConfig_SolanaCommitment(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		commitment  string
+		shouldError bool
+	}{
+		{"confirmed valid", DefaultSolanaCommitment, false},
+		{"finalized valid", "finalized", false},
+		{"processed rejected", "processed", true},
+		{"unknown rejected", "confirmed-with-suffix", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = SolanaChainAdapter
+			cfg.Solana.Commitment = tt.commitment
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid solana commitment")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateConfig_SolanaWsURL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		wsURL       string
+		shouldError bool
+	}{
+		{"empty allowed (polling)", "", false},
+		{"ws valid", "ws://127.0.0.1:8900", false},
+		{"wss valid", "wss://api.devnet.solana.com", false},
+		{"https rejected", "https://api.devnet.solana.com", true},
+		{"http rejected", "http://127.0.0.1:8900", true},
+		{"tcp rejected", "tcp://127.0.0.1:8900", true},
+		{"no scheme rejected", "api.devnet.solana.com", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = SolanaChainAdapter
+			cfg.Solana.Commitment = DefaultSolanaCommitment
+			cfg.Solana.WsURL = tt.wsURL
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid solana ws_url")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSolanaDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{}
+	applyDefaults(cfg)
+
+	assert.Equal(t, DefaultSolanaCommitment, cfg.Solana.Commitment)
+	assert.Equal(t, DefaultSolanaMaxSupportedTxVersion, cfg.Solana.MaxSupportedTransactionVersion)
+	assert.True(t, cfg.Solana.RewardsEnabled(), "nil Rewards should mean enabled")
+}
+
+func TestSolanaRewardsEnabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rewards *bool
+		want    bool
+	}{
+		{"nil means enabled", nil, true},
+		{"explicit true", new(true), true},
+		{"explicit false", new(false), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := &SolanaConfig{Rewards: tt.rewards}
+			assert.Equal(t, tt.want, s.RewardsEnabled())
+		})
+	}
+}
+
+func TestSolanaEnvOverrides(t *testing.T) {
+	t.Run("all set", func(t *testing.T) {
+		cfg := &Config{}
+		t.Setenv("SOLANA_RPC_URL", "https://api.devnet.solana.com")
+		t.Setenv("SOLANA_WS_URL", "wss://api.devnet.solana.com")
+		t.Setenv("SOLANA_COMMITMENT", "finalized")
+		t.Setenv("SOLANA_ARCHIVE_RPC_URL", "https://archive.example.com")
+		t.Setenv("SOLANA_API_KEY", "sample-key")
+		t.Setenv("SOLANA_API_KEY_TYPE", "X-Api-Key")
+		applySolanaEnvOverrides(cfg)
+		assert.Equal(t, "https://api.devnet.solana.com", cfg.Solana.RPCURL)
+		assert.Equal(t, "wss://api.devnet.solana.com", cfg.Solana.WsURL)
+		assert.Equal(t, "finalized", cfg.Solana.Commitment)
+		assert.Equal(t, "https://archive.example.com", cfg.Solana.ArchiveRPCURL)
+		assert.Equal(t, "sample-key", cfg.Solana.APIKey)
+		assert.Equal(t, "X-Api-Key", cfg.Solana.APIKeyType)
+	})
+
+	t.Run("empty ignored", func(t *testing.T) {
+		cfg := &Config{Solana: SolanaConfig{RPCURL: "https://keep-me"}}
+		t.Setenv("SOLANA_RPC_URL", "")
+		applySolanaEnvOverrides(cfg)
+		assert.Equal(t, "https://keep-me", cfg.Solana.RPCURL, "empty SOLANA_RPC_URL should not override")
+	})
 }
 
 func TestLoadConfig_DefaultChainAdapter(t *testing.T) {

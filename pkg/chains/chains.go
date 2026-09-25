@@ -43,14 +43,30 @@ var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 // cannot find any usable number.
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
 
+// ErrHeightSkipped indicates the requested height has no block and never will
+// (e.g. a skipped Solana slot: the leader produced nothing, so no retry can
+// conjure one). Callers must treat it as "advance, no docs, nothing to sign" —
+// neither an error nor a retry candidate. The message must never contain
+// "not found" so consumers cannot confuse it with the transient
+// block-not-mined-yet condition that drives infinite retry loops.
+var ErrHeightSkipped = errors.New("height skipped: no block at this height")
+
 // Collection type constants used as arguments to GetCollection.
+//
+// TypeBlock, TypeTransaction, TypeBlockSignature, and TypeSnapshotSignature
+// exist in every chain family. TypeAccessListEntry and TypeLog are EVM-only,
+// and TypeInstruction, TypeTokenBalanceChange, and TypeReward are Solana-only;
+// other adapters return ErrUnknownCollection for roles they do not define.
 const (
-	TypeBlock             = "block"
-	TypeBlockSignature    = "blockSignature"
-	TypeSnapshotSignature = "snapshotSignature"
-	TypeTransaction       = "transaction"
-	TypeAccessListEntry   = "accessListEntry"
-	TypeLog               = "log"
+	TypeBlock              = "block"
+	TypeBlockSignature     = "blockSignature"
+	TypeSnapshotSignature  = "snapshotSignature"
+	TypeTransaction        = "transaction"
+	TypeAccessListEntry    = "accessListEntry"
+	TypeLog                = "log"
+	TypeInstruction        = "instruction"
+	TypeTokenBalanceChange = "tokenBalanceChange"
+	TypeReward             = "reward"
 )
 
 // DefaultAdapterName is the default name value to be used in ChainFactories.
