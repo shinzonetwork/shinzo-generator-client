@@ -11,6 +11,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
@@ -177,10 +178,10 @@ func TestConvert_EmptyBlock(t *testing.T) {
 	require.Len(t, result.Groups, 1) // only block group
 	assert.Equal(t, c.collections.Block, result.Groups[0].Collection)
 	require.Len(t, result.Groups[0].Docs, 1)
-	assert.Equal(t, int64(42), result.Groups[0].Docs[0][NumberFieldName])
+	assert.Equal(t, int64(42), result.Groups[0].Docs[0][constants.NumberFieldName])
 	assert.Equal(t, c.collections.BlockSignature, result.SignatureCollection)
-	assert.Equal(t, HashFieldName, result.Groups[0].BlockHashField,
-		"block group should have BlockHashField set to HashFieldName")
+	assert.Equal(t, constants.HashFieldName, result.Groups[0].BlockHashField,
+		"block group should have BlockHashField set to constants.HashFieldName")
 }
 
 func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
@@ -217,13 +218,13 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	require.GreaterOrEqual(t, len(result.Groups), 2)
 	assert.Equal(t, c.collections.Block, result.Groups[0].Collection)
 	require.Len(t, result.Groups[0].Docs, 1)
-	assert.Equal(t, block.Hash, result.Groups[0].Docs[0][HashFieldName])
+	assert.Equal(t, block.Hash, result.Groups[0].Docs[0][constants.HashFieldName])
 
 	// Transaction group
 	assert.Equal(t, c.collections.Transaction, result.Groups[1].Collection)
 	require.Len(t, result.Groups[1].Docs, 1)
 	txData := result.Groups[1].Docs[0]
-	assert.Equal(t, txHash, txData[HashFieldName])
+	assert.Equal(t, txHash, txData[constants.HashFieldName])
 	assert.Empty(t, result.Groups[1].BlockHashField,
 		"non-block groups should have empty BlockHashField")
 
@@ -432,7 +433,7 @@ func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
 
-	docIDs, err := c.queryCollectionDocIDs(ctx, td.Node, c.collections.Block, NumberFieldName, 100, 101)
+	docIDs, err := c.queryCollectionDocIDs(ctx, td.Node, c.collections.Block, constants.NumberFieldName, 100, 101)
 	require.NoError(t, err)
 	require.Len(t, docIDs, 2)
 
@@ -534,12 +535,12 @@ func TestParseBlockNumberRow(t *testing.T) {
 		want  int64
 		valid bool
 	}{
-		{"float64", map[string]any{NumberFieldName: float64(100)}, 100, true},
-		{"int64", map[string]any{NumberFieldName: int64(101)}, 101, true},
-		{"int", map[string]any{NumberFieldName: int(102)}, 102, true},
-		{"nil", map[string]any{NumberFieldName: nil}, 0, false},
+		{"float64", map[string]any{constants.NumberFieldName: float64(100)}, 100, true},
+		{"int64", map[string]any{constants.NumberFieldName: int64(101)}, 101, true},
+		{"int", map[string]any{constants.NumberFieldName: int(102)}, 102, true},
+		{"nil", map[string]any{constants.NumberFieldName: nil}, 0, false},
 		{"missing", map[string]any{}, 0, false},
-		{"string", map[string]any{NumberFieldName: "0x64"}, 0, false},
+		{"string", map[string]any{constants.NumberFieldName: "0x64"}, 0, false},
 	}
 
 	for _, tc := range tests {

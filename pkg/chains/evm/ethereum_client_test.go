@@ -776,7 +776,7 @@ func TestGetLatestBlockNumber_Success(t *testing.T) {
 		case ethGetBlockByNumber:
 			// Return a full block header with all required fields
 			return map[string]any{
-				NumberFieldName:           "0x64",
+				constants.NumberFieldName: "0x64",
 				"hash":                    "0x0000000000000000000000000000000000000000000000000000000000000001",
 				ParentHashFieldName:       "0x0000000000000000000000000000000000000000000000000000000000000000",
 				NonceFieldName:            "0x0000000000000000",
@@ -836,7 +836,7 @@ func fullBlockResponse(number string, txs []any) map[string]any {
 	// Empty trie root hash — must match empty transaction list
 	emptyTrieRoot := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
 	block := map[string]any{
-		NumberFieldName:           number,
+		constants.NumberFieldName: number,
 		"hash":                    "0x0000000000000000000000000000000000000000000000000000000000000001",
 		ParentHashFieldName:       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		NonceFieldName:            "0x0000000000000000",

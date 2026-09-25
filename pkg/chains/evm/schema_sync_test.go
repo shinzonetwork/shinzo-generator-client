@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,11 +22,12 @@ func fieldDefined(sdl, name string) bool {
 // to the collection SDL they must land in. The converter's builder maps write
 // these constants as document keys, and pruning/signing queries embed them by
 // name, so a constant drifting from its SDL field would compile fine and only
-// fail as a runtime query error. The pkg/constants contract fields are
-// asserted in pkg/schema's own sync test — each package tests its own names.
-// SDL fields without an evm constant (from/totalDifficulty/topics/...) are
-// written as literals and are intentionally not asserted; the guarded
-// direction is constant → SDL.
+// fail as a runtime query error. The block document's number/hash fields —
+// the generator-host contract — live in pkg/constants and are asserted in
+// pkg/schema's sync test, as are all other constants contract fields; each
+// package tests its own names. SDL fields without an evm constant
+// (from/totalDifficulty/topics/...) are written as literals and are
+// intentionally not asserted; the guarded direction is constant → SDL.
 func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
 	t.Parallel()
 
@@ -33,10 +35,9 @@ func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
 		file  string
 		field string
 	}{
-		// Block document: number/hash are the join fields the pruner and
-		// block handler query; the rest are JSON-RPC payload carried through.
-		{file: "block.graphql", field: NumberFieldName},
-		{file: "block.graphql", field: HashFieldName},
+		// Block document. The block number/hash fields are the generator-
+		// host contract and live in pkg/constants, asserted in pkg/schema's
+		// sync test; the rest are JSON-RPC payload carried through.
 		{file: "block.graphql", field: TimestampFieldName},
 		{file: "block.graphql", field: ParentHashFieldName},
 		{file: "block.graphql", field: DifficultyFieldName},
@@ -53,7 +54,7 @@ func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
 		{file: "block.graphql", field: MixHashFieldName},
 
 		// Transaction document.
-		{file: "transaction.graphql", field: HashFieldName},
+		{file: "transaction.graphql", field: constants.HashFieldName},
 		{file: "transaction.graphql", field: NonceFieldName},
 		{file: "transaction.graphql", field: TransactionIndexFieldName},
 		{file: "transaction.graphql", field: TypeFieldName},

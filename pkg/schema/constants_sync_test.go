@@ -33,6 +33,12 @@ func TestConstantsMatchCollectionSDL(t *testing.T) {
 		file  string
 		field string
 	}{
+		// Block document: its own number/hash join fields. The host prunes
+		// and bootstraps the Block collection by these names, so they are
+		// part of the generator-host contract this file pins.
+		{file: "block.graphql", field: constants.NumberFieldName},
+		{file: "block.graphql", field: constants.HashFieldName},
+
 		// Data documents carry the block number/hash payload fields.
 		{file: "transaction.graphql", field: constants.BlockNumberFieldName},
 		{file: "transaction.graphql", field: constants.BlockHashFieldName},

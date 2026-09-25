@@ -4,21 +4,18 @@ package evm
 //
 // These constants live in pkg/chains/evm — not pkg/constants — because they
 // are EVM-specific: non-test code outside this package must not reference
-// them. The boundary is enforced by the evm-boundary depguard rule in
-// .golangci.yml.
+// them. The block document's own number/hash field names are the
+// generator-host contract and live in pkg/constants. The boundary is
+// enforced by the evm-boundary depguard rule in .golangci.yml.
 //
-// carried through from the Ethereum JSON-RPC object shapes.
+// The names are carried through from the Ethereum JSON-RPC object shapes.
 
-// Document join field: the fields later write stages query to link and
-// purge documents across collections.
-const (
-	TransactionHashFieldName = "transactionHash"
-	HashFieldName            = "hash"
-)
+// TransactionHashFieldName is the document join field that later write
+// stages query to link and purge documents across collections.
+const TransactionHashFieldName = "transactionHash"
 
 // Payload field names, carried through from the Ethereum JSON-RPC shapes.
 const (
-	NumberFieldName            = "number"
 	AddressFieldName           = "address"
 	TimestampFieldName         = "timestamp"
 	ParentHashFieldName        = "parentHash"

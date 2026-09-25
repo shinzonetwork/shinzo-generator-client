@@ -54,6 +54,20 @@ const (
 	CreatedAtFieldName = "createdAt"
 )
 
+// Block-document field names the generator and the host must agree on.
+// The host prunes and bootstraps the Block collection by these fields, so
+// their names are part of the generator-host contract alongside the
+// signature-document fields above.
+const (
+	// NumberFieldName is the field of the Block document holding the
+	// chain's block number ("number" in the block collection SDL).
+	NumberFieldName = "number"
+
+	// HashFieldName is the field holding a document's own hash; the Block
+	// and Transaction documents share the name.
+	HashFieldName = "hash"
+)
+
 // Signing key-algorithm identifiers used as signature-type values.
 const (
 	// Ed25519ValueString is the signature-type value for Ed25519 signers.

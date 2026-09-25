@@ -86,8 +86,11 @@ func getStorePath(_ *node.Node, cfg *config.Config) (string, error) {
 
 	// Try each path to see if it contains the key file
 	for _, path := range possiblePaths {
+		// The candidate paths come from this function's own hardcoded list and
+		// the local environment, never from remote input; Clean+Join keeps the
+		// probe inside those roots.
 		keyPath := filepath.Clean(filepath.Join(path, keyFileName))
-		if _, err := os.Stat(keyPath); err == nil {
+		if _, err := os.Stat(keyPath); err == nil { //nolint:gosec
 			return path, nil
 		}
 	}

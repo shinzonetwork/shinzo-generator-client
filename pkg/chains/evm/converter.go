@@ -120,8 +120,8 @@ func (c *Converter) Convert(
 			Collection:     c.collections.Block,
 			Docs:           []map[string]any{blockData},
 			BatchSize:      defaultBatch,
-			BlockNumField:  NumberFieldName,
-			BlockHashField: HashFieldName,
+			BlockNumField:  constants.NumberFieldName,
+			BlockHashField: constants.HashFieldName,
 		},
 	}
 	if len(txDocs) > 0 {
@@ -299,7 +299,7 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 		name  string
 		field string
 	}{
-		{c.collections.Block, NumberFieldName},
+		{c.collections.Block, constants.NumberFieldName},
 		{c.collections.Transaction, constants.BlockNumberFieldName},
 		{c.collections.Log, constants.BlockNumberFieldName},
 		{c.collections.AccessListEntry, constants.BlockNumberFieldName},
@@ -324,8 +324,8 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 // buildBlockData builds the data map for a block document.
 func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any {
 	return map[string]any{
-		HashFieldName:             block.Hash,
-		NumberFieldName:           blockInt,
+		constants.HashFieldName:   block.Hash,
+		constants.NumberFieldName: blockInt,
 		TimestampFieldName:        block.Timestamp,
 		ParentHashFieldName:       block.ParentHash,
 		DifficultyFieldName:       block.Difficulty,
@@ -353,7 +353,7 @@ func (c *Converter) buildBlockData(block *Block, blockInt int64) map[string]any 
 func (c *Converter) buildTransactionData(tx *Transaction) map[string]any {
 	txBlockNum, _ := strconv.ParseInt(tx.BlockNumber, 10, 64)
 	return map[string]any{
-		HashFieldName:                  tx.Hash,
+		constants.HashFieldName:        tx.Hash,
 		constants.BlockNumberFieldName: txBlockNum,
 		constants.BlockHashFieldName:   tx.BlockHash,
 		TransactionIndexFieldName:      tx.TransactionIndex,
@@ -440,7 +440,7 @@ func (c *Converter) BuildBlockSignatureData(
 // are tagged with opName.
 func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
 	blockCol := c.collections.Block
-	field := NumberFieldName
+	field := constants.NumberFieldName
 	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { ` + field + ` _docID }}`
 
 	result := n.DB.ExecRequest(ctx, query)
@@ -505,7 +505,7 @@ func firstUsableRow(rows []any, opName string) (int64, error) {
 			return num, nil
 		}
 		docID, _ := block["_docID"].(string)
-		raw := block[NumberFieldName]
+		raw := block[constants.NumberFieldName]
 		skipped = append(skipped, fmt.Sprintf("docID=%s number=%T(%v)", docID, raw, raw))
 	}
 
@@ -539,7 +539,7 @@ func (c *Converter) hasAnyBlockDocs(ctx context.Context, n *node.Node, blockCol,
 // parseBlockNumberRow extracts the block number from a block query row. It
 // reports false when the number field is missing or has an unparseable type.
 func parseBlockNumberRow(block map[string]any) (int64, bool) {
-	switch v := block[NumberFieldName].(type) {
+	switch v := block[constants.NumberFieldName].(type) {
 	case float64:
 		return int64(v), true
 	case int64:

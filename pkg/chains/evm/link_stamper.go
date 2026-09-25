@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
@@ -56,10 +57,10 @@ func (s *evmLinkStamper) StampBeforeWrite(collection string, docs []map[string]a
 
 	case s.cols.Transaction:
 		for j := range docs {
-			txHash, ok := docs[j][HashFieldName].(string)
+			txHash, ok := docs[j][constants.HashFieldName].(string)
 			if !ok || txHash == "" {
 				return fmt.Errorf("link stamper: transaction doc %d has missing, non-string, or empty %q", //nolint:err113
-					j, HashFieldName)
+					j, constants.HashFieldName)
 			}
 			if s.blockID == "" {
 				return fmt.Errorf("link stamper: no block docID registered before stamping transaction doc %d", j) //nolint:err113
@@ -133,10 +134,10 @@ func (s *evmLinkStamper) RecordDocIDs(collection string, docs []map[string]any, 
 
 	case s.cols.Transaction:
 		for j := range docs {
-			txHash, ok := docs[j][HashFieldName].(string)
+			txHash, ok := docs[j][constants.HashFieldName].(string)
 			if !ok || txHash == "" {
 				return fmt.Errorf("link stamper: transaction doc %d has missing, non-string, or empty %q", //nolint:err113
-					j, HashFieldName)
+					j, constants.HashFieldName)
 			}
 			if j < len(ids) {
 				s.txHashToID[txHash] = ids[j]
