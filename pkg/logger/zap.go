@@ -99,7 +99,21 @@ func Init(development bool) {
 	initLogger(development, true)
 }
 
+// logDir returns the directory log files are written to. SHINZO_LOG_DIR lets
+// each process (or test package) keep its own logs instead of writing to a
+// "logs" directory relative to whatever the working directory happens to be.
+func logDir() string {
+	if dir := os.Getenv("SHINZO_LOG_DIR"); dir != "" {
+		return dir
+	}
+	return "logs"
+}
+
 func initLogger(development, enableFiles bool) {
+	// NO_LOG_FILES disables file output entirely (documented on Init, and used
+	// by tests so they never write log files into the package directory).
+	enableFiles = enableFiles && os.Getenv("NO_LOG_FILES") == ""
+
 	var zapLevel zapcore.Level
 	if development {
 		zapLevel = TestLevel // Show TEST level and above in development mode.
@@ -120,7 +134,7 @@ func initLogger(development, enableFiles bool) {
 
 	// Only create log files if enabled.
 	if enableFiles {
-		logsDir := "logs"
+		logsDir := logDir()
 		if err := os.MkdirAll(logsDir, 0o750); err == nil { // nolint:mnd
 			// Directory exists or was created successfully.
 			logFile := filepath.Join(logsDir, "logfile.log")

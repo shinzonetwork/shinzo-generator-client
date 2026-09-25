@@ -435,7 +435,19 @@ func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
 				}
 			}
 			t.Logf("Results: %d/%d succeeded", successCount, tc.numProcessors)
-			assert.GreaterOrEqual(t, successCount, 1, "at least one concurrent block creation should succeed")
+			if tc.cancelDelay > 0 {
+				// The cancel can land before any processor commits, so a winner
+				// is not guaranteed here. What matters is that every processor
+				// that failed did so because of the cancellation.
+				for i, r := range results {
+					if !r.Success {
+						assert.ErrorContains(t, r.Error, "context canceled",
+							"processor %d failed for a non-cancellation reason", i)
+					}
+				}
+			} else {
+				assert.GreaterOrEqual(t, successCount, 1, "at least one concurrent block creation should succeed")
+			}
 		})
 	}
 }
