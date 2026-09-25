@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
@@ -128,8 +129,8 @@ func TestCustomLevelEncoder_AllLevels(t *testing.T) {
 	}
 }
 
-func TestTest_NilSugar(t *testing.T) {
-	t.Parallel()
+//nolint:paralleltest // mutates the global Sugar; must not overlap parallel tests that log
+func TestTest_NilSugar(_ *testing.T) {
 	oldSugar := Sugar
 	Sugar = nil
 	defer func() { Sugar = oldSugar }()
@@ -145,8 +146,8 @@ func TestTest_WithSugar(t *testing.T) {
 	Test("test message")
 }
 
-func TestTestf_NilSugar(t *testing.T) {
-	t.Parallel()
+//nolint:paralleltest // mutates the global Sugar; must not overlap parallel tests that log
+func TestTestf_NilSugar(_ *testing.T) {
 	oldSugar := Sugar
 	Sugar = nil
 	defer func() { Sugar = oldSugar }()
@@ -260,3 +261,23 @@ func (e *testArrayEncoder) AppendUint32(_ uint32)         {}
 func (e *testArrayEncoder) AppendUint16(_ uint16)         {}
 func (e *testArrayEncoder) AppendUint8(_ uint8)           {}
 func (e *testArrayEncoder) AppendUintptr(_ uintptr)       {}
+
+func TestInit_ConcurrentWithLogging(t *testing.T) {
+	t.Parallel()
+	InitConsoleOnly(true)
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 50 {
+				InitConsoleOnly(false)
+			}
+		})
+		wg.Go(func() {
+			for i := range 50 {
+				Sugar.Debugf("concurrent log %d", i)
+			}
+		})
+	}
+	wg.Wait()
+}
