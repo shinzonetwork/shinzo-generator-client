@@ -5,14 +5,18 @@ package indexer
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -305,4 +309,244 @@ func TestStopIndexingVariants(t *testing.T) {
 			tc.assert(t, indexer)
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------.
+// StopIndexing vs in-flight StartIndexing.
+//  Deterministic park: the mock RPC parks eth_getBlockByNumber("latest")
+// (the first RPC call StartIndexing makes, from FetchHighestBlockNumber in
+// resolveStartHeight — what HeaderByNumber(nil) actually sends), so the start
+// is pinned mid-init with fetcher/defraNode already assigned while
+// StopIndexing races it.
+//
+// StopIndexing can only tear down after the start settles, and a stop also
+// cancels the start's init context, so the parked init aborts promptly
+// instead of the stop waiting on the parked RPC.
+//
+// Mutation detection:
+//   - Reverting the init-cancel in StopIndexing: the naked waitStartSettled
+//     stalls the full IndexingStartStopTimeout (30s) on the parked start →
+//     the bounded stop wait below fails.
+//   - Removing the errIndexingStopped→nil mapping in finishStart: the aborted
+//     start surfaces its abort artifact (the cancellation cause "indexing
+//     stopped" propagated through the transport, or a wrapped
+//     context.Canceled) → the NoError assertion fails.
+//   - Removing stopMu: TestStopIndexing_ConcurrentStopsAfterInitError trips
+//     -race on i.fetcher/i.defraNode.
+// ---------------------------------------------------------------------------.
+
+func TestStopIndexing_DuringStart_WaitsForStart(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	logger.InitConsoleOnly(true)
+
+	tmpDir := t.TempDir()
+
+	// Park the start mid-init (resolveStartHeight) until releaseRPC closes.
+	// FetchHighestBlockNumber → HeaderByNumber(nil) → eth_getBlockByNumber
+	// with the "latest" param — the FIRST RPC call StartIndexing makes, and
+	// it happens before the runConcurrentIndexing handoff. This park is
+	// context-aware client-side: cancelling the init context aborts it even
+	// though the server handler stays parked until the cleanup release.
+	releaseRPC := make(chan struct{})
+	t.Cleanup(func() { close(releaseRPC) })
+	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			var rawParams []json.RawMessage
+			if err := json.Unmarshal(params, &rawParams); err == nil && len(rawParams) > 0 {
+				var blockParam string
+				if innerErr := json.Unmarshal(rawParams[0], &blockParam); innerErr == nil && blockParam == defaultBlockParamLatest {
+					<-releaseRPC
+					return fullBlockResponse("0x100", nil), nil
+				}
+			}
+			return fullBlockResponse("0x100", nil), nil
+		case ethBlockNumber:
+			return "0x100", nil
+		case ethGetBlockReceipts:
+			return []any{}, nil
+		default:
+			return "0x1", nil
+		}
+	})
+	t.Cleanup(rpcServer.Close)
+
+	cfg := startPathBaseCfg(rpcServer.URL, testDefraRandomURL, tmpDir, config.IndexerConfig{
+		StartHeight:      100,
+		ConcurrentBlocks: 1,
+		ReceiptWorkers:   2,
+		MaxDocsPerTxn:    100,
+		HealthServerPort: 0,
+		StartBuffer:      10,
+	})
+
+	indexer, err := CreateIndexer(cfg)
+	require.NoError(t, err)
+
+	errCh := startIndexingBackground(t, indexer)
+
+	// Wait until StartIndexing is deterministically in its init phase.
+	require.Eventually(t, func() bool {
+		indexer.mutex.RLock()
+		defer indexer.mutex.RUnlock()
+		return indexer.startInProgress
+	}, 10*time.Second, 10*time.Millisecond, "StartIndexing never entered its init phase")
+
+	// Race StopIndexing against the parked start: the stop must cancel the
+	// init context, wait for the start to settle, and only then tear down.
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		indexer.StopIndexing()
+	}()
+
+	// The stop must not ride out the full IndexingStartStopTimeout: the init
+	// cancellation aborts the parked RPC in milliseconds (bounded generously
+	// for slow machines — the 30s timeout path would exceed this).
+	select {
+	case <-stopDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("StopIndexing did not settle against the parked start (init context not cancelled?)")
+	}
+
+	select {
+	case startErr := <-errCh:
+		// An aborted start maps its context-canceled init failure to nil via
+		// finishStart (a stopped start is not an init failure); no panic is
+		// the core assertion.
+		assert.NoError(t, startErr)
+	case <-time.After(30 * time.Second):
+		t.Fatal("StartIndexing did not return after the stop aborted it")
+	}
+
+	assert.False(t, indexer.isStarted, "indexer should be stopped")
+	assert.False(t, indexer.shouldIndex, "indexer should not be indexing")
+	assert.Nil(t, indexer.fetcher, "fetcher should be torn down")
+	assert.Nil(t, indexer.defraNode, "defraNode should be torn down")
+}
+
+// TestStopIndexing_ConcurrentStopsAfterInitError pins the teardown
+// serialization: when an init fails while an external StopIndexing is
+// already waiting, the guard's StopIndexing and the external one wake at the
+// same moment (markStartSettled closes startDone before the guard runs). They
+// must serialize instead of racing on the teardown fields.
+//
+// The park happens inside the newBlockHandlerFn seam, which ignores context —
+// so the stop's init cancellation cannot preempt it, and the release
+// deterministically produces a GENUINE init failure. The external stop is
+// only spawned after the start has signalled (via enteredSeam) that it is
+// parked there: spawning it earlier would let the cancellation abort the
+// context-aware Defra readiness wait and produce a mapped-to-nil abort
+// instead of a genuine failure. A genuine failure makes the error guard call
+// StopIndexing concurrently with the parked external Stop: exactly the
+// pairing stopMu must serialize.
+func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	// Not t.Parallel: swaps the global newBlockHandlerFn seam.
+	logger.InitConsoleOnly(true)
+
+	tmpDir := t.TempDir()
+
+	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			return fullBlockResponse("0x100", nil), nil
+		case ethBlockNumber:
+			return "0x100", nil
+		case ethGetBlockReceipts:
+			return []any{}, nil
+		default:
+			return "0x1", nil
+		}
+	})
+	t.Cleanup(rpcServer.Close)
+
+	releaseSeam := make(chan struct{})
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(releaseSeam)
+		}
+	}
+	enteredSeam := make(chan struct{}, 1)
+	original := newBlockHandlerFn
+	newBlockHandlerFn = func(_ *node.Node, _ int) (*defra.BlockHandler, error) {
+		select {
+		case enteredSeam <- struct{}{}:
+		default:
+		}
+		<-releaseSeam
+		return nil, errors.New("forced block handler failure")
+	}
+	t.Cleanup(func() {
+		newBlockHandlerFn = original
+		release()
+	})
+
+	cfg := startPathBaseCfg(rpcServer.URL, testDefraRandomURL, tmpDir, config.IndexerConfig{
+		StartHeight:      100,
+		ConcurrentBlocks: 1,
+		ReceiptWorkers:   2,
+		MaxDocsPerTxn:    100,
+		HealthServerPort: 0,
+		StartBuffer:      10,
+	})
+
+	indexer, err := CreateIndexer(cfg)
+	require.NoError(t, err)
+
+	errCh := startIndexingBackground(t, indexer)
+
+	// Park: fetcher, defraNode and networkHandler are all assigned before the
+	// block handler stage. The external stop may only be spawned once init is
+	// deterministically parked at the context-blind seam — before that, its
+	// init cancellation would preempt the start through the context-aware
+	// Defra readiness wait and abort it (the mapped-to-nil abort path, which
+	// is what TestStopIndexing_DuringStart_WaitsForStart exercises).
+	select {
+	case <-enteredSeam:
+	case startErr := <-errCh:
+		t.Fatalf("StartIndexing failed before reaching the park: %v", startErr)
+	case <-time.After(30 * time.Second):
+		t.Fatal("StartIndexing never reached the block handler stage")
+	}
+
+	// Start the external stop while init is parked: it cancels the init
+	// context (no effect on the context-blind seam) and waits for settle.
+	stopDone := make(chan struct{})
+	go func() {
+		defer close(stopDone)
+		indexer.StopIndexing()
+	}()
+
+	// Release the seam with a genuine init failure. markStartSettled closes
+	// startDone: the external stop's wait unblocks while the guard's own
+	// StopIndexing (via the error guard) is starting — both must serialize.
+	release()
+
+	select {
+	case <-stopDone:
+	case <-time.After(30 * time.Second):
+		t.Fatal("external StopIndexing did not finish after the start failed")
+	}
+
+	select {
+	case startErr := <-errCh:
+		// A genuine init failure is NOT mapped to nil: it must surface, and
+		// the guard's StopIndexing must still have torn down cleanly.
+		assert.ErrorContains(t, startErr, "forced block handler failure")
+	case <-time.After(30 * time.Second):
+		t.Fatal("StartIndexing did not return after the forced init failure")
+	}
+
+	assert.False(t, indexer.isStarted, "indexer should be stopped")
+	assert.False(t, indexer.shouldIndex, "indexer should not be indexing")
+	assert.Nil(t, indexer.fetcher, "fetcher should be torn down exactly once, without a data race")
+	assert.Nil(t, indexer.defraNode, "defraNode should be torn down exactly once, without a data race")
 }
