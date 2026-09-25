@@ -306,7 +306,7 @@ func TestWaitForDefraDB_ImmediateSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := WaitForDefraDB(server.URL)
+	err := WaitForDefraDB(t.Context(), server.URL)
 	require.NoError(t, err, "WaitForDefraDB should succeed when server returns 200")
 }
 
@@ -326,7 +326,7 @@ func TestWaitForDefraDB_SuccessAfterRetries(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := WaitForDefraDB(server.URL)
+	err := WaitForDefraDB(t.Context(), server.URL)
 	require.NoError(t, err, "WaitForDefraDB should succeed after retries")
 	assert.GreaterOrEqual(t, int(callCount.Load()), 3,
 		"Server should have been called at least 3 times")
@@ -337,7 +337,7 @@ func TestWaitForDefraDB_FailureInvalidURL(t *testing.T) {
 	// Use a URL that will fail to connect immediately (port 0 is never open).
 	// This is faster than waiting for 15 real retries with 1s sleep.
 	// The function will fail with connection refused on every attempt.
-	err := WaitForDefraDB("http://127.0.0.1:0")
+	err := WaitForDefraDB(t.Context(), "http://127.0.0.1:0")
 	require.Error(t, err, "WaitForDefraDB should fail for unreachable URL")
 	assert.Contains(t, err.Error(), "failed to become ready")
 }
@@ -345,7 +345,7 @@ func TestWaitForDefraDB_FailureInvalidURL(t *testing.T) {
 func TestWaitForDefraDB_InvalidRequestURL(t *testing.T) {
 	t.Parallel()
 	// URL with control character causes NewRequestWithContext to fail.
-	err := WaitForDefraDB("http://\x7f")
+	err := WaitForDefraDB(t.Context(), "http://\x7f")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create request")
 }
