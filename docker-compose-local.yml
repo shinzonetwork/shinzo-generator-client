@@ -24,6 +24,7 @@ services:
       - GETH_WS_URL=${GETH_WS_URL}
       - GETH_API_KEY=${GETH_API_KEY}
       - GETH_API_KEY_TYPE=${GETH_API_KEY_TYPE} # this is your api key type
+      - GETH_DIAL_TIMEOUT_SECONDS=${GETH_DIAL_TIMEOUT_SECONDS:-10}
       
       # DefraDB Configuration (embedded)
       - DEFRADB_KEYRING_SECRET=${DEFRADB_KEYRING_SECRET:-}
