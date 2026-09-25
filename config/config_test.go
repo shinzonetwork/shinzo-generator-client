@@ -291,7 +291,7 @@ func TestApplyEnvOverrides_GethConfig(t *testing.T) {
 func TestApplyEnvOverrides_GethConfig_InvalidDialTimeout(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("GETH_DIAL_TIMEOUT_SECONDS", "not_a_number")
-	applyEnvOverrides(cfg)
+	require.NoError(t, applyEnvOverrides(cfg))
 
 	assert.Zero(t, cfg.Geth.DialTimeoutSeconds, "Geth.DialTimeoutSeconds should remain 0 for invalid value")
 }
@@ -852,7 +852,7 @@ func TestConverterConfigSetDefaults(t *testing.T) {
 func TestApplyEnvOverrides_ConverterConfig(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("CONVERTER_LOWEST_BLOCK_QUERY_LIMIT", "7")
-	applyEnvOverrides(cfg)
+	require.NoError(t, applyEnvOverrides(cfg))
 
 	assert.Equal(t, 7, cfg.Converter.LowestBlockQueryLimit, "Converter.LowestBlockQueryLimit")
 }
@@ -860,7 +860,7 @@ func TestApplyEnvOverrides_ConverterConfig(t *testing.T) {
 func TestApplyEnvOverrides_ConverterConfig_InvalidValue(t *testing.T) {
 	cfg := &Config{Converter: ConverterConfig{LowestBlockQueryLimit: 1}}
 	t.Setenv("CONVERTER_LOWEST_BLOCK_QUERY_LIMIT", "not_a_number")
-	applyEnvOverrides(cfg)
+	require.NoError(t, applyEnvOverrides(cfg))
 
 	assert.Equal(t, 1, cfg.Converter.LowestBlockQueryLimit, "invalid env value should be ignored, preset preserved")
 }
