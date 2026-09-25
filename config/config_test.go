@@ -280,6 +280,7 @@ func TestApplyEnvOverrides_GethConfig(t *testing.T) {
 	t.Setenv("GETH_WS_URL", "ws://geth:8546")
 	t.Setenv("GETH_API_KEY", "myapikey")
 	t.Setenv("GETH_API_KEY_TYPE", "X-Api-Key")
+	t.Setenv("GETH_DIAL_TIMEOUT_SECONDS", "15")
 	require.NoError(t, applyEnvOverrides(cfg))
 
 	assert.Equal(t, "http://geth:8545", cfg.Geth.NodeURL, "Geth.NodeURL")
@@ -378,6 +379,7 @@ func TestApplyEnvOverrides_SnapshotConfig(t *testing.T) {
 	t.Setenv("SNAPSHOT_DIR", "/custom/snapshots")
 	t.Setenv("SNAPSHOT_BLOCKS_PER_FILE", "5000")
 	t.Setenv("SNAPSHOT_INTERVAL_SECONDS", "120")
+	t.Setenv("SNAPSHOT_MAX_SNAPSHOTS", "200")
 	require.NoError(t, applyEnvOverrides(cfg))
 
 	assert.True(t, cfg.Snapshot.Enabled, "Snapshot.Enabled")
