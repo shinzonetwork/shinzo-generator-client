@@ -276,6 +276,10 @@ logger:
 		}()
 
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Solana"
+  network: "Mainnet"
+  adapter: "solana"
 defradb:
   url: "http://%s"
   embedded: false

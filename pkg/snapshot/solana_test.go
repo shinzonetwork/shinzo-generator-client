@@ -186,16 +186,16 @@ func TestSolanaSnapshotRoundtrip(t *testing.T) {
 	require.NoError(t, RebuildAllIndexes(restoreCtx, td2.Node, fixture.cols))
 
 	conv2 := solana.NewConverter(nil)
-	lowest, err := conv2.GetLowestStoredBlockNumber(restoreCtx, td2.Node)
+	lowest, err := conv2.GetLowestStoredBlockNumber(restoreCtx, td2.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, start, lowest)
-	highest, err := conv2.GetHighestStoredBlockNumber(restoreCtx, td2.Node)
+	highest, err := conv2.GetHighestStoredBlockNumber(restoreCtx, td2.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, end, highest)
 
 	// Every collection holds one document per slot for the range (instructions
 	// and rewards: two per slot — outer+inner and fee+vote).
-	docIDs, err := conv2.GetDocIDsByBlockRange(restoreCtx, td2.Node, start, end)
+	docIDs, err := conv2.GetDocIDsByBlockRange(restoreCtx, td2.Node.DB, start, end)
 	require.NoError(t, err)
 	perSlot := int(end - start + 1)
 	assert.Len(t, docIDs[solanaCollectionForSuffix(fixture.cols, "Block")], perSlot)
@@ -222,7 +222,7 @@ func TestSolanaSnapshotSkipsPurgedRanges(t *testing.T) {
 	fixture.seedSolanaBlocks(ctx, t, start, end)
 
 	for slot := start; slot < start+10; slot++ {
-		docIDs, err := fixture.conv.GetDocIDsByBlockRange(ctx, td.Node, slot, slot)
+		docIDs, err := fixture.conv.GetDocIDsByBlockRange(ctx, td.Node.DB, slot, slot)
 		require.NoError(t, err)
 		require.NotEmpty(t, docIDs)
 		for _, col := range fixture.cols {
@@ -242,7 +242,7 @@ func TestSolanaSnapshotSkipsPurgedRanges(t *testing.T) {
 		}
 	}
 
-	lowest, err := fixture.conv.GetLowestStoredBlockNumber(ctx, td.Node)
+	lowest, err := fixture.conv.GetLowestStoredBlockNumber(ctx, td.Node.DB)
 	require.NoError(t, err)
 	require.Equal(t, start+10, lowest, "purge must remove the ten oldest slots")
 

@@ -314,7 +314,7 @@ func TestStoreSlotWithDuplicateContentInstructions(t *testing.T) {
 
 	// The signature doc is queryable through the production range query.
 	slot := int64(len("dup-store"))
-	docIDs, err := store.conv.GetDocIDsByBlockRange(store.ctx, store.td.Node, slot, slot)
+	docIDs, err := store.conv.GetDocIDsByBlockRange(store.ctx, store.td.Node.DB, slot, slot)
 	require.NoError(t, err)
 	assert.NotEmpty(t, docIDs[solana.CollectionBlockSignature],
 		"BlockSignature doc must be queryable through the production range query")

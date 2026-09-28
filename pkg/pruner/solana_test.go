@@ -122,7 +122,7 @@ func TestPruner_SolanaStartupCleanupPrunesOldestSlots(t *testing.T) {
 		DocsPerBlock:    1,
 		IntervalSeconds: 3600,
 		PruneHistory:    true,
-	}, fixture.td.Node, fixture.conv)
+	}, fixture.td.Node.DB, fixture.conv)
 	require.NoError(t, p.startupCleanup(fixture.ctx))
 
 	lowest, err := fixture.conv.GetLowestStoredBlockNumber(fixture.ctx, fixture.td.Node.DB)
@@ -163,7 +163,7 @@ func TestPruner_SolanaRunPruneFilterBased(t *testing.T) {
 		DocsPerBlock:    1,
 		IntervalSeconds: 3600,
 		PruneHistory:    true,
-	}, fixture.td.Node, fixture.conv)
+	}, fixture.td.Node.DB, fixture.conv)
 	// No queue set: runPrune must fall through to filterBasedPrune.
 	require.NoError(t, p.runPrune(fixture.ctx))
 
