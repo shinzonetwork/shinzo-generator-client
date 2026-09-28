@@ -190,7 +190,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 			name: "embedded node",
 			indexer: func(t *testing.T) *ChainIndexer {
 				td := testutils.SetupTestDefraDB(t)
-				return &ChainIndexer{defraNode: td.Node}
+				return &ChainIndexer{defraNode: td.Node, defraStore: td.Node.DB}
 			},
 			assert: func(t *testing.T, info *server.P2PInfo, err error) {
 				require.NoError(t, err)
@@ -211,6 +211,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 				// networkHandler is nil but defraNode is set - covers the line networkActive = false.
 				return &ChainIndexer{
 					defraNode:      td.Node,
+					defraStore:     td.Node.DB,
 					networkHandler: nil,
 				}
 			},
@@ -228,6 +229,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 				// Create indexer with embedded node — exercise all code paths in GetPeerInfo.
 				return &ChainIndexer{
 					defraNode:      td.Node,
+					defraStore:     td.Node.DB,
 					networkHandler: nil,
 				}
 			},
@@ -244,7 +246,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 			name: "self info",
 			indexer: func(t *testing.T) *ChainIndexer {
 				td := testutils.SetupTestDefraDB(t)
-				return &ChainIndexer{defraNode: td.Node}
+				return &ChainIndexer{defraNode: td.Node, defraStore: td.Node.DB}
 			},
 			assert: func(t *testing.T, info *server.P2PInfo, err error) {
 				require.NoError(t, err)
@@ -266,6 +268,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 
 				return &ChainIndexer{
 					defraNode:      td.Node,
+					defraStore:     td.Node.DB,
 					networkHandler: nil,
 				}
 			},
@@ -291,6 +294,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 
 				return &ChainIndexer{
 					defraNode: td.Node,
+					defraStore: td.Node.DB,
 				}
 			},
 			assert: func(t *testing.T, info *server.P2PInfo, err error) {
@@ -324,6 +328,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 
 				return &ChainIndexer{
 					defraNode: td.Node,
+					defraStore: td.Node.DB,
 					cfg:       cfg,
 				}
 			},
@@ -352,6 +357,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 
 				return &ChainIndexer{
 					defraNode: closedNode,
+					defraStore: closedNode.DB,
 				}
 			},
 			assert: func(t *testing.T, info *server.P2PInfo, err error) {
@@ -373,6 +379,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 
 				return &ChainIndexer{
 					defraNode: defraNode,
+					defraStore: defraNode.DB,
 				}
 			},
 			assert: func(t *testing.T, info *server.P2PInfo, err error) {
@@ -401,6 +408,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 
 				return &ChainIndexer{
 					defraNode:      defraNode,
+					defraStore:     defraNode.DB,
 					networkHandler: nil,
 				}
 			},
@@ -438,6 +446,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 
 				return &ChainIndexer{
 					defraNode: defraNode,
+					defraStore: defraNode.DB,
 				}
 			},
 			assert: func(t *testing.T, info *server.P2PInfo, err error) {
@@ -667,6 +676,7 @@ func TestPublicKeyAccessorsWithEmbeddedNode(t *testing.T) {
 
 			indexer := &ChainIndexer{
 				defraNode: td.Node,
+				defraStore: td.Node.DB,
 				cfg: &config.Config{
 					DefraDB: config.DefraDBConfig{
 						KeyringSecret: "test-secret-for-pubkey-test-1234",
@@ -773,6 +783,7 @@ func TestGetPeerInfo_TwoNode(t *testing.T) {
 			// Now get peer info from node1 — should include node2 as an active peer.
 			indexer := &ChainIndexer{
 				defraNode: node1,
+				defraStore: node1.DB,
 			}
 
 			info, err := indexer.GetPeerInfo()

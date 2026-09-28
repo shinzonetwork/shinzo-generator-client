@@ -9,9 +9,9 @@ chain:
   adapter: "solana"         # Chain adapter: "evm" (default) or "solana" (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
 defradb:
-  url: "http://localhost:9181"  # Empty = embedded DefraDB
+  url: "http://localhost:9181"  # External DefraDB HTTP endpoint (env: DEFRADB_URL); used only when embedded is false
   keyring_secret: "" # over written by env var
-  embedded: true
+  embedded: true               # true = embedded node (default); false = connect to the external url below (env: DEFRADB_EMBEDDED)
   p2p:
     enabled: true
     accept_incoming: false          # Accept incoming P2P documents. false = reject all (generator is source of truth).

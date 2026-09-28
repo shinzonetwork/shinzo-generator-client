@@ -125,22 +125,22 @@ func TestPruner_SolanaStartupCleanupPrunesOldestSlots(t *testing.T) {
 	}, fixture.td.Node, fixture.conv)
 	require.NoError(t, p.startupCleanup(fixture.ctx))
 
-	lowest, err := fixture.conv.GetLowestStoredBlockNumber(fixture.ctx, fixture.td.Node)
+	lowest, err := fixture.conv.GetLowestStoredBlockNumber(fixture.ctx, fixture.td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(203), lowest, "pruner must leave the newest max_blocks slots")
 
-	highest, err := fixture.conv.GetHighestStoredBlockNumber(fixture.ctx, fixture.td.Node)
+	highest, err := fixture.conv.GetHighestStoredBlockNumber(fixture.ctx, fixture.td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(204), highest)
 
 	// Every collection is empty in the pruned range — including the block
 	// signatures and purge-residue-free lowest-slot query above.
-	prunedIDs, err := fixture.conv.GetDocIDsByBlockRange(fixture.ctx, fixture.td.Node, 200, 202)
+	prunedIDs, err := fixture.conv.GetDocIDsByBlockRange(fixture.ctx, fixture.td.Node.DB, 200, 202)
 	require.NoError(t, err)
 	assert.Empty(t, prunedIDs, "no document may survive below the retention floor")
 
 	// The retained range remains complete across every collection.
-	retainedIDs, err := fixture.conv.GetDocIDsByBlockRange(fixture.ctx, fixture.td.Node, 203, 204)
+	retainedIDs, err := fixture.conv.GetDocIDsByBlockRange(fixture.ctx, fixture.td.Node.DB, 203, 204)
 	require.NoError(t, err)
 	assert.NotEmpty(t, retainedIDs[solanaCollection(solana.DefaultCollections(), "Block")])
 	assert.NotEmpty(t, retainedIDs[solanaCollection(solana.DefaultCollections(), "Transaction")])
@@ -167,7 +167,7 @@ func TestPruner_SolanaRunPruneFilterBased(t *testing.T) {
 	// No queue set: runPrune must fall through to filterBasedPrune.
 	require.NoError(t, p.runPrune(fixture.ctx))
 
-	lowest, err := fixture.conv.GetLowestStoredBlockNumber(fixture.ctx, fixture.td.Node)
+	lowest, err := fixture.conv.GetLowestStoredBlockNumber(fixture.ctx, fixture.td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(304), lowest)
 

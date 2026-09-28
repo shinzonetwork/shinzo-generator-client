@@ -393,6 +393,22 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("external DefraDB requires a non-empty url")
 	}
 
+	// External-mode restrictions: the standalone DefraDB process owns its
+	// storage and P2P stack, and raw-KV snapshot export is node-local, so the
+	// pruner (which relies on snapshots as its safety net) and the snapshotter
+	// cannot run against an external node yet.
+	if !cfg.DefraDB.Embedded {
+		if cfg.Pruner.Enabled {
+			return fmt.Errorf("pruner.enabled is not supported with external DefraDB (embedded=false): the pruner's snapshot safety net needs node-local KV export; disable the pruner or use embedded mode")
+		}
+		if cfg.Snapshot.Enabled {
+			return fmt.Errorf("snapshot.enabled is not supported with external DefraDB (embedded=false): KV export is node-local; disable snapshots or use embedded mode")
+		}
+		if cfg.DefraDB.Store.InMemory || cfg.DefraDB.Store.BadgerInMemory {
+			return fmt.Errorf("defradb.store.in_memory / badger_in_memory apply to the embedded node only and are meaningless with external DefraDB (embedded=false)")
+		}
+	}
+
 	if cfg.DefraDB.Store.BadgerInMemory {
 		return fmt.Errorf("defradb.store.badger_in_memory is not supported by the pinned defradb build: it hardcodes a 256-byte badger value threshold, so every in-memory write above it fails; use in_memory until the defradb pin carries the store threshold fix")
 	}
@@ -442,6 +458,11 @@ func applyEnvOverrides(cfg *Config) error {
 
 // applyDefraEnvOverrides applies DefraDB-related environment variable overrides.
 func applyDefraEnvOverrides(cfg *Config) error {
+	if embedded := os.Getenv("DEFRADB_EMBEDDED"); embedded != "" {
+		if parsed, err := strconv.ParseBool(embedded); err == nil {
+			cfg.DefraDB.Embedded = parsed
+		}
+	}
 	if defraURL := os.Getenv("DEFRADB_URL"); defraURL != "" {
 		cfg.DefraDB.URL = defraURL
 	} else if host := os.Getenv("DEFRADB_HOST"); host != "" {

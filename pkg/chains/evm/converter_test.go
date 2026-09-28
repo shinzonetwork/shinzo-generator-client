@@ -367,7 +367,7 @@ func TestGetHighestStoredBlockNumber_NoBlocks(t *testing.T) {
 	c := NewConverter(cfg)
 
 	td := testutils.SetupTestDefraDB(t)
-	_, err := c.GetHighestStoredBlockNumber(context.Background(), td.Node)
+	_, err := c.GetHighestStoredBlockNumber(context.Background(), td.Node.DB)
 	assert.Error(t, err)
 }
 
@@ -377,7 +377,7 @@ func TestGetLowestStoredBlockNumber_NoBlocks(t *testing.T) {
 	c := NewConverter(cfg)
 
 	td := testutils.SetupTestDefraDB(t)
-	_, err := c.GetLowestStoredBlockNumber(context.Background(), td.Node)
+	_, err := c.GetLowestStoredBlockNumber(context.Background(), td.Node.DB)
 	assert.Error(t, err)
 }
 
@@ -387,7 +387,7 @@ func TestGetDocIDsByBlockRange_Empty(t *testing.T) {
 	c := NewConverter(cfg)
 
 	td := testutils.SetupTestDefraDB(t)
-	result, err := c.GetDocIDsByBlockRange(context.Background(), td.Node, 1, 100)
+	result, err := c.GetDocIDsByBlockRange(context.Background(), td.Node.DB, 1, 100)
 	require.NoError(t, err)
 	assert.Empty(t, result)
 }
@@ -403,11 +403,11 @@ func TestGetStoredBlockNumbers_WithBlocks(t *testing.T) {
 		storeTestBlockDoc(ctx, t, td, c, num)
 	}
 
-	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
 
-	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
+	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(102), highest)
 }
@@ -429,11 +429,11 @@ func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
 		storeTestBlockDoc(ctx, t, td, c, num)
 	}
 
-	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
 
-	docIDs, err := c.queryCollectionDocIDs(ctx, td.Node, c.collections.Block, constants.NumberFieldName, 100, 101)
+	docIDs, err := c.queryCollectionDocIDs(ctx, td.Node.DB, c.collections.Block, constants.NumberFieldName, 100, 101)
 	require.NoError(t, err)
 	require.Len(t, docIDs, 2)
 
@@ -448,11 +448,11 @@ func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
 	}
 	require.NoError(t, col.PurgeByDocIDs(ctx, purgeIDs, true))
 
-	lowest, err = c.GetLowestStoredBlockNumber(ctx, td.Node)
+	lowest, err = c.GetLowestStoredBlockNumber(ctx, td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(102), lowest)
 
-	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
+	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(104), highest)
 }
@@ -508,8 +508,8 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 
 			tc.setup(ctx, t, td, c)
 
-			lowest, errLow := c.GetLowestStoredBlockNumber(ctx, td.Node)
-			highest, errHigh := c.GetHighestStoredBlockNumber(ctx, td.Node)
+			lowest, errLow := c.GetLowestStoredBlockNumber(ctx, td.Node.DB)
+			highest, errHigh := c.GetHighestStoredBlockNumber(ctx, td.Node.DB)
 
 			if tc.wantErr {
 				require.Error(t, errLow)
@@ -588,7 +588,7 @@ func TestQueryBlockNumber_CustomLimits(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%s_limit%d", tc.order, tc.limit), func(t *testing.T) {
 			t.Parallel()
-			got, err := c.queryBlockNumber(ctx, td.Node, tc.order, "TestQueryBlockNumber_CustomLimits", tc.limit)
+			got, err := c.queryBlockNumber(ctx, td.Node.DB, tc.order, "TestQueryBlockNumber_CustomLimits", tc.limit)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
@@ -627,7 +627,7 @@ func TestGetLowestStoredBlockNumber_ConfigWindow(t *testing.T) {
 		storeTestBlockDoc(ctx, t, td, c, num)
 	}
 
-	got, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	got, err := c.GetLowestStoredBlockNumber(ctx, td.Node.DB)
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), got)
 }

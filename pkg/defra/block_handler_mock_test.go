@@ -139,6 +139,9 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 	return &BlockHandler{
 		db:            db,
 		maxDocsPerTxn: 1000,
+		// Mocked stores exercise the embedded collector path (CIDs arrive via
+		// the context-injected collector), matching NewBlockHandler behaviour.
+		ctxCollector: true,
 		signBatchFn: func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 			return nil, nil
 		},

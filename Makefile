@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help solana-bench-fetch solana-bench-replay solana-bench-synthetic
+.PHONY: deps env build start clean defradb defradb-start defradb-stop gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help solana-bench-fetch solana-bench-replay solana-bench-synthetic
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -159,6 +159,27 @@ playground:
 	fi
 	@$(MAKE) bootstrap PLAYGROUND=1 DEFRA_PATH="$(DEFRA_PATH)"
 
+# External DefraDB binary (a standalone `defradb start` process). Override to
+# point at a fork build, e.g. make defradb-start DEFRADB_BIN=../defradb/build/defradb
+DEFRADB_BIN ?= defradb
+
+# defradb-start runs a standalone DefraDB against the same rootdir the
+# generator's config uses (defradb.store.path, default ./.defra) so both
+# processes share the identity keyring.
+defradb-start:
+	$(DEFRADB_BIN) start --rootdir "$(CURDIR)/.defra" --url 127.0.0.1:9181 --p2paddr /ip4/0.0.0.0/tcp/9171
+
+defradb-stop:
+	@echo "===> Stopping defradb if running..."
+	@DEFRA_ROOTDIR="$(CURDIR)/.defra"; \
+	DEFRA_PIDS=$$(ps aux | grep '[d]efradb start --rootdir ' | grep "$$DEFRA_ROOTDIR" | awk '{print $$2}'); \
+	if [ -n "$$DEFRA_PIDS" ]; then \
+	  echo "Killing defradb PIDs: $$DEFRA_PIDS"; \
+	  echo "$$DEFRA_PIDS" | xargs -r kill -9 2>/dev/null; \
+	else \
+	  echo "No defradb processes found for $$DEFRA_ROOTDIR"; \
+	fi
+
 stop:
 	@echo "===> Stopping defradb if running..."
 	@DEFRA_ROOTDIR="$(shell pwd)/.defra"; \
@@ -202,7 +223,8 @@ help:
 	@echo "  defra-status       - Check DefraDB status"
 	@echo ""
 	@echo "🏃 Services:"
-	@echo "  defra-start        - Start DefraDB"
+	@echo "  defradb-start      - Start standalone DefraDB (external mode, DEFRADB_BIN overridable)"
+	@echo "  defradb-stop       - Stop the standalone DefraDB"
 	@echo "  start              - Start the generator"
 	@echo "  stop               - Stop all services"
 	@echo ""

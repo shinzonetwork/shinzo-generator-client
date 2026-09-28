@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/sourcenetwork/defradb/node"
+	"github.com/sourcenetwork/defradb/client"
 )
 
 // ErrMockConvertFnNotSet is returned by MockConverter.Convert when no
@@ -35,9 +35,9 @@ type MockConverter struct {
 	GetCollectionsFn              func() []string
 	CollectionsFn                 func() chains.Collections
 	SignatureCollectionFn         func() string
-	GetHighestStoredBlockNumberFn func(ctx context.Context, n *node.Node) (int64, error)
-	GetLowestStoredBlockNumberFn  func(ctx context.Context, n *node.Node) (int64, error)
-	GetDocIDsByBlockRangeFn       func(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
+	GetHighestStoredBlockNumberFn func(ctx context.Context, s client.TxnStore) (int64, error)
+	GetLowestStoredBlockNumberFn  func(ctx context.Context, s client.TxnStore) (int64, error)
+	GetDocIDsByBlockRangeFn       func(ctx context.Context, s client.TxnStore, from, to int64) (map[string][]string, error)
 
 	// Call recording.
 	ConvertCalls                     []any
@@ -121,34 +121,34 @@ func (m *MockConverter) SignatureCollection() string {
 }
 
 // GetHighestStoredBlockNumber records the call and delegates to GetHighestStoredBlockNumberFn.
-func (m *MockConverter) GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
+func (m *MockConverter) GetHighestStoredBlockNumber(ctx context.Context, s client.TxnStore) (int64, error) {
 	m.mu.Lock()
 	m.GetHighestStoredBlockNumberCalls++
 	m.mu.Unlock()
 	if m.GetHighestStoredBlockNumberFn != nil {
-		return m.GetHighestStoredBlockNumberFn(ctx, n)
+		return m.GetHighestStoredBlockNumberFn(ctx, s)
 	}
 	return 0, nil
 }
 
 // GetLowestStoredBlockNumber records the call and delegates to GetLowestStoredBlockNumberFn.
-func (m *MockConverter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
+func (m *MockConverter) GetLowestStoredBlockNumber(ctx context.Context, s client.TxnStore) (int64, error) {
 	m.mu.Lock()
 	m.GetLowestStoredBlockNumberCalls++
 	m.mu.Unlock()
 	if m.GetLowestStoredBlockNumberFn != nil {
-		return m.GetLowestStoredBlockNumberFn(ctx, n)
+		return m.GetLowestStoredBlockNumberFn(ctx, s)
 	}
 	return 0, nil
 }
 
 // GetDocIDsByBlockRange records the range and delegates to GetDocIDsByBlockRangeFn.
-func (m *MockConverter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
+func (m *MockConverter) GetDocIDsByBlockRange(ctx context.Context, s client.TxnStore, from, to int64) (map[string][]string, error) {
 	m.mu.Lock()
 	m.GetDocIDsByBlockRangeCalls = append(m.GetDocIDsByBlockRangeCalls, BlockRange{From: from, To: to})
 	m.mu.Unlock()
 	if m.GetDocIDsByBlockRangeFn != nil {
-		return m.GetDocIDsByBlockRangeFn(ctx, n, from, to)
+		return m.GetDocIDsByBlockRangeFn(ctx, s, from, to)
 	}
 	return make(map[string][]string), nil
 }

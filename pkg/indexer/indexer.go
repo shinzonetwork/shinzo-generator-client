@@ -86,6 +86,7 @@ type ChainIndexer struct {
 	isStarted                 bool
 	hasIndexedAtLeastOneBlock bool
 	defraNode                 *node.Node              // Embedded DefraDB node (nil if using external)
+	defraStore                client.TxnStore         // DefraDB store: embedded node.DB or external HTTP client
 	networkHandler            *defradb.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
 	pruner                    *pruner.Pruner        // Document pruner for removing old blocks.
@@ -205,7 +206,11 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	}
 
 	// 5. Create block handler (was done in adapter.Init)
-	i.blockHandler, err = newBlockHandlerFn(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
+	if defraStarted {
+		i.blockHandler, err = newStoreBlockHandlerFn(i.defraStore, cfg.Indexer.MaxDocsPerTxn)
+	} else {
+		i.blockHandler, err = newBlockHandlerFn(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create block handler: %w", err)
 	}
@@ -227,7 +232,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	}
 
 	// 8. Run concurrent indexing
-	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraNode != nil {
+	if cfg.Indexer.ConcurrentBlocks >= 1 && i.defraStore != nil {
 		logger.Sugar.Infof("Using concurrent block processing with %d workers", cfg.Indexer.ConcurrentBlocks)
 		return i.runConcurrentIndexing(ctx, nextBlockToProcess, cfg)
 	}
@@ -253,6 +258,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		}
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler
+		i.defraStore = defraNode.DB
 
 		if err := waitForDefraDBFn(ctx, defraNode.APIURL); err != nil {
 			return ctx, err
@@ -267,16 +273,35 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 			logger.Sugar.Info("Identity context initialized for block signing")
 		}
 	} else {
+		if cfg.DefraDB.P2P.Enabled {
+			logger.Sugar.Warn("defradb.p2p settings are ignored in external mode: the standalone DefraDB process governs its own P2P configuration")
+		}
 		if err := waitForDefraDBFn(ctx, cfg.DefraDB.URL); err != nil {
 			return ctx, err
 		}
 		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, i.converter.Collections()); err != nil {
 			return ctx, fmt.Errorf("failed to apply schema to external DefraDB: %w", err)
 		}
+		httpStore, err := defra.NewHTTPStore(ctx, cfg.DefraDB.URL)
+		if err != nil {
+			return ctx, err
+		}
+		i.defraStore = httpStore
+
+		// Identity is used client-side for block signing; the external node
+		// serves its own identity from its keyring (shared when both use the
+		// same rootdir).
+		identityCtx, err := defradb.GetIdentityContext(ctx, cfg)
+		if err != nil {
+			logger.Sugar.Warnf("Failed to get identity context for block signing: %v (block signatures may not work)", err)
+		} else {
+			ctx = identityCtx
+			logger.Sugar.Info("Identity context initialized for block signing (external DefraDB)")
+		}
 	}
 
-	if i.defraNode == nil {
-		return ctx, fmt.Errorf("defraNode is required - external DefraDB via HTTP is no longer supported")
+	if i.defraStore == nil {
+		return ctx, fmt.Errorf("defraStore is required - failed to initialize the DefraDB store")
 	}
 
 	return ctx, nil
@@ -301,7 +326,7 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	}
 
 	if highestExisting == 0 {
-		nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraNode)
+		nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraStore)
 		if err != nil {
 			logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
 		} else {
@@ -359,8 +384,8 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) err
 		}
 	}
 
-	if cfg.Pruner.Enabled && i.defraNode != nil {
-		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode, i.converter)
+	if cfg.Pruner.Enabled && i.defraStore != nil {
+		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraStore, i.converter)
 		pruneQueue := pruner.NewIndexerQueue()
 		// Binds the queue to its file before anything tracks into it. Save is a no-op until this
 		// runs, so without it the queue is never written and never survives a restart.
@@ -398,11 +423,15 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) err
 // initHealthServer creates and starts the health server with schema and hub endpoints configured.
 func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 	// The configured address is rewritten before the API binds, so probe the bound address.
-	var healthDefraURL string
+	// External mode probes the configured URL instead of the node's resolved API URL.
+	healthDefraURL := cfg.DefraDB.URL
 	if i.defraNode != nil {
 		healthDefraURL = i.defraNode.APIURL
 	}
 	i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
+	// SetDefraNode enables the snapshot import endpoint, which requires the
+	// embedded node's raw-KV access; it is intentionally not wired in
+	// external mode.
 	if i.defraNode != nil {
 		i.healthServer.SetDefraNode(i.defraNode)
 	}
@@ -654,6 +683,8 @@ func (i *ChainIndexer) teardownSubsystems() {
 		_ = i.defraNode.Close(context.Background())
 		i.defraNode = nil
 	}
+	// The external HTTP store holds no local resources; drop the reference.
+	i.defraStore = nil
 }
 
 // IsHealthy returns true if the indexer is running and has processed blocks recently.
@@ -694,9 +725,9 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	i.mutex.RLock()
 	defer i.mutex.RUnlock()
 
-	// If no embedded DefraDB node, return nil.
-	if i.defraNode == nil {
-		return nil, fmt.Errorf("defra is nil - peer info not available for external DefraDB")
+	// If no DefraDB store is initialized, peer info is unavailable.
+	if i.defraStore == nil {
+		return nil, fmt.Errorf("defra is nil - peer info not available before DefraDB is initialized")
 	}
 
 	ctx := context.Background()
@@ -705,7 +736,7 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	networkActive := i.networkHandler != nil && i.networkHandler.IsNetworkActive()
 
 	// Get this node's own peer info (listening addresses).
-	ownAddresses, err := i.defraNode.DB.PeerInfo(ctx)
+	ownAddresses, err := i.defraStore.PeerInfo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching own peer info: %w", err)
 	}
@@ -726,7 +757,7 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	}
 
 	// Get actually connected peers (may fail if P2P is not initialized).
-	activePeerStrings, err := i.defraNode.DB.ActivePeers(ctx)
+	activePeerStrings, err := i.defraStore.ActivePeers(ctx)
 	if err != nil {
 		activePeerStrings = nil // P2P not available, treat as no peers.
 	}
@@ -808,6 +839,10 @@ var execCommand = exec.Command //nolint:gochecknoglobals // test seam for mockin
 
 // newBlockHandlerFn is a test seam for mocking defra.NewBlockHandler in StartIndexing error-path tests.
 var newBlockHandlerFn = defra.NewBlockHandler //nolint:gochecknoglobals // test seam for mocking defra.NewBlockHandler in unit tests
+
+// newStoreBlockHandlerFn is a test seam for mocking defra.NewBlockHandlerFromStore
+// (external DefraDB mode) in StartIndexing tests.
+var newStoreBlockHandlerFn = defra.NewBlockHandlerFromStore //nolint:gochecknoglobals // test seam for external-mode construction
 
 // waitForDefraDBFn is a test seam for mocking defra.WaitForDefraDB in StartIndexing error-path tests.
 var waitForDefraDBFn = defra.WaitForDefraDB //nolint:gochecknoglobals // test seam for mocking defra.WaitForDefraDB in unit tests

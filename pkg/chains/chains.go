@@ -19,7 +19,7 @@ import (
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/sourcenetwork/defradb/node"
+	"github.com/sourcenetwork/defradb/client"
 )
 
 // ErrUnknownCollection is returned by Collections.GetCollection when the given
@@ -129,7 +129,7 @@ type Fetcher interface {
 // Converter is the chain-specific knowledge layer: schema generation,
 // block-to-document conversion, and progress queries.
 //
-// It never stores *node.Node — it receives it explicitly on each progress
+// It never stores a Store — it receives it explicitly on each progress
 // call, keeping the Converter stateless and testable without a live DefraDB.
 type Converter interface {
 	// Convert transforms a raw block (returned by Fetcher.FetchBlock) into
@@ -153,15 +153,15 @@ type Converter interface {
 
 	// GetHighestStoredBlockNumber returns the highest block number currently
 	// persisted in DefraDB.
-	GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
+	GetHighestStoredBlockNumber(ctx context.Context, s client.TxnStore) (int64, error)
 
 	// GetLowestStoredBlockNumber returns the lowest block number currently
 	// persisted in DefraDB. Useful for pruning windows.
-	GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
+	GetLowestStoredBlockNumber(ctx context.Context, s client.TxnStore) (int64, error)
 
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
-	GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
+	GetDocIDsByBlockRange(ctx context.Context, s client.TxnStore, from, to int64) (map[string][]string, error)
 
 	// SignatureCollection returns the collection name used for block
 	// signatures (e.g. "Ethereum__Mainnet__BlockSignature") without requiring

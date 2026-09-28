@@ -51,9 +51,12 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 			wantErrContains: "configuration is required",
 		},
 		{
-			name: "external defra without node",
-			// External DefraDB no longer sets defraNode, so StartIndexing
-			// returns "defraNode is required" after applying schema.
+			name: "external defra then dead RPC",
+			// External DefraDB mode wires the HTTP client store and applies
+			// schemas, then proceeds to resolve the start height. With no RPC
+			// server listening, StartIndexing fails when it asks the fetcher
+			// for the chain tip — proving the external store was accepted and
+			// the pipeline advanced past DefraDB initialization.
 			setup: func(t *testing.T) *ChainIndexer {
 				td := testutils.SetupTestDefraDB(t)
 
@@ -76,7 +79,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 				return indexer
 			},
 			startExternal:   true,
-			wantErrContains: "defraNode is required",
+			wantErrContains: "failed to get latest block number from RPC",
 		},
 		{
 			name:        "get latest block number error",

@@ -164,7 +164,7 @@ func TestStopIndexingVariants(t *testing.T) {
 				p := pruner.NewPruner(&config.PrunerConfig{
 					Enabled:   true,
 					MaxBlocks: 1000,
-				}, td.Node, nil)
+				}, td.Node.DB, nil)
 
 				return &ChainIndexer{
 					shouldIndex: true,
@@ -218,7 +218,7 @@ func TestStopIndexingVariants(t *testing.T) {
 				p := pruner.NewPruner(&config.PrunerConfig{
 					Enabled:   true,
 					MaxBlocks: 1000,
-				}, td.Node, converter)
+				}, td.Node.DB, converter)
 
 				// Create snapshotter.
 				s := snapshot.New(&config.SnapshotConfig{
@@ -271,7 +271,7 @@ func TestStopIndexingVariants(t *testing.T) {
 					Enabled:        true,
 					MaxBlocks:      100,
 					PruneThreshold: 10,
-				}, td.Node, nil)
+				}, td.Node.DB, nil)
 				p.SetQueue(pruner.NewIndexerQueue())
 
 				s := snapshot.New(&config.SnapshotConfig{

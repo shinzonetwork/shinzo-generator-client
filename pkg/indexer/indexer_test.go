@@ -508,7 +508,7 @@ func TestGetPrunerMetrics(t *testing.T) {
 				p := pruner.NewPruner(&config.PrunerConfig{
 					Enabled:   true,
 					MaxBlocks: 1000,
-				}, td.Node, nil)
+				}, td.Node.DB, nil)
 				return &ChainIndexer{pruner: p}
 			},
 		},

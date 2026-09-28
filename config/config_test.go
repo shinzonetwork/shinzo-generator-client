@@ -111,6 +111,68 @@ func TestDefraDBConfig_Host(t *testing.T) {
 	assert.Equal(t, "http://localhost:9181", cfg.Host())
 }
 
+func TestExternalDefraDBModeRestrictions(t *testing.T) {
+	tests := []struct {
+		name       string
+		yamlSnippet string
+		wantErrContains string
+	}{
+		{
+			name: "external mode with pruner enabled errors",
+			yamlSnippet: "defradb:\n  url: \"http://localhost:9181\"\n  embedded: false\npruner:\n  enabled: true\nindexer:\n  start_height: 0\n",
+			wantErrContains: "pruner.enabled is not supported with external DefraDB",
+		},
+		{
+			name: "external mode with snapshot enabled errors",
+			yamlSnippet: "defradb:\n  url: \"http://localhost:9181\"\n  embedded: false\nsnapshot:\n  enabled: true\nindexer:\n  start_height: 0\n",
+			wantErrContains: "snapshot.enabled is not supported with external DefraDB",
+		},
+		{
+			name: "external mode with in-memory store errors",
+			yamlSnippet: "defradb:\n  url: \"http://localhost:9181\"\n  embedded: false\n  store:\n    in_memory: true\nindexer:\n  start_height: 0\n",
+			wantErrContains: "apply to the embedded node only",
+		},
+		{
+			name: "external mode with pruner and snapshot disabled passes",
+			yamlSnippet: "defradb:\n  url: \"http://localhost:9181\"\n  embedded: false\npruner:\n  enabled: false\nsnapshot:\n  enabled: false\nindexer:\n  start_height: 0\n",
+			wantErrContains: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DEFRADB_URL", "")
+			t.Setenv("DEFRADB_HOST", "")
+			t.Setenv("DEFRADB_PORT", "")
+			t.Setenv("DEFRADB_EMBEDDED", "")
+
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "config.yaml")
+			require.NoError(t, os.WriteFile(configPath, []byte(tt.yamlSnippet), 0o600))
+
+			_, err := LoadConfig(configPath)
+			if tt.wantErrContains == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrContains)
+			}
+		})
+	}
+}
+
+func TestDefraDBEmbeddedEnvOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	configContent := "defradb:\n  url: \"http://localhost:9181\"\n  embedded: true\nindexer:\n  start_height: 0\n"
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
+
+	t.Setenv("DEFRADB_EMBEDDED", "false")
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	assert.False(t, cfg.DefraDB.Embedded, "DEFRADB_EMBEDDED=false should override yaml embedded: true")
+}
+
 func TestApplyDefaults_AllZeroValues(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
