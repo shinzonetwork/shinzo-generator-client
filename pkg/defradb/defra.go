@@ -35,13 +35,16 @@ func NewDefaultConfig() *config.Config {
 			URL:           "http://localhost:9181",
 			KeyringSecret: os.Getenv("DEFRA_KEYRING_SECRET"),
 			P2P: config.DefraDBP2PConfig{
-				Enabled:             true, // P2P enabled by default
-				BootstrapPeers:      nil,  // Can be populated before use; see applyRequiredP2PDefaults
-				ListenAddr:          defaultListenAddress,
-				MaxRetries:          defaultP2PMaxRetries,
-				RetryBaseDelayMs:    defaultP2PRetryBaseDelayMs,    // 1 second
-				ReconnectIntervalMs: defaultP2PReconnectIntervalMs, // 60 seconds
-				EnableAutoReconnect: true,
+				Enabled:                 true, // P2P enabled by default
+				BootstrapPeers:          nil,  // Can be populated before use; see applyRequiredP2PDefaults
+				ListenAddr:              defaultListenAddress,
+				MaxRetries:              defaultP2PMaxRetries,
+				RetryBaseDelayMs:        defaultP2PRetryBaseDelayMs,    // 1 second
+				ReconnectIntervalMs:     defaultP2PReconnectIntervalMs, // 60 seconds
+				EnableAutoReconnect:     true,
+				ResourceMemoryMiB:       defaultP2PResourceMemoryMiB,
+				ResourceFileDescriptors: defaultP2PResourceFileDescriptors,
+				MaxStreamsPerPeer:       defaultP2PMaxStreamsPerPeer,
 			},
 			Store: config.DefraDBStoreConfig{
 				Path: ".defra",
@@ -59,14 +62,22 @@ const (
 	// NodeIdentityKeyName is the keyring entry name for the node's libp2p identity private key.
 	NodeIdentityKeyName string = "node-identity-key"
 
-	defaultP2PMaxRetries            = 5
-	defaultP2PRetryBaseDelayMs      = 1000
-	defaultP2PReconnectIntervalMs   = 60000
-	secp256k1PrivKeyBytes           = 32
-	log2BytesPerMebibyte            = 20
-	defaultBadgerValueLogFileSizeMB = 64
-	subscriptionResultChanCapacity  = 100_000
-	testKeyringSecret               = "testSecret"
+	defaultP2PMaxRetries = 5
+	// libp2p resource manager defaults. Left unset, libp2p autoscales its limits from the memory
+	// the process can see, which inside a container is the host machine's rather than the cgroup
+	// limit. That mismatch grants a node limits its container cannot honour and lands the per-peer
+	// stream ceiling somewhere arbitrary, so peers reset incoming streams with error 4098
+	// (network.StreamResourceLimitExceeded). Setting them explicitly keeps the budget predictable.
+	defaultP2PResourceMemoryMiB       = 10240
+	defaultP2PResourceFileDescriptors = 8192
+	defaultP2PMaxStreamsPerPeer       = 4096
+	defaultP2PRetryBaseDelayMs        = 1000
+	defaultP2PReconnectIntervalMs     = 60000
+	secp256k1PrivKeyBytes             = 32
+	log2BytesPerMebibyte              = 20
+	defaultBadgerValueLogFileSizeMB   = 64
+	subscriptionResultChanCapacity    = 100_000
+	testKeyringSecret                 = "testSecret"
 )
 
 // Key Management Implementation Notes:
@@ -350,6 +361,41 @@ func buildStoreOptions(cfg *config.Config) []func(*options.NodeOptions) { //noli
 	return nil
 }
 
+// applyP2PResourceLimits gives libp2p an explicit resource-manager budget instead of
+// letting it autoscale. Autoscaling reads the memory the process can see, which inside
+// a container is the host machine's, not the cgroup's, so a node can be granted limits
+// it cannot honour and ends up resetting streams with StreamResourceLimitExceeded.
+//
+// Each limit is resolved here rather than on the config, so any caller that builds node
+// options gets explicit limits instead of silently falling back to the autoscaling this
+// exists to replace.
+func applyP2PResourceLimits(nb *options.NodeOptionsBuilder, p2pCfg config.DefraDBP2PConfig) {
+	memoryMiB := p2pCfg.ResourceMemoryMiB
+	if memoryMiB <= 0 {
+		memoryMiB = defaultP2PResourceMemoryMiB
+	}
+
+	fileDescriptors := p2pCfg.ResourceFileDescriptors
+	if fileDescriptors <= 0 {
+		fileDescriptors = defaultP2PResourceFileDescriptors
+	}
+
+	maxStreamsPerPeer := p2pCfg.MaxStreamsPerPeer
+	if maxStreamsPerPeer <= 0 {
+		maxStreamsPerPeer = defaultP2PMaxStreamsPerPeer
+	}
+
+	nb.P2P().
+		SetResourceMemoryMiB(memoryMiB).
+		SetResourceFileDescriptors(fileDescriptors).
+		SetMaxStreamsPerPeer(maxStreamsPerPeer)
+
+	logger.Sugar.Infof(
+		"P2P resource limits configured: %dMiB memory, %d file descriptors, %d streams per peer",
+		memoryMiB, fileDescriptors, maxStreamsPerPeer,
+	)
+}
+
 func buildNodeOptions(
 	cfg *config.Config,
 	nodeIdentity identity.Identity,
@@ -361,6 +407,7 @@ func buildNodeOptions(
 		SetDisableAPI(false).
 		SetDisableP2P(false)
 	nb.P2P().SetEnablePubSub(true)
+	applyP2PResourceLimits(nb, cfg.DefraDB.P2P)
 	nb.Store().SetPath(cfg.DefraDB.Store.Path)
 	nb.HTTP().SetAddress(defraURL)
 	nb.DB().SetNodeIdentity(nodeIdentity)
