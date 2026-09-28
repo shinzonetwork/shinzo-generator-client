@@ -4,6 +4,8 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 
@@ -13,6 +15,34 @@ import (
 
 // Sugar is the global sugared logger instance used throughout the application. It is initialized in Init() and should be used for all logging to ensure consistent formatting and output.
 var Sugar *zap.SugaredLogger //nolint:gochecknoglobals // logger is intentionally a package-level global
+
+var (
+	// initMu serializes initLogger so Sugar is assigned at most once per nil state.
+	initMu sync.Mutex //nolint:gochecknoglobals // guards the package-level logger
+	// activeCore holds the core built by the most recent initLogger call.
+	activeCore atomic.Pointer[coreBox] //nolint:gochecknoglobals // swapped by initLogger, read by swapCore
+)
+
+// coreBox wraps a zapcore.Core so it can be stored in an atomic.Pointer.
+type coreBox struct{ zapcore.Core }
+
+// swapCore delegates to activeCore, letting initLogger reconfigure logging
+// without reassigning Sugar while other goroutines are logging through it.
+type swapCore struct{}
+
+func (swapCore) Enabled(l zapcore.Level) bool { return activeCore.Load().Enabled(l) }
+
+func (swapCore) With(fields []zapcore.Field) zapcore.Core { return activeCore.Load().With(fields) }
+
+func (swapCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	return activeCore.Load().Check(ent, ce)
+}
+
+func (swapCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
+	return activeCore.Load().Write(ent, fields)
+}
+
+func (swapCore) Sync() error { return activeCore.Load().Sync() }
 
 // Custom log levels for different contexts.
 const (
@@ -116,11 +146,14 @@ func initLogger(development, enableFiles bool) {
 		}
 	}
 
-	// Combine all cores
-	core := zapcore.NewTee(cores...)
-	logger := zap.New(core)
-
-	Sugar = logger.Sugar()
+	// Combine all cores and swap them in. Sugar is only assigned when unset, so
+	// re-initializing (e.g. from parallel tests) never races with active loggers.
+	initMu.Lock()
+	defer initMu.Unlock()
+	activeCore.Store(&coreBox{zapcore.NewTee(cores...)})
+	if Sugar == nil {
+		Sugar = zap.New(swapCore{}).Sugar()
+	}
 }
 
 // LogError logs an error with structured fields based on its type.
