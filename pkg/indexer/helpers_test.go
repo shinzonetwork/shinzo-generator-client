@@ -611,7 +611,9 @@ func freeHealthPort(t *testing.T) int {
 // log files) so individual tests do not reconfigure it and DefraDB startup does
 // not write a logs directory into the package source tree.
 func TestMain(m *testing.M) {
-	os.Setenv("NO_LOG_FILES", "1")
+	if err := os.Setenv("NO_LOG_FILES", "1"); err != nil {
+		panic(err)
+	}
 	logger.InitConsoleOnly(true)
 	os.Exit(m.Run())
 }
