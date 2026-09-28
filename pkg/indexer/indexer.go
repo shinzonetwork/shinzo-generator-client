@@ -66,6 +66,9 @@ const (
 	// IndexingStopTimeout bounds how long StopIndexing waits for the block
 	// processor to drain before closing resources anyway.
 	IndexingStopTimeout = 30 * time.Second
+	// IndexingStartStopTimeout bounds how long StopIndexing waits for an
+	// in-flight StartIndexing to settle before tearing down anyway.
+	IndexingStartStopTimeout = 30 * time.Second
 )
 
 // var requiredPeers = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process.
@@ -91,16 +94,24 @@ type ChainIndexer struct {
 	lastProcessedTime         time.Time
 	indexingCancel            context.CancelCauseFunc // Cancel for the indexing loop; nil unless concurrent indexing is running.
 	indexingDone              chan struct{}           // Closed when the indexing loop has fully exited; guarded by mutex.
+	startInProgress           bool                    // True while StartIndexing is in its init phase (pre-handoff); guarded by mutex.
+	startDone                 chan struct{}           // Closed when StartIndexing settles (returns, or hands off to the drainable indexing loop); guarded by mutex.
+	initCancel                context.CancelCauseFunc // Cancels the init context of an in-flight StartIndexing; guarded by mutex, nil when no init is running.
+	stopMu                    sync.Mutex              // Serializes StopIndexing bodies: the error guard's Stop and an external Stop must never teardown concurrently.
 	mutex                     sync.RWMutex
 }
 
 // IsStarted returns true if the indexer has been started.
 func (i *ChainIndexer) IsStarted() bool {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.isStarted
 }
 
 // HasIndexedAtLeastOneBlock returns true if at least one block has been indexed.
 func (i *ChainIndexer) HasIndexedAtLeastOneBlock() bool {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.hasIndexedAtLeastOneBlock
 }
 
@@ -134,7 +145,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 
 // StartIndexing initializes dependencies and starts concurrent block indexing.
 func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
-	ctx := context.Background()
+	var ctx context.Context
 	cfg := i.cfg
 
 	if cfg == nil {
@@ -150,11 +161,23 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	}
 	logger.Sugar.Infof("Starting Shinzo Network Generator %s", Version)
 
-	defer func() {
-		if err != nil {
-			i.StopIndexing()
-		}
-	}()
+	// Init runs against a stop-cancellable context: initDefra, Connect and
+	// resolveStartHeight all honor ctx, so a concurrent StopIndexing aborts a
+	// parked RPC promptly instead of leaving init doomed after a timed-out wait.
+	initCtx, initCancel := context.WithCancelCause(context.Background())
+	defer initCancel(nil)
+
+	// Error guard with abort mapping: a stop-during-init cancellation
+	// (errIndexingStopped cause) surfaces as a wrapped context.Canceled —
+	// report nil so an aborted start doesn't look like an init failure, and
+	// let the stopping StopIndexing own the teardown instead of racing it.
+	defer i.finishStart(initCtx, &err)
+
+	// Mark the start as in-flight. Registered after the error guard so LIFO
+	// runs the settle defer BEFORE the guard's own StopIndexing on error
+	// paths — the guard then never waits on this very start (no deadlock).
+	i.beginStart(initCancel)
+	defer i.markStartSettled()
 
 	// 1. Create fetcher (no dial yet) + converter — via factory dispatch, no evm import
 	fetcher, err := chains.NewFetcher(cfg)
@@ -171,7 +194,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, i.converter.Collections().Prefix())
 
 	// 3. Start DefraDB (uses converter.Collections() + converter.GetCollections())
-	ctx, err = i.initDefra(ctx, cfg, defraStarted)
+	ctx, err = i.initDefra(initCtx, cfg, defraStarted)
 	if err != nil {
 		return err
 	}
@@ -193,7 +216,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 		return err
 	}
 
-	i.shouldIndex = true
+	// Init succeeded: indexing intent is set here, isStarted only flips on
+	// once the indexing loop takes over (runConcurrentIndexing).
+	i.setLifecycleFlags(true, false)
 	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
 
 	// 7. Init services (pruner/snapshot/health — now take converter)
@@ -229,7 +254,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler
 
-		if err := waitForDefraDBFn(defraNode.APIURL); err != nil {
+		if err := waitForDefraDBFn(ctx, defraNode.APIURL); err != nil {
 			return ctx, err
 		}
 
@@ -242,7 +267,7 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 			logger.Sugar.Info("Identity context initialized for block signing")
 		}
 	} else {
-		if err := waitForDefraDBFn(cfg.DefraDB.URL); err != nil {
+		if err := waitForDefraDBFn(ctx, cfg.DefraDB.URL); err != nil {
 			return ctx, err
 		}
 		if err := defradb.ApplyCollectionSchemasViaHTTP(ctx, cfg.DefraDB.URL, i.converter.Collections()); err != nil {
@@ -421,8 +446,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	startBlock int64,
 	cfg *config.Config,
 ) error {
-	i.shouldIndex = true
-	i.isStarted = true
+	i.setLifecycleFlags(true, true)
 
 	ctx, cancel := context.WithCancelCause(ctx)
 	done := make(chan struct{})
@@ -439,6 +463,18 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		i.mutex.Unlock()
 	}()
 
+	// Init is complete and indexingCancel is already registered: from here
+	// the indexing drain in StopIndexing owns shutdown, so release any
+	// StopIndexing parked in waitStartSettled.
+	i.markStartSettled()
+
+	// A stop that arrived during init cancelled the init context, which this
+	// context derives from: bail before constructing a processor that would
+	// exit immediately anyway.
+	if errors.Is(context.Cause(ctx), errIndexingStopped) {
+		return nil
+	}
+
 	processor := NewConcurrentBlockProcessor(
 		i.fetcher,
 		i.converter,
@@ -449,7 +485,9 @@ func (i *ChainIndexer) runConcurrentIndexing(
 
 	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
 		i.updateBlockInfo(blockNum)
+		i.mutex.Lock()
 		i.hasIndexedAtLeastOneBlock = true
+		i.mutex.Unlock()
 	})
 	if errors.Is(context.Cause(ctx), errIndexingStopped) {
 		return nil
@@ -457,8 +495,101 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	return err
 }
 
+// beginStart marks a StartIndexing as in-flight by setting the flag, creating
+// the settle channel and storing the init cancel handle, all guarded by
+// i.mutex.
+func (i *ChainIndexer) beginStart(initCancel context.CancelCauseFunc) {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.startInProgress = true
+	i.startDone = make(chan struct{})
+	i.initCancel = initCancel
+}
+
+// markStartSettled signals that StartIndexing is no longer in its init
+// phase: it has either returned or (once runConcurrentIndexing registered
+// the indexing drain) handed shutdown ownership to StopIndexing's drain.
+// Swap-under-mutex close makes repeated calls no-ops, so the channel is
+// closed exactly once regardless of which site runs first. The stored
+// init cancel is dropped without calling it: at handoff the indexing loop's
+// context derives from the init context, so cancelling here would kill the
+// freshly started loop — StartIndexing's own defer releases it on return.
+func (i *ChainIndexer) markStartSettled() {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	if i.startDone != nil {
+		close(i.startDone)
+		i.startDone = nil
+	}
+	i.startInProgress = false
+	i.initCancel = nil
+}
+
+// finishStart is StartIndexing's exit guard. A start aborted by a concurrent
+// StopIndexing fails its init calls with an abort artifact — the cancellation
+// can surface either as a wrapped context.Canceled (ctx.Err() returns) or as
+// the errIndexingStopped cause itself (net/http propagates the context cause
+// on request cancellation) — while the context cause is errIndexingStopped.
+// That combination is reported as nil (a stopped start is not an init
+// failure) and the teardown is left to the already-running StopIndexing
+// instead of starting a second concurrent one. Genuine init failures still
+// tear down residual state via StopIndexing.
+func (i *ChainIndexer) finishStart(initCtx context.Context, errp *error) {
+	if *errp == nil {
+		return
+	}
+	if errors.Is(context.Cause(initCtx), errIndexingStopped) &&
+		(errors.Is(*errp, context.Canceled) || errors.Is(*errp, errIndexingStopped)) {
+		*errp = nil
+		return
+	}
+	// teardown must not inherit initCtx: by the time a genuine init failure
+	// reaches this guard the context may already be cancelled, and shutdown
+	// operations must not be aborted by it.
+	i.StopIndexing() //nolint:contextcheck // teardown needs a fresh context; initCtx is cancelled on the error path
+}
+
+// waitStartSettled blocks until an in-flight StartIndexing has settled
+// (returned, or handed off to the drainable indexing loop), bounded by
+// IndexingStartStopTimeout. It never holds i.mutex while waiting.
+func (i *ChainIndexer) waitStartSettled() {
+	i.mutex.Lock()
+	inProgress, startDone := i.startInProgress, i.startDone
+	i.mutex.Unlock()
+	if !inProgress || startDone == nil {
+		return
+	}
+	select {
+	case <-startDone:
+	case <-time.After(IndexingStartStopTimeout):
+		logger.Sugar.Warn("StartIndexing still running; tearing down anyway")
+	}
+}
+
 // StopIndexing halts the indexer and cleanly shuts down all subsystems.
+// Calls are serialized by stopMu so the error guard's Stop and an external
+// Stop — which can wake at the same moment when a parked start settles —
+// never run teardown concurrently.
 func (i *ChainIndexer) StopIndexing() {
+	i.stopMu.Lock()
+	defer i.stopMu.Unlock()
+
+	// Abort an in-flight StartIndexing first: init calls honor the init
+	// context, so a parked RPC returns promptly and the start settles instead
+	// of this wait having to ride out the full timeout on a hung endpoint.
+	i.mutex.Lock()
+	initCancel := i.initCancel
+	i.mutex.Unlock()
+	if initCancel != nil {
+		initCancel(errIndexingStopped)
+	}
+
+	// Wait for the aborted/in-flight StartIndexing to settle (return, or hand
+	// off to the indexing loop) before touching anything it may be assigning
+	// or using mid-init (fetcher, defraNode) — bounded by
+	// IndexingStartStopTimeout.
+	i.waitStartSettled()
+
 	// Drain the indexing loop before any subsystem teardown: cancel the
 	// indexing context and wait for the block processor (workers + signers)
 	// to exit so nothing is mid-query when the fetcher/defra node close.
@@ -476,8 +607,14 @@ func (i *ChainIndexer) StopIndexing() {
 		}
 	}
 
-	i.shouldIndex = false
-	i.isStarted = false
+	i.teardownSubsystems()
+}
+
+// teardownSubsystems closes and nils every owned subsystem. All steps are
+// nil-checked, so a repeated serialized Stop is a benign no-op, and a
+// mid-init abort still releases each component already assigned.
+func (i *ChainIndexer) teardownSubsystems() {
+	i.setLifecycleFlags(false, false)
 
 	// Stop snapshotter before pruner (capture data before it's pruned)
 	if i.snapshotter != nil {
@@ -653,6 +790,17 @@ func (i *ChainIndexer) updateBlockInfo(blockNum int64) {
 	defer i.mutex.Unlock()
 	i.currentBlock = blockNum
 	i.lastProcessedTime = time.Now()
+}
+
+// setLifecycleFlags updates shouldIndex/isStarted together under the mutex:
+// health endpoints read these flags concurrently with start/stop transitions,
+// so both the writers and the accessors (IsStarted, HasIndexedAtLeastOneBlock,
+// IsHealthy) share i.mutex instead of touching the bare fields.
+func (i *ChainIndexer) setLifecycleFlags(shouldIndex, isStarted bool) {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+	i.shouldIndex = shouldIndex
+	i.isStarted = isStarted
 }
 
 // execCommand is a variable to allow mocking exec.Command in tests. It is used by openBrowser to launch the default web browser.
