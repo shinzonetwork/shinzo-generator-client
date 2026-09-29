@@ -107,11 +107,19 @@ func (c *Converter) Convert(
 		return chains.ConversionResult{}, fmt.Errorf("converter: parse block number: %w", err)
 	}
 
+	t := logger.NewPerfTimer()
+
 	blockData := c.buildBlockData(bundle.Block, blockInt)
+	t.Stage("blockDoc")
 	txDocs := c.buildTransactionDocs(bundle)
+	t.Stagef("txns (%d)", len(txDocs))
 	receiptMap := c.buildReceiptMap(bundle.Receipts)
 	logDocs := c.buildLogDocs(bundle.Transactions, receiptMap)
+	t.Stagef("logs (%d)", len(logDocs))
 	aleDocs, aleParentRefs := c.buildALEDocs(bundle.Transactions, blockInt)
+	t.Stagef("ales (%d)", len(aleDocs))
+
+	logger.Perff("Block %d (convert): %s", blockInt, t.Total())
 
 	defaultBatch := c.maxDocsPerTxn()
 
