@@ -330,7 +330,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 		break
 	}
 
-	return c.convertGethBlock(gethBlock), nil
+	return c.convertWithReportedHash(ctx, client, gethBlock)
 }
 
 // GetBlockByNumber fetches a block by number.
@@ -345,7 +345,7 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
 	}
 
-	return c.convertGethBlock(gethBlock), nil
+	return c.convertWithReportedHash(ctx, client, gethBlock)
 }
 
 // GetNetworkID returns the network ID.
@@ -762,4 +762,30 @@ func maskAPIKey(url, apiKey string) string {
 	}
 	masked := apiKey[:4] + "****" + apiKey[len(apiKey)-4:]
 	return strings.ReplaceAll(url, apiKey, masked)
+}
+
+// convertWithReportedHash converts a go-ethereum block, then replaces the locally
+// computed block hash with the hash the node itself reports. BFT chains such as
+// Besu QBFT hash headers differently from standard Ethereum, so Block.Hash() can
+// disagree with the node's own hash.
+func (c *EthereumClient) convertWithReportedHash(ctx context.Context, client *ethclient.Client, gethBlock *ethtypes.Block) (*Block, error) {
+	block := c.convertGethBlock(gethBlock)
+	if block == nil {
+		return nil, nil
+	}
+	var head struct {
+		Hash string `json:"hash"`
+	}
+	number := fmt.Sprintf("0x%x", gethBlock.NumberU64())
+	if err := client.Client().CallContext(ctx, &head, "eth_getBlockByNumber", number, false); err != nil {
+		return nil, fmt.Errorf("failed to get node-reported hash for block %d: %w", gethBlock.NumberU64(), err)
+	}
+	if head.Hash == "" {
+		return nil, fmt.Errorf("node returned no hash for block %d", gethBlock.NumberU64())
+	}
+	block.Hash = head.Hash
+	for i := range block.Transactions {
+		block.Transactions[i].BlockHash = head.Hash
+	}
+	return block, nil
 }
