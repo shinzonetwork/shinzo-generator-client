@@ -145,7 +145,7 @@ func (s *Snapshotter) exportCollectionKVs(ctx context.Context, gw *gzip.Writer, 
 	if s.converter == nil {
 		return 0, fmt.Errorf("chain not initialized")
 	}
-	docIDsByCollection, err := s.converter.GetDocIDsByBlockRange(ctx, s.defraNode, startBlock, endBlock)
+	docIDsByCollection, err := s.converter.GetDocIDsByBlockRange(ctx, s.defraNode.DB, startBlock, endBlock)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get docIDs for blocks in range %d-%d: %w", startBlock, endBlock, err)
 	}

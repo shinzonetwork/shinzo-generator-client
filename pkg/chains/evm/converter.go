@@ -15,6 +15,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -282,19 +283,19 @@ func (c *Converter) SignatureCollection() string {
 }
 
 // GetHighestStoredBlockNumber implements chains.Converter.
-func (c *Converter) GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
-	return c.queryBlockNumber(ctx, n, "DESC", "GetHighestStoredBlockNumber", highestBlockQueryLimit)
+func (c *Converter) GetHighestStoredBlockNumber(ctx context.Context, s client.TxnStore) (int64, error) {
+	return c.queryBlockNumber(ctx, s, "DESC", "GetHighestStoredBlockNumber", highestBlockQueryLimit)
 }
 
 // GetLowestStoredBlockNumber implements chains.Converter.
-func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
-	return c.queryBlockNumber(ctx, n, "ASC", "GetLowestStoredBlockNumber", c.lowestBlockQueryLimit())
+func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, s client.TxnStore) (int64, error) {
+	return c.queryBlockNumber(ctx, s, "ASC", "GetLowestStoredBlockNumber", c.lowestBlockQueryLimit())
 }
 
 // GetDocIDsByBlockRange implements chains.Converter. It returns document IDs
 // for every relevant collection whose block-number field falls in [from, to]
 // inclusive. SnapshotSignature is excluded; BlockSignature is included.
-func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
+func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, s client.TxnStore, from, to int64) (map[string][]string, error) {
 	cols := []struct {
 		name  string
 		field string
@@ -308,7 +309,7 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 
 	result := make(map[string][]string)
 	for _, col := range cols {
-		docIDs, err := c.queryCollectionDocIDs(ctx, n, col.name, col.field, from, to)
+		docIDs, err := c.queryCollectionDocIDs(ctx, s, col.name, col.field, from, to)
 		if err != nil {
 			return nil, fmt.Errorf("query docIDs for %s: %w", col.name, err)
 		}
@@ -438,12 +439,12 @@ func (c *Converter) BuildBlockSignatureData(
 // sort ahead of real numbers under ASC — can never fill the query window.
 // Rows that still arrive unparseable are skipped and reported; all errors
 // are tagged with opName.
-func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
+func (c *Converter) queryBlockNumber(ctx context.Context, s client.TxnStore, order, opName string, queryLimit int) (int64, error) {
 	blockCol := c.collections.Block
 	field := constants.NumberFieldName
 	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { ` + field + ` _docID }}`
 
-	result := n.DB.ExecRequest(ctx, query)
+	result := s.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
 		return 0, errors.NewQueryFailed("defra", opName, query, result.GQL.Errors[0])
 	}
@@ -472,7 +473,7 @@ func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, o
 		// cases: no documents at all is benign ("not found"), while documents
 		// without any usable number are corruption and must hard-fail so the
 		// pruner maps them to ErrNoValidBlocks instead of skipping pruning.
-		present, err := c.hasAnyBlockDocs(ctx, n, blockCol, opName)
+		present, err := c.hasAnyBlockDocs(ctx, s, blockCol, opName)
 		if err != nil {
 			return 0, err
 		}
@@ -515,10 +516,10 @@ func firstUsableRow(rows []any, opName string) (int64, error) {
 
 // hasAnyBlockDocs reports whether the collection holds any document,
 // including rows whose number field is missing.
-func (c *Converter) hasAnyBlockDocs(ctx context.Context, n *node.Node, blockCol, opName string) (bool, error) {
+func (c *Converter) hasAnyBlockDocs(ctx context.Context, s client.TxnStore, blockCol, opName string) (bool, error) {
 	query := `query {` + blockCol + ` (limit: 1) { _docID }}`
 
-	result := n.DB.ExecRequest(ctx, query)
+	result := s.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
 		return false, errors.NewQueryFailed("defra", opName, query, result.GQL.Errors[0])
 	}
@@ -554,7 +555,7 @@ func parseBlockNumberRow(block map[string]any) (int64, bool) {
 // queryCollectionDocIDs queries a single collection for all document IDs
 // whose block-number field falls in [from, to] inclusive. It uses chunked
 // _geq/_leq GraphQL range filters.
-func (c *Converter) queryCollectionDocIDs(ctx context.Context, n *node.Node, colName, field string, from, to int64) ([]string, error) {
+func (c *Converter) queryCollectionDocIDs(ctx context.Context, s client.TxnStore, colName, field string, from, to int64) ([]string, error) {
 	var allDocIDs []string
 	const chunkSize = 100
 
@@ -567,7 +568,7 @@ func (c *Converter) queryCollectionDocIDs(ctx context.Context, n *node.Node, col
 			colName, field, chunkStart, chunkEnd,
 		)
 
-		result := n.DB.ExecRequest(ctx, query)
+		result := s.ExecRequest(ctx, query)
 		if len(result.GQL.Errors) > 0 {
 			return nil, fmt.Errorf("query %s [%d-%d]: %w", colName, chunkStart, chunkEnd, result.GQL.Errors[0])
 		}

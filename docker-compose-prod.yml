@@ -32,6 +32,7 @@ services:
       - GETH_DIAL_TIMEOUT_SECONDS=10
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
+      - DEFRADB_STORE_IN_MEMORY=false
       - GOMEMLIMIT=14GiB
       - SNAPSHOT_ENABLED=false
       - LOG_LEVEL=error

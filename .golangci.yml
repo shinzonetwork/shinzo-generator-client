@@ -2,6 +2,10 @@ version: "2"
 run:
   timeout: 10m
   modules-download-mode: readonly
+  # Keep the benchmarking suite (//go:build bench) linted
+  # alongside production code on every lint run.
+  build-tags:
+    - bench
 linters:
   default: standard
   enable:
@@ -47,15 +51,18 @@ linters:
   settings:
     depguard:
       rules:
-        evm-boundary:
+        chain-boundary:
           files:
             - "$all"
             - "!$test"
             - "!**/pkg/chains/evm/**"
+            - "!**/pkg/chains/solana/**"
             - "!**/cmd/**"
           deny:
             - pkg: github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm
               desc: production code must consume the pkg/chains interfaces; the evm adapter is wired only by cmd/ binaries and imported only by tests
+            - pkg: github.com/shinzonetwork/shinzo-generator-client/pkg/chains/solana
+              desc: production code must consume the pkg/chains interfaces; the solana adapter is wired only by cmd/ binaries and imported only by tests
     funlen:
       lines: 100
     revive:

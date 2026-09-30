@@ -15,7 +15,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/crypto"
-	"github.com/sourcenetwork/defradb/node"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,7 +81,7 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 
 	// Verify the second node has no blocks yet
 	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
-	_, err = s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
+	_, err = s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode.DB)
 	require.Error(t, err, "empty DB should return document-not-found")
 
 	// Import the snapshot into the second node
@@ -522,13 +522,13 @@ func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
 	insertTestBlocks(t, td, 100, 102)
 
 	realChain := newTestChainFromNode(t, td)
-	realDocIDs, err := realChain.GetDocIDsByBlockRange(context.Background(), td.Node, 100, 102)
+	realDocIDs, err := realChain.GetDocIDsByBlockRange(context.Background(), td.Node.DB, 100, 102)
 	require.NoError(t, err)
 
 	mc := &testutils.MockConverter{
-		GetLowestStoredBlockNumberFn:  func(_ context.Context, _ *node.Node) (int64, error) { return 100, nil },
-		GetHighestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) { return 102, nil },
-		GetDocIDsByBlockRangeFn: func(_ context.Context, _ *node.Node, _, _ int64) (map[string][]string, error) {
+		GetLowestStoredBlockNumberFn:  func(_ context.Context, _ client.TxnStore) (int64, error) { return 100, nil },
+		GetHighestStoredBlockNumberFn: func(_ context.Context, _ client.TxnStore) (int64, error) { return 102, nil },
+		GetDocIDsByBlockRangeFn: func(_ context.Context, _ client.TxnStore, _, _ int64) (map[string][]string, error) {
 			return realDocIDs, nil
 		},
 		GetCollectionsFn: func() []string {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/solana"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,4 +113,54 @@ func TestRun_ListFilesIgnoresPrefix(t *testing.T) {
 	require.NoError(t, run([]string{"build_schema", "--list-files"}, &bufNoPrefix))
 	require.NoError(t, run([]string{"build_schema", "--list-files", "--prefix", "Arbitrum__Mainnet"}, &bufWithPrefix))
 	assert.Equal(t, bufNoPrefix.String(), bufWithPrefix.String())
+}
+
+func TestRun_SolanaAdapter(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--adapter", "solana"}, &buf))
+	sdl := buf.String()
+	assert.NotEmpty(t, sdl)
+	for _, typeName := range solana.DefaultCollections() {
+		assert.Contains(t, sdl, typeName)
+	}
+	assert.NotContains(t, sdl, "Ethereum__Mainnet", "EVM SDL must not leak into solana output")
+}
+
+func TestRun_SolanaAdapter_CustomPrefix(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--adapter", "solana", "--prefix", "Solana__Devnet"}, &buf))
+	sdl := buf.String()
+	assert.NotEmpty(t, sdl)
+	assert.Contains(t, sdl, "Solana__Devnet__Block")
+	assert.NotContains(t, sdl, solana.DefaultCollectionPrefix, "embedded prefix must be fully swapped")
+}
+
+func TestRun_SolanaAdapter_SingleFile(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--adapter", "solana", "--file", "block.graphql"}, &buf))
+	sdl := buf.String()
+	assert.Contains(t, sdl, "type Solana__Mainnet__Block {")
+	assert.NotContains(t, sdl, "type Solana__Mainnet__Transaction")
+}
+
+func TestRun_SolanaAdapter_ListFiles(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--adapter", "solana", "--list-files"}, &buf))
+	output := strings.TrimSpace(buf.String())
+	lines := strings.Split(output, "\n")
+	expected, err := schema.ListCollectionFiles(solana.NewCollectionNames(solana.DefaultCollectionPrefix))
+	require.NoError(t, err)
+	assert.Equal(t, expected, lines)
+}
+
+func TestRun_UnknownAdapter(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	err := run([]string{"build_schema", "--adapter", "cosmos"}, &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown adapter")
 }

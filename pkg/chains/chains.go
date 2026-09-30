@@ -19,7 +19,7 @@ import (
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/sourcenetwork/defradb/node"
+	"github.com/sourcenetwork/defradb/client"
 )
 
 // ErrUnknownCollection is returned by Collections.GetCollection when the given
@@ -43,14 +43,30 @@ var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 // cannot find any usable number.
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
 
+// ErrHeightSkipped indicates the requested height has no block and never will
+// (e.g. a skipped Solana slot: the leader produced nothing, so no retry can
+// conjure one). Callers must treat it as "advance, no docs, nothing to sign" —
+// neither an error nor a retry candidate. The message must never contain
+// "not found" so consumers cannot confuse it with the transient
+// block-not-mined-yet condition that drives infinite retry loops.
+var ErrHeightSkipped = errors.New("height skipped: no block at this height")
+
 // Collection type constants used as arguments to GetCollection.
+//
+// TypeBlock, TypeTransaction, TypeBlockSignature, and TypeSnapshotSignature
+// exist in every chain family. TypeAccessListEntry and TypeLog are EVM-only,
+// and TypeInstruction, TypeTokenBalanceChange, and TypeReward are Solana-only;
+// other adapters return ErrUnknownCollection for roles they do not define.
 const (
-	TypeBlock             = "block"
-	TypeBlockSignature    = "blockSignature"
-	TypeSnapshotSignature = "snapshotSignature"
-	TypeTransaction       = "transaction"
-	TypeAccessListEntry   = "accessListEntry"
-	TypeLog               = "log"
+	TypeBlock              = "block"
+	TypeBlockSignature     = "blockSignature"
+	TypeSnapshotSignature  = "snapshotSignature"
+	TypeTransaction        = "transaction"
+	TypeAccessListEntry    = "accessListEntry"
+	TypeLog                = "log"
+	TypeInstruction        = "instruction"
+	TypeTokenBalanceChange = "tokenBalanceChange"
+	TypeReward             = "reward"
 )
 
 // DefaultAdapterName is the default name value to be used in ChainFactories.
@@ -113,7 +129,7 @@ type Fetcher interface {
 // Converter is the chain-specific knowledge layer: schema generation,
 // block-to-document conversion, and progress queries.
 //
-// It never stores *node.Node — it receives it explicitly on each progress
+// It never stores a Store — it receives it explicitly on each progress
 // call, keeping the Converter stateless and testable without a live DefraDB.
 type Converter interface {
 	// Convert transforms a raw block (returned by Fetcher.FetchBlock) into
@@ -137,15 +153,15 @@ type Converter interface {
 
 	// GetHighestStoredBlockNumber returns the highest block number currently
 	// persisted in DefraDB.
-	GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
+	GetHighestStoredBlockNumber(ctx context.Context, s client.TxnStore) (int64, error)
 
 	// GetLowestStoredBlockNumber returns the lowest block number currently
 	// persisted in DefraDB. Useful for pruning windows.
-	GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
+	GetLowestStoredBlockNumber(ctx context.Context, s client.TxnStore) (int64, error)
 
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
-	GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
+	GetDocIDsByBlockRange(ctx context.Context, s client.TxnStore, from, to int64) (map[string][]string, error)
 
 	// SignatureCollection returns the collection name used for block
 	// signatures (e.g. "Ethereum__Mainnet__BlockSignature") without requiring

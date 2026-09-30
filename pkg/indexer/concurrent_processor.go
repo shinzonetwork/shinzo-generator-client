@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"sync"
 	"time"
@@ -210,6 +211,7 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 // fetchAndProcessBlock fetches, converts, and stores a block with retry
 // classification:
 //   - fetch not-found: infinite retry with BlockNotFoundRetryDelay
+//   - fetch skipped-height (ChainHeightSkipped): no retry, success without docs
 //   - fetch other errors: up to MaxRPCRetries with linear backoff
 //   - convert: no retry (pure computation)
 //   - store: up to MaxRPCRetries on transaction conflicts; ErrAlreadyExists
@@ -217,6 +219,10 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blockNum int64) *BlockResult {
 	raw, err := p.fetchBlockWithRetry(ctx, blockNum)
 	if err != nil {
+		if stderrors.Is(err, chains.ErrHeightSkipped) {
+			logger.Sugar.Infof("Height %d skipped (no block produced); advancing without storing", blockNum)
+			return &BlockResult{BlockNum: blockNum, Success: true}
+		}
 		return &BlockResult{BlockNum: blockNum, Error: err}
 	}
 
@@ -230,6 +236,9 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 
 // fetchBlockWithRetry fetches a block from the fetcher with retry
 // classification:
+//   - skipped-height (chains.ErrHeightSkipped): no retry — the height is
+//     permanently empty, so neither the not-found loop nor the error backoff
+//     can ever succeed
 //   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
 //   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
 func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
@@ -242,6 +251,10 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 		raw, err := p.fetcher.FetchBlock(ctx, blockNum)
 		if err == nil {
 			return raw, nil
+		}
+
+		if stderrors.Is(err, chains.ErrHeightSkipped) {
+			return nil, err
 		}
 
 		if errors.IsErrNotFound(err) {

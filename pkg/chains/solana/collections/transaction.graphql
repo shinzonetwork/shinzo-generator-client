@@ -1,0 +1,24 @@
+# A Solana transaction with its execution metadata. Signature is the primary
+# key; failed transactions (meta.err != null) are indexed with failed=true and
+# the JSON error in err.
+type Solana__Mainnet__Transaction {
+    signature: String
+    slot: Int @index
+    transactionIndex: Int
+    version: String
+    failed: Boolean
+    err: String
+    fee: Int
+    computeUnitsConsumed: Int
+    logMessages: [String]
+    preBalances: [Int]
+    postBalances: [Int]
+    recentBlockhash: String
+    accountKeys: [String]
+    loadedAddressesWritable: [String]
+    loadedAddressesReadonly: [String]
+    # Relationships
+    block: Solana__Mainnet__Block @relation(name: "solana_block_transactions")
+    instructions: [Solana__Mainnet__Instruction] @relation(name: "solana_transaction_instructions")
+    tokenBalanceChanges: [Solana__Mainnet__TokenBalanceChange] @relation(name: "solana_transaction_tokenBalances")
+}

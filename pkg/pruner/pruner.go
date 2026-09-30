@@ -13,7 +13,6 @@ import (
 	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/client"
-	"github.com/sourcenetwork/defradb/node"
 )
 
 // ErrNoBlocks indicates that the query succeeded but no blocks were found.
@@ -33,7 +32,7 @@ var ErrNoValidBlocks = errors.New("blocks exist but none have a valid block numb
 // When no queue is set or the queue is underfilled, falls back to filter-based pruning.
 type Pruner struct {
 	cfg                *config.PrunerConfig
-	defraNode          *node.Node
+	store              client.TxnStore
 	converter          chains.Converter
 	blockCollection    string
 	blockSigCollection string
@@ -60,10 +59,10 @@ type Metrics struct {
 
 // NewPruner creates a new Pruner instance.
 // The converter provides block-range queries and collection names.
-func NewPruner(cfg *config.PrunerConfig, defraNode *node.Node, converter chains.Converter) *Pruner {
+func NewPruner(cfg *config.PrunerConfig, store client.TxnStore, converter chains.Converter) *Pruner {
 	p := &Pruner{
 		cfg:       cfg,
-		defraNode: defraNode,
+		store:     store,
 		converter: converter,
 		stopChan:  make(chan struct{}),
 	}
@@ -87,8 +86,8 @@ func (p *Pruner) Start(ctx context.Context) error {
 		return nil
 	}
 
-	if p.defraNode == nil {
-		logger.Sugar.Warn("Pruner requires embedded DefraDB node, skipping")
+	if p.store == nil {
+		logger.Sugar.Warn("Pruner requires a DefraDB store, skipping")
 		return nil
 	}
 
@@ -345,7 +344,7 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
 		startBlock, endBlock, endBlock-startBlock+1)
 
-	docIDsByCollection, err := p.converter.GetDocIDsByBlockRange(ctx, p.defraNode, startBlock, endBlock)
+	docIDsByCollection, err := p.converter.GetDocIDsByBlockRange(ctx, p.store, startBlock, endBlock)
 	if err != nil {
 		return 0, fmt.Errorf("get docIDs by block range: %w", err)
 	}
@@ -403,7 +402,7 @@ func (p *Pruner) purgeByDocIDs(ctx context.Context, collectionName string, docID
 	startTime := time.Now()
 	logger.Sugar.Infof("Purging %d documents from %s", len(docIDs), collectionName)
 
-	col, err := p.defraNode.DB.GetCollectionByName(ctx, collectionName)
+	col, err := p.store.GetCollectionByName(ctx, collectionName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get collection %s: %w", collectionName, err)
 	}
@@ -443,7 +442,7 @@ func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err 
 	if p.converter == nil {
 		return 0, 0, ErrNoBlocks
 	}
-	lowest, err = p.converter.GetLowestStoredBlockNumber(ctx, p.defraNode)
+	lowest, err = p.converter.GetLowestStoredBlockNumber(ctx, p.store)
 	if err != nil {
 		if pkgerrors.IsErrNotFound(err) {
 			return 0, 0, ErrNoBlocks
@@ -453,7 +452,7 @@ func (p *Pruner) getBlockRange(ctx context.Context) (lowest, highest int64, err 
 		}
 		return 0, 0, fmt.Errorf("get lowest block: %w", err)
 	}
-	highest, err = p.converter.GetHighestStoredBlockNumber(ctx, p.defraNode)
+	highest, err = p.converter.GetHighestStoredBlockNumber(ctx, p.store)
 	if err != nil {
 		if pkgerrors.IsErrNotFound(err) {
 			return 0, 0, ErrNoBlocks

@@ -807,7 +807,7 @@ func TestSignExisting_NilDefraNode(t *testing.T) {
 	handler := &BlockHandler{maxDocsPerTxn: 1000}
 	_, err := handler.SignExisting(context.Background(), chains.ConversionResult{}, "0xhash", 100)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "defraNode is nil")
+	assert.Contains(t, err.Error(), "defra store is nil")
 }
 
 func TestSignExisting_Success(t *testing.T) {

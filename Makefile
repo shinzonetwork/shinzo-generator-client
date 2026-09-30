@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
+.PHONY: deps env build start clean defradb defradb-start defradb-stop gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help solana-bench-fetch solana-bench-replay solana-bench-synthetic
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -89,14 +89,48 @@ test-local:
 integration-test:
 	@echo "🧪 Running integration tests..."
 	@echo "📦 Mock tests (fast):"
-	@go test tags=integration -v ./integration/
+	@go test -tags=integration -v ./integration/
 	@echo ""
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
-		go test tags=live -v ./integration/live/ -timeout=20s; \
-	else \ 
+		go test -tags=live -v ./integration/live/ -timeout=20s; \
+	else \
 		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
 	fi
+
+# Solana live integration suite: RPC from SOLANA_RPC_URL (defaults to the
+# public devnet endpoint inside the suite) or a paid endpoint plus
+# SOLANA_LIVE_NETWORK=Mainnet for realistic volumes.
+.PHONY: solana-live-test
+solana-live-test:
+	@echo "🧪 Running solana live integration tests..."
+	@if [ -z "$(SOLANA_RPC_URL)" ] && [ -z "$(SOLANA_LIVE)" ]; then \
+		echo "⚠️  Set SOLANA_RPC_URL (paid endpoint) or SOLANA_LIVE=1 (public devnet) to run"; \
+		exit 1; \
+	fi
+	@go test -tags=live -v ./integration/live/solana/ -timeout=400s
+
+# Replay benchmark: captures a real mainnet slot range (SOLANA_RPC_URL from
+# .env) and times the full production pipeline against the 100ms/block
+# target. FROM/TO are overridable: make solana-bench-fetch FROM=... TO=...
+FROM_SLOT ?= 449791000
+TO_SLOT ?= 449791099
+
+.PHONY: solana-bench-fetch
+solana-bench-fetch:
+	@echo "⬇️  Capturing Solana blocks $(FROM_SLOT)..$(TO_SLOT) into the replay fixture..."
+	@go run ./cmd/bench_fetch --from $(FROM_SLOT) --to $(TO_SLOT)
+
+.PHONY: solana-bench-replay
+solana-bench-replay:
+	@echo "🏁 Running the Solana replay benchmark (target: 100ms/block avg)..."
+	@go clean -testcache 
+	@go test -tags bench ./benchmarking/solana -run 'TestSolanaReplayProcessingBenchmark' -v -timeout 30m
+
+.PHONY: solana-bench-synthetic
+solana-bench-synthetic:
+	@echo "⛰️  Running the synthetic store/index benchmarks..."
+	@go test -tags bench ./benchmarking/solana -run '^$' -bench 'BenchmarkSolana(StoreSlot|StoreHotSlotBatch|IndexSlots)' -benchtime 5x -timeout 30m
 
 coverage:
 	go test ./... -coverprofile=coverage.out
@@ -124,6 +158,27 @@ playground:
 		exit 1; \
 	fi
 	@$(MAKE) bootstrap PLAYGROUND=1 DEFRA_PATH="$(DEFRA_PATH)"
+
+# External DefraDB binary (a standalone `defradb start` process). Override to
+# point at a fork build, e.g. make defradb-start DEFRADB_BIN=../defradb/build/defradb
+DEFRADB_BIN ?= defradb
+
+# defradb-start runs a standalone DefraDB against the same rootdir the
+# generator's config uses (defradb.store.path, default ./.defra) so both
+# processes share the identity keyring.
+defradb-start:
+	$(DEFRADB_BIN) start --rootdir "$(CURDIR)/.defra" --url 127.0.0.1:9181 --p2paddr /ip4/0.0.0.0/tcp/9171
+
+defradb-stop:
+	@echo "===> Stopping defradb if running..."
+	@DEFRA_ROOTDIR="$(CURDIR)/.defra"; \
+	DEFRA_PIDS=$$(ps aux | grep '[d]efradb start --rootdir ' | grep "$$DEFRA_ROOTDIR" | awk '{print $$2}'); \
+	if [ -n "$$DEFRA_PIDS" ]; then \
+	  echo "Killing defradb PIDs: $$DEFRA_PIDS"; \
+	  echo "$$DEFRA_PIDS" | xargs -r kill -9 2>/dev/null; \
+	else \
+	  echo "No defradb processes found for $$DEFRA_ROOTDIR"; \
+	fi
 
 stop:
 	@echo "===> Stopping defradb if running..."
@@ -168,7 +223,8 @@ help:
 	@echo "  defra-status       - Check DefraDB status"
 	@echo ""
 	@echo "🏃 Services:"
-	@echo "  defra-start        - Start DefraDB"
+	@echo "  defradb-start      - Start standalone DefraDB (external mode, DEFRADB_BIN overridable)"
+	@echo "  defradb-stop       - Stop the standalone DefraDB"
 	@echo "  start              - Start the generator"
 	@echo "  stop               - Stop all services"
 	@echo ""

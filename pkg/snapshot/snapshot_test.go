@@ -16,7 +16,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/sourcenetwork/defradb/crypto"
-	"github.com/sourcenetwork/defradb/node"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -614,7 +614,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	assertBlockRange(t, td2, 100, 104)
 
 	// Also verify we can query doc IDs in the imported node
-	docIDsByCol, err := s2.converter.GetDocIDsByBlockRange(ctx, s2.defraNode, 100, 104)
+	docIDsByCol, err := s2.converter.GetDocIDsByBlockRange(ctx, s2.defraNode.DB, 100, 104)
 	require.NoError(t, err)
 	assert.Len(t, docIDsByCol[testBlockCollection], 5, "should find 5 block doc IDs after import")
 
@@ -951,9 +951,9 @@ func TestCheckAndSnapshot_UsesChainBlockRange(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	mc := &testutils.MockConverter{
-		GetLowestStoredBlockNumberFn:  func(_ context.Context, _ *node.Node) (int64, error) { return 100, nil },
-		GetHighestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) { return 104, nil },
-		GetDocIDsByBlockRangeFn: func(_ context.Context, _ *node.Node, _, _ int64) (map[string][]string, error) {
+		GetLowestStoredBlockNumberFn:  func(_ context.Context, _ client.TxnStore) (int64, error) { return 100, nil },
+		GetHighestStoredBlockNumberFn: func(_ context.Context, _ client.TxnStore) (int64, error) { return 104, nil },
+		GetDocIDsByBlockRangeFn: func(_ context.Context, _ client.TxnStore, _, _ int64) (map[string][]string, error) {
 			return map[string][]string{}, nil
 		},
 		GetCollectionsFn: func() []string {

@@ -1,0 +1,22 @@
+# One compiled (outer) or inner (CPI) instruction. Instruction data is stored
+# raw (base58-encoded); decoding is deferred to a later phase. Inner
+# instructions link back to their parent instruction; outer instructions have
+# no parent.
+type Solana__Mainnet__Instruction {
+    # Parent transaction's signature. DefraDB docIDs are content hashes, so two
+    # byte-identical instructions in different transactions (identical memo
+    # transfers) would otherwise collide on one document; this field makes
+    # every instruction's content unique.
+    transactionSignature: String
+    programId: String
+    accounts: [String]
+    data: String
+    instructionIndex: Int
+    innerIndex: Int
+    stackHeight: Int
+    slot: Int @index
+    # Relationships
+    transaction: Solana__Mainnet__Transaction @relation(name: "solana_transaction_instructions")
+    parentInstruction: Solana__Mainnet__Instruction @relation(name: "solana_instruction_inner")
+    innerInstructions: [Solana__Mainnet__Instruction] @relation(name: "solana_instruction_inner")
+}

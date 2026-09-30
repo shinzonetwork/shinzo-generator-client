@@ -420,11 +420,11 @@ func assertBlockRange(t *testing.T, td *testutils.TestDefraDB, lowest, highest i
 	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 	ctx := context.Background()
 
-	gotLowest, err := s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode)
+	gotLowest, err := s2.converter.GetLowestStoredBlockNumber(ctx, s2.defraNode.DB)
 	require.NoError(t, err)
 	assert.Equal(t, lowest, gotLowest)
 
-	gotHighest, err := s2.converter.GetHighestStoredBlockNumber(ctx, s2.defraNode)
+	gotHighest, err := s2.converter.GetHighestStoredBlockNumber(ctx, s2.defraNode.DB)
 	require.NoError(t, err)
 	assert.Equal(t, highest, gotHighest)
 }

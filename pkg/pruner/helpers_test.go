@@ -10,6 +10,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/require"
 )
@@ -55,19 +56,19 @@ func (tc *testChain) SignatureCollection() string {
 	return "Test__BlockSignature"
 }
 
-func (tc *testChain) GetLowestStoredBlockNumber(ctx context.Context, _ *node.Node) (int64, error) {
+func (tc *testChain) GetLowestStoredBlockNumber(ctx context.Context, _ client.TxnStore) (int64, error) {
 	// Mirrors the evm converter's contract: the `_geq: 0` filter excludes
 	// numberless rows (purge residue) so they cannot fill the limit-1 window.
 	query := fmt.Sprintf(`query { %s (filter: {number: {_geq: 0}}, order: {number: ASC}, limit: 1) { number }}`, testBlockColName)
 	return tc.queryBlockNumber(ctx, query)
 }
 
-func (tc *testChain) GetHighestStoredBlockNumber(ctx context.Context, _ *node.Node) (int64, error) {
+func (tc *testChain) GetHighestStoredBlockNumber(ctx context.Context, _ client.TxnStore) (int64, error) {
 	query := fmt.Sprintf(`query { %s (filter: {number: {_geq: 0}}, order: {number: DESC}, limit: 1) { number }}`, testBlockColName)
 	return tc.queryBlockNumber(ctx, query)
 }
 
-func (tc *testChain) GetDocIDsByBlockRange(ctx context.Context, _ *node.Node, from, to int64) (map[string][]string, error) {
+func (tc *testChain) GetDocIDsByBlockRange(ctx context.Context, _ client.TxnStore, from, to int64) (map[string][]string, error) {
 	result := make(map[string][]string)
 
 	for _, col := range []struct {
@@ -186,7 +187,7 @@ func newTestChain(n *node.Node) *testChain {
 // Returns the testChain as well for tests that need direct chain queries.
 func newTestPruner(cfg *config.PrunerConfig, n *node.Node) (*Pruner, *testChain) {
 	tc := newTestChain(n)
-	p := NewPruner(cfg, n, tc)
+	p := NewPruner(cfg, n.DB, tc)
 	p.blockCollection = testBlockColName
 	return p, tc
 }

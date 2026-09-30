@@ -1,0 +1,15 @@
+# A Solana block. Slot is the fetch height used across the adapter; not every
+# slot produces a block (leader skips), so a missing slot is permanent, not
+# pending.
+type Solana__Mainnet__Block {
+    slot: Int @index
+    blockhash: String
+    parentSlot: Int
+    blockHeight: Int
+    blockTime: Int
+    transactionCount: Int
+    rewardCount: Int
+    # Relationships
+    transactions: [Solana__Mainnet__Transaction] @relation(name: "solana_block_transactions")
+    rewards: [Solana__Mainnet__Reward] @relation(name: "solana_block_rewards")
+}

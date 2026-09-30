@@ -62,6 +62,10 @@ type BlockHandler struct {
 	maxDocsPerTxn int                   // Default per-group batch size when group BatchSize is 0.
 	docIDTracker  DocIDTrackerInterface // Optional tracker for docIDs.
 	nodeIdentity  identity.Identity     // Node identity for signing.
+	// ctxCollector reports that document writes collect CIDs server-side through the
+	// request context (embedded node.DB behaviour). External HTTP stores cannot
+	// populate it, so signing falls back to GQL CID collection instead.
+	ctxCollector bool
 
 	// Injectable functions for testability (set to defaults in NewBlockHandler).
 	signBatchFn      func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error)
@@ -71,18 +75,36 @@ type BlockHandler struct {
 	retryBackoffFn   func(int) time.Duration
 }
 
-// NewBlockHandler creates a BlockHandler that uses direct DB calls.
+// NewBlockHandler creates a BlockHandler backed by an embedded DefraDB node.
 // maxDocsPerTxn is the default per-group batch size.
 func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int) (*BlockHandler, error) {
 	if defraNode == nil {
 		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
 			"defraNode is nil", "", nil)
 	}
+	h, err := NewBlockHandlerFromStore(defraNode.DB, maxDocsPerTxn)
+	if err != nil {
+		return nil, err
+	}
+	// The embedded node's DB collects CIDs during document writes via the
+	// context-injected collector; keep that fast-path here.
+	h.ctxCollector = true
+	return h, nil
+}
+
+// NewBlockHandlerFromStore creates a BlockHandler backed by an arbitrary
+// client.TxnStore — the embedded node's DB or the HTTP client of an external
+// DefraDB process. maxDocsPerTxn is the default per-group batch size.
+func NewBlockHandlerFromStore(store client.TxnStore, maxDocsPerTxn int) (*BlockHandler, error) {
+	if store == nil {
+		return nil, errors.NewConfigurationError("defra", "NewBlockHandlerFromStore",
+			"defra store is nil", "", nil)
+	}
 	if maxDocsPerTxn <= 0 {
 		maxDocsPerTxn = 1000 //nolint:mnd
 	}
 	h := &BlockHandler{
-		db:             defraNode.DB,
+		db:             store,
 		maxDocsPerTxn:  maxDocsPerTxn,
 		maxCIDRetries:  15, //nolint:mnd
 		retryBackoffFn: retryBackoff,
@@ -266,7 +288,7 @@ func (h *BlockHandler) Store(
 ) (*BlockCreationResult, error) {
 	if h.db == nil {
 		return nil, errors.NewConfigurationError("defra", "Store",
-			"store requires embedded DefraDB node", "", nil)
+			"defra store is nil", "", nil)
 	}
 	if len(result.Groups) == 0 {
 		return nil, fmt.Errorf("no document groups to store")
@@ -283,8 +305,15 @@ func (h *BlockHandler) Store(
 	}
 	blockHash, _ := blockData[blockGroup.BlockHashField].(string)
 
-	collector := node.NewBatchCIDCollector()
-	ctx = node.ContextWithBatchSigning(ctx, collector)
+	// The embedded node's DB reports written CIDs through the context-injected
+	// collector. Over HTTP that plumbing does not exist, so the collector
+	// would stay empty and the CID set is gathered afterwards via GQL
+	// (waitForCIDs) instead.
+	var collector *node.BatchCIDCollector
+	if h.ctxCollector {
+		collector = node.NewBatchCIDCollector()
+		ctx = node.ContextWithBatchSigning(ctx, collector)
+	}
 
 	// Block group — same protocol as every other group. Its stamp is
 	// field-wise a no-op (the block doc carries no link fields) and the
@@ -301,9 +330,10 @@ func (h *BlockHandler) Store(
 	}
 
 	var (
-		allDocIDs   = []string{blockID}
-		otherDocIDs = map[string][]string{}
-		batchErrors []error
+		allDocIDs       = []string{blockID}
+		otherDocIDs     = map[string][]string{}
+		batchErrors     []error
+		collectionNames = []string{blockGroup.Collection}
 	)
 
 	recordDocIDs(result, blockGroup, []string{blockID}, &batchErrors)
@@ -317,6 +347,7 @@ func (h *BlockHandler) Store(
 
 		otherDocIDs[g.Collection] = append(otherDocIDs[g.Collection], ids...)
 		allDocIDs = append(allDocIDs, ids...)
+		collectionNames = append(collectionNames, g.Collection)
 		if err != nil {
 			batchErrors = append(batchErrors, err)
 			break // fail-fast: a partial write leaves dependents unlinked
@@ -327,7 +358,7 @@ func (h *BlockHandler) Store(
 		}
 	}
 
-	blockSigDocID := h.signStoredBlock(ctx, blockInt, blockHash, allDocIDs, batchErrors, result.SignatureCollection, collector)
+	blockSigDocID := h.signStoredBlock(ctx, blockInt, blockHash, allDocIDs, collectionNames, batchErrors, result.SignatureCollection, collector)
 
 	creationResult := &BlockCreationResult{
 		BlockNumber:              blockInt,
@@ -418,7 +449,25 @@ func (h *BlockHandler) writeGroup(ctx context.Context, blockInt int64, g chains.
 	if batchSize <= 0 {
 		batchSize = h.maxDocsPerTxn
 	}
-	return h.createDocBatch(ctx, blockInt, g.Collection, g.Docs, batchSize)
+	ids, err := h.createDocBatch(ctx, blockInt, g.Collection, g.Docs, batchSize)
+	if err != nil {
+		return ids, err
+	}
+	// External HTTP stores may not echo assigned docIDs back onto the
+	// submitted documents; recover them with a block-range query so signing
+	// and link stamping still see the full document set.
+	if !h.ctxCollector && len(ids) == 0 && len(g.Docs) > 0 && g.BlockNumField != "" {
+		recovered, qErr := h.queryCollectionDocIDs(ctx, g.Collection, g.BlockNumField, blockInt, blockInt)
+		if qErr != nil {
+			logger.Sugar.Warnf("Block %d: could not recover docIDs for %s: %v", blockInt, g.Collection, qErr)
+			return ids, nil
+		}
+		if len(recovered) < len(g.Docs) {
+			logger.Sugar.Warnf("Block %d: recovered only %d/%d docIDs for %s", blockInt, len(recovered), len(g.Docs), g.Collection)
+		}
+		ids = recovered
+	}
+	return ids, nil
 }
 
 func (h *BlockHandler) signStoredBlock(
@@ -426,6 +475,7 @@ func (h *BlockHandler) signStoredBlock(
 	blockInt int64,
 	blockHash string,
 	allDocIDs []string,
+	collectionNames []string,
 	batchErrors []error,
 	signatureCollection string,
 	collector *node.BatchCIDCollector,
@@ -440,7 +490,13 @@ func (h *BlockHandler) signStoredBlock(
 		return ""
 	}
 
-	cids := collector.GetCIDs()
+	cids := collectedCIDs(h, ctx, blockInt, collector, allDocIDs, collectionNames)
+	if cids == nil {
+		return ""
+	}
+	// Embedded collector path requires an exact CID↔doc match (the collector
+	// records exactly the CIDs committed by this block's writes); the external
+	// GQL path already guarantees full coverage via waitForCIDs.
 	if len(cids) != len(allDocIDs) {
 		logger.Sugar.Warnf("Block %d: not signing, collected %d CIDs for %d documents",
 			blockInt, len(cids), len(allDocIDs))
@@ -453,6 +509,29 @@ func (h *BlockHandler) signStoredBlock(
 		return ""
 	}
 	return sigID
+}
+
+// collectedCIDs resolves the block's CIDs: embedded mode trusts the
+// context-injected collector (populated server-side during writes); external
+// HTTP mode collects via GQL with retry until every document exposes a CID.
+// A nil return means signing must be skipped (reason already logged).
+func collectedCIDs(
+	h *BlockHandler,
+	ctx context.Context,
+	blockInt int64,
+	collector *node.BatchCIDCollector,
+	allDocIDs []string,
+	collectionNames []string,
+) []cid.Cid {
+	if collector != nil {
+		return collector.GetCIDs()
+	}
+	cids, err := h.waitForCIDs(ctx, blockInt, allDocIDs, collectionNames)
+	if err != nil {
+		logger.Sugar.Warnf("Block %d: CID collection failed: %v", blockInt, err)
+		return nil
+	}
+	return cids
 }
 
 // storeBlockDoc creates the block document in its own transaction.
@@ -592,7 +671,7 @@ func (h *BlockHandler) SignExisting(
 	blockNumber int64,
 ) (string, error) {
 	if h.db == nil {
-		return "", fmt.Errorf("defraNode is nil") //nolint:err113
+		return "", fmt.Errorf("defra store is nil") //nolint:err113
 	}
 
 	var allDocIDs []string

@@ -238,7 +238,7 @@ func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
 		return nil
 	}
 
-	lowest, err := s.converter.GetLowestStoredBlockNumber(ctx, s.defraNode)
+	lowest, err := s.converter.GetLowestStoredBlockNumber(ctx, s.defraNode.DB)
 	if err != nil {
 		if errors.IsErrNotFound(err) {
 			return nil
@@ -249,7 +249,7 @@ func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {
 	if lowest == 0 {
 		return nil
 	}
-	highest, err := s.converter.GetHighestStoredBlockNumber(ctx, s.defraNode)
+	highest, err := s.converter.GetHighestStoredBlockNumber(ctx, s.defraNode.DB)
 	if err != nil {
 		if errors.IsErrNotFound(err) {
 			return nil

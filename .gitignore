@@ -70,3 +70,7 @@ logs/
 # SDD Files
 specs/
 
+# Replay benchmark fixtures (hundreds of MB of raw mainnet getBlock
+# payloads; regenerate with make solana-bench-fetch)
+benchmarking/solana/testdata/bench_replay_*.json
+
