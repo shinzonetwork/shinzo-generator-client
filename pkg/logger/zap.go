@@ -4,6 +4,8 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 
@@ -13,6 +15,34 @@ import (
 
 // Sugar is the global sugared logger instance used throughout the application. It is initialized in Init() and should be used for all logging to ensure consistent formatting and output.
 var Sugar *zap.SugaredLogger //nolint:gochecknoglobals // logger is intentionally a package-level global
+
+var (
+	// initMu serializes initLogger so Sugar is assigned at most once per nil state.
+	initMu sync.Mutex //nolint:gochecknoglobals // guards the package-level logger
+	// activeCore holds the core built by the most recent initLogger call.
+	activeCore atomic.Pointer[coreBox] //nolint:gochecknoglobals // swapped by initLogger, read by swapCore
+)
+
+// coreBox wraps a zapcore.Core so it can be stored in an atomic.Pointer.
+type coreBox struct{ zapcore.Core }
+
+// swapCore delegates to activeCore, letting initLogger reconfigure logging
+// without reassigning Sugar while other goroutines are logging through it.
+type swapCore struct{}
+
+func (swapCore) Enabled(l zapcore.Level) bool { return activeCore.Load().Enabled(l) }
+
+func (swapCore) With(fields []zapcore.Field) zapcore.Core { return activeCore.Load().With(fields) }
+
+func (swapCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	return activeCore.Load().Check(ent, ce)
+}
+
+func (swapCore) Write(ent zapcore.Entry, fields []zapcore.Field) error {
+	return activeCore.Load().Write(ent, fields)
+}
+
+func (swapCore) Sync() error { return activeCore.Load().Sync() }
 
 // Custom log levels for different contexts.
 const (
@@ -69,7 +99,21 @@ func Init(development bool) {
 	initLogger(development, true)
 }
 
+// logDir returns the directory log files are written to. SHINZO_LOG_DIR lets
+// each process (or test package) keep its own logs instead of writing to a
+// "logs" directory relative to whatever the working directory happens to be.
+func logDir() string {
+	if dir := os.Getenv("SHINZO_LOG_DIR"); dir != "" {
+		return dir
+	}
+	return "logs"
+}
+
 func initLogger(development, enableFiles bool) {
+	// NO_LOG_FILES disables file output entirely (documented on Init, and used
+	// by tests so they never write log files into the package directory).
+	enableFiles = enableFiles && os.Getenv("NO_LOG_FILES") == ""
+
 	var zapLevel zapcore.Level
 	if development {
 		zapLevel = TestLevel // Show TEST level and above in development mode.
@@ -90,7 +134,7 @@ func initLogger(development, enableFiles bool) {
 
 	// Only create log files if enabled.
 	if enableFiles {
-		logsDir := "logs"
+		logsDir := logDir()
 		if err := os.MkdirAll(logsDir, 0o750); err == nil { // nolint:mnd
 			// Directory exists or was created successfully.
 			logFile := filepath.Join(logsDir, "logfile.log")
@@ -116,11 +160,14 @@ func initLogger(development, enableFiles bool) {
 		}
 	}
 
-	// Combine all cores
-	core := zapcore.NewTee(cores...)
-	logger := zap.New(core)
-
-	Sugar = logger.Sugar()
+	// Combine all cores and swap them in. Sugar is only assigned when unset, so
+	// re-initializing (e.g. from parallel tests) never races with active loggers.
+	initMu.Lock()
+	defer initMu.Unlock()
+	activeCore.Store(&coreBox{zapcore.NewTee(cores...)})
+	if Sugar == nil {
+		Sugar = zap.New(swapCore{}).Sugar()
+	}
 }
 
 // LogError logs an error with structured fields based on its type.
