@@ -75,7 +75,7 @@ func New(cfg *config.SnapshotConfig, defraNode *node.Node, converter chains.Conv
 	if converter != nil {
 		cols := converter.Collections()
 		s.blockSigCollection = converter.SignatureCollection()
-		s.snapshotSigCollection, _ = cols.GetCollection(chains.TypeSnapshotSignature)
+		s.snapshotSigCollection = cols.SnapshotSignatureCollection()
 		if s.blockSigCollection == "" || s.snapshotSigCollection == "" {
 			logger.Sugar.Warnf("Snapshot: could not resolve signature collections from chain (blockSig=%q, snapshotSig=%q); signing will be skipped",
 				s.blockSigCollection, s.snapshotSigCollection)
