@@ -236,6 +236,19 @@ func TestWriteBatchWithRetry(t *testing.T) {
 		assert.Equal(t, 2, collector.Len())
 	})
 
+	t.Run("rolls back CIDs when the write fails with already-exists", func(t *testing.T) {
+		collector := node.NewBatchCIDCollector()
+		collector.Add(oneTestCID())
+		ctx := node.ContextWithBatchSigning(context.Background(), collector)
+
+		err := h.writeBatchWithRetry(ctx, 100, "access-list-entry", func() error {
+			collector.Add(oneTestCID())         // a discarded attempt's CIDs
+			return fmt.Errorf("already exists") //nolint:err113
+		})
+		require.Error(t, err)
+		assert.Equal(t, 1, collector.Len(), "the failed attempt's CIDs must be rolled back even when the write reports a fallback outcome")
+	})
+
 	t.Run("returns ctx.Err() when ctx is cancelled during backoff", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()

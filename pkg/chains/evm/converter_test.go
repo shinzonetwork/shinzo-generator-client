@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/sourcenetwork/defradb/client"
@@ -355,6 +356,174 @@ func TestConvert_WithAccessListEntries(t *testing.T) {
 	require.NotNil(t, aleGroup, "should have an ALE group")
 	assert.Len(t, aleGroup.Docs, 2)
 	assert.Equal(t, "0x0000000000000000000000000000000000000001", aleGroup.Docs[0][AddressFieldName])
+}
+
+func TestConvert_DuplicateAccessListEntries(t *testing.T) {
+	t.Parallel()
+
+	type aleCase struct {
+		name       string
+		txs        []Transaction
+		wantDocs   int
+		wantRefs   []string
+		wantFields []map[string]any // per-doc expected content, index-aligned
+	}
+
+	aleStorageKey1 := "0x0000000000000000000000000000000000000000000000000000000000000001"
+	aleStorageKey2 := "0x0000000000000000000000000000000000000000000000000000000000000002"
+	aleAddr := "0x0000000000000000000000000000000000000001"
+
+	cases := []aleCase{
+		{
+			name: "repeated identical entry in one tx yields one doc",
+			txs: []Transaction{
+				{
+					Hash: fakeHash("tx-ale-dup"),
+					AccessList: []AccessListEntry{
+						{Address: aleAddr, StorageKeys: []string{aleStorageKey1}},
+						{Address: aleAddr, StorageKeys: []string{aleStorageKey1}},
+						{Address: aleAddr, StorageKeys: []string{aleStorageKey1}},
+					},
+				},
+			},
+			wantDocs: 1,
+			wantRefs: []string{fakeHash("tx-ale-dup")},
+			wantFields: []map[string]any{
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1}},
+			},
+		},
+		{
+			name: "same address and keys in two different txs yields two docs",
+			txs: []Transaction{
+				{
+					Hash:       fakeHash("tx-ale-cross-1"),
+					AccessList: []AccessListEntry{{Address: aleAddr, StorageKeys: []string{aleStorageKey1}}},
+				},
+				{
+					Hash:       fakeHash("tx-ale-cross-2"),
+					AccessList: []AccessListEntry{{Address: aleAddr, StorageKeys: []string{aleStorageKey1}}},
+				},
+			},
+			wantDocs: 2,
+			wantRefs: []string{fakeHash("tx-ale-cross-1"), fakeHash("tx-ale-cross-2")},
+			wantFields: []map[string]any{
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1}},
+			},
+		},
+		{
+			name: "same address with same keys in different order yields two docs",
+			txs: []Transaction{
+				{
+					Hash: fakeHash("tx-ale-order"),
+					AccessList: []AccessListEntry{
+						{Address: aleAddr, StorageKeys: []string{aleStorageKey1, aleStorageKey2}},
+						{Address: aleAddr, StorageKeys: []string{aleStorageKey2, aleStorageKey1}},
+					},
+				},
+			},
+			wantDocs: 2,
+			wantRefs: []string{fakeHash("tx-ale-order"), fakeHash("tx-ale-order")},
+			wantFields: []map[string]any{
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1, aleStorageKey2}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey2, aleStorageKey1}},
+			},
+		},
+		{
+			name: "same address with different keys yields two docs",
+			txs: []Transaction{
+				{
+					Hash: fakeHash("tx-ale-distinct"),
+					AccessList: []AccessListEntry{
+						{Address: aleAddr, StorageKeys: []string{aleStorageKey1}},
+						{Address: aleAddr, StorageKeys: []string{aleStorageKey2}},
+					},
+				},
+			},
+			wantDocs: 2,
+			wantRefs: []string{fakeHash("tx-ale-distinct"), fakeHash("tx-ale-distinct")},
+			wantFields: []map[string]any{
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey2}},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := NewConverter(testConfig())
+
+			blockNum := int64(16)
+			block := fakeBlockWithTxs(blockNum, tc.txs...)
+			txs := make([]*Transaction, len(tc.txs))
+			for i := range tc.txs {
+				txs[i] = &tc.txs[i]
+			}
+			bundle := &BlockBundle{
+				Block:        block,
+				Transactions: txs,
+				Receipts:     []*TransactionReceipt{fakeReceipt(tc.txs[0].Hash, blockNum)},
+			}
+
+			aleGroup, parentRefs := convertForALE(t, c, bundle)
+
+			require.Len(t, aleGroup.Docs, tc.wantDocs)
+			require.Len(t, parentRefs, tc.wantDocs, "docs and parentRefs must stay index-aligned")
+			assert.Equal(t, tc.wantRefs, parentRefs)
+			for i, want := range tc.wantFields {
+				for field, wantVal := range want {
+					assert.Equal(t, wantVal, aleGroup.Docs[i][field],
+						"doc %d field %q must keep the first occurrence's content", i, field)
+				}
+			}
+		})
+	}
+}
+
+// TestConvert_ALEGroupHasNoContentIdenticalDocsPerTx is the converter-side
+// contract: within one ALE group, no two documents destined for the same
+// parent transaction may be content-identical. Pre-stamp doc maps carry no tx
+// hash (the _transactionID link is stamped at write time), so identity is
+// scoped by parent ref: two same-content entries kept for two different txs
+// resolve to different links and are correctly NOT dropped.
+func TestConvert_ALEGroupHasNoContentIdenticalDocsPerTx(t *testing.T) {
+	t.Parallel()
+	c := NewConverter(testConfig())
+
+	aleAddr := "0x0000000000000000000000000000000000000001"
+	key := "0x0000000000000000000000000000000000000000000000000000000000000009"
+
+	tx1Hash := fakeHash("tx-ale-contract-1")
+	tx1 := Transaction{Hash: tx1Hash, AccessList: []AccessListEntry{
+		{Address: aleAddr, StorageKeys: []string{key}},
+		{Address: aleAddr, StorageKeys: []string{key}},
+	}}
+	tx2Hash := fakeHash("tx-ale-contract-2")
+	// Same address and keys as tx1's entries — identical docs pre-stamp, but
+	// different _transactionID at write time, so both must survive.
+	tx2 := Transaction{Hash: tx2Hash, AccessList: []AccessListEntry{
+		{Address: aleAddr, StorageKeys: []string{key}},
+	}}
+	blockNum := int64(16)
+	bundle := &BlockBundle{
+		Block:        fakeBlockWithTxs(blockNum, tx1, tx2),
+		Transactions: []*Transaction{&tx1, &tx2},
+		Receipts:     []*TransactionReceipt{fakeReceipt(tx1Hash, blockNum)},
+	}
+
+	aleGroup, parentRefs := convertForALE(t, c, bundle)
+	require.Len(t, parentRefs, len(aleGroup.Docs))
+
+	for i := range aleGroup.Docs {
+		for j := i + 1; j < len(aleGroup.Docs); j++ {
+			if parentRefs[i] != parentRefs[j] {
+				continue
+			}
+			assert.False(t, reflect.DeepEqual(aleGroup.Docs[i], aleGroup.Docs[j]),
+				"docs %d and %d for the same parent tx must not be content-identical", i, j)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
