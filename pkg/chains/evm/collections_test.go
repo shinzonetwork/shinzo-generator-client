@@ -128,34 +128,42 @@ func TestAllCollections(t *testing.T) {
 	assert.Equal(t, expected, collections)
 }
 
-func TestGetCollection(t *testing.T) {
+func TestBlockCollection(t *testing.T) {
 	t.Parallel()
-	c := NewCollectionNames("Ethereum__Mainnet")
 
 	tests := []struct {
-		name        string
-		role        string
-		expected    string
-		expectError bool
+		name     string
+		prefix   string
+		expected string
 	}{
-		{"block", chains.TypeBlock, "Ethereum__Mainnet__Block", false},
-		{"blockSignature", chains.TypeBlockSignature, "Ethereum__Mainnet__BlockSignature", false},
-		{"snapshotSignature", chains.TypeSnapshotSignature, "Ethereum__Mainnet__SnapshotSignature", false},
-		{"transaction", chains.TypeTransaction, "Ethereum__Mainnet__Transaction", false},
-		{"accessListEntry", chains.TypeAccessListEntry, "Ethereum__Mainnet__AccessListEntry", false},
-		{"log", chains.TypeLog, "Ethereum__Mainnet__Log", false},
-		{"unknown", "unknown", "", true},
+		{"DefaultPrefix", "Ethereum__Mainnet", "Ethereum__Mainnet__Block"},
+		{"CustomPrefix", "Arbitrum__Mainnet", "Arbitrum__Mainnet__Block"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := c.GetCollection(tt.role)
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.expected, got)
-			}
+			var c chains.Collections = NewCollectionNames(tt.prefix)
+			assert.Equal(t, tt.expected, c.BlockCollection())
+		})
+	}
+}
+
+func TestSnapshotSignatureCollection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		prefix   string
+		expected string
+	}{
+		{"DefaultPrefix", "Ethereum__Mainnet", "Ethereum__Mainnet__SnapshotSignature"},
+		{"CustomPrefix", "Arbitrum__Mainnet", "Arbitrum__Mainnet__SnapshotSignature"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var c chains.Collections = NewCollectionNames(tt.prefix)
+			assert.Equal(t, tt.expected, c.SnapshotSignatureCollection())
 		})
 	}
 }

@@ -27,26 +27,23 @@ func TestSchemaIndexesBlockNumberField(t *testing.T) {
 	cols, err := chains.NewCollections(nil)
 	require.NoError(t, err)
 
-	blockCol, err := cols.GetCollection(chains.TypeBlock)
-	require.NoError(t, err)
-	txCol, err := cols.GetCollection(chains.TypeTransaction)
-	require.NoError(t, err)
-	logCol, err := cols.GetCollection(chains.TypeLog)
-	require.NoError(t, err)
-	aleCol, err := cols.GetCollection(chains.TypeAccessListEntry)
-	require.NoError(t, err)
-	sigCol, err := cols.GetCollection(chains.TypeBlockSignature)
-	require.NoError(t, err)
-
-	cases := []struct {
+	type indexCase struct {
 		collection string
 		field      string
-	}{
-		{blockCol, constants.NumberFieldName},
-		{txCol, constants.BlockNumberFieldName},
-		{logCol, constants.BlockNumberFieldName},
-		{aleCol, constants.BlockNumberFieldName},
-		{sigCol, constants.BlockNumberFieldName},
+	}
+	var cases []indexCase
+	for _, name := range cols.AllCollections() {
+		// The pruner never queries snapshot signatures by block number
+		// (block-range docID queries exclude that collection), so they carry
+		// no block-number index contract here.
+		if name == cols.SnapshotSignatureCollection() {
+			continue
+		}
+		field := constants.BlockNumberFieldName
+		if name == cols.BlockCollection() {
+			field = constants.NumberFieldName
+		}
+		cases = append(cases, indexCase{name, field})
 	}
 
 	for _, c := range cases {

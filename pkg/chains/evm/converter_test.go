@@ -90,9 +90,7 @@ func TestConverter_Collections(t *testing.T) {
 	require.NotNil(t, cols)
 	assert.Equal(t, "Ethereum__Mainnet", cols.Prefix())
 
-	name, err := cols.GetCollection(chains.TypeBlock)
-	require.NoError(t, err)
-	assert.Equal(t, "Ethereum__Mainnet__Block", name)
+	assert.Equal(t, "Ethereum__Mainnet__Block", cols.BlockCollection())
 }
 
 func TestConverter_SignatureCollection(t *testing.T) {
