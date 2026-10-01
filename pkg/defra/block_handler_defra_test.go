@@ -688,6 +688,57 @@ func TestStore_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 	assert.Contains(t, err.Error(), "already exists")
 }
 
+// TestStore_BatchedMode_RepeatedAccessListEntrySignsNormally reproduces the
+// production incident end to end: a transaction that repeats one access-list
+// entry — legal per EIP-2930, observed on mainnet blocks 25727831..25730844
+// and 26077885..26095866. Pre-fix, the repeated entry produced two
+// content-identical ALE docs whose batch write failed with "already exists",
+// was swallowed as success, dropped the whole ALE group and its CIDs, and
+// left the block permanently unsigned (0 batch errors in the log). Post-fix
+// the converter collapses the repeat to one writable doc, the batch writes,
+// and the block stores and signs normally with zero batch errors.
+func TestStore_BatchedMode_RepeatedAccessListEntrySignsNormally(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
+	handler, err := NewBlockHandler(td.Node, 2)
+	require.NoError(t, err)
+
+	tracker := &mockDocIDTracker{}
+	handler.SetDocIDTracker(tracker)
+
+	ctx := ctxWithIdentity(t)
+	block := mockBlock("0x7A0") // 1952
+	tx := mockTransaction("0xeee1deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdead", "1952")
+	tx.AccessList = []evm.AccessListEntry{
+		{
+			Address:     "0x0000000000000000000000000000000000000060",
+			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000007"},
+		},
+		{
+			Address:     "0x0000000000000000000000000000000000000060",
+			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000007"},
+		},
+	}
+	receipt := mockReceipt("0xeee1deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdead", "0x7A0")
+
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+	res, err := handler.Store(ctx, result)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.BlockID)
+
+	require.Len(t, tracker.trackedResults, 1)
+	require.NotEmpty(t, tracker.trackedResults[0].BlockSignatureID,
+		"a repeated access-list entry must not leave the block unsigned")
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeAccessListEntry)], 1,
+		"the repeated entry must collapse to one writable document")
+
+	aleCol := extractCollection(cols, chains.TypeAccessListEntry)
+	ids, err := handler.queryCollectionDocIDs(ctx, aleCol, "blockNumber", 1952, 1952)
+	require.NoError(t, err)
+	require.Len(t, ids, 1, "exactly the unique ALE doc must be stored")
+}
+
 // ---------------------------------------------------------------------------
 // Store — nil transactions in batch
 // ---------------------------------------------------------------------------
