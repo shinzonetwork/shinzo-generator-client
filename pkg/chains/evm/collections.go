@@ -94,25 +94,16 @@ func (c *CollectionNames) CollectionFileForType(typeName string) string {
 	return strings.ToLower(suffix[:1]) + suffix[1:] + ".graphql"
 }
 
-// GetCollection returns the collection name for the given role string.
-// Returns chains.ErrUnknownCollection for unknown roles.
-func (c *CollectionNames) GetCollection(role string) (string, error) {
-	switch role {
-	case chains.TypeBlock:
-		return c.Block, nil
-	case chains.TypeBlockSignature:
-		return c.BlockSignature, nil
-	case chains.TypeSnapshotSignature:
-		return c.SnapshotSignature, nil
-	case chains.TypeTransaction:
-		return c.Transaction, nil
-	case chains.TypeAccessListEntry:
-		return c.AccessListEntry, nil
-	case chains.TypeLog:
-		return c.Log, nil
-	default:
-		return "", fmt.Errorf("%w: %s", chains.ErrUnknownCollection, role)
-	}
+// BlockCollection implements chains.Collections. It returns the collection
+// name that stores block documents.
+func (c *CollectionNames) BlockCollection() string {
+	return c.Block
+}
+
+// SnapshotSignatureCollection implements chains.Collections. It returns the
+// collection name that stores snapshot signature documents.
+func (c *CollectionNames) SnapshotSignatureCollection() string {
+	return c.SnapshotSignature
 }
 
 // DefaultCollections returns all default collection names as a slice.

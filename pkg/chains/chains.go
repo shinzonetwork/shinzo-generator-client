@@ -22,10 +22,6 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// ErrUnknownCollection is returned by Collections.GetCollection when the given
-// role string does not map to a known collection.
-var ErrUnknownCollection = errors.New("unknown collection")
-
 // ErrChainFactoryNotRegistered is returned by NewFetcher, NewConverter, and
 // NewCollections when the configured chain adapter has no registered factories.
 var ErrChainFactoryNotRegistered = errors.New("chain factory not registered")
@@ -42,16 +38,6 @@ var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 // (benign no-op). Chain converters wrap it when a stored block-number query
 // cannot find any usable number.
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
-
-// Collection type constants used as arguments to GetCollection.
-const (
-	TypeBlock             = "block"
-	TypeBlockSignature    = "blockSignature"
-	TypeSnapshotSignature = "snapshotSignature"
-	TypeTransaction       = "transaction"
-	TypeAccessListEntry   = "accessListEntry"
-	TypeLog               = "log"
-)
 
 // DefaultAdapterName is the default name value to be used in ChainFactories.
 const DefaultAdapterName = "evm"
@@ -75,11 +61,13 @@ type Collections interface {
 	// Returns empty string if the type name does not match the default prefix.
 	CollectionFileForType(typeName string) string
 
-	// GetCollection returns the collection name for the given type name string
-	// (e.g. "block", "transaction", "log", "accessListEntry",
-	// "blockSignature", "snapshotSignature"). Returns ErrUnknownCollection
-	// when the type is not recognised.
-	GetCollection(typeName string) (string, error)
+	// BlockCollection returns the collection name that stores block documents
+	// (e.g. "Ethereum__Mainnet__Block").
+	BlockCollection() string
+
+	// SnapshotSignatureCollection returns the collection name that stores
+	// snapshot signature documents (e.g. "Ethereum__Mainnet__SnapshotSignature").
+	SnapshotSignatureCollection() string
 }
 
 // ------ Phase 2 ------
@@ -132,7 +120,7 @@ type Converter interface {
 	GetCollections() []string
 
 	// Collections returns the Collections interface for collection-name
-	// resolution by role (reuses the Phase-1 interface).
+	// resolution
 	Collections() Collections
 
 	// GetHighestStoredBlockNumber returns the highest block number currently
