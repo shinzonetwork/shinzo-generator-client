@@ -30,6 +30,26 @@ type collectionSpec struct {
 	file     string
 }
 
+// Collection SDL file names with the stem each is served under
+// (CollectionFile.Name — the JSON-API cache key and CLI listing name).
+// Both spellings are literal constants: the stem is never derived from the
+// file name, so no filename string surgery exists in this package.
+const (
+	blockCollectionFile             = "block.graphql"
+	blockSignatureCollectionFile    = "blockSignature.graphql"
+	snapshotSignatureCollectionFile = "snapshotSignature.graphql"
+	transactionCollectionFile       = "transaction.graphql"
+	accessListEntryCollectionFile   = "accessListEntry.graphql"
+	logCollectionFile               = "log.graphql"
+
+	blockCollectionStem             = "block"
+	blockSignatureCollectionStem    = "blockSignature"
+	snapshotSignatureCollectionStem = "snapshotSignature"
+	transactionCollectionStem       = "transaction"
+	accessListEntryCollectionStem   = "accessListEntry"
+	logCollectionStem               = "log"
+)
+
 // CollectionFiles implements chains.Collections. It returns the collection
 // type names, files, and SDLs in schema-apply order, with every SDL adapted
 // to the chain's prefix. Unknown collection types are structurally
@@ -37,12 +57,12 @@ type collectionSpec struct {
 // AllCollections.
 func (c *CollectionNames) CollectionFiles() ([]chains.CollectionFile, error) {
 	specs := []collectionSpec{
-		{c.Block, "block", "block.graphql"},
-		{c.BlockSignature, "blockSignature", "blockSignature.graphql"},
-		{c.SnapshotSignature, "snapshotSignature", "snapshotSignature.graphql"},
-		{c.Transaction, "transaction", "transaction.graphql"},
-		{c.AccessListEntry, "accessListEntry", "accessListEntry.graphql"},
-		{c.Log, "log", "log.graphql"},
+		{c.Block, blockCollectionStem, blockCollectionFile},
+		{c.BlockSignature, blockSignatureCollectionStem, blockSignatureCollectionFile},
+		{c.SnapshotSignature, snapshotSignatureCollectionStem, snapshotSignatureCollectionFile},
+		{c.Transaction, transactionCollectionStem, transactionCollectionFile},
+		{c.AccessListEntry, accessListEntryCollectionStem, accessListEntryCollectionFile},
+		{c.Log, logCollectionStem, logCollectionFile},
 	}
 
 	files := make([]chains.CollectionFile, 0, len(specs))

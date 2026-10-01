@@ -21,12 +21,12 @@ func TestCollectionFiles(t *testing.T) {
 		name     string
 		file     string
 	}{
-		{CollectionBlock, "block", "block.graphql"},
-		{CollectionBlockSignature, "blockSignature", "blockSignature.graphql"},
-		{CollectionSnapshotSignature, "snapshotSignature", "snapshotSignature.graphql"},
-		{CollectionTransaction, "transaction", "transaction.graphql"},
-		{CollectionAccessListEntry, "accessListEntry", "accessListEntry.graphql"},
-		{CollectionLog, "log", "log.graphql"},
+		{CollectionBlock, blockCollectionStem, blockCollectionFile},
+		{CollectionBlockSignature, blockSignatureCollectionStem, blockSignatureCollectionFile},
+		{CollectionSnapshotSignature, snapshotSignatureCollectionStem, snapshotSignatureCollectionFile},
+		{CollectionTransaction, transactionCollectionStem, transactionCollectionFile},
+		{CollectionAccessListEntry, accessListEntryCollectionStem, accessListEntryCollectionFile},
+		{CollectionLog, logCollectionStem, logCollectionFile},
 	}
 
 	for i, tt := range expected {
@@ -79,7 +79,7 @@ func TestCollectionFiles_DefaultPrefixRetainsSDL(t *testing.T) {
 	files, err := c.CollectionFiles()
 	require.NoError(t, err)
 
-	raw, err := readCollectionSDL("block.graphql")
+	raw, err := readCollectionSDL(blockCollectionFile)
 	require.NoError(t, err)
 
 	assert.Equal(t, raw, files[0].SDL, "SDL must be byte-identical to the embedded file for the default prefix")
