@@ -389,7 +389,7 @@ func TestConvert_DuplicateAccessListEntries(t *testing.T) {
 			wantDocs: 1,
 			wantRefs: []string{fakeHash("tx-ale-dup")},
 			wantFields: []map[string]any{
-				{AddressFieldName: aleAddr, "storageKeys": []string{aleStorageKey1}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1}},
 			},
 		},
 		{
@@ -407,8 +407,8 @@ func TestConvert_DuplicateAccessListEntries(t *testing.T) {
 			wantDocs: 2,
 			wantRefs: []string{fakeHash("tx-ale-cross-1"), fakeHash("tx-ale-cross-2")},
 			wantFields: []map[string]any{
-				{AddressFieldName: aleAddr, "storageKeys": []string{aleStorageKey1}},
-				{AddressFieldName: aleAddr, "storageKeys": []string{aleStorageKey1}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1}},
 			},
 		},
 		{
@@ -425,8 +425,8 @@ func TestConvert_DuplicateAccessListEntries(t *testing.T) {
 			wantDocs: 2,
 			wantRefs: []string{fakeHash("tx-ale-order"), fakeHash("tx-ale-order")},
 			wantFields: []map[string]any{
-				{AddressFieldName: aleAddr, "storageKeys": []string{aleStorageKey1, aleStorageKey2}},
-				{AddressFieldName: aleAddr, "storageKeys": []string{aleStorageKey2, aleStorageKey1}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1, aleStorageKey2}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey2, aleStorageKey1}},
 			},
 		},
 		{
@@ -443,8 +443,8 @@ func TestConvert_DuplicateAccessListEntries(t *testing.T) {
 			wantDocs: 2,
 			wantRefs: []string{fakeHash("tx-ale-distinct"), fakeHash("tx-ale-distinct")},
 			wantFields: []map[string]any{
-				{AddressFieldName: aleAddr, "storageKeys": []string{aleStorageKey1}},
-				{AddressFieldName: aleAddr, "storageKeys": []string{aleStorageKey2}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey1}},
+				{AddressFieldName: aleAddr, StorageKeysFieldName: []string{aleStorageKey2}},
 			},
 		},
 	}

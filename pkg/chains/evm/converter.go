@@ -436,7 +436,7 @@ func (c *Converter) buildALEData(ale *AccessListEntry, blockNumber int64) map[st
 	return map[string]any{
 		AddressFieldName:               ale.Address,
 		constants.BlockNumberFieldName: blockNumber,
-		"storageKeys":                  ale.StorageKeys,
+		StorageKeysFieldName:           ale.StorageKeys,
 	}
 }
 
