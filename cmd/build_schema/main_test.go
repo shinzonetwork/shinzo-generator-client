@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,7 +53,7 @@ func TestRun_OutputMatchesGetSchema(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	require.NoError(t, run([]string{"build_schema"}, &buf))
-	expected, err := schema.LoadSchemaSDL(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	expected, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).MergedSDL()
 	require.NoError(t, err)
 	assert.Equal(t, expected, buf.String())
 }
@@ -64,7 +63,7 @@ func TestRun_OutputWithPrefixMatchesGetSchemaForChain(t *testing.T) {
 	prefix := "Arbitrum__Mainnet"
 	var buf bytes.Buffer
 	require.NoError(t, run([]string{"build_schema", "--prefix", prefix}, &buf))
-	expected, err := schema.GetSchemaForChain(evm.NewCollectionNames(prefix))
+	expected, err := evm.NewCollectionNames(prefix).MergedSDL()
 	require.NoError(t, err)
 	assert.Equal(t, expected, buf.String())
 }
@@ -101,8 +100,12 @@ func TestRun_ListFiles(t *testing.T) {
 	output := strings.TrimSpace(buf.String())
 	assert.NotEmpty(t, output)
 	lines := strings.Split(output, "\n")
-	expected, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	files, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).CollectionFiles()
 	require.NoError(t, err)
+	expected := make([]string, 0, len(files))
+	for _, f := range files {
+		expected = append(expected, f.File)
+	}
 	assert.Equal(t, expected, lines)
 }
 

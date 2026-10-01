@@ -50,51 +50,6 @@ func TestDefaultCollections(t *testing.T) {
 	assert.Equal(t, expected, collections)
 }
 
-func TestSchemaApplyOrder(t *testing.T) {
-	t.Parallel()
-
-	order := SchemaApplyOrder()
-	require.Len(t, order, 6)
-
-	expected := []string{
-		CollectionBlock,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
-		CollectionTransaction,
-		CollectionAccessListEntry,
-		CollectionLog,
-	}
-	assert.Equal(t, expected, order)
-}
-
-func TestCollectionFileForType(t *testing.T) {
-	t.Parallel()
-	c := NewCollectionNames(DefaultCollectionPrefix)
-
-	tests := []struct {
-		name     string
-		typeName string
-		expected string
-	}{
-		{"Block", CollectionBlock, "block.graphql"},
-		{"Transaction", CollectionTransaction, "transaction.graphql"},
-		{"Log", CollectionLog, "log.graphql"},
-		{"AccessListEntry", CollectionAccessListEntry, "accessListEntry.graphql"},
-		{"BlockSignature", CollectionBlockSignature, "blockSignature.graphql"},
-		{"SnapshotSignature", CollectionSnapshotSignature, "snapshotSignature.graphql"},
-		{"UnknownPrefix", "UnknownPrefix__Block", ""},
-		{"NoPrefix", "Block", ""},
-		{"Empty", "", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := c.CollectionFileForType(tt.typeName)
-			assert.Equal(t, tt.expected, got)
-		})
-	}
-}
-
 func TestNewCollectionNames(t *testing.T) {
 	t.Parallel()
 

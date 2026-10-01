@@ -42,24 +42,41 @@ var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparsea
 // DefaultAdapterName is the default name value to be used in ChainFactories.
 const DefaultAdapterName = "evm"
 
+// CollectionFile pairs a collection's identity with its schema SDL. Every
+// field is provided literally by the chain implementation — no field is
+// derived from another, so consumers never need filename or naming-convention
+// surgery.
+type CollectionFile struct {
+	// TypeName is the fully-qualified, prefix-adapted collection type name
+	// (e.g. "Arbitrum__Mainnet__Block").
+	TypeName string
+	// Name is the collection stem (e.g. "block"). Used as the JSON-API cache
+	// key and its collections-list entry name.
+	Name string
+	// File is the schema file name (e.g. "block.graphql"). Used for CLI
+	// listings and schema-apply log messages.
+	File string
+	// SDL is the schema content adapted to the chain's prefix, ready for
+	// AddSchema.
+	SDL string
+}
+
 // Collections is the chain-agnostic abstraction over a chain family's named
 // collection set. Each chain family (EVM, future Cosmos) implements it so the
 // generic BlockHandler, schema loader, and P2P layer can consume collection
 // names without naming a chain-specific type.
 type Collections interface {
-	// Prefix returns the embedded-SDL prefix, e.g. "Ethereum__Mainnet".
+	// Prefix returns the chain's collection prefix, e.g. "Ethereum__Mainnet".
 	Prefix() string
 
 	// AllCollections returns all collection names in P2P filter order.
 	AllCollections() []string
 
-	// SchemaApplyOrder returns the dependency-safe order for AddSchema.
-	SchemaApplyOrder() []string
-
-	// CollectionFileForType maps a collection type name to its .graphql filename.
-	// e.g. "Ethereum__Mainnet__Block" → "block.graphql"
-	// Returns empty string if the type name does not match the default prefix.
-	CollectionFileForType(typeName string) string
+	// CollectionFiles returns the collection type names, files, and SDLs in
+	// dependency-safe schema-apply order, with each SDL already adapted to
+	// the chain's prefix. Failed reads produce an error instead of a partial
+	// or silently skipped entry.
+	CollectionFiles() ([]CollectionFile, error)
 
 	// BlockCollection returns the collection name that stores block documents
 	// (e.g. "Ethereum__Mainnet__Block").

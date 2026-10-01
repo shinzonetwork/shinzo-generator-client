@@ -96,9 +96,16 @@ func TestApplyCollectionSchemas_FallbackPath_IndependentCollectionsPreSeed(t *te
 	ctx := context.Background()
 
 	independentFiles := []string{"blockSignature.graphql", "snapshotSignature.graphql"}
+	files, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).CollectionFiles()
+	require.NoError(t, err)
+	sdlByFile := make(map[string]string, len(files))
+	for _, f := range files {
+		sdlByFile[f.File] = f.SDL
+	}
+
 	for _, file := range independentFiles {
-		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(evm.DefaultCollectionPrefix), file)
-		require.NoError(t, err, "failed to load %s", file)
+		sdl, ok := sdlByFile[file]
+		require.True(t, ok, "failed to load %s", file)
 		_, err = defraNode.DB.AddCollection(ctx, sdl)
 		require.NoError(t, err, "failed to pre-seed %s", file)
 	}
@@ -234,50 +241,38 @@ func TestSchemaApplierFromDir_CustomPrefix(t *testing.T) {
 }
 
 func TestApplyCollectionSchemas_FilesLoadedInOrder(t *testing.T) {
-	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	files, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).CollectionFiles()
 	require.NoError(t, err)
 	require.NotEmpty(t, files, "should have collection files")
 
-	prefix := evm.DefaultCollectionPrefix
 	for _, file := range files {
-		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(prefix), file)
-		require.NoError(t, err)
-		assert.NotEmpty(t, sdl, "SDL for %s should not be empty", file)
-		assert.Contains(t, sdl, prefix, "SDL for %s should contain prefix %s", file, prefix)
+		assert.NotEmpty(t, file.SDL, "SDL for %s should not be empty", file.File)
+		assert.Contains(t, file.SDL, evm.DefaultCollectionPrefix, "SDL for %s should contain prefix %s", file.File, evm.DefaultCollectionPrefix)
 	}
 }
 
 func TestApplyCollectionSchemas_EmptyPrefixUsesDefault(t *testing.T) {
 	t.Parallel()
-	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	files, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).CollectionFiles()
 	require.NoError(t, err)
 
-	prefix := ""
-	if prefix == "" {
-		prefix = evm.DefaultCollectionPrefix
-	}
-
 	for _, file := range files {
-		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(prefix), file)
-		require.NoError(t, err)
-		assert.Contains(t, sdl, evm.DefaultCollectionPrefix,
-			"empty chainPrefix should resolve to DefaultCollectionPrefix in %s", file)
+		assert.Contains(t, file.SDL, evm.DefaultCollectionPrefix,
+			"empty chainPrefix should resolve to DefaultCollectionPrefix in %s", file.File)
 	}
 }
 
 func TestApplyCollectionSchemas_CustomPrefixDoesNotContainDefault(t *testing.T) {
 	t.Parallel()
-	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	files, err := evm.NewCollectionNames("Arbitrum__Mainnet").CollectionFiles()
 	require.NoError(t, err)
 
 	customPrefix := "Arbitrum__Mainnet"
 	for _, file := range files {
-		sdl, err := schema.LoadCollectionSDLForChain(evm.NewCollectionNames(customPrefix), file)
-		require.NoError(t, err)
-		assert.NotContains(t, sdl, evm.DefaultCollectionPrefix,
-			"SDL for %s with custom prefix should not contain default prefix", file)
-		assert.Contains(t, sdl, customPrefix,
-			"SDL for %s should contain custom prefix", file)
+		assert.NotContains(t, file.SDL, evm.DefaultCollectionPrefix,
+			"SDL for %s with custom prefix should not contain default prefix", file.File)
+		assert.Contains(t, file.SDL, customPrefix,
+			"SDL for %s should contain custom prefix", file.File)
 	}
 }
 
@@ -308,17 +303,15 @@ func TestApplyCollectionSchemas_PartialPreSeedAddsRemaining(t *testing.T) {
 
 	ctx := context.Background()
 
-	allFiles, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	files, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).CollectionFiles()
 	require.NoError(t, err)
 
 	var parts []string
-	for _, f := range allFiles {
-		if f == "snapshotSignature.graphql" {
+	for _, f := range files {
+		if f.File == "snapshotSignature.graphql" {
 			continue
 		}
-		sdl, err := schema.LoadCollectionSDL(f)
-		require.NoError(t, err, "failed to load %s", f)
-		parts = append(parts, sdl)
+		parts = append(parts, f.SDL)
 	}
 
 	combinedSDL := strings.Join(parts, "\n\n")
