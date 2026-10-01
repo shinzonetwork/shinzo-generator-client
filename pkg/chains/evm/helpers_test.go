@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -376,4 +377,27 @@ func assertDeadlineError(t *testing.T, err error) {
 	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("expected a deadline-related error, got: %v", err)
 	}
+}
+
+// convertForALE converts a synthetic block bundle and extracts the ALE group
+// plus its stamper's parent refs (one per ALE doc) for assertions.
+func convertForALE(t *testing.T, c *Converter, bundle *BlockBundle) (*chains.DocumentGroup, []string) {
+	t.Helper()
+
+	result, err := c.Convert(context.Background(), bundle)
+	require.NoError(t, err)
+
+	var aleGroup *chains.DocumentGroup
+	for i := range result.Groups {
+		if result.Groups[i].Collection == c.collections.AccessListEntry {
+			aleGroup = &result.Groups[i]
+			break
+		}
+	}
+	require.NotNil(t, aleGroup, "should have an ALE group")
+
+	stamper, ok := result.LinkStamper.(*evmLinkStamper)
+	require.True(t, ok, "LinkStamper must be an *evmLinkStamper")
+
+	return aleGroup, stamper.aleParentRefs
 }
