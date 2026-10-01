@@ -2,11 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
-	"os"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
 func run(args []string, stdout io.Writer) error {
@@ -28,22 +27,20 @@ func run(args []string, stdout io.Writer) error {
 	var err error
 	switch {
 	case *listFiles:
-		files, err := schema.ListCollectionFiles(c)
+		files, err := c.CollectionFiles()
 		if err != nil {
 			return err
 		}
 		for _, f := range files {
-			if _, err := io.WriteString(stdout, f+"\n"); err != nil {
+			if _, err := io.WriteString(stdout, f.File+"\n"); err != nil {
 				return err
 			}
 		}
 		return nil
-	case *file != "" && *prefix != "":
-		sdl, err = schema.LoadCollectionSDLForChain(c, *file)
 	case *file != "":
-		sdl, err = schema.LoadCollectionSDL(*file)
+		sdl, err = collectionSDLByFile(c, *file)
 	default:
-		sdl, err = schema.GetSchemaForChain(c)
+		sdl, err = c.MergedSDL()
 	}
 
 	if err != nil {
@@ -53,8 +50,18 @@ func run(args []string, stdout io.Writer) error {
 	return err
 }
 
-func main() {
-	if err := run(os.Args, os.Stdout); err != nil {
-		os.Exit(1)
+// collectionSDLByFile looks up a single collection file's SDL from the chain's
+// ordered pairs, so the CLI resolves every file through the same source as
+// schema application and reports a clear error on unknown names.
+func collectionSDLByFile(c *evm.CollectionNames, file string) (string, error) {
+	files, err := c.CollectionFiles()
+	if err != nil {
+		return "", err
 	}
+	for _, f := range files {
+		if f.File == file {
+			return f.SDL, nil
+		}
+	}
+	return "", fmt.Errorf("collection file %q not found for prefix %s", file, c.Prefix())
 }
