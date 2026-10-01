@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -101,7 +100,7 @@ func TestApplyWithBackend_FallbackToPerFile(t *testing.T) {
 	err := applyWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
-	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	files, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).CollectionFiles()
 	require.NoError(t, err)
 
 	callCount := backend.callCount()
@@ -160,7 +159,7 @@ func TestApplyPerFileWithBackend_AllSucceed(t *testing.T) {
 	err := applyPerFileWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err)
 
-	files, err := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	files, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).CollectionFiles()
 	require.NoError(t, err)
 
 	calls := backend.getCalls()
@@ -183,7 +182,7 @@ func TestApplyPerFileWithBackend_SkipAlreadyExists(t *testing.T) {
 	err := applyPerFileWithBackend(ctx, backend, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	require.NoError(t, err, "should skip already-existing collections and succeed")
 
-	files, _ := schema.ListCollectionFiles(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	files, _ := evm.NewCollectionNames(evm.DefaultCollectionPrefix).CollectionFiles()
 	assert.Equal(t, len(files), backend.callCount(),
 		"should attempt all files even when some already exist")
 }
