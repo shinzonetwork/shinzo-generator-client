@@ -52,6 +52,7 @@ type ConcurrentBlockProcessor struct {
 	fetcher         chains.Fetcher
 	converter       chains.Converter
 	blockHandler    BlockStorer
+	reorgHandler    defra.ReorgHandler
 	workers         int
 	blocksPerMinute int
 	resultChan      chan *BlockResult
@@ -61,11 +62,15 @@ type ConcurrentBlockProcessor struct {
 	nextToCommit    int64
 }
 
-// NewConcurrentBlockProcessor creates a new concurrent processor.
+// NewConcurrentBlockProcessor creates a new concurrent processor. The
+// reorgHandler is the rollback primitive consumed by the continuity check
+// and rollback orchestration; it may be nil, in which case a detected reorg
+// is reported instead of rolled back.
 func NewConcurrentBlockProcessor(
 	fetcher chains.Fetcher,
 	converter chains.Converter,
 	blockHandler BlockStorer,
+	reorgHandler defra.ReorgHandler,
 	workers int,
 	blocksPerMinute int,
 ) *ConcurrentBlockProcessor {
@@ -73,6 +78,7 @@ func NewConcurrentBlockProcessor(
 		fetcher:         fetcher,
 		converter:       converter,
 		blockHandler:    blockHandler,
+		reorgHandler:    reorgHandler,
 		workers:         workers,
 		blocksPerMinute: blocksPerMinute,
 		resultChan:      make(chan *BlockResult, workers*DefaultWorkersAhead),

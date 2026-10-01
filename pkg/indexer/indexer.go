@@ -475,15 +475,21 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		return nil
 	}
 
+	roller, err := defra.NewReorgRoller(i.defraNode, i.converter)
+	if err != nil {
+		return fmt.Errorf("create reorg roller: %w", err)
+	}
+
 	processor := NewConcurrentBlockProcessor(
 		i.fetcher,
 		i.converter,
 		i.blockHandler,
+		roller,
 		cfg.Indexer.ConcurrentBlocks,
 		cfg.Indexer.BlocksPerMinute,
 	)
 
-	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
+	err = processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
 		i.updateBlockInfo(blockNum)
 		i.mutex.Lock()
 		i.hasIndexedAtLeastOneBlock = true
