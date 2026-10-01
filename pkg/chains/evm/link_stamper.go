@@ -112,11 +112,12 @@ func (s *evmLinkStamper) StampBeforeWrite(collection string, docs []map[string]a
 // mutates docs.
 //
 // Partial-write contract: an ids slice shorter than docs is a routine partial
-// write — not an error. createDocBatch returns partial IDs on batch failure
-// and re-indexed blocks return none at all (the docs already exist).
+// write — not an error. createDocBatch returns partial IDs on batch failure,
+// and a batch whose documents already exist returns none at all alongside an
+// already-exists error (Store then stops the remaining groups).
 // Registration is skipped for uncovered docs; when some IDs are present but
 // fewer than docs, each skipped doc logs a debug line, while a call with no
-// docIDs at all (routine re-index) stays silent. Short input never errors and
+// docIDs at all stays silent. Short input never errors and
 // never panics.
 //
 // Error cases (same input contract as StampBeforeWrite, enforced so an

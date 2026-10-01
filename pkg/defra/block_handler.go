@@ -509,7 +509,7 @@ func (h *BlockHandler) createDocBatch(
 		var ids []string
 		err := h.writeBatchWithRetry(ctx, blockInt, colName, func() error {
 			var e error
-			ids, e = h.createDocsInTxn(ctx, colName, batch)
+			ids, e = h.createDocsInTxn(ctx, blockInt, colName, batch)
 			return e
 		})
 		allIDs = append(allIDs, ids...)
@@ -521,11 +521,24 @@ func (h *BlockHandler) createDocBatch(
 }
 
 // createDocsInTxn creates documents from data maps in a single transaction.
+//
+// When the bulk write fails because one or more documents already exist
+// (content-addressed identity), the batch attempt is discarded — including any
+// CIDs it deposited in the context's batch-signing collector, which are
+// truncated to the entry mark with the same rollback contract
+// writeBatchWithRetry applies to returned errors — and the documents are
+// retried one by one so exactly the missing ones are stored instead of the
+// whole batch being dropped. The skip is not a silent success: as long as any
+// document skipped, the returned error keeps the "already exists" substring so
+// Store records a batch error and the block's outcome is reported truthfully.
 func (h *BlockHandler) createDocsInTxn(
 	ctx context.Context,
+	blockInt int64,
 	colName string,
 	dataMaps []map[string]any,
 ) ([]string, error) {
+	collector, mark := batchSigningMark(ctx)
+
 	txn, err := h.db.NewTxn(false)
 	if err != nil {
 		return nil, fmt.Errorf("create txn for %s: %w", colName, err) //nolint:err113
@@ -552,12 +565,13 @@ func (h *BlockHandler) createDocsInTxn(
 		return nil, nil
 	}
 
-	if err := col.AddManyDocuments(ctx, docs); err != nil {
+	bulkErr := col.AddManyDocuments(ctx, docs)
+	if bulkErr != nil {
 		txn.Discard()
-		if errors.IsErrAlreadyExists(err) {
-			return nil, nil
+		if !errors.IsErrAlreadyExists(bulkErr) {
+			return nil, fmt.Errorf("add documents to %s: %w", colName, bulkErr) //nolint:err113
 		}
-		return nil, fmt.Errorf("add documents to %s: %w", colName, err) //nolint:err113
+		return h.writeBatchSkipExisting(ctx, blockInt, colName, dataMaps, collector, mark, bulkErr)
 	}
 
 	if err := txn.Commit(); err != nil {
@@ -569,6 +583,124 @@ func (h *BlockHandler) createDocsInTxn(
 		ids[i] = doc.ID().String()
 	}
 	return ids, nil
+}
+
+// batchSigningMark returns the batch-signing collector carried by ctx together
+// with a rollback mark (its current length). A nil collector is allowed: some
+// write paths carry no collector in their context.
+func batchSigningMark(ctx context.Context) (*node.BatchCIDCollector, int) {
+	collector := node.BatchSigningCollectorFromContext(ctx)
+	if collector == nil {
+		return nil, 0
+	}
+	return collector, collector.Len()
+}
+
+// writeBatchSkipExisting replaces a discarded bulk batch attempt with
+// per-document writes: the attempt's collector CIDs are truncated to the
+// entry mark, the missing documents are stored via addDocsSkipExisting, and
+// the outcome is logged truthfully. As long as any document was skipped, the
+// returned error keeps the "already exists" substring so Store records a
+// batch error and the block's outcome is reported truthfully.
+func (h *BlockHandler) writeBatchSkipExisting(
+	ctx context.Context,
+	blockInt int64,
+	colName string,
+	dataMaps []map[string]any,
+	collector *node.BatchCIDCollector,
+	mark int,
+	bulkErr error,
+) ([]string, error) {
+	if collector != nil {
+		collector.Truncate(mark)
+	}
+	ids, skipped, err := h.addDocsSkipExisting(ctx, colName, dataMaps)
+	logger.Sugar.Warnf("Block %d: %s batch: stored %d of %d documents, %d already existed",
+		blockInt, colName, len(ids), len(dataMaps), skipped)
+	if err != nil {
+		return ids, fmt.Errorf("write %s batch per-document: %w", colName, err) //nolint:err113
+	}
+	if skipped > 0 {
+		return ids, fmt.Errorf("%s batch: %d of %d documents already existed: %w", //nolint:err113
+			colName, skipped, len(dataMaps), bulkErr)
+	}
+	return ids, nil
+}
+
+// addDocsSkipExisting stores documents one per AddDocument inside a single
+// fresh transaction, skipping documents whose content is already stored and
+// writing the rest. It returns the docIDs of the newly written documents and
+// the number of inputs skipped (pre-existing documents and content-duplicates
+// within the input). A failed add does not abort the transaction: the skip is
+// handled here and its attempt CIDs, if any, are truncated from the context's
+// collector so only committed documents remain registered. Any other failure
+// discards the transaction; the caller's retry and fail-fast handling then
+// apply.
+func (h *BlockHandler) addDocsSkipExisting(
+	ctx context.Context,
+	colName string,
+	dataMaps []map[string]any,
+) ([]string, int, error) {
+	txn, err := h.db.NewTxn(false)
+	if err != nil {
+		return nil, 0, fmt.Errorf("create txn for %s: %w", colName, err) //nolint:err113
+	}
+
+	col, err := txn.GetCollectionByName(ctx, colName)
+	if err != nil {
+		txn.Discard()
+		return nil, 0, fmt.Errorf("get collection %s: %w", colName, err) //nolint:err113
+	}
+
+	collector := node.BatchSigningCollectorFromContext(ctx)
+	var written []string
+	seen := make(map[string]struct{})
+	skipped := 0
+
+	for _, data := range dataMaps {
+		doc, err := client.NewDocFromMap(ctx, data, col.Version())
+		if err != nil {
+			txn.Discard()
+			return written, skipped, fmt.Errorf("create doc in %s: %w", colName, err) //nolint:err113
+		}
+
+		pre := 0
+		if collector != nil {
+			pre = collector.Len()
+		}
+		if err := col.AddDocument(ctx, doc); err != nil {
+			if !errors.IsErrAlreadyExists(err) {
+				txn.Discard()
+				return written, skipped, fmt.Errorf("add document to %s: %w", colName, err) //nolint:err113
+			}
+			if collector != nil {
+				collector.Truncate(pre)
+			}
+			skipped++
+			continue
+		}
+		// A document's docID is assigned by AddDocument, not by document
+		// construction — this is the first moment it is valid.
+		docID := doc.ID().String()
+		if _, dup := seen[docID]; dup {
+			// Content-duplicate of a document already written in this
+			// transaction: the collection gains no new record.
+			skipped++
+			continue
+		}
+		seen[docID] = struct{}{}
+		written = append(written, docID)
+	}
+
+	if len(written) == 0 {
+		txn.Discard()
+		return written, skipped, nil
+	}
+
+	if err := txn.Commit(); err != nil {
+		return written, skipped, fmt.Errorf("commit %s batch: %w", colName, err) //nolint:err113
+	}
+	return written, skipped, nil
 }
 
 // SignExisting creates a block signature for a block that has already been
