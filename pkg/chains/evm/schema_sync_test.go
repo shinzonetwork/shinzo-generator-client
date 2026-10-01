@@ -37,36 +37,36 @@ func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
 		// host contract and live in pkg/constants, asserted in
 		// TestConstantsMatchCollectionSDL; the rest are JSON-RPC payload
 		// carried through.
-		{file: "block.graphql", field: TimestampFieldName},
-		{file: "block.graphql", field: ParentHashFieldName},
-		{file: "block.graphql", field: DifficultyFieldName},
-		{file: "block.graphql", field: GasUsedFieldName},
-		{file: "block.graphql", field: GasLimitFieldName},
-		{file: "block.graphql", field: NonceFieldName},
-		{file: "block.graphql", field: MinerFieldName},
-		{file: "block.graphql", field: StateRootFieldName},
-		{file: "block.graphql", field: Sha3UnclesFieldName},
-		{file: "block.graphql", field: TransactionsRootFieldName},
-		{file: "block.graphql", field: ReceiptsRootFieldName},
-		{file: "block.graphql", field: LogsBloomFieldName},
-		{file: "block.graphql", field: ExtraDataFieldName},
-		{file: "block.graphql", field: MixHashFieldName},
+		{file: blockCollectionFile, field: TimestampFieldName},
+		{file: blockCollectionFile, field: ParentHashFieldName},
+		{file: blockCollectionFile, field: DifficultyFieldName},
+		{file: blockCollectionFile, field: GasUsedFieldName},
+		{file: blockCollectionFile, field: GasLimitFieldName},
+		{file: blockCollectionFile, field: NonceFieldName},
+		{file: blockCollectionFile, field: MinerFieldName},
+		{file: blockCollectionFile, field: StateRootFieldName},
+		{file: blockCollectionFile, field: Sha3UnclesFieldName},
+		{file: blockCollectionFile, field: TransactionsRootFieldName},
+		{file: blockCollectionFile, field: ReceiptsRootFieldName},
+		{file: blockCollectionFile, field: LogsBloomFieldName},
+		{file: blockCollectionFile, field: ExtraDataFieldName},
+		{file: blockCollectionFile, field: MixHashFieldName},
 
 		// Transaction document.
-		{file: "transaction.graphql", field: NonceFieldName},
-		{file: "transaction.graphql", field: TransactionIndexFieldName},
-		{file: "transaction.graphql", field: TypeFieldName},
-		{file: "transaction.graphql", field: CumulativeGasUsedFieldName},
-		{file: "transaction.graphql", field: EffectiveGasPriceFieldName},
-		{file: "transaction.graphql", field: StatusFieldName},
+		{file: transactionCollectionFile, field: NonceFieldName},
+		{file: transactionCollectionFile, field: TransactionIndexFieldName},
+		{file: transactionCollectionFile, field: TypeFieldName},
+		{file: transactionCollectionFile, field: CumulativeGasUsedFieldName},
+		{file: transactionCollectionFile, field: EffectiveGasPriceFieldName},
+		{file: transactionCollectionFile, field: StatusFieldName},
 
 		// Log document.
-		{file: "log.graphql", field: AddressFieldName},
-		{file: "log.graphql", field: TransactionHashFieldName},
-		{file: "log.graphql", field: TransactionIndexFieldName},
+		{file: logCollectionFile, field: AddressFieldName},
+		{file: logCollectionFile, field: TransactionHashFieldName},
+		{file: logCollectionFile, field: TransactionIndexFieldName},
 
 		// Access list entry document.
-		{file: "accessListEntry.graphql", field: AddressFieldName},
+		{file: accessListEntryCollectionFile, field: AddressFieldName},
 	}
 
 	sdls := make(map[string]string, 4)
@@ -104,35 +104,35 @@ func TestConstantsMatchCollectionSDL(t *testing.T) {
 		// Block document: its own number/hash join fields. The host prunes
 		// and bootstraps the Block collection by these names, so they are
 		// part of the generator-host contract this file pins.
-		{file: "block.graphql", field: constants.NumberFieldName},
-		{file: "block.graphql", field: constants.HashFieldName},
+		{file: blockCollectionFile, field: constants.NumberFieldName},
+		{file: blockCollectionFile, field: constants.HashFieldName},
 
 		// Data documents carry the block number/hash payload fields.
-		{file: "transaction.graphql", field: constants.HashFieldName},
-		{file: "transaction.graphql", field: constants.BlockNumberFieldName},
-		{file: "transaction.graphql", field: constants.BlockHashFieldName},
-		{file: "log.graphql", field: constants.BlockNumberFieldName},
-		{file: "log.graphql", field: constants.BlockHashFieldName},
-		{file: "accessListEntry.graphql", field: constants.BlockNumberFieldName},
+		{file: transactionCollectionFile, field: constants.HashFieldName},
+		{file: transactionCollectionFile, field: constants.BlockNumberFieldName},
+		{file: transactionCollectionFile, field: constants.BlockHashFieldName},
+		{file: logCollectionFile, field: constants.BlockNumberFieldName},
+		{file: logCollectionFile, field: constants.BlockHashFieldName},
+		{file: accessListEntryCollectionFile, field: constants.BlockNumberFieldName},
 
 		// BlockSignature carries the full signature-document contract.
-		{file: "blockSignature.graphql", field: constants.BlockNumberFieldName},
-		{file: "blockSignature.graphql", field: constants.BlockHashFieldName},
-		{file: "blockSignature.graphql", field: constants.MerkleRootFieldName},
-		{file: "blockSignature.graphql", field: constants.CIDCountFieldName},
-		{file: "blockSignature.graphql", field: constants.CIDsFieldName},
-		{file: "blockSignature.graphql", field: constants.SignatureTypeFieldName},
-		{file: "blockSignature.graphql", field: constants.SignatureIdentityFieldName},
-		{file: "blockSignature.graphql", field: constants.SignatureValueFieldName},
-		{file: "blockSignature.graphql", field: constants.CreatedAtFieldName},
+		{file: blockSignatureCollectionFile, field: constants.BlockNumberFieldName},
+		{file: blockSignatureCollectionFile, field: constants.BlockHashFieldName},
+		{file: blockSignatureCollectionFile, field: constants.MerkleRootFieldName},
+		{file: blockSignatureCollectionFile, field: constants.CIDCountFieldName},
+		{file: blockSignatureCollectionFile, field: constants.CIDsFieldName},
+		{file: blockSignatureCollectionFile, field: constants.SignatureTypeFieldName},
+		{file: blockSignatureCollectionFile, field: constants.SignatureIdentityFieldName},
+		{file: blockSignatureCollectionFile, field: constants.SignatureValueFieldName},
+		{file: blockSignatureCollectionFile, field: constants.CreatedAtFieldName},
 
 		// SnapshotSignature shares the signature fields; block identity comes
 		// from startBlock/endBlock instead of the shared pair.
-		{file: "snapshotSignature.graphql", field: constants.MerkleRootFieldName},
-		{file: "snapshotSignature.graphql", field: constants.SignatureTypeFieldName},
-		{file: "snapshotSignature.graphql", field: constants.SignatureIdentityFieldName},
-		{file: "snapshotSignature.graphql", field: constants.SignatureValueFieldName},
-		{file: "snapshotSignature.graphql", field: constants.CreatedAtFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.MerkleRootFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.SignatureTypeFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.SignatureIdentityFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.SignatureValueFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.CreatedAtFieldName},
 	}
 
 	sdls := make(map[string]string, 6)
