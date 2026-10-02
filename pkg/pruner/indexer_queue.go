@@ -290,6 +290,29 @@ func (q *IndexerQueue) Drain(keep int, blockCollectionName, blockSigCollectionNa
 	return q.buildDrainResult(drained, drainCount, blockCollectionName, blockSigCollectionName)
 }
 
+// RemoveBlockRange drops every entry whose block number is in [from, to],
+// preserving the order of the rest, and returns the number of removed
+// entries. Unlike Drain it returns no DrainResult: the docs in range were
+// already soft-deleted by the reorg rollback, so there is nothing to purge —
+// the point is to stop the dead docIDs from driving later prunes. Callers
+// persist the change via Save.
+func (q *IndexerQueue) RemoveBlockRange(from, to int64) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	kept := make([]BlockEntry, 0, len(q.entries))
+	removed := 0
+	for _, entry := range q.entries {
+		if entry.BlockNumber >= from && entry.BlockNumber <= to {
+			removed++
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	q.entries = kept
+	return removed
+}
+
 // buildDrainResult rebuilds DocIDsByCollection from the drained entries:
 // block docIDs under the block collection name, batch-sig docIDs under the
 // block-signature collection name, and all OtherDocIDs under their own keys.

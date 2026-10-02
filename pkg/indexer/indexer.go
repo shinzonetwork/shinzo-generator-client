@@ -88,8 +88,9 @@ type ChainIndexer struct {
 	defraNode                 *node.Node              // Embedded DefraDB node (nil if using external)
 	networkHandler            *defradb.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
-	pruner                    *pruner.Pruner        // Document pruner for removing old blocks.
-	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks.
+	pruner                    *pruner.Pruner              // Document pruner for removing old blocks.
+	snapshotter               *snapshot.Snapshotter       // Snapshot exporter for archiving blocks.
+	docIDTracker              defra.DocIDTrackerInterface // Prune-queue tracker; set only when the pruner is enabled, and shared by the block handler (tracking) and the reorg roller (rollback cleanup).
 	currentBlock              int64
 	lastProcessedTime         time.Time
 	indexingCancel            context.CancelCauseFunc // Cancel for the indexing loop; nil unless concurrent indexing is running.
@@ -372,10 +373,11 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) err
 			logger.Sugar.Infof("Restored %d entries from prune queue file", restored)
 		}
 		i.pruner.SetQueue(pruneQueue)
-		i.blockHandler.SetDocIDTracker(&indexerQueueTracker{
+		i.docIDTracker = &indexerQueueTracker{
 			queue:       pruneQueue,
 			collections: i.converter.Collections(),
-		})
+		}
+		i.blockHandler.SetDocIDTracker(i.docIDTracker)
 		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 		if err := i.pruner.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start pruner: %v", err)
@@ -479,6 +481,10 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	if err != nil {
 		return fmt.Errorf("create reorg roller: %w", err)
 	}
+	// The roller shares the block handler's tracker so a rollback also drops
+	// the rolled-back heights from the prune queue (nil when the pruner is
+	// disabled — the roller then skips the cleanup).
+	roller.SetDocIDTracker(i.docIDTracker)
 
 	processor := NewConcurrentBlockProcessor(
 		i.fetcher,
@@ -945,4 +951,21 @@ type indexerQueueTracker struct {
 
 func (t *indexerQueueTracker) TrackBlock(_ context.Context, blockNumber int64, result *defra.BlockCreationResult) error {
 	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, result.OtherDocIDs, result.BlockSignatureID)
+}
+
+// RollbackBlocks implements DocIDTrackerInterface: it drops the queue
+// entries for the rolled-back range and persists the trimmed queue, so the
+// dead docIDs never drive a later prune. Prune-queue consistency matters
+// because the pruner's retention accounting counts tracked docs — stale
+// entries would make it overshoot and carry no-ops into every drain.
+func (t *indexerQueueTracker) RollbackBlocks(from, to int64) error {
+	removed := t.queue.RemoveBlockRange(from, to)
+	if removed == 0 {
+		return nil
+	}
+	if err := t.queue.Save(); err != nil {
+		return fmt.Errorf("persist prune queue after rollback [%d, %d]: %w", from, to, err) //nolint:err113
+	}
+	logger.Sugar.Infof("Prune queue: dropped %d rolled-back entries in [%d, %d]", removed, from, to)
+	return nil
 }

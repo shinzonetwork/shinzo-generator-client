@@ -32,10 +32,20 @@ type ReorgHandler interface {
 type ReorgRoller struct {
 	defraNode *node.Node
 	converter chains.Converter
+	// docIDTracker optionally removes the rolled-back heights from the
+	// prune queue, whose persisted entries would otherwise keep driving
+	// prunes with the dead docIDs the rollback just deleted.
+	docIDTracker DocIDTrackerInterface
 }
 
 // Compile-time guarantee that ReorgRoller implements ReorgHandler.
 var _ ReorgHandler = (*ReorgRoller)(nil)
+
+// SetDocIDTracker attaches the docID tracker whose entries the rollback
+// cleans up; nil (the default) skips the cleanup.
+func (r *ReorgRoller) SetDocIDTracker(tracker DocIDTrackerInterface) {
+	r.docIDTracker = tracker
+}
 
 // NewReorgRoller creates a ReorgRoller over the given embedded DefraDB node,
 // using the converter for collection-name resolution and range docID queries.
@@ -59,7 +69,10 @@ func NewReorgRoller(defraNode *node.Node, converter chains.Converter) (*ReorgRol
 // queries already exclude soft-deleted documents, so a re-run over an
 // already rolled-back range selects nothing and deletes nothing — and
 // soft-deletes the documents collection by collection. A collection with no
-// docs in range is skipped, and an empty range is a no-op.
+// docs in range is skipped, and an empty range is a no-op. After the
+// deletions succeed it drops the range from the docID tracker (prune-queue
+// cleanup); a tracker failure is surfaced so the caller stops indexing
+// rather than running a pruner over inconsistent bookkeeping.
 func (r *ReorgRoller) RollbackBlocks(ctx context.Context, from, to int64) error {
 	docIDsByCollection, err := r.converter.GetDocIDsByBlockRange(ctx, r.defraNode, from, to)
 	if err != nil {
@@ -75,6 +88,15 @@ func (r *ReorgRoller) RollbackBlocks(ctx context.Context, from, to int64) error 
 	for _, colName := range cols {
 		if err := r.softDeleteCollectionDocs(ctx, colName, docIDsByCollection[colName]); err != nil {
 			return fmt.Errorf("rollback blocks [%d, %d]: %w", from, to, err) //nolint:err113
+		}
+	}
+
+	// The tracker cleanup runs only after the soft-deletes succeeded:
+	// dropping queue entries for docs that are still stored would strand
+	// them from every future prune.
+	if r.docIDTracker != nil {
+		if err := r.docIDTracker.RollbackBlocks(from, to); err != nil {
+			return fmt.Errorf("rollback blocks [%d, %d]: prune-queue cleanup: %w", from, to, err) //nolint:err113
 		}
 	}
 	return nil

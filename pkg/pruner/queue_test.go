@@ -1,6 +1,7 @@
 package pruner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -407,4 +408,74 @@ func TestIndexerQueueLoadFromFile_WithPrefix(t *testing.T) {
 	count, err := q2.LoadFromFile(filePath)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
+}
+
+// ─── RemoveBlockRange (reorg rollback cleanup) ───────────────────────────────
+
+// queueTestDocID builds a valid, number-derivable docID for queue tests.
+func queueTestDocID(n int64) string {
+	return docIDPrefix + "-" + fmt.Sprintf("%032x", n)
+}
+
+func TestIndexerQueueRemoveBlockRange(t *testing.T) {
+	t.Parallel()
+
+	t.Run("removes exactly the entries in range and keeps others", func(t *testing.T) {
+		q := NewIndexerQueue()
+		for i := int64(1); i <= 5; i++ {
+			require.NoError(t, q.TrackBlockDocIDs(i, queueTestDocID(i), nil, ""))
+		}
+
+		assert.Equal(t, 3, q.RemoveBlockRange(2, 4))
+		assert.Equal(t, 2, q.Len())
+		assert.Equal(t, 2, q.DocCount())
+
+		q.mu.Lock()
+		assert.Equal(t, []int64{1, 5},
+			[]int64{q.entries[0].BlockNumber, q.entries[1].BlockNumber},
+			"surviving entries keep their relative order")
+		q.mu.Unlock()
+	})
+
+	t.Run("persists via Save", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		filePath := filepath.Join(tmpDir, "rollback_queue.gob")
+
+		q := NewIndexerQueue()
+		_, err := q.LoadFromFile(filePath)
+		require.NoError(t, err)
+		for i := int64(1); i <= 5; i++ {
+			require.NoError(t, q.TrackBlockDocIDs(i, queueTestDocID(i), nil, ""))
+		}
+
+		require.Equal(t, 3, q.RemoveBlockRange(2, 4))
+		require.NoError(t, q.Save())
+
+		q2 := NewIndexerQueue()
+		count, err := q2.LoadFromFile(filePath)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count, "the persisted queue must hold exactly the surviving entries")
+		q2.mu.Lock()
+		assert.Equal(t, []int64{1, 5},
+			[]int64{q2.entries[0].BlockNumber, q2.entries[1].BlockNumber})
+		q2.mu.Unlock()
+	})
+
+	t.Run("range outside the queue is a no-op", func(t *testing.T) {
+		q := NewIndexerQueue()
+		for i := int64(1); i <= 3; i++ {
+			require.NoError(t, q.TrackBlockDocIDs(i, queueTestDocID(i), nil, ""))
+		}
+
+		assert.Equal(t, 0, q.RemoveBlockRange(10, 20))
+		assert.Equal(t, 3, q.Len())
+	})
+
+	t.Run("empty range boundary values", func(t *testing.T) {
+		q := NewIndexerQueue()
+		require.NoError(t, q.TrackBlockDocIDs(7, queueTestDocID(7), nil, ""))
+
+		assert.Equal(t, 1, q.RemoveBlockRange(7, 7), "a single-height rollback [H, H] removes that one entry")
+		assert.Equal(t, 0, q.Len())
+	})
 }
