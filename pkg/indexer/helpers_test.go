@@ -8,15 +8,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
@@ -147,12 +153,161 @@ func (m *mockBlockStorer) SignExisting(ctx context.Context, result chains.Conver
 	return "mock-sig-id", nil
 }
 
+// mockReorgHandler is a scripted ReorgHandler for processor tests: it serves
+// stored hashes from a height-keyed map and records RollbackBlocks calls,
+// optionally delegating them to rollbackFn (typically to mutate storedHashes
+// the way a real rollback would). When defaultHash is non-empty it is served
+// for every height, modelling a reorg handler that never agrees with the
+// chain (used to trip the rollback-loop guards).
+type mockReorgHandler struct {
+	mu            sync.Mutex
+	storedHashes  map[int64]string
+	defaultHash   string
+	rollbackCalls []rollbackCall
+	rollbackFn    func(from, to int64) error
+}
+
+type rollbackCall struct {
+	from, to int64
+}
+
+func (m *mockReorgHandler) RollbackBlocks(_ context.Context, from, to int64) error {
+	m.mu.Lock()
+	m.rollbackCalls = append(m.rollbackCalls, rollbackCall{from: from, to: to})
+	fn := m.rollbackFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(from, to)
+	}
+	return nil
+}
+
+func (m *mockReorgHandler) GetStoredBlockHash(_ context.Context, blockNumber int64) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.defaultHash != "" {
+		return m.defaultHash, nil
+	}
+	return m.storedHashes[blockNumber], nil
+}
+
+func (m *mockReorgHandler) calls() []rollbackCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]rollbackCall(nil), m.rollbackCalls...)
+}
+
+// mockChainHeader builds the canonical mock header for a height. Its content
+// is a pure function of the height and the parent's mock hash. go-ethereum's
+// ethclient discards the served JSON "hash" field and re-derives the block
+// hash via keccak(RLP(header)), so the mock chain only satisfies the
+// parentHash continuity check if the served JSON decodes into exactly this
+// header — fullBlockResponse must keep its fields aligned with it.
+func mockChainHeader(n int64, parentHash common.Hash) *ethtypes.Header {
+	return &ethtypes.Header{
+		ParentHash:  parentHash,
+		UncleHash:   ethtypes.EmptyUncleHash,
+		Coinbase:    common.Address{},
+		Root:        common.Hash{},
+		TxHash:      ethtypes.EmptyRootHash,
+		ReceiptHash: common.Hash{},
+		Bloom:       ethtypes.Bloom{},
+		Difficulty:  new(big.Int),
+		Number:      big.NewInt(n),
+		GasLimit:    0x1000000,
+		GasUsed:     0x5208,
+		Time:        0x60000000,
+		Extra:       []byte{},
+		MixDigest:   common.Hash{},
+		Nonce:       ethtypes.BlockNonce{},
+	}
+}
+
+// mockChainHashes memoizes per-height hashes of the mock chain. Content is a
+// pure function of the height, so the memo is safely shared across tests.
+var mockChainHashes sync.Map
+
+// mockChainHash returns the keccak-RLP hash of the canonical mock header for
+// height n. hash(n) embeds hash(n-1) through ParentHash, so a height is
+// computed by walking down to the lowest missing ancestor and filling the
+// prefix iteratively (no unbounded recursion for large heights).
+func mockChainHash(n int64) common.Hash {
+	if n < 0 {
+		return common.Hash{}
+	}
+	if _, ok := mockChainHashes.Load(n); ok {
+		return hashAt(n)
+	}
+	low := n
+	for low > 0 {
+		if _, ok := mockChainHashes.Load(low - 1); ok {
+			break
+		}
+		low--
+	}
+	for h := low; h <= n; h++ {
+		parent := common.Hash{}
+		if h > 0 {
+			parent = hashAt(h - 1)
+		}
+		mockChainHashes.Store(h, mockChainHeader(h, parent).Hash())
+	}
+	return hashAt(n)
+}
+
+// hashAt reads a memoized mock hash; callers must have filled the entry.
+func hashAt(n int64) common.Hash {
+	v, _ := mockChainHashes.Load(n)
+	return v.(common.Hash)
+}
+
+// testBlockHash returns the canonical mock hash of a hex-numbered height: the
+// keccak-RLP hash of the header the served JSON decodes into, which is also
+// what the next height serves as parentHash.
+func testBlockHash(number string) string {
+	n, err := strconv.ParseInt(strings.TrimPrefix(number, "0x"), 16, 64)
+	if err != nil {
+		return "0x0000000000000000000000000000000000000000000000000000000000000001"
+	}
+	return mockChainHash(n).Hex()
+}
+
+// testBlockParentHash returns the canonical mock hash of the parent height,
+// all-zeros at (or below) genesis or when the number is unparseable.
+func testBlockParentHash(number string) string {
+	n, err := strconv.ParseInt(strings.TrimPrefix(number, "0x"), 16, 64)
+	if err != nil || n <= 0 {
+		return "0x0000000000000000000000000000000000000000000000000000000000000000"
+	}
+	return mockChainHash(n - 1).Hex()
+}
+
+// requestedBlockNumber extracts the hex block height from an
+// eth_getBlockByNumber params array; ok is false for "latest" and for
+// unparseable params. Handlers serve per requested height so the mock chain
+// stays parentHash-consistent regardless of call order and retries.
+func requestedBlockNumber(params json.RawMessage) (int64, bool) {
+	var rawParams []json.RawMessage
+	if err := json.Unmarshal(params, &rawParams); err != nil || len(rawParams) == 0 {
+		return 0, false
+	}
+	var blockParam string
+	if err := json.Unmarshal(rawParams[0], &blockParam); err != nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(strings.TrimPrefix(blockParam, "0x"), 16, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 func fullBlockResponse(number string, txs []any) map[string]any {
 	emptyTrieRoot := testTransactionsRoot
 	block := map[string]any{
 		constants.NumberFieldName: number,
-		"hash":                    "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"parentHash":              "0x0000000000000000000000000000000000000000000000000000000000000000",
+		constants.HashFieldName:   testBlockHash(number),
+		evm.ParentHashFieldName:   testBlockParentHash(number),
 		"nonce":                   "0x0000000000000000",
 		"sha3Uncles":              testSha3Uncles,
 		"logsBloom":               "0x" + fmt.Sprintf("%0512x", 0),
@@ -197,7 +352,7 @@ func newHealthServerForTest(t *testing.T) *server.HealthServer {
 func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 	var blockCallCount atomic.Int64
 
-	return newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+	return newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
 			count := blockCallCount.Add(1)
@@ -207,8 +362,12 @@ func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 				default:
 				}
 			}
-			// Return a unique block per call: use a high starting number.
+			// Serve the requested height so repeated and concurrent fetches
+			// stay parentHash-consistent.
 			num := fmt.Sprintf("0x%x", 100000+count)
+			if requested, ok := requestedBlockNumber(params); ok {
+				num = fmt.Sprintf("0x%x", requested)
+			}
 			return fullBlockResponse(num, nil), nil
 
 		case ethBlockNumber:
@@ -287,7 +446,13 @@ func countingBlockHandler(count *atomic.Int64, latestTip string, blockNumBase in
 				default:
 				}
 			}
-			return fullBlockResponse(fmt.Sprintf("0x%x", blockNumBase+n), nil), nil
+			// Serve the requested height so repeated and concurrent fetches
+			// stay parentHash-consistent.
+			num := fmt.Sprintf("0x%x", blockNumBase+n)
+			if requested, ok := requestedBlockNumber(params); ok {
+				num = fmt.Sprintf("0x%x", requested)
+			}
+			return fullBlockResponse(num, nil), nil
 		case ethBlockNumber:
 			if ethBlockNumberVal != "" {
 				return ethBlockNumberVal, nil

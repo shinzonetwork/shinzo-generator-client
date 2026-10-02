@@ -175,6 +175,12 @@ type DocumentGroup struct {
 	// hash (tx/log/ale). Used by generic extractBlockHash to find the block
 	// hash without chain-specific collection-name knowledge.
 	BlockHashField string
+
+	// ParentHashField is the field name in each doc that holds the parent
+	// block hash (e.g. "parentHash" for block docs). Empty for groups that
+	// don't carry a parent hash. Used by generic extractBlockParentHash for
+	// the processor's parentHash continuity check, mirroring BlockHashField.
+	ParentHashField string
 }
 
 // LinkStamper resolves cross-document link fields (_blockID, _transactionID)

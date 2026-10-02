@@ -7,6 +7,7 @@ import (
 	"context"
 	crypto_rand "crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -549,9 +550,12 @@ func TestSignMessagesVariants(t *testing.T) {
 					testDefraRandomURL,
 					testDefraP2PDisabled,
 					func() *httptest.Server {
-						return newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+						return newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 							switch method {
 							case ethGetBlockByNumber:
+								if requested, ok := requestedBlockNumber(params); ok {
+									return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+								}
 								return fullBlockResponse("0x186a0", nil), nil
 							case ethGetBlockReceipts:
 								return []any{}, nil

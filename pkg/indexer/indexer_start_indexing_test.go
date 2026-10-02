@@ -94,6 +94,9 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 								return nil, fmt.Errorf("rpc connection refused")
 							}
 						}
+						if requested, ok := requestedBlockNumber(params); ok {
+							return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+						}
 						return fullBlockResponse("0x100", nil), nil
 					case ethBlockNumber:
 						return nil, fmt.Errorf("rpc connection refused")
@@ -653,11 +656,14 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var blockCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
 			n := blockCount.Add(1)
 			num := fmt.Sprintf("0x%x", 5000+n)
+			if requested, ok := requestedBlockNumber(params); ok {
+				num = fmt.Sprintf("0x%x", requested)
+			}
 			return fullBlockResponse(num, nil), nil
 		case ethGetBlockReceipts:
 			return []any{}, nil
@@ -733,6 +739,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 			default:
 			}
 			num := fmt.Sprintf("0x%x", 99990+count)
+			if requested, ok := requestedBlockNumber(params); ok {
+				num = fmt.Sprintf("0x%x", requested)
+			}
 			return fullBlockResponse(num, nil), nil
 		case ethBlockNumber:
 			return "0x186a0", nil
@@ -874,9 +883,12 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 	}
 	logger.InitConsoleOnly(true)
 
-	validRPCHandler := func(method string, _ json.RawMessage) (any, error) {
+	validRPCHandler := func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
+			if requested, ok := requestedBlockNumber(params); ok {
+				return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+			}
 			return fullBlockResponse("0x100", nil), nil
 		case ethBlockNumber:
 			return "0x100", nil
