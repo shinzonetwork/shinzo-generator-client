@@ -123,7 +123,7 @@ func (r *ReorgRoller) softDeleteCollectionDocs(ctx context.Context, colName stri
 			conditions[i] = id
 		}
 		filter := map[string]any{
-			"_docID": map[string]any{"_in": conditions},
+			docIDFieldName: map[string]any{"_in": conditions},
 		}
 		res, err := col.DeleteDocumentsWithFilter(ctx, filter)
 		if err != nil {
@@ -146,8 +146,8 @@ func (r *ReorgRoller) GetStoredBlockHash(ctx context.Context, blockNumber int64)
 	}
 
 	query := fmt.Sprintf(
-		`query { %s(filter: {%s: {_eq: %d}}) { %s _docID } }`,
-		blockCol, constants.NumberFieldName, blockNumber, constants.HashFieldName,
+		`query { %s(filter: {%s: {_eq: %d}}) { %s %s } }`,
+		blockCol, constants.NumberFieldName, blockNumber, constants.HashFieldName, docIDFieldName,
 	)
 
 	result := r.defraNode.DB.ExecRequest(ctx, query)
