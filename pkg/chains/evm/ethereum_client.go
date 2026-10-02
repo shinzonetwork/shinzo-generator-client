@@ -124,9 +124,16 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 	// Fail fast when the caller's context died mid-dial (cancelled or
 	// expired between dial steps): never return a "successful" client that
 	// cannot serve a single request.
-	if err := ctx.Err(); err != nil {
+	if callerContextFailed(ctx) {
+		cause := ctx.Err()
+		if cause == nil {
+			// The wall-clock deadline passed but the runtime timer has not
+			// marked the context done yet (see callerContextFailed): report
+			// the deadline sentinel directly.
+			cause = context.DeadlineExceeded
+		}
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
-			fmt.Errorf("dial context expired while connecting: %w", err))
+			fmt.Errorf("dial context expired while connecting: %w", cause))
 	}
 
 	// Ensure at least one client is available
@@ -172,12 +179,13 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 	if err != nil {
 		if isContextError(err) {
 			// Resolve immediately: no further dial attempt is worthwhile.
-			// Classify from the error itself, not from re-reading ctx.Err():
-			// the WS dialer arms a socket deadline from the context deadline,
-			// and the kernel can surface os.ErrDeadlineExceeded before the
-			// runtime timer marks the context done — a racy ctx.Err() read
-			// would lose the abort sentinel.
-			if ctx.Err() != nil || c.httpClient == nil {
+			// Classify from the error and the wall-clock deadline, not from
+			// a bare ctx.Err() read: the WS dialer arms a socket deadline
+			// from the context deadline, and the kernel can surface
+			// os.ErrDeadlineExceeded before the runtime timer marks the
+			// context done — a racy ctx.Err() read would lose the abort
+			// sentinel and degrade instead.
+			if callerContextFailed(ctx) || c.httpClient == nil {
 				return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 					fmt.Errorf("%w: %w", errWSDialAborted, err))
 			}
@@ -191,10 +199,10 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 		if err != nil {
 			logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
 			// Same classification as the first dial: a deadline-class error
-			// must never silently drop the abort sentinel (the socket deadline
-			// can beat the runtime timer), and HTTP degradation requires the
-			// caller's context to be alive.
-			if isContextError(err) && (ctx.Err() != nil || c.httpClient == nil) {
+			// must never silently drop the abort sentinel (the socket
+			// deadline can beat the runtime timer — see callerContextFailed),
+			// and HTTP degradation requires the caller's context to be alive.
+			if isContextError(err) && (callerContextFailed(ctx) || c.httpClient == nil) {
 				return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 					fmt.Errorf("%w: %w", errWSDialAborted, err))
 			}
@@ -218,12 +226,12 @@ func (c *EthereumClient) connectWebSocketPlain(ctx, wsCtx context.Context, wsURL
 	wsClient, err := ethclient.DialContext(wsCtx, wsURL)
 	if err != nil {
 		logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
-		// Classify from the error itself, not from re-reading ctx.Err():
-		// the WS dialer arms a socket deadline from the context deadline,
-		// and the kernel can surface os.ErrDeadlineExceeded before the
-		// runtime timer marks the context done — a racy ctx.Err() read
-		// would lose the abort sentinel.
-		if isContextError(err) && (ctx.Err() != nil || c.httpClient == nil) {
+		// Classify from the error and the wall-clock deadline, not from a
+		// bare ctx.Err() read: the WS dialer arms a socket deadline from the
+		// context deadline, and the kernel can surface os.ErrDeadlineExceeded
+		// before the runtime timer marks the context done — a racy ctx.Err()
+		// read would lose the abort sentinel and degrade instead.
+		if isContextError(err) && (callerContextFailed(ctx) || c.httpClient == nil) {
 			return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 				fmt.Errorf("%w: %w", errWSDialAborted, err))
 		}
@@ -753,6 +761,25 @@ func isContextError(err error) bool {
 	return stderrors.Is(err, context.Canceled) ||
 		stderrors.Is(err, context.DeadlineExceeded) ||
 		stderrors.Is(err, os.ErrDeadlineExceeded)
+}
+
+// callerContextFailed reports whether the caller's context is dead for the
+// constructor's purposes: cancelled, its deadline timer already fired, or —
+// closing a classification race — its deadline has passed on the wall clock.
+// The WS dialer arms a socket deadline from the context deadline, and the
+// kernel can surface os.ErrDeadlineExceeded a hair before the runtime timer
+// marks the context done; a plain ctx.Err() read at that instant still
+// reports a live context, which would wrongly degrade an aborted startup to
+// HTTP-only mode. Kernel and runtime timers never fire early, so "now is at
+// or past the deadline" reliably identifies the caller deadline as the one
+// that expired. A context without a deadline can only fail via cancellation,
+// which ctx.Err() catches deterministically.
+func callerContextFailed(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	return ok && !time.Now().Before(deadline)
 }
 
 // maskAPIKey masks the API key in URLs for logging.
