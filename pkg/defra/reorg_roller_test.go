@@ -2,6 +2,7 @@ package defra
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -174,4 +175,56 @@ func TestNewReorgRoller_RejectsNilArgs(t *testing.T) {
 
 	_, err = NewReorgRoller(td.Node, nil)
 	require.Error(t, err)
+}
+
+// TestReorgRoller_RollbackBlocks_InvokesDocIDTracker proves the roller hands
+// the rolled-back range to its docID tracker (prune-queue cleanup), that a
+// tracker failure surfaces as a rollback error so indexing stops loudly, and
+// that a nil tracker simply skips the cleanup.
+func TestReorgRoller_RollbackBlocks_InvokesDocIDTracker(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+
+	handler, err := NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+
+	converter := evm.NewConverter(nil)
+
+	ctx := ctxWithIdentity(t)
+	_, err = handler.Store(ctx, buildGroups(t, mockBlock("0x64"), nil, nil)) // 100
+	require.NoError(t, err)
+
+	roller, err := NewReorgRoller(td.Node, converter)
+	require.NoError(t, err)
+	tracker := &mockDocIDTracker{}
+	roller.SetDocIDTracker(tracker)
+	require.NoError(t, roller.RollbackBlocks(ctx, 100, 100))
+	require.Len(t, tracker.rolledBack, 1, "the rollback must report its range to the tracker")
+	assert.Equal(t, [2]int64{100, 100}, tracker.rolledBack[0])
+
+	// A failing tracker must fail the rollback — the processor treats a
+	// rollback error as fatal, which keeps the prune queue from silently
+	// drifting after a partially cleaned rollback.
+	failing, err := NewReorgRoller(td.Node, converter)
+	require.NoError(t, err)
+	failing.SetDocIDTracker(&failingDocIDTracker{})
+	require.ErrorContains(t, failing.RollbackBlocks(ctx, 100, 100), "queue save failed")
+
+	// A nil tracker (pruner disabled) skips the cleanup without error.
+	bare, err := NewReorgRoller(td.Node, converter)
+	require.NoError(t, err)
+	require.NoError(t, bare.RollbackBlocks(ctx, 100, 100))
+	assert.Len(t, tracker.rolledBack, 1, "the bare roller must not touch the tracker")
+}
+
+// failingDocIDTracker always errors, to prove the roller surfaces tracker
+// failures instead of swallowing them.
+type failingDocIDTracker struct{}
+
+func (f *failingDocIDTracker) TrackBlock(context.Context, int64, *BlockCreationResult) error {
+	return nil
+}
+
+func (f *failingDocIDTracker) RollbackBlocks(_, _ int64) error {
+	return fmt.Errorf("queue save failed")
 }

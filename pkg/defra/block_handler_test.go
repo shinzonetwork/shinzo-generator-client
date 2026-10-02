@@ -358,11 +358,17 @@ func TestWaitForDefraDB_InvalidRequestURL(t *testing.T) {
 type mockDocIDTracker struct {
 	trackedBlocks  []int64
 	trackedResults []*BlockCreationResult
+	rolledBack     [][2]int64
 }
 
 func (m *mockDocIDTracker) TrackBlock(_ context.Context, blockNumber int64, result *BlockCreationResult) error {
 	m.trackedBlocks = append(m.trackedBlocks, blockNumber)
 	m.trackedResults = append(m.trackedResults, result)
+	return nil
+}
+
+func (m *mockDocIDTracker) RollbackBlocks(from, to int64) error {
+	m.rolledBack = append(m.rolledBack, [2]int64{from, to})
 	return nil
 }
 

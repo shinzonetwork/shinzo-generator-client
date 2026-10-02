@@ -9,6 +9,12 @@ type Queue interface {
 
 	// Save persists the queue to disk. No-op if no file path was set.
 	Save() error
+
+	// RemoveBlockRange drops every entry whose block number is in [from, to]
+	// and returns how many entries were removed. Indexers invoke it after a
+	// reorg rollback so a re-indexed height tracks exactly one fresh entry
+	// instead of dead docIDs sitting alongside the new ones.
+	RemoveBlockRange(from, to int64) int
 }
 
 // DrainResult holds docIDs grouped by collection name, ready for deletion.
