@@ -622,7 +622,7 @@ func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
 			td := testutils.SetupTestDefraDB(t)
 
 			var callCount atomic.Int64
-			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+			rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 				switch method {
 				case ethGetBlockByNumber:
 					n := callCount.Add(1)
@@ -630,6 +630,9 @@ func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
 						return nil, fmt.Errorf("server error")
 					}
 					num := fmt.Sprintf("0x%x", tc.blockBase+n)
+					if requested, ok := requestedBlockNumber(params); ok {
+						num = fmt.Sprintf("0x%x", requested)
+					}
 					return fullBlockResponse(num, nil), nil
 				case ethGetBlockReceipts:
 					return []any{}, nil
@@ -706,7 +709,7 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 			td := testutils.SetupTestDefraDB(t)
 
 			var callCount atomic.Int64
-			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+			rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 				switch method {
 				case ethGetBlockByNumber:
 					n := callCount.Add(1)
@@ -714,6 +717,9 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 						time.Sleep(tc.slowDelay)
 					}
 					num := fmt.Sprintf("0x%x", tc.blockBase+n)
+					if requested, ok := requestedBlockNumber(params); ok {
+						num = fmt.Sprintf("0x%x", requested)
+					}
 					return fullBlockResponse(num, nil), nil
 				case ethGetBlockReceipts:
 					return []any{}, nil

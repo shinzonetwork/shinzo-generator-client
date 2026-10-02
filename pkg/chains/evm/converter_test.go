@@ -262,8 +262,9 @@ func TestConvert_SignatureCollectionName(t *testing.T) {
 
 // TestConvert_GroupFieldContract pins the DocumentGroup contract the generic
 // BlockHandler relies on: every group carries a non-empty BlockNumField, and
-// the block group (Groups[0]) carries a non-empty BlockHashField. Non-block
-// groups keep BlockHashField empty (see chains.DocumentGroup).
+// the block group (Groups[0]) carries a non-empty BlockHashField and a
+// non-empty ParentHashField. Non-block groups keep BlockHashField and
+// ParentHashField empty (see chains.DocumentGroup).
 func TestConvert_GroupFieldContract(t *testing.T) {
 	t.Parallel()
 
@@ -317,6 +318,12 @@ func TestConvert_GroupFieldContract(t *testing.T) {
 			for i, g := range result.Groups {
 				assert.NotEmpty(t, g.BlockNumField,
 					"group %d (%s) must populate BlockNumField", i, g.Collection)
+			}
+			assert.Equal(t, ParentHashFieldName, result.Groups[0].ParentHashField,
+				"block group must carry ParentHashField set to constants.ParentHashFieldName")
+			for i, g := range result.Groups[1:] {
+				assert.Empty(t, g.ParentHashField,
+					"non-block group %d (%s) must keep ParentHashField empty", i+1, g.Collection)
 			}
 			assert.NotEmpty(t, result.Groups[0].BlockHashField,
 				"block group must populate BlockHashField")
