@@ -162,10 +162,18 @@ func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 		},
 	}
 
+	rec := &commitRecorder{}
 	reorg := &mockReorgHandler{storedHashes: map[int64]string{99: canonicalHash(99)}}
+	// RollbackBlocks runs strictly after the run's full drain, so the
+	// callbacks captured at the first rollback call are final for run 1:
+	// none of them may sit past the recorded rollback point.
+	var committedAtRollback []int64
+	reorg.rollbackFn = func(_, _ int64) error {
+		committedAtRollback = rec.snapshot()
+		return nil
+	}
 	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
 
-	rec := &commitRecorder{}
 	cancel, errCh := runProcessor(p, 100, rec.record)
 	defer cancel()
 
@@ -186,6 +194,16 @@ func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 	assert.Equal(t, int64(100), calls[0].from)
 	assert.GreaterOrEqual(t, calls[0].to, int64(101), "the purge must cover dispatched heights past the rollback point")
 	assert.LessOrEqual(t, calls[0].to, int64(110), "the purge ceiling must stay near the dispatch window")
+
+	// onBlockProcessed must never fire for a height past the recorded
+	// rollback point inside the run that detected the reorg: run 1 commits
+	// only the orphan 100, and everything after the detection is drained
+	// without committing.
+	require.NotEmpty(t, committedAtRollback, "run 1 must have committed the orphan before detecting the reorg")
+	for _, height := range committedAtRollback {
+		assert.LessOrEqual(t, height, calls[0].from,
+			"onBlockProcessed fired for height %d after the rollback point was recorded", height)
+	}
 }
 
 // TestReorgProcessor_MultiBlockReorgConverges walks a two-deep orphan chain:
