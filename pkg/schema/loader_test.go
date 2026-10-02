@@ -1,140 +1,138 @@
 package schema
 
 import (
-	"strings"
+	"errors"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// errStubFiles is the sentinel the stub reports when its files read fails.
+var errStubFiles = errors.New("stub collection files failure")
+
+// stubCollections is a minimal chains.Collections standing in for a chain
+// adapter with literal pairs. The facade tests in this package are
+// chain-agnostic by design: SDL content, prefix swapping, and real file
+// names are the chain implementation's responsibility — this package tests
+// only the glue: entry mapping, cache building, join order, and error
+// handling.
+type stubCollections struct {
+	prefix string
+	files  []chains.CollectionFile
+	err    error
+}
+
+func (s *stubCollections) Prefix() string { return s.prefix }
+
+func (s *stubCollections) AllCollections() []string {
+	names := make([]string, 0, len(s.files))
+	for _, f := range s.files {
+		names = append(names, f.TypeName)
+	}
+	return names
+}
+
+func (s *stubCollections) CollectionFiles() ([]chains.CollectionFile, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.files, nil
+}
+
+func (s *stubCollections) BlockCollection() string {
+	return s.prefix + "__Block"
+}
+
+func (s *stubCollections) SnapshotSignatureCollection() string {
+	return s.prefix + "__SnapshotSignature"
+}
+
+// testStubCollections returns the fixed three-pair fixture used by the
+// facade tests. Three pairs are the minimum that proves order and the
+// join separator unambiguously.
+func testStubCollections() *stubCollections {
+	return &stubCollections{
+		prefix: "Stub__Prefix",
+		files: []chains.CollectionFile{
+			{TypeName: "Stub__Prefix__Alpha", Name: "alpha", File: "alpha.graphql", SDL: "type Alpha"},
+			{TypeName: "Stub__Prefix__Beta", Name: "beta", File: "beta.graphql", SDL: "type Beta"},
+			{TypeName: "Stub__Prefix__Gamma", Name: "gamma", File: "gamma.graphql", SDL: "type Gamma"},
+		},
+	}
+}
+
 func TestListCollections(t *testing.T) {
 	t.Parallel()
 
-	entries, err := ListCollections(evm.NewCollectionNames("Arbitrum__Sepolia"))
+	entries, err := ListCollections(testStubCollections())
 	require.NoError(t, err)
 
-	expectedNames := []string{"block", "blockSignature", "snapshotSignature", "transaction", "accessListEntry", "log"}
-	expectedTypeNames := []string{
-		"Arbitrum__Sepolia__Block",
-		"Arbitrum__Sepolia__BlockSignature",
-		"Arbitrum__Sepolia__SnapshotSignature",
-		"Arbitrum__Sepolia__Transaction",
-		"Arbitrum__Sepolia__AccessListEntry",
-		"Arbitrum__Sepolia__Log",
-	}
-
-	assert.Len(t, entries, len(expectedNames))
-
-	for i, e := range entries {
-		assert.Equal(t, expectedNames[i], e.Name)
-		assert.Equal(t, expectedTypeNames[i], e.TypeName)
-	}
+	assert.Equal(t, []CollectionEntry{
+		{Name: "alpha", TypeName: "Stub__Prefix__Alpha"},
+		{Name: "beta", TypeName: "Stub__Prefix__Beta"},
+		{Name: "gamma", TypeName: "Stub__Prefix__Gamma"},
+	}, entries)
 }
 
-func TestListCollections_DefaultPrefix(t *testing.T) {
+func TestPrecomputeCollectionSDLs(t *testing.T) {
 	t.Parallel()
 
-	entries, err := ListCollections(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	cache, err := PrecomputeCollectionSDLs(testStubCollections())
 	require.NoError(t, err)
 
-	expectedTypeNames := evm.DefaultCollections()
-	assert.Len(t, entries, len(expectedTypeNames))
-
-	for i, e := range entries {
-		assert.Equal(t, expectedTypeNames[i], e.TypeName)
-	}
+	assert.Equal(t, map[string]string{
+		"alpha": "type Alpha",
+		"beta":  "type Beta",
+		"gamma": "type Gamma",
+	}, cache)
 }
 
-func TestPrecomputeCollectionSDLs_DefaultPrefix(t *testing.T) {
+func TestLoadSchemaSDLForChain_JoinsInApplyOrder(t *testing.T) {
 	t.Parallel()
 
-	cache, err := PrecomputeCollectionSDLs(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+	sdl, err := LoadSchemaSDLForChain(testStubCollections())
 	require.NoError(t, err)
-
-	assert.NotEmpty(t, cache)
-
-	knownCollections := []string{"block", "transaction", "log", "blockSignature", "snapshotSignature", "accessListEntry"}
-	for _, name := range knownCollections {
-		assert.Contains(t, cache, name)
-		assert.NotEmpty(t, cache[name])
-	}
+	assert.Equal(t, "type Alpha\n\ntype Beta\n\ntype Gamma", sdl)
 }
 
-func TestPrecomputeCollectionSDLs_KeysMatchValidCollections(t *testing.T) {
+func TestLoadSchemaSDLForChain_NoFilesFailsLoudly(t *testing.T) {
 	t.Parallel()
 
-	cache, err := PrecomputeCollectionSDLs(evm.NewCollectionNames("Ethereum__Mainnet"))
-	require.NoError(t, err)
-
-	for _, name := range []string{"block", "transaction", "log"} {
-		assert.Contains(t, cache, name)
-	}
-
-	assert.NotContains(t, cache, "nonexistent")
+	sdl, err := LoadSchemaSDLForChain(&stubCollections{prefix: "Stub__Prefix"})
+	assert.Empty(t, sdl)
+	assert.ErrorContains(t, err, "no collection files found for prefix Stub__Prefix")
 }
 
-func TestPrecomputeCollectionSDLs_PrefixReplacement(t *testing.T) {
+// TestCollectionFilesErrorPropagation pins that every facade entry point
+// fails loudly when the chain's CollectionFiles read fails, wrapping the
+// error with the chain prefix for context instead of degrading silently.
+func TestCollectionFilesErrorPropagation(t *testing.T) {
 	t.Parallel()
 
-	prefix := "Arbitrum__Sepolia"
-	cache, err := PrecomputeCollectionSDLs(evm.NewCollectionNames(prefix))
-	require.NoError(t, err)
+	t.Run("ListCollections: nil entries and wrapped error with chain prefix", func(t *testing.T) {
+		t.Parallel()
 
-	sdl, ok := cache["block"]
-	assert.True(t, ok, "expected block entry in cache")
-	assert.Contains(t, sdl, prefix, "SDL should contain the chain prefix")
-	assert.NotContains(t, sdl, evm.DefaultCollectionPrefix, "SDL should not contain default prefix")
-}
+		entries, err := ListCollections(&stubCollections{prefix: "Stub__Prefix", err: errStubFiles})
+		assert.Nil(t, entries)
+		assert.ErrorIs(t, err, errStubFiles)
+		assert.Contains(t, err.Error(), "Stub__Prefix", "error must carry the chain prefix for context")
+	})
 
-func TestLoadSchemaSDLForChain_DefaultPrefix(t *testing.T) {
-	sdl, err := LoadSchemaSDLForChain(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
-	if err != nil {
-		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
-	}
-	if sdl == "" {
-		t.Fatal("LoadSchemaSDLForChain() returned empty string")
-	}
-	if !strings.Contains(sdl, evm.DefaultCollectionPrefix+"__Block") {
-		t.Error("schema should contain default Block type")
-	}
-}
+	t.Run("PrecomputeCollectionSDLs: nil cache and wrapped error", func(t *testing.T) {
+		t.Parallel()
 
-func TestLoadSchemaSDLForChain_ReplacesPrefix(t *testing.T) {
-	defaultSchema, err := LoadSchemaSDLForChain(evm.NewCollectionNames(evm.DefaultCollectionPrefix))
-	if err != nil {
-		t.Fatalf("LoadSchemaSDLForChain() error: %v", err)
-	}
-	arbSchema, err := LoadSchemaSDLForChain(evm.NewCollectionNames("Arbitrum__Mainnet"))
-	if err != nil {
-		t.Fatalf("LoadSchemaSDLForChain() error: %v", err)
-	}
+		cache, err := PrecomputeCollectionSDLs(&stubCollections{prefix: "Stub__Prefix", err: errStubFiles})
+		assert.Nil(t, cache)
+		assert.ErrorIs(t, err, errStubFiles)
+	})
 
-	if arbSchema == defaultSchema {
-		t.Fatal("LoadSchemaSDLForChain should produce different output for different prefix")
-	}
+	t.Run("LoadSchemaSDLForChain: empty SDL and wrapped error", func(t *testing.T) {
+		t.Parallel()
 
-	if strings.Contains(arbSchema, evm.DefaultCollectionPrefix) {
-		t.Errorf("LoadSchemaSDLForChain should not contain default prefix %q", evm.DefaultCollectionPrefix)
-	}
-
-	if !strings.Contains(arbSchema, "Arbitrum__Mainnet__Block") {
-		t.Error("LoadSchemaSDLForChain should contain Arbitrum__Mainnet__Block")
-	}
-}
-
-func TestLoadSchemaSDLForChain_Deterministic(t *testing.T) {
-	c := evm.NewCollectionNames(evm.DefaultCollectionPrefix)
-	s1, err := LoadSchemaSDLForChain(c)
-	if err != nil {
-		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
-	}
-	s2, err := LoadSchemaSDLForChain(c)
-	if err != nil {
-		t.Fatalf("LoadSchemaSDLForChain() failed: %v", err)
-	}
-	if s1 != s2 {
-		t.Error("LoadSchemaSDLForChain() should produce identical output on repeated calls")
-	}
+		sdl, err := LoadSchemaSDLForChain(&stubCollections{prefix: "Stub__Prefix", err: errStubFiles})
+		assert.Empty(t, sdl)
+		assert.ErrorIs(t, err, errStubFiles)
+	})
 }
