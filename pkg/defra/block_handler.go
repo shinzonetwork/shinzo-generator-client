@@ -54,6 +54,11 @@ type BlockCreationResult struct {
 // DocIDTrackerInterface defines the interface for tracking docIDs.
 type DocIDTrackerInterface interface {
 	TrackBlock(ctx context.Context, blockNumber int64, result *BlockCreationResult) error
+
+	// RollbackBlocks drops the tracker's entries for heights [from, to].
+	// The reorg rollback soft-deletes those docs, so the tracker must not
+	// keep the dead docIDs alongside the fresh entries the re-index tracks.
+	RollbackBlocks(from, to int64) error
 }
 
 // BlockHandler manages the creation and storage of blocks, transactions, and logs in DefraDB.
