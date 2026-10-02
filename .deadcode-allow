@@ -1,0 +1,13 @@
+# Allowlist for scripts/deadcode-check.sh.
+#
+# Each non-comment line is an ERE pattern matched against a raw
+# `go tool deadcode -test ./...` report line, which looks like:
+#
+#   pkg/chains/evm/converter.go:444:21:\t(\*\?evm\.<T>\)\.<Name>
+#
+# Match on a distinctive part of the symbol name rather than a line
+# number, which moves on every edit. Entries exist only for symbols that
+# are alive through indirection the analyzer cannot see (reflection,
+# dynamic dispatch it does not model); anything genuinely unreachable is
+# deleted, never listed. The guard warns when an entry stops matching —
+# remove stale ones on sight.
