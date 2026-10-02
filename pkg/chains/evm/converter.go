@@ -2,11 +2,9 @@ package evm
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -438,27 +436,6 @@ func (c *Converter) buildALEData(ale *AccessListEntry, blockNumber int64) map[st
 		AddressFieldName:               ale.Address,
 		constants.BlockNumberFieldName: blockNumber,
 		StorageKeysFieldName:           ale.StorageKeys,
-	}
-}
-
-// BuildBlockSignatureData builds the data map for a block signature document.
-// This is called by BlockHandler during signing (Phase D), not by Convert.
-func (c *Converter) BuildBlockSignatureData(
-	blockSig *node.BatchSignature,
-	blockHash string,
-	blockNumber int64,
-	sortedCIDStrings []string,
-) map[string]any {
-	return map[string]any{
-		constants.BlockNumberFieldName:       blockNumber,
-		constants.BlockHashFieldName:         blockHash,
-		constants.MerkleRootFieldName:        hex.EncodeToString(blockSig.MerkleRoot),
-		constants.CIDCountFieldName:          blockSig.CIDCount,
-		constants.CIDsFieldName:              sortedCIDStrings,
-		constants.SignatureTypeFieldName:     blockSig.Header.Type,
-		constants.SignatureIdentityFieldName: string(blockSig.Header.Identity),
-		constants.SignatureValueFieldName:    hex.EncodeToString(blockSig.Value),
-		constants.CreatedAtFieldName:         time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
