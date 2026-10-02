@@ -732,8 +732,9 @@ func TestRunPrune_DefaultQueueType(t *testing.T) {
 // mockQueue implements Queue but is neither IndexerQueue nor EventQueue.
 type mockQueue struct{}
 
-func (m *mockQueue) Len() int    { return 0 }
-func (m *mockQueue) Save() error { return nil }
+func (m *mockQueue) Len() int                        { return 0 }
+func (m *mockQueue) Save() error                     { return nil }
+func (m *mockQueue) RemoveBlockRange(_, _ int64) int { return 0 }
 
 func TestStop_WithQueueSaveError(t *testing.T) {
 	n := startTestNode(t)
@@ -758,8 +759,9 @@ func TestStop_WithQueueSaveError(t *testing.T) {
 
 type mockQueueSaveError struct{}
 
-func (m *mockQueueSaveError) Len() int    { return 5 }
-func (m *mockQueueSaveError) Save() error { return fmt.Errorf("save failed") }
+func (m *mockQueueSaveError) Len() int                        { return 5 }
+func (m *mockQueueSaveError) Save() error                     { return fmt.Errorf("save failed") }
+func (m *mockQueueSaveError) RemoveBlockRange(_, _ int64) int { return 0 }
 
 // ─── Concurrency tests ─────────────────────────────────────────────────────
 
