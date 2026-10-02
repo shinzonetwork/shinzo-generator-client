@@ -320,7 +320,7 @@ func TestConvert_GroupFieldContract(t *testing.T) {
 					"group %d (%s) must populate BlockNumField", i, g.Collection)
 			}
 			assert.Equal(t, ParentHashFieldName, result.Groups[0].ParentHashField,
-				"block group must carry ParentHashField set to constants.ParentHashFieldName")
+				"block group must carry ParentHashField set to ParentHashFieldName")
 			for i, g := range result.Groups[1:] {
 				assert.Empty(t, g.ParentHashField,
 					"non-block group %d (%s) must keep ParentHashField empty", i+1, g.Collection)
