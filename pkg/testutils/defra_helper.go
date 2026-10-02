@@ -30,7 +30,7 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 	if err != nil {
 		t.Fatalf("failed to create collections: %v", err)
 	}
-	sdl, err := schema.LoadSchemaSDL(collections)
+	sdl, err := schema.LoadSchemaSDLForChain(collections)
 	if err != nil {
 		t.Fatalf("GetSchema: %v", err)
 	}
