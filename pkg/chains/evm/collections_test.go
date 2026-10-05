@@ -16,12 +16,12 @@ func TestCollectionConstants(t *testing.T) {
 		constant string
 		expected string
 	}{
-		{"Block", CollectionBlock, prefix + "__Block"},
-		{"Transaction", CollectionTransaction, prefix + "__Transaction"},
-		{"Log", CollectionLog, prefix + "__Log"},
-		{"AccessListEntry", CollectionAccessListEntry, prefix + "__AccessListEntry"},
-		{"BlockSignature", CollectionBlockSignature, prefix + "__BlockSignature"},
-		{"SnapshotSignature", CollectionSnapshotSignature, prefix + "__SnapshotSignature"},
+		{"Block", DefaultCollectionBlock, prefix + "__Block"},
+		{"Transaction", DefaultCollectionTransaction, prefix + "__Transaction"},
+		{"Log", DefaultCollectionLog, prefix + "__Log"},
+		{"AccessListEntry", DefaultCollectionAccessListEntry, prefix + "__AccessListEntry"},
+		{"BlockSignature", DefaultCollectionBlockSignature, prefix + "__BlockSignature"},
+		{"SnapshotSignature", DefaultCollectionSnapshotSignature, prefix + "__SnapshotSignature"},
 	}
 
 	for _, tt := range tests {
@@ -40,12 +40,12 @@ func TestDefaultCollections(t *testing.T) {
 	require.Len(t, collections, 6)
 
 	expected := []string{
-		CollectionBlock,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
-		CollectionTransaction,
-		CollectionAccessListEntry,
-		CollectionLog,
+		DefaultCollectionBlock,
+		DefaultCollectionBlockSignature,
+		DefaultCollectionSnapshotSignature,
+		DefaultCollectionTransaction,
+		DefaultCollectionAccessListEntry,
+		DefaultCollectionLog,
 	}
 	assert.Equal(t, expected, collections)
 }
@@ -57,12 +57,12 @@ func TestSchemaApplyOrder(t *testing.T) {
 	require.Len(t, order, 6)
 
 	expected := []string{
-		CollectionBlock,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
-		CollectionTransaction,
-		CollectionAccessListEntry,
-		CollectionLog,
+		DefaultCollectionBlock,
+		DefaultCollectionBlockSignature,
+		DefaultCollectionSnapshotSignature,
+		DefaultCollectionTransaction,
+		DefaultCollectionAccessListEntry,
+		DefaultCollectionLog,
 	}
 	assert.Equal(t, expected, order)
 }
@@ -76,12 +76,12 @@ func TestCollectionFileForType(t *testing.T) {
 		typeName string
 		expected string
 	}{
-		{"Block", CollectionBlock, "block.graphql"},
-		{"Transaction", CollectionTransaction, "transaction.graphql"},
-		{"Log", CollectionLog, "log.graphql"},
-		{"AccessListEntry", CollectionAccessListEntry, "accessListEntry.graphql"},
-		{"BlockSignature", CollectionBlockSignature, "blockSignature.graphql"},
-		{"SnapshotSignature", CollectionSnapshotSignature, "snapshotSignature.graphql"},
+		{"Block", DefaultCollectionBlock, "block.graphql"},
+		{"Transaction", DefaultCollectionTransaction, "transaction.graphql"},
+		{"Log", DefaultCollectionLog, "log.graphql"},
+		{"AccessListEntry", DefaultCollectionAccessListEntry, "accessListEntry.graphql"},
+		{"BlockSignature", DefaultCollectionBlockSignature, "blockSignature.graphql"},
+		{"SnapshotSignature", DefaultCollectionSnapshotSignature, "snapshotSignature.graphql"},
 		{"UnknownPrefix", "UnknownPrefix__Block", ""},
 		{"NoPrefix", "Block", ""},
 		{"Empty", "", ""},
@@ -112,58 +112,42 @@ func TestNewCollectionNames(t *testing.T) {
 func TestAllCollections(t *testing.T) {
 	t.Parallel()
 
-	c := NewCollectionNames("Ethereum__Mainnet")
+	c := NewCollectionNames(DefaultCollectionPrefix)
 	collections := c.AllCollections()
 
 	require.Len(t, collections, 6)
 
 	expected := []string{
-		"Ethereum__Mainnet__Block",
-		"Ethereum__Mainnet__BlockSignature",
-		"Ethereum__Mainnet__SnapshotSignature",
-		"Ethereum__Mainnet__Transaction",
-		"Ethereum__Mainnet__AccessListEntry",
-		"Ethereum__Mainnet__Log",
+		DefaultCollectionBlock,
+		DefaultCollectionBlockSignature,
+		DefaultCollectionSnapshotSignature,
+		DefaultCollectionTransaction,
+		DefaultCollectionAccessListEntry,
+		DefaultCollectionLog,
 	}
 	assert.Equal(t, expected, collections)
 }
 
-func TestBlockCollection(t *testing.T) {
+func TestBlockAndSignatureCollections(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		prefix   string
-		expected string
+		name                   string
+		prefix                 string
+		expectedBlockCol       string
+		expectedBlockSigCol    string
+		expectedSnapshotSigCol string
 	}{
-		{"DefaultPrefix", "Ethereum__Mainnet", "Ethereum__Mainnet__Block"},
-		{"CustomPrefix", "Arbitrum__Mainnet", "Arbitrum__Mainnet__Block"},
+		{"DefaultPrefix", DefaultCollectionPrefix, DefaultCollectionBlock, DefaultCollectionBlockSignature, DefaultCollectionSnapshotSignature},
+		{"CustomPrefix", "Arbitrum__Mainnet", "Arbitrum__Mainnet__Block", "Arbitrum__Mainnet__BlockSignature", "Arbitrum__Mainnet__SnapshotSignature"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var c chains.Collections = NewCollectionNames(tt.prefix)
-			assert.Equal(t, tt.expected, c.BlockCollection())
-		})
-	}
-}
-
-func TestSnapshotSignatureCollection(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		prefix   string
-		expected string
-	}{
-		{"DefaultPrefix", "Ethereum__Mainnet", "Ethereum__Mainnet__SnapshotSignature"},
-		{"CustomPrefix", "Arbitrum__Mainnet", "Arbitrum__Mainnet__SnapshotSignature"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var c chains.Collections = NewCollectionNames(tt.prefix)
-			assert.Equal(t, tt.expected, c.SnapshotSignatureCollection())
+			assert.Equal(t, tt.expectedBlockCol, c.BlockCollection())
+			assert.Equal(t, tt.expectedBlockSigCol, c.BlockSignatureCollection())
+			assert.Equal(t, tt.expectedSnapshotSigCol, c.SnapshotSignatureCollection())
 		})
 	}
 }

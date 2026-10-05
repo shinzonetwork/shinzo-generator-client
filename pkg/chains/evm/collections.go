@@ -12,12 +12,12 @@ const DefaultCollectionPrefix = "Ethereum__Mainnet"
 
 // Collection name constants for the default Ethereum Mainnet chain.
 const (
-	CollectionBlock             = DefaultCollectionPrefix + "__Block"
-	CollectionTransaction       = DefaultCollectionPrefix + "__Transaction"
-	CollectionLog               = DefaultCollectionPrefix + "__Log"
-	CollectionAccessListEntry   = DefaultCollectionPrefix + "__AccessListEntry"
-	CollectionBlockSignature    = DefaultCollectionPrefix + "__BlockSignature"
-	CollectionSnapshotSignature = DefaultCollectionPrefix + "__SnapshotSignature"
+	DefaultCollectionBlock             = DefaultCollectionPrefix + "__Block"
+	DefaultCollectionTransaction       = DefaultCollectionPrefix + "__Transaction"
+	DefaultCollectionLog               = DefaultCollectionPrefix + "__Log"
+	DefaultCollectionAccessListEntry   = DefaultCollectionPrefix + "__AccessListEntry"
+	DefaultCollectionBlockSignature    = DefaultCollectionPrefix + "__BlockSignature"
+	DefaultCollectionSnapshotSignature = DefaultCollectionPrefix + "__SnapshotSignature"
 )
 
 // CollectionNames holds the dynamically generated EVM collection names for a
@@ -106,15 +106,21 @@ func (c *CollectionNames) SnapshotSignatureCollection() string {
 	return c.SnapshotSignature
 }
 
+// BlockSignatureCollection implements chains.Collections. It returns the
+// collection name that stores block signature documents.
+func (c *CollectionNames) BlockSignatureCollection() string {
+	return c.BlockSignature
+}
+
 // DefaultCollections returns all default collection names as a slice.
 func DefaultCollections() []string {
 	return []string{
-		CollectionBlock,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
-		CollectionTransaction,
-		CollectionAccessListEntry,
-		CollectionLog,
+		DefaultCollectionBlock,
+		DefaultCollectionBlockSignature,
+		DefaultCollectionSnapshotSignature,
+		DefaultCollectionTransaction,
+		DefaultCollectionAccessListEntry,
+		DefaultCollectionLog,
 	}
 }
 
@@ -122,11 +128,11 @@ func DefaultCollections() []string {
 // for per-file AddSchema calls, using the default prefix.
 func SchemaApplyOrder() []string {
 	return []string{
-		CollectionBlock,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
-		CollectionTransaction,
-		CollectionAccessListEntry,
-		CollectionLog,
+		DefaultCollectionBlock,
+		DefaultCollectionBlockSignature,
+		DefaultCollectionSnapshotSignature,
+		DefaultCollectionTransaction,
+		DefaultCollectionAccessListEntry,
+		DefaultCollectionLog,
 	}
 }

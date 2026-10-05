@@ -119,7 +119,7 @@ func TestConverter_SignatureCollection(t *testing.T) {
 			cfg := testConfig()
 			cfg.Chain = tc.chain
 			c := NewConverter(cfg)
-			assert.Equal(t, tc.wantCol, c.SignatureCollection())
+			assert.Equal(t, tc.wantCol, c.Collections().BlockSignatureCollection())
 		})
 	}
 }
