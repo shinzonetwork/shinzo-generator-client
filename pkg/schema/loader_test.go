@@ -49,6 +49,10 @@ func (s *stubCollections) SnapshotSignatureCollection() string {
 	return s.prefix + "__SnapshotSignature"
 }
 
+func (s *stubCollections) BlockSignatureCollection() string {
+	return s.prefix + "__BlockSignature"
+}
+
 // testStubCollections returns the fixed three-pair fixture used by the
 // facade tests. Three pairs are the minimum that proves order and the
 // join separator unambiguously.

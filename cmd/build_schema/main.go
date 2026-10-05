@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -13,6 +14,13 @@ import (
 	// everything below resolves through the pkg/chains interfaces.
 	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
+
+func main() {
+	if err := run(os.Args, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
 
 func run(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("build_schema", flag.ContinueOnError)
