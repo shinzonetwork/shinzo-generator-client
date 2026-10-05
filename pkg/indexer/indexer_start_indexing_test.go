@@ -380,7 +380,7 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				queue := pruner.NewIndexerQueue()
 				for i := int64(90000); i <= 90010; i++ {
 					_ = queue.TrackBlockDocIDs(i, fakeDocID(int(i)), map[string][]string{
-						evm.CollectionTransaction: {fakeDocID(int(i) + 10000)},
+						evm.DefaultCollectionTransaction: {fakeDocID(int(i) + 10000)},
 					}, fakeDocID(int(i)+20000))
 				}
 				queueFilePath := filepath.Join(tmpDir, "prune_queue.gob")

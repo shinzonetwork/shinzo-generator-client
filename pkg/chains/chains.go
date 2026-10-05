@@ -65,6 +65,13 @@ type Collections interface {
 	// (e.g. "Ethereum__Mainnet__Block").
 	BlockCollection() string
 
+	// BlockSignatureCollection returns the collection name used for block
+	// signatures (e.g. "Ethereum__Mainnet__BlockSignature") without requiring
+	// a ConversionResult. Used by pruner/snapshot to resolve the block
+	// signature collection and by the processor's storeWithRetry when
+	// calling SignExisting.
+	BlockSignatureCollection() string
+
 	// SnapshotSignatureCollection returns the collection name that stores
 	// snapshot signature documents (e.g. "Ethereum__Mainnet__SnapshotSignature").
 	SnapshotSignatureCollection() string
@@ -134,13 +141,6 @@ type Converter interface {
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
 	GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
-
-	// SignatureCollection returns the collection name used for block
-	// signatures (e.g. "Ethereum__Mainnet__BlockSignature") without requiring
-	// a ConversionResult. Used by pruner/snapshot to resolve the block
-	// signature collection and by the processor's storeWithRetry when
-	// calling SignExisting.
-	SignatureCollection() string
 }
 
 // DocumentGroup is a batch of documents destined for a single collection.
