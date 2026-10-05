@@ -21,12 +21,12 @@ func TestCollectionFiles(t *testing.T) {
 		name     string
 		file     string
 	}{
-		{CollectionBlock, blockCollectionStem, blockCollectionFile},
-		{CollectionBlockSignature, blockSignatureCollectionStem, blockSignatureCollectionFile},
-		{CollectionSnapshotSignature, snapshotSignatureCollectionStem, snapshotSignatureCollectionFile},
-		{CollectionTransaction, transactionCollectionStem, transactionCollectionFile},
-		{CollectionAccessListEntry, accessListEntryCollectionStem, accessListEntryCollectionFile},
-		{CollectionLog, logCollectionStem, logCollectionFile},
+		{DefaultCollectionBlock, blockCollectionStem, blockCollectionFile},
+		{DefaultCollectionBlockSignature, blockSignatureCollectionStem, blockSignatureCollectionFile},
+		{DefaultCollectionSnapshotSignature, snapshotSignatureCollectionStem, snapshotSignatureCollectionFile},
+		{DefaultCollectionTransaction, transactionCollectionStem, transactionCollectionFile},
+		{DefaultCollectionAccessListEntry, accessListEntryCollectionStem, accessListEntryCollectionFile},
+		{DefaultCollectionLog, logCollectionStem, logCollectionFile},
 	}
 
 	for i, tt := range expected {
