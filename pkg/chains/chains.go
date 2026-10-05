@@ -62,18 +62,19 @@ type Collections interface {
 	CollectionFileForType(typeName string) string
 
 	// BlockCollection returns the collection name that stores block documents
-	// (e.g. "Ethereum__Mainnet__Block").
+	// (the chain prefix suffixed with "__Block").
 	BlockCollection() string
 
 	// BlockSignatureCollection returns the collection name used for block
-	// signatures (e.g. "Ethereum__Mainnet__BlockSignature") without requiring
-	// a ConversionResult. Used by pruner/snapshot to resolve the block
-	// signature collection and by the processor's storeWithRetry when
+	// signatures (the chain prefix suffixed with "__BlockSignature") without
+	// requiring a ConversionResult. Used by pruner/snapshot to resolve the
+	// block signature collection and by the processor's storeWithRetry when
 	// calling SignExisting.
 	BlockSignatureCollection() string
 
 	// SnapshotSignatureCollection returns the collection name that stores
-	// snapshot signature documents (e.g. "Ethereum__Mainnet__SnapshotSignature").
+	// snapshot signature documents (the chain prefix suffixed with
+	// "__SnapshotSignature").
 	SnapshotSignatureCollection() string
 }
 

@@ -25,6 +25,11 @@ const (
 //
 // It implements chains.Collections for the generic schema loader and future
 // generic BlockHandler.
+//
+// Every collection except SnapshotSignature must declare an @index on its
+// block-number field (number on Block, blockNumber elsewhere): the pruner
+// orders and filters by it, and GetDocIDsByBlockRange queries it. Enforced by
+// pruner.TestSchemaIndexesBlockNumberField.
 type CollectionNames struct {
 	prefix            string
 	Block             string
