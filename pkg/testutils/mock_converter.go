@@ -101,23 +101,6 @@ func (m *MockConverter) Collections() chains.Collections {
 	return c
 }
 
-// defaultBlockSignatureCollection mirrors evm.CollectionBlockSignature.
-// testutils cannot import pkg/chains/evm: the evm package's internal test
-// files import testutils, so a testutils → evm import would be a cycle.
-// When the default EVM prefix changes, update this value in lockstep.
-const defaultBlockSignatureCollection = "Ethereum__Mainnet__BlockSignature"
-
-// SignatureCollection records the call and delegates to SignatureCollectionFn.
-func (m *MockConverter) SignatureCollection() string {
-	m.mu.Lock()
-	m.SignatureCollectionCalls++
-	m.mu.Unlock()
-	if m.SignatureCollectionFn != nil {
-		return m.SignatureCollectionFn()
-	}
-	return defaultBlockSignatureCollection
-}
-
 // GetHighestStoredBlockNumber records the call and delegates to GetHighestStoredBlockNumberFn.
 func (m *MockConverter) GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
 	m.mu.Lock()
