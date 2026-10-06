@@ -115,7 +115,7 @@ bsc-live-test:
 	@if [ -z "$(GETH_RPC_URL)" ] && [ -z "$(BSC_LIVE)" ]; then \
 		echo "⚠️  Skipping BSC live tests - GETH_RPC_URL or BSC_LIVE not set"; \
 	else \
-		go test -tags=live -v ./integration/live/bsc/ -timeout=400s; \
+		go test -tags=live -v ./integration/live/bsc/ -count=1 -timeout=400s; \
 	fi
 
 # bsc-bench-fetch captures a raw replay fixture via the chain-agnostic

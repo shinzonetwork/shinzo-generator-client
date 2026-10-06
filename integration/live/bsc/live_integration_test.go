@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +26,6 @@ import (
 // warmup timeout against it as a skip, never a failure.
 const (
 	defaultBSCRPCEndpoint = "https://bsc-dataseed.bnbchain.org"
-	defaultBSCNetwork     = "Mainnet"
 
 	// bscHealthPort is chosen away from ports other live suites use (e.g.
 	// 9876) so two suites can run side by side.
@@ -54,35 +54,31 @@ var (
 	bscStarted       bool
 )
 
-// TestMain builds the BSC live config in code (a file-based config would let
-// config.yaml's Geth defaults override the BSC endpoints after load), starts
-// the indexer against a live BSC endpoint, and runs the suite only once the
-// first block is indexed.
+// TestMain boots the indexer against a live BSC endpoint using the shipped
+// config/config_bsc.yaml — the same file operators run via -config — and runs
+// the suite only once the first block is indexed. A config that fails to load
+// is a bug in the bundled file, not endpoint flakiness, so it fails the run
+// immediately instead of going through the warmup/skip path.
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
 	logger.Test("TestMain - Starting BSC live integration tests")
 
-	network := os.Getenv("BSC_LIVE_NETWORK")
-	if network == "" {
-		network = defaultBSCNetwork
-	}
-	bscNames = evm.NewCollectionNames("BSC__" + network)
 	bscHealthURL = fmt.Sprintf("http://localhost:%d", bscHealthPort)
 
-	rpcURL := os.Getenv("GETH_RPC_URL")
-	if rpcURL == "" {
-		rpcURL = defaultBSCRPCEndpoint
-		logger.Testf("GETH_RPC_URL not set, using public endpoint %s (rate-limited: warmup timeout is treated as a skip)", rpcURL)
+	cfg, err := buildBSCLiveConfig()
+	if err != nil {
+		logger.Sugar.Errorf("Failed to load BSC live config: %v", err)
+		os.Exit(1)
 	}
-	logger.Testf("Indexing BSC %s from %s", network, rpcURL)
+
+	bscNames = evm.NewCollectionNames(cfg.Chain.Name + "__" + cfg.Chain.Network)
+	logger.Testf("Indexing BSC %s from %s", cfg.Chain.Network, cfg.Geth.NodeURL)
 
 	// Fresh store per run.
 	logger.Test("Cleaning up existing BSC live DefraDB data...")
 	if err := os.RemoveAll(bscLiveDefraDir); err != nil {
 		logger.Sugar.Warnf("Failed to clean existing BSC live data: %v", err)
 	}
-
-	cfg := buildBSCLiveConfig(network, rpcURL)
 
 	_, bscIndexerCancel = context.WithCancel(context.Background()) //nolint:gosec
 	go func() {
@@ -115,60 +111,88 @@ func TestMain(m *testing.M) {
 	os.Exit(result) //nolint:gocritic
 }
 
-// buildBSCLiveConfig assembles the live-test config entirely in code so no
-// on-disk config's defaults can override the BSC endpoints post-load.
-func buildBSCLiveConfig(network, rpcURL string) *config.Config {
-	cfg := &config.Config{}
-	cfg.Chain.Name = "BSC"
-	cfg.Chain.Network = network
-	cfg.Chain.Adapter = config.DefaultChainAdapter
-	cfg.Chain.Hub = "testnet.shinzo.network"
+// buildBSCLiveConfig loads the shipped config/config_bsc.yaml so the suite
+// exercises the exact file operators run, then applies only test-specific
+// overrides. Everything production-tuned (badger settings, batch sizes, the
+// blocks_per_minute rate limit, pruner/snapshot lifecycle) flows through
+// unmodified, together with the same environment-override machinery the real
+// binary uses.
+func buildBSCLiveConfig() (*config.Config, error) {
+	cfg, err := config.LoadConfig("../../../config/config_bsc.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("load config/config_bsc.yaml: %w", err)
+	}
 
-	cfg.Geth.NodeURL = rpcURL
-	// GETH_* env names are historical: the Generator is chain-agnostic and
-	// accepts any compatible JSON-RPC/WS endpoint, so the BSC suite reuses
-	// them instead of introducing BSC_* aliases.
-	cfg.Geth.WsURL = os.Getenv("GETH_WS_URL")
-	cfg.Geth.APIKey = os.Getenv("GETH_API_KEY")
-	cfg.Geth.APIKeyType = os.Getenv("GETH_API_KEY_TYPE")
-	cfg.Geth.DialTimeoutSeconds = 10
+	// CHAIN_NAME is the one env override that must not leak in from a
+	// developer .env: it would silently retarget the suite at another chain
+	// and corrupt every collection-name assertion. Refuse loudly instead.
+	if cfg.Chain.Name != "BSC" {
+		return nil, fmt.Errorf("config chain name is %q, want %q: a CHAIN_NAME environment override is leaking into the suite", cfg.Chain.Name, "BSC")
+	}
 
-	// Embedded DefraDB on a random port with a temp-like fresh store path;
-	// P2P off because the generator is the sole source of truth here.
-	cfg.DefraDB.Embedded = true
+	// BSC_LIVE_NETWORK is the suite's network knob (e.g. Testnet); it applies
+	// after load so the same on-disk config serves every network.
+	if network := os.Getenv("BSC_LIVE_NETWORK"); network != "" {
+		cfg.Chain.Network = network
+	}
+
+	// The yaml carries ${GETH_*} placeholders and the yaml library never
+	// expands them: LoadConfig only fills these fields when the env var is
+	// non-empty, so an unset variable leaves the literal placeholder behind.
+	// Resolve env-first and clear the residue so the fields behave as unset.
+	cfg.Geth.NodeURL = bscEnvOrConfig(cfg.Geth.NodeURL, "GETH_RPC_URL")
+	cfg.Geth.WsURL = bscEnvOrConfig(cfg.Geth.WsURL, "GETH_WS_URL")
+	cfg.Geth.APIKey = bscEnvOrConfig(cfg.Geth.APIKey, "GETH_API_KEY")
+	cfg.Geth.APIKeyType = bscEnvOrConfig(cfg.Geth.APIKeyType, "GETH_API_KEY_TYPE")
+	if cfg.Geth.NodeURL == "" {
+		// Without a configured endpoint the suite defaults to the free public
+		// one; its rate limiting is why warmup timeouts are skips, not errors.
+		cfg.Geth.NodeURL = defaultBSCRPCEndpoint
+		logger.Testf("GETH_RPC_URL not set, using public endpoint %s (rate-limited: warmup timeout is treated as a skip)", cfg.Geth.NodeURL)
+	}
+
+	// The store path is pinned to the same directory TestMain wipes before and
+	// after every run, so store and wipe target can never drift apart.
 	cfg.DefraDB.Store.Path = bscLiveDefraDir
+
+	// Production enables P2P; the suite runs on dev machines and CI with no
+	// bootstrap peers and nothing to exchange documents with, so no listener
+	// is started and nothing may connect in.
 	cfg.DefraDB.P2P.Enabled = false
 	cfg.DefraDB.P2P.AcceptIncoming = false
 
-	// The keyring has no fallback mode: node-identity key management aborts
-	// at startup without a secret. DEFRADB_KEYRING_SECRET may override; the
-	// default throwaway secret is safe because the store (and the keyring
-	// under it) is wiped before and after every run, so each run gets a
-	// freshly generated identity.
-	cfg.DefraDB.KeyringSecret = os.Getenv("DEFRADB_KEYRING_SECRET")
+	// The keyring has no fallback mode: node-identity key management aborts at
+	// startup without a secret. DEFRADB_KEYRING_SECRET is already honored by
+	// LoadConfig; the default throwaway secret is safe because the store (and
+	// the keyring under it) is wiped before and after every run, so each run
+	// gets a freshly generated identity.
 	if cfg.DefraDB.KeyringSecret == "" {
 		cfg.DefraDB.KeyringSecret = defaultBSCKeyringSecret
 	}
 
-	// Public endpoints are politely rate-limited: one block per second and a
-	// tiny start buffer keep request volume low. Schema auth is "none" because
-	// token mode is fail-closed (503) without API keys, and the suite asserts
-	// the schema endpoint's contents.
-	cfg.Indexer.StartHeight = 0
-	cfg.Indexer.ConcurrentBlocks = 1
-	cfg.Indexer.ReceiptWorkers = 8
-	cfg.Indexer.MaxDocsPerTxn = 100
-	cfg.Indexer.BlocksPerMinute = 60
+	// The suite asserts fixed health URLs, and an INDEXER_HEALTH_SERVER_PORT
+	// override in .env would move the server away from them.
 	cfg.Indexer.HealthServerPort = bscHealthPort
-	cfg.Indexer.OpenBrowserOnStart = false
-	cfg.Indexer.StartBuffer = 5
+
+	// Schema auth stays "none": token mode is fail-closed (503) without
+	// SCHEMA_API_KEYS, and the suite asserts the schema endpoint's contents.
 	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeNone
 
-	cfg.Pruner.Enabled = false
-	cfg.Snapshot.Enabled = false
-	cfg.Logger.Development = false
+	return cfg, nil
+}
 
-	return cfg
+// bscEnvOrConfig resolves a config field that may still hold a literal
+// "${VAR}" placeholder from the yaml when VAR was unset: the environment wins,
+// otherwise placeholder or empty values are cleared so the field reads as
+// unset.
+func bscEnvOrConfig(value, envName string) string {
+	if v := os.Getenv(envName); v != "" {
+		return v
+	}
+	if value == "" || strings.HasPrefix(value, "${") {
+		return ""
+	}
+	return value
 }
 
 // bscTeardown stops the indexer and wipes the live store.
@@ -187,36 +211,53 @@ func bscTeardown() {
 	}
 }
 
-// waitForBSCFirstBlock polls DefraDB until at least one block document exists.
+// waitForBSCFirstBlock polls DefraDB until the block collection reports a
+// tip. The URL only resolves once the embedded node has bound its listener,
+// and an error here (node still booting, transient transport) is retried,
+// never fatal. Poll errors are logged (first, then every 10th attempt): a
+// silently spinning poll hid a dead-URL failure mode for entire runs.
 func waitForBSCFirstBlock(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
+	attempts := 0
 
 	for time.Now().Before(deadline) {
-		port := bscDefraPort()
-		if port > 0 {
-			graphqlURL := fmt.Sprintf("http://localhost:%d/api/v0/graphql", port)
-			count, err := bscCollectionCount(graphqlURL, bscNames.Block)
-			if err == nil && count > 0 {
-				logger.Testf("✅ Found %d BSC block docs at %s", count, graphqlURL)
+		attempts++
+		graphqlURL := bscDefraGraphQLURL()
+		if graphqlURL != "" {
+			tip, found, err := bscLatestNumber(graphqlURL, bscNames.Block, constants.NumberFieldName)
+			if err == nil && found {
+				logger.Testf("✅ BSC block collection live at %s, tip block %d", graphqlURL, tip)
 				bscGraphqlURL = graphqlURL
 				return true
 			}
+			if attempts == 1 || attempts%10 == 0 {
+				if err != nil {
+					logger.Testf("BSC warmup attempt %d failed: %v", attempts, err)
+				} else if attempts%10 == 0 {
+					logger.Testf("BSC warmup attempt %d: block collection still empty", attempts)
+				}
+			}
+		} else if attempts == 1 || attempts%10 == 0 {
+			logger.Testf("BSC warmup attempt %d: embedded DefraDB API URL not available yet", attempts)
 		}
 		time.Sleep(2 * time.Second)
 	}
 	return false
 }
 
-// bscDefraPort returns the embedded DefraDB port, or 0 when not yet up.
-func bscDefraPort() int {
+// bscDefraGraphQLURL returns the embedded node's GraphQL endpoint, or "" until
+// the node has bound its listener. The node's APIURL is used as-is because an
+// embedded node binds a non-loopback address with a random port; appending the
+// GraphQL path mirrors how the health server and WaitForDefraDB build it.
+func bscDefraGraphQLURL() string {
 	if bscChainIndexer == nil {
-		return 0
+		return ""
 	}
-	port := bscChainIndexer.GetDefraDBPort()
-	if port > 0 {
-		return port
+	url := bscChainIndexer.GetDefraDBURL()
+	if url == "" {
+		return ""
 	}
-	return 0
+	return strings.TrimSuffix(url, "/") + "/api/v0/graphql"
 }
 
 // bscGraphQL runs a GraphQL query against the live DefraDB and decodes the
@@ -258,20 +299,65 @@ func bscGraphQL(url, query string) (map[string]any, error) {
 	return result.Data, nil
 }
 
-// bscCollectionCount returns the document count of a collection, or an error.
-// DefraDB v1 aggregate syntax is the capitalized COUNT function (the legacy
-// _count field no longer exists).
-func bscCollectionCount(url, collection string) (int, error) {
-	query := fmt.Sprintf(`{"query":"query { COUNT(%s: {}) }"}`, collection)
+// bscDocExists reports whether a collection holds at least one document,
+// querying rows for a number field instead of an aggregate: DefraDB v1's
+// aggregate response shape proved unstable, while plain row queries are the
+// shape the production converter and pruner rely on.
+//
+// Over HTTP the rows decode as []any of map[string]any (nil data = empty
+// collection); []map[string]any is handled defensively to mirror the in-process
+// shape, as in the replay acceptance harness.
+func bscDocExists(url, collection, numberField string) (bool, error) {
+	query := fmt.Sprintf(`{"query":"query { %s(filter: {%s: {_geq: 0}}, limit: 1) { %s } }"}`,
+		collection, numberField, numberField)
+	rows, err := bscQueryRows(url, query, collection)
+	return len(rows) > 0, err
+}
+
+// bscLatestNumber returns the highest value of a collection's number field,
+// using the same filter/order/limit query shape production code uses for its
+// lowest/highest block-range reads. found is false when the collection is
+// empty.
+func bscLatestNumber(url, collection, numberField string) (int64, bool, error) {
+	query := fmt.Sprintf(`{"query":"query { %s(filter: {%s: {_geq: 0}}, order: {%s: DESC}, limit: 1) { %s } }"}`,
+		collection, numberField, numberField, numberField)
+	rows, err := bscQueryRows(url, query, collection)
+	if err != nil || len(rows) == 0 {
+		return 0, false, err
+	}
+	raw, ok := rows[0][numberField].(float64)
+	if !ok {
+		return 0, false, fmt.Errorf("collection %s: field %s is not a number in response", collection, numberField)
+	}
+	return int64(raw), true, nil
+}
+
+// bscQueryRows runs a GraphQL row query and returns the collection's rows,
+// tolerating both []any (over JSON) and []map[string]any (in-process) shapes,
+// and treating null data as an empty collection.
+func bscQueryRows(url, query, collection string) ([]map[string]any, error) {
 	data, err := bscGraphQL(url, query)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	raw, ok := data["COUNT"].(float64)
-	if !ok {
-		return 0, fmt.Errorf("collection %s COUNT missing from graphql response", collection)
+	switch arr := data[collection].(type) {
+	case []any:
+		rows := make([]map[string]any, 0, len(arr))
+		for _, item := range arr {
+			row, ok := item.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("collection %s: malformed row in graphql response", collection)
+			}
+			rows = append(rows, row)
+		}
+		return rows, nil
+	case []map[string]any:
+		return arr, nil
+	case nil:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("collection %s: unexpected graphql response type %T", collection, data[collection])
 	}
-	return int(raw), nil
 }
 
 // bscRequireStarted skips the test when the indexer never warmed up.
@@ -341,18 +427,22 @@ func TestLiveBSCCollectionsHaveDocs(t *testing.T) {
 	bscRequireStarted(t)
 
 	for _, collection := range []string{bscNames.Transaction, bscNames.Log} {
-		count, err := bscCollectionCount(bscGraphqlURL, collection)
+		exists, err := bscDocExists(bscGraphqlURL, collection, constants.BlockNumberFieldName)
 		requireNoError(t, err)
-		if count == 0 {
+		if !exists {
 			t.Errorf("Collection %s has no documents - BSC mainnet blocks are never empty", collection)
 		} else {
-			logger.Testf("✓ %s has %d documents", collection, count)
+			logger.Testf("✓ %s has documents", collection)
 		}
 	}
 
-	aleCount, err := bscCollectionCount(bscGraphqlURL, bscNames.AccessListEntry)
+	aleExists, err := bscDocExists(bscGraphqlURL, bscNames.AccessListEntry, constants.BlockNumberFieldName)
 	requireNoError(t, err)
-	logger.Testf("✓ %s has %d documents (empty is tolerated)", bscNames.AccessListEntry, aleCount)
+	if !aleExists {
+		logger.Testf("%s is empty (empty is tolerated)", bscNames.AccessListEntry)
+	} else {
+		logger.Testf("✓ %s has documents", bscNames.AccessListEntry)
+	}
 }
 
 // TestLiveBSCBlockSignature verifies block signature documents exist - the
@@ -361,12 +451,12 @@ func TestLiveBSCBlockSignature(t *testing.T) {
 	t.Parallel()
 	bscRequireStarted(t)
 
-	count, err := bscCollectionCount(bscGraphqlURL, bscNames.BlockSignature)
+	exists, err := bscDocExists(bscGraphqlURL, bscNames.BlockSignature, constants.BlockNumberFieldName)
 	requireNoError(t, err)
-	if count == 0 {
+	if !exists {
 		t.Fatalf("Collection %s has no documents - block signatures are missing", bscNames.BlockSignature)
 	}
-	logger.Testf("✓ %s has %d documents", bscNames.BlockSignature, count)
+	logger.Testf("✓ %s has documents", bscNames.BlockSignature)
 }
 
 // TestLiveBSCHealthEndpoints verifies the health server reports a healthy
@@ -442,9 +532,12 @@ func TestLiveBSCHealthEndpoints(t *testing.T) {
 	logger.Testf("✓ /api/v1/schema serves the %s schema", prefix)
 }
 
-// TestLiveBSCIndexingAdvances samples the block count over a window and
-// asserts the count never regresses. Stalls are logged, not failed: public
-// endpoints rate-limit aggressively and indexing may pause without being broken.
+// TestLiveBSCIndexingAdvances samples the indexed tip block number over a
+// window and asserts it never regresses. The tip is monotonically increasing
+// under normal operation, so it detects stalls while staying immune to the
+// pruner legitimately shrinking the stored block range. Stalls are logged,
+// not failed: public endpoints rate-limit aggressively and indexing may pause
+// without being broken.
 func TestLiveBSCIndexingAdvances(t *testing.T) {
 	t.Parallel()
 	bscRequireStarted(t)
@@ -452,8 +545,8 @@ func TestLiveBSCIndexingAdvances(t *testing.T) {
 	const window = 30 * time.Second
 	const interval = 5 * time.Second
 
-	initial := bscBlockCountOrFatal(t)
-	logger.Testf("Initial BSC block count: %d", initial)
+	initial := bscLatestTipOrFatal(t)
+	logger.Testf("Initial BSC tip block: %d", initial)
 
 	previous := initial
 	advanced := false
@@ -461,9 +554,9 @@ func TestLiveBSCIndexingAdvances(t *testing.T) {
 
 	for time.Now().Before(deadline) {
 		time.Sleep(interval)
-		current := bscBlockCountOrFatal(t)
+		current := bscLatestTipOrFatal(t)
 		if current < previous {
-			t.Fatalf("BSC block count regressed: %d -> %d", previous, current)
+			t.Fatalf("BSC tip block regressed: %d -> %d", previous, current)
 		}
 		if current > previous {
 			advanced = true
@@ -474,7 +567,7 @@ func TestLiveBSCIndexingAdvances(t *testing.T) {
 	if !advanced {
 		logger.Test("Warning: no new BSC blocks indexed during the window (rate limiting or a stall) - tolerated")
 	} else {
-		logger.Testf("✓ Indexed %d new BSC blocks in %s", previous-initial, window)
+		logger.Testf("✓ Indexed to block %d (+%d blocks) in %s", previous, previous-initial, window)
 	}
 }
 
@@ -488,23 +581,27 @@ func TestLiveBSCWSNotificationIndexing(t *testing.T) {
 	}
 	bscRequireStarted(t)
 
-	initial := bscBlockCountOrFatal(t)
-	logger.Testf("WS path: initial BSC block count: %d", initial)
+	initial := bscLatestTipOrFatal(t)
+	logger.Testf("WS path: initial BSC tip block: %d", initial)
 
 	time.Sleep(30 * time.Second)
 
-	final := bscBlockCountOrFatal(t)
+	final := bscLatestTipOrFatal(t)
 	if final <= initial {
 		logger.Test("Warning: no new blocks indexed over the WS window (may be rate limiting) - tolerated")
 		return
 	}
-	logger.Testf("✓ WS notification path indexed %d new BSC blocks", final-initial)
+	logger.Testf("✓ WS notification path indexed to block %d (+%d blocks)", final, final-initial)
 }
 
-// bscBlockCountOrFatal returns the live block count or fails the test.
-func bscBlockCountOrFatal(t *testing.T) int {
+// bscLatestTipOrFatal returns the newest stored block number or fails the
+// test.
+func bscLatestTipOrFatal(t *testing.T) int64 {
 	t.Helper()
-	count, err := bscCollectionCount(bscGraphqlURL, bscNames.Block)
+	tip, found, err := bscLatestNumber(bscGraphqlURL, bscNames.Block, constants.NumberFieldName)
 	requireNoError(t, err)
-	return count
+	if !found {
+		t.Fatalf("No block documents in %s despite a warmed-up indexer", bscNames.Block)
+	}
+	return tip
 }
