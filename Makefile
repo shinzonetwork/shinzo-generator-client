@@ -90,21 +90,25 @@ test-local:
 	@echo "✅ Using node endpoint: $(GETH_RPC_URL)"
 	@go test ./pkg/indexer -v -run TestIndexing
 
-integration-test:
-	@echo "🧪 Running integration tests..."
-	@echo "📦 Mock tests (fast):"
-	@go test tags=integration -v ./integration/
-	@echo ""
-	@echo "🌐 Live tests (requires environment variables):"
-	@if [ -n "$(GETH_RPC_URL)" ]; then \
-		go test tags=live -v ./integration/live/ -timeout=20s; \
-	else \ 
-		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
-	fi
-
 coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
+
+
+# ethereum-live-test runs the Ethereum live integration suite from
+# integration/live/. GETH_RPC_URL is the tripwire: CI never sets it, so a bare
+# run warns and skips instead of touching a chain endpoint by accident. There
+# is no public-endpoint fallback — real RPC credentials are
+# required, and the suite fails hard when its warmup window passes without an
+# indexed block.
+ethereum-live-test:
+	@echo "🧪 Running Ethereum live tests..."
+	@echo "🌐 Live tests (requires environment variables):"
+	@if [ -n "$(GETH_RPC_URL)" ]; then \
+		go test -tags=live -v ./integration/live/ -count=1 -timeout=20s; \
+	else \
+		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
+	fi
 
 # bsc-live-test runs the BSC live integration suite. It is guarded on
 # GETH_RPC_URL/BSC_LIVE so CI (which sets neither) never hammers the public
