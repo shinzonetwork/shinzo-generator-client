@@ -56,13 +56,17 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 			// returns "defraNode is required" after applying schema.
 			setup: func(t *testing.T) *ChainIndexer {
 				td := testutils.SetupTestDefraDB(t)
+				// The RPC reports the configured chain ID, so startup reaches DefraDB.
+				rpcServer := newMockRPCServer(func(string, json.RawMessage) (any, error) { return "0x1", nil })
+				t.Cleanup(rpcServer.Close)
 
 				// Create a config pointing to the test DefraDB as "external".
 				cfg := &config.Config{
+					Chain: config.ChainConfig{ChainID: testChainID},
 					DefraDB: config.DefraDBConfig{
 						URL: fmt.Sprintf("http://localhost:%d", td.Port),
 					},
-					Geth: config.GethConfig{NodeURL: "http://localhost:9999"},
+					Geth: config.GethConfig{NodeURL: rpcServer.URL},
 					Indexer: config.IndexerConfig{
 						StartHeight:    0,
 						ReceiptWorkers: 1,
@@ -107,6 +111,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 				t.Cleanup(rpcServer.Close)
 
 				cfg := &config.Config{
+					Chain: config.ChainConfig{ChainID: testChainID},
 					DefraDB: config.DefraDBConfig{
 						URL:           testDefraRandomURL,
 						KeyringSecret: "test-secret-for-keyring-12345678",
@@ -763,6 +768,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 
 	// Phase 1: Start an indexer to populate some blocks.
 	cfg1 := &config.Config{
+		Chain: config.ChainConfig{ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -826,6 +832,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	blockCallCount.Store(0)
 
 	cfg2 := &config.Config{
+		Chain: config.ChainConfig{ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -944,6 +951,7 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 			defer rpcServer.Close()
 
 			cfg := &config.Config{
+				Chain: config.ChainConfig{ChainID: testChainID},
 				DefraDB: config.DefraDBConfig{
 					URL:           testDefraRandomURL,
 					KeyringSecret: "test-secret-for-keyring-12345678",

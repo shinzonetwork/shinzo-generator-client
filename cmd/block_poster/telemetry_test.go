@@ -69,6 +69,7 @@ func TestRun_TelemetryMisconfiguredStopsBeforeIndexer(t *testing.T) {
 chain:
   name: "Ethereum"
   network: "Mainnet"
+  chain_id: 1
 defradb:
   embedded: true
   store:
