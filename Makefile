@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
+.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test bsc-live-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -105,6 +105,18 @@ coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 
+# bsc-live-test runs the BSC live integration suite. It is guarded on
+# GETH_RPC_URL/BSC_LIVE so CI (which sets neither) never hammers the public
+# BSC endpoint by accident; without GETH_RPC_URL the suite itself falls back
+# to the free public endpoint. GETH_* env names are historical — the
+# Generator is chain-agnostic, so the BSC suite reuses them.
+bsc-live-test:
+	@if [ -z "$(GETH_RPC_URL)" ] && [ -z "$(BSC_LIVE)" ]; then \
+		echo "⚠️  Skipping BSC live tests - GETH_RPC_URL or BSC_LIVE not set"; \
+	else \
+		go test -tags=live -v ./integration/live/bsc/ -timeout=400s; \
+	fi
+
 lint:
 	@echo "🔍 Running golangci-lint..."
 	@golangci-lint run ./...
@@ -173,7 +185,11 @@ help:
 	@echo "🏃 Services:"
 	@echo "  defra-start        - Start DefraDB"
 	@echo "  start              - Start the generator"
+	@echo "  start-bsc          - Start the generator with the BSC config"
 	@echo "  stop               - Stop all services"
+	@echo ""
+	@echo "🌐 Per-chain live tests:"
+	@echo "  bsc-live-test      - BSC live integration suite (GETH_RPC_URL or BSC_LIVE; defaults to the public endpoint)"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
 	@echo "  GETH_RPC_URL   - HTTP RPC endpoint (required)"
