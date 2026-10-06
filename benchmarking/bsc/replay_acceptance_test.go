@@ -20,6 +20,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,6 +41,16 @@ const (
 	// fixtureGlob matches this chain's captures so the newest fixture wins
 	// when no explicit path is given.
 	fixtureGlob = "bsc_blocks_*.json"
+
+	// replayValueLogSizeMB matches the production badger value-log file size
+	// default (defaultBadgerValueLogFileSizeMB in pkg/defradb, unexported),
+	// carried in the config so the node-option callback below reads it the
+	// same way the production buildNodeOptions does.
+	replayValueLogSizeMB = 64
+
+	// badgerVlogSizeShift is log2 of one mebibyte: the config field is in MB,
+	// SetBadgerFileSize wants bytes.
+	badgerVlogSizeShift = 20
 )
 
 // TestBSCReplayAcceptance answers "can we index BSC blocks at the tip": it
@@ -67,23 +78,40 @@ func TestBSCReplayAcceptance(t *testing.T) {
 
 	logger.Testf("BSC replay acceptance: %d blocks from fixture %s, target %s per block", len(blocks), fixturePath, target)
 
+	mockNode := newReplayRPCServer(fx)
+	defer mockNode.Close()
+
+	storePath := t.TempDir()
+	cfg := newReplayConfig(mockNode.URL(), storePath)
+	resolveReplayServices(t, cfg)
+
 	// Embedded DefraDB with the BSC-prefixed schema. The ForChain variant is
 	// required: LoadSchemaSDL returns the raw embedded Ethereum__Mainnet
 	// content without the prefix swap, which would create the wrong
 	// collections.
-	cols, err := chains.NewCollections(newReplayConfig("", ""))
+	cols, err := chains.NewCollections(cfg)
 	require.NoError(t, err)
 	sdl, err := schema.LoadSchemaSDLForChain(cols)
 	require.NoError(t, err)
-	td := testutils.SetupTestDefraDBWithSchema(t, sdl)
 
-	mockNode := newReplayRPCServer(fx)
-	defer mockNode.Close()
-
-	cfg := newReplayConfig(mockNode.URL(), td.Dir)
+	// The node runs with the production bootstrap's node options: the
+	// identity comes from the real file keyring at {storePath}/keys and is
+	// set as the node identity, and badger gets the production value-log
+	// file size. P2P stays off to keep the measurement free of libp2p
+	// background traffic.
+	nodeIdent, err := defradb.GetOrCreateNodeIdentity(cfg)
+	require.NoError(t, err, "open the replay keyring")
+	td := testutils.SetupTestDefraDBWithSchemaOpts(t, sdl, storePath,
+		func(nb *options.NodeOptionsBuilder) { nb.DB().SetNodeIdentity(nodeIdent) },
+		func(nb *options.NodeOptionsBuilder) {
+			nb.Store().SetBadgerFileSize(cfg.DefraDB.Store.ValueLogFileSizeMB << badgerVlogSizeShift)
+		},
+	)
 
 	// The signing identity is required: the BlockSignature correctness
-	// assertion below depends on signature docs being written.
+	// assertion below depends on signature docs being written. This resolves
+	// the same keyring entry the node options set, mirroring the indexer's
+	// identity-context wiring.
 	ctx, err := defradb.GetIdentityContext(context.Background(), cfg)
 	require.NoError(t, err)
 
@@ -95,6 +123,11 @@ func TestBSCReplayAcceptance(t *testing.T) {
 	converter := evm.NewConverter(cfg)
 	handler, err := defra.NewBlockHandler(td.Node, cfg.Indexer.MaxDocsPerTxn)
 	require.NoError(t, err)
+
+	// Background services run beside the timing loop: the pruner deletes
+	// past retention and the snapshotter archives to disk, so their IO lands
+	// in the samples the way production background load does.
+	services := startReplayServices(t, cfg, td.Node, converter, handler, ctx)
 
 	timings := make(blockTimings, 0, len(blocks))
 	for i, fb := range blocks {
@@ -118,9 +151,15 @@ func TestBSCReplayAcceptance(t *testing.T) {
 		}
 	}
 
+	// Stop the services before the report and assertions: the pruner must
+	// not race the final count queries, and the snapshotter's stats are
+	// final once stopped.
+	services.stop()
+
 	reportResults(t, fx, blocks, numbers, timings, target)
+	logServiceStats(t, services)
 	assertVerdict(t, fx, timings, target)
-	assertCorrectness(t, td, ctx, cols, numbers, len(blocks))
+	assertCorrectness(t, td, ctx, cols, numbers, len(blocks), services.prunedBlocks())
 }
 
 // resolveFixturePath picks the fixture to replay: BSC_REPLAY_FIXTURE wins,
@@ -245,27 +284,31 @@ func assertVerdict(t *testing.T, fx *replayFixture, timings blockTimings, target
 }
 
 // assertCorrectness is the "can index" half of the verdict: every processed
-// block must be present in DefraDB and signature docs must exist for the
-// stored range.
-func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Context, cols chains.Collections, numbers []uint64, processed int) {
+// block must be present in DefraDB unless the pruner removed it, and
+// signature docs must exist for the stored range.
+func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Context, cols chains.Collections, numbers []uint64, processed int, pruned int64) {
 	t.Helper()
 
 	// The capture is a contiguous range and the cap keeps a prefix of it, so
-	// the stored range is the first and last processed block number.
+	// the stored range is the first and last processed block number. Pruned
+	// blocks come off the low end of that range, so the expected row count is
+	// everything processed minus what the pruner deleted.
 	first, last := int64(numbers[0]), int64(numbers[len(numbers)-1])
+	expected := processed - int(pruned)
 
 	blockCount, err := graphqlCountInRange(ctx, td.Node, mustBlockCollection(t, cols),
 		constants.NumberFieldName, first, last, processed+1)
 	require.NoError(t, err)
-	assert.Equal(t, processed, blockCount,
-		"block count in the stored range must equal the blocks processed (duplicate stores are rejected, so a mismatch means a block silently failed)")
+	assert.Equal(t, expected, blockCount,
+		"block count in the stored range must equal blocks processed minus blocks the pruner removed (duplicate stores are rejected, so a mismatch means a block silently failed or was pruned unexpectedly)")
 
 	sigCount, err := graphqlCountInRange(ctx, td.Node, mustSignatureCollection(t, cols),
 		constants.BlockNumberFieldName, first, last, processed+1)
 	require.NoError(t, err)
 	assert.Greater(t, sigCount, 0,
 		"no BlockSignature docs were written for the stored range")
-	logger.Testf("✓ correctness: %d blocks stored, %d block signatures", blockCount, sigCount)
+	logger.Testf("✓ correctness: %d blocks stored, %d block signatures (expected %d blocks after pruning %d)",
+		blockCount, sigCount, expected, pruned)
 }
 
 // mustBlockCollection resolves the chain's block collection name.

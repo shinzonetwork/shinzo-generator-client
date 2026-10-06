@@ -81,11 +81,57 @@ make bsc-acceptance-test
 - `BSC_REPLAY_MAX_BLOCKS=50` caps the sample for slow hosts.
 - `BSC_TARGET_BLOCK_TIME=750ms` overrides the target block interval (e.g. for
   a Maxwell-era fixture); the default is `450ms`.
+- `BSC_REPLAY_PRUNER=off` / `BSC_REPLAY_SNAPSHOT=off` disable the background
+  services (both are on by default, see below).
+- `BSC_REPLAY_PRUNER_INTERVAL_SECONDS` (10), `BSC_REPLAY_PRUNER_MAX_BLOCKS`
+  (100), `BSC_REPLAY_SNAPSHOT_INTERVAL_SECONDS` (10),
+  `BSC_REPLAY_SNAPSHOT_BLOCKS_PER_FILE` (50) tune the services' forced-fast
+  cadence and retention.
 
 The harness drives the pipeline directly — it **deliberately bypasses
 `blocks_per_minute` pacing** because it measures raw pipeline capacity against
 the chain's BPS. `max_docs_per_txn` and the per-collection batch sizes stay
 moderate to respect badger's ~9.7 MB per-transaction ceiling.
+
+The embedded DefraDB node (real badger on disk, P2P off, loopback bind) runs
+with the same node options the production bootstrap applies: the node identity
+comes from a real file keyring under the store dir (throwaway secret, temp
+directory) and is set via `SetNodeIdentity`, and badger gets the production
+value-log file size (64 MB, matching `buildNodeOptions` in `pkg/defradb`).
+
+The pruner and snapshotter run beside the replay loop with **forced-fast
+defaults** — 10 s cycles, 100-block retention, 50-block snapshot files — so
+delete and snapshot IO lands in the measurements the way production
+background load does. Their outcome prints below the report box, one line
+per service, and the block-count assertion is pruning-aware (expected rows =
+processed − pruned).
+
+### What this measures vs. live indexing
+
+The loopback mock isolates the client-side pipeline, so the dominant
+live-indexing cost is absent from the measurement: real RPC round-trips plus
+the node's own work serving full blocks and receipts, and endpoint rate
+limiting (a single 429 backoff can add seconds). A few smaller deltas remain
+on the local side:
+
+- **P2P off** — the production node runs the libp2p host and pubsub; the bench
+  node does not.
+- **Orchestration bypassed** — no `ConcurrentBlockProcessor`, pacing, or
+  head-buffer/WS tip detection. Deliberate: this suite measures raw pipeline
+  capacity; the live suite measures the real loop.
+- **Services forced-fast** — the pruner (10 s cycles, 100-block retention →
+  real deletions mid-run) and snapshotter (10 s scans, 50-block files → real
+  gzip writes) run beside the loop with their IO in the timings; only the
+  health server stays off.
+- **Fresh store** — the bench writes into a new badger; compaction and LSM
+  shape change over months of production data.
+- **Deployment** — production typically runs containerized with cgroup memory
+  limits; the bench runs on the host.
+
+So live per-block time ≈ acceptance average + (real RPC time − loopback time)
++ those residuals. This suite answers the
+*"is the pipeline fast enough"* question, the live suite (`make bsc-live-test`)
+answers *"does it hold with the network in the loop"*.
 
 ## 3. The report
 
