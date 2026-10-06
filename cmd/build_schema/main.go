@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -29,8 +30,14 @@ func run(args []string, stdout io.Writer) error {
 	network := fs.String("network", "", "Network name for collection prefixes (e.g. Mainnet). Defaults to the adapter's default when empty.")
 	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from. Defaults to the built-in default when empty.")
 	file := fs.String("file", "", "Single collection file to output (e.g. block.graphql). Default: full merged SDL.")
+	// The prefix flag is still declared so legacy invocations get a targeted
+	// migration error instead of a generic unknown-flag failure.
+	prefix := fs.String("prefix", "", "Removed: use --chain, --network, and --adapter instead")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
+	}
+	if *prefix != "" {
+		return errors.New("--prefix is no longer supported; use --chain, --network, and --adapter instead")
 	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
