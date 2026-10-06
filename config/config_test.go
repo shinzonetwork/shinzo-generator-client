@@ -22,6 +22,7 @@ func TestLoadConfig_ValidYAML(t *testing.T) {
 chain:
   name: "Ethereum"
   network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://localhost:9181"
   keyring_secret: "test_secret"
@@ -94,7 +95,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 
 			tempDir := t.TempDir()
 			configPath := filepath.Join(tempDir, "config.yaml")
-			configContent := "chain:\n  name: Ethereum\n  network: Mainnet\ndefradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
+			configContent := "chain:\n  name: Ethereum\n  network: Mainnet\n  chain_id: 1\ndefradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
 
 			require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
@@ -411,6 +412,7 @@ func TestLoadConfig_EnvironmentOverrides_Integration(t *testing.T) {
 chain:
   name: "Ethereum"
   network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://localhost:9181"
   keyring_secret: "pingpong"
@@ -435,6 +437,7 @@ func TestLoadConfig_InvalidEnvironmentValues(t *testing.T) {
 chain:
   name: "Ethereum"
   network: "Mainnet"
+  chain_id: 1
 defradb:
   embedded: true
 indexer:
@@ -555,7 +558,7 @@ func TestChainAdapter_EnvOverride(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{}
 			t.Setenv("CHAIN_ADAPTER", tt.envVal)
-			applyChainEnvOverrides(cfg)
+			require.NoError(t, applyChainEnvOverrides(cfg))
 			assert.Equal(t, tt.want, cfg.Chain.Adapter, "Chain.Adapter")
 		})
 	}
@@ -565,7 +568,7 @@ func TestChainAdapter_EnvOverrideEmptyIgnored(t *testing.T) {
 	cfg := &Config{}
 	cfg.Chain.Adapter = DefaultChainAdapter
 	t.Setenv("CHAIN_ADAPTER", "")
-	applyChainEnvOverrides(cfg)
+	require.NoError(t, applyChainEnvOverrides(cfg))
 	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "empty CHAIN_ADAPTER should not override")
 }
 
@@ -610,6 +613,7 @@ func TestLoadConfig_DefaultChainAdapter(t *testing.T) {
 chain:
   name: "Ethereum"
   network: "Mainnet"
+  chain_id: 1
 defradb:
   embedded: true
 indexer:
