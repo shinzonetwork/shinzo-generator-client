@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -9,7 +10,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	shinzoerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
@@ -56,6 +57,8 @@ type Fetcher struct {
 	apiKey      string
 	apiKeyType  string
 	dialTimeout time.Duration
+	// chainID is the chain ID Connect requires the endpoint to report.
+	chainID uint64
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -76,7 +79,7 @@ func NewFetcher(client rpcClient, receiptWorkers int) *Fetcher {
 // FetchBlock/FetchHighestBlockNumber.
 func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 	if cfg == nil {
-		return nil, errors.NewConfigurationError("chain", "NewFetcherFromConfig", "config is nil", "", nil)
+		return nil, shinzoerrors.NewConfigurationError("chain", "NewFetcherFromConfig", "config is nil", "", nil)
 	}
 	receiptWorkers := cfg.Indexer.ReceiptWorkers
 	if receiptWorkers <= 0 {
@@ -88,15 +91,21 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		apiKey:         cfg.Geth.APIKey,
 		apiKeyType:     cfg.Geth.APIKeyType,
 		dialTimeout:    time.Duration(cfg.Geth.DialTimeoutSeconds) * time.Second,
+		chainID:        cfg.Chain.ChainID,
 		receiptWorkers: receiptWorkers,
 	}, nil
 }
 
-// Connect dials the RPC endpoint using the connection-config fields. The
-// provided context governs the dial; f.dialTimeout (GethConfig's
-// dial_timeout_seconds) may additionally bound the WebSocket dial phase. If
-// the fetcher was built via NewFetcher (pre-connected client), Connect is a
-// no-op.
+// errChainIDMismatch reports that the endpoint serves a chain other than the configured one.
+var errChainIDMismatch = errors.New("RPC endpoint serves another chain")
+
+// Connect dials the RPC endpoint using the connection-config fields and returns
+// errChainIDMismatch when the endpoint reports a chain ID other than the
+// configured one, so a generator pointed at another chain's RPC does not index
+// that chain under its own collection names. The provided context governs the
+// dial; f.dialTimeout (GethConfig's dial_timeout_seconds) may additionally bound
+// the WebSocket dial phase. If the fetcher was built via NewFetcher
+// (pre-connected client), Connect is a no-op.
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
@@ -104,6 +113,15 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 	client, err := NewEthereumClient(ctx, f.nodeURL, f.wsURL, f.apiKey, f.apiKeyType, f.dialTimeout)
 	if err != nil {
 		return fmt.Errorf("create ethereum client: %w", err)
+	}
+	chainID, err := client.GetChainID(ctx)
+	if err != nil {
+		_ = client.Close()
+		return fmt.Errorf("read chain id: %w", err)
+	}
+	if !chainID.IsUint64() || chainID.Uint64() != f.chainID {
+		_ = client.Close()
+		return fmt.Errorf("endpoint reports chain id %s: %w", chainID, errChainIDMismatch)
 	}
 	f.client = client
 	return nil

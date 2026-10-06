@@ -193,15 +193,17 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	// 2. Log prefix (uses converter only — no RPC needed)
 	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, i.converter.Collections().Prefix())
 
-	// 3. Start DefraDB (uses converter.Collections() + converter.GetCollections())
+	// 3. Connect the fetcher before DefraDB starts, so an RPC endpoint that serves another chain
+	// is refused before the generator opens its store.
+	if err := i.fetcher.Connect(initCtx); err != nil {
+		return fmt.Errorf("failed to connect fetcher for %s %s (chain_id %d): %w",
+			cfg.Chain.Name, cfg.Chain.Network, cfg.Chain.ChainID, err)
+	}
+
+	// 4. Start DefraDB (uses converter.Collections() + converter.GetCollections())
 	ctx, err = i.initDefra(initCtx, cfg, defraStarted)
 	if err != nil {
 		return err
-	}
-
-	// 4. Connect fetcher (context-aware dial — was done in NewAdapter at construction)
-	if err := i.fetcher.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect fetcher: %w", err)
 	}
 
 	// 5. Create block handler (was done in adapter.Init)

@@ -358,6 +358,16 @@ func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 	return client.NetworkID(ctx)
 }
 
+// GetChainID returns the chain ID the endpoint reports from eth_chainId.
+func (c *EthereumClient) GetChainID(ctx context.Context) (*big.Int, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, errNoClientAvailable
+	}
+
+	return client.ChainID(ctx)
+}
+
 // GetLatestBlockNumber returns just the latest block number (not the offset block).
 func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, error) {
 	client := c.getPreferredClient()
