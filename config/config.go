@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,9 @@ const CollectionName = "shinzo"
 
 // DefaultChainAdapter is the default and currently only supported chain adapter type.
 const DefaultChainAdapter = "evm"
+
+// ErrChainUnset is returned when the config does not name the chain to index.
+var ErrChainUnset = errors.New("chain.name and chain.network are required")
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
@@ -248,12 +252,6 @@ func LoadConfig(path string) (*Config, error) {
 
 // applyDefaults sets default values for optional configuration.
 func applyDefaults(cfg *Config) {
-	if cfg.Chain.Name == "" {
-		cfg.Chain.Name = "Ethereum"
-	}
-	if cfg.Chain.Network == "" {
-		cfg.Chain.Network = "Mainnet"
-	}
 	if cfg.Chain.Adapter == "" {
 		cfg.Chain.Adapter = DefaultChainAdapter
 	}
@@ -291,6 +289,10 @@ func applyDefaults(cfg *Config) {
 func validateConfig(cfg *Config) error {
 	if cfg.Chain.Adapter != DefaultChainAdapter {
 		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", cfg.Chain.Adapter, DefaultChainAdapter)
+	}
+
+	if cfg.Chain.Name == "" || cfg.Chain.Network == "" {
+		return ErrChainUnset
 	}
 
 	if cfg.Indexer.StartHeight < 0 {

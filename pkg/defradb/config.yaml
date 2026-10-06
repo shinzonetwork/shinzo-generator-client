@@ -1,3 +1,6 @@
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
 defradb:
   url: "http://localhost:9181"
   keyring_secret: "overwritten by DEFRA_KEYRING_SECRET env variable"
