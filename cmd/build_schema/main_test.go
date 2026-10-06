@@ -123,3 +123,13 @@ func TestRun_ListFilesIgnoresChain(t *testing.T) {
 	require.NoError(t, run([]string{"build_schema", "--list-files", "--chain", "Arbitrum"}, &bufWithChain))
 	assert.Equal(t, bufNoChain.String(), bufWithChain.String())
 }
+
+func TestRun_PrefixFlagFails(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	err := run([]string{"build_schema", "--prefix", "Arbitrum__Mainnet"}, &buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--prefix is no longer supported")
+	assert.Contains(t, err.Error(), "--chain, --network, and --adapter")
+	assert.Empty(t, buf.String())
+}
