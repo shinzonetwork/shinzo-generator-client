@@ -70,3 +70,6 @@ logs/
 # SDD Files
 specs/
 
+# Replay fixtures are large and captured per-machine (make bsc-bench-fetch)
+benchmarking/testdata/
+
