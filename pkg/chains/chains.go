@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -59,6 +60,20 @@ type CollectionFile struct {
 	// SDL is the schema content adapted to the chain's prefix, ready for
 	// AddSchema.
 	SDL string
+}
+
+// MergeSDL concatenates the collection SDLs in pair order, separating
+// documents with a blank line. It is the single definition of the merged
+// schema document, so every consumer of CollectionFiles renders it
+// identically instead of each re-implementing the join. Error and
+// availability concerns stay with the callers: only the caller knows whether
+// a zero-file result means an error and what context to report.
+func MergeSDL(files []CollectionFile) string {
+	parts := make([]string, 0, len(files))
+	for _, f := range files {
+		parts = append(parts, f.SDL)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // Collections is the chain-agnostic abstraction over a chain family's named

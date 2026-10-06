@@ -82,17 +82,15 @@ func (c *CollectionNames) CollectionFiles() ([]chains.CollectionFile, error) {
 }
 
 // MergedSDL returns the full schema SDL document with all collection files
-// concatenated in schema-apply order and the chain's prefix applied.
+// concatenated in schema-apply order and the chain's prefix applied. The
+// join itself is the shared chains.MergeSDL, so every consumer of the pairs
+// produces the same document.
 func (c *CollectionNames) MergedSDL() (string, error) {
 	files, err := c.CollectionFiles()
 	if err != nil {
 		return "", err
 	}
-	parts := make([]string, 0, len(files))
-	for _, f := range files {
-		parts = append(parts, f.SDL)
-	}
-	return strings.Join(parts, "\n\n"), nil
+	return chains.MergeSDL(files), nil
 }
 
 // readCollectionSDL reads a single collection .graphql file and returns its

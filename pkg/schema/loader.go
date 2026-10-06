@@ -2,7 +2,6 @@ package schema
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
@@ -52,18 +51,15 @@ func PrecomputeCollectionSDLs(collections chains.Collections) (map[string]string
 
 // LoadSchemaSDLForChain reads all collection files in dependency order and
 // concatenates them into a single SDL document with the chain's prefix
-// applied.
+// applied. The join itself is the shared chains.MergeSDL, so this document is
+// byte-identical to the chain implementation's own merged output.
 func LoadSchemaSDLForChain(collections chains.Collections) (string, error) {
 	files, err := collections.CollectionFiles()
 	if err != nil {
 		return "", fmt.Errorf("list collection files for prefix %s: %w", collections.Prefix(), err)
 	}
-	var parts []string
-	for _, f := range files {
-		parts = append(parts, f.SDL)
-	}
-	if len(parts) == 0 {
+	if len(files) == 0 {
 		return "", fmt.Errorf("no collection files found for prefix %s", collections.Prefix())
 	}
-	return strings.Join(parts, "\n\n"), nil
+	return chains.MergeSDL(files), nil
 }
