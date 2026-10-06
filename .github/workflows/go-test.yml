@@ -29,6 +29,9 @@ jobs:
       id: cpu
       run: echo "count=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 2)" >> $GITHUB_OUTPUT
     
+    - name: Verify build
+      run: go build ./...
+    
     - name: Run tests
       env:
         GETH_RPC_URL: ${{ secrets.GETH_RPC_URL }}
