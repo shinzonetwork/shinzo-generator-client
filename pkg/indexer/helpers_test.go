@@ -44,6 +44,8 @@ const (
 	netVersion = "net_version"
 	// ethChainID is used in tests to identify the chain ID RPC call.
 	ethChainID = "eth_chainId"
+	// testChainID is the chain ID the mock RPC servers report.
+	testChainID = 1
 	// ethGetTransactionReceipt is used in tests to identify the transaction receipt RPC call.
 	ethGetTransactionReceipt = "eth_getTransactionReceipt"
 
@@ -101,6 +103,7 @@ func newTestProcessor(t *testing.T, td *testutils.TestDefraDB, rpcServerURL stri
 		Chain: config.ChainConfig{
 			Name:    "Ethereum",
 			Network: "Mainnet",
+			ChainID: testChainID,
 		},
 		Geth: config.GethConfig{
 			NodeURL:    rpcServerURL,
@@ -236,6 +239,7 @@ func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 // startPathBaseCfg builds the common StartIndexing test config.
 func startPathBaseCfg(rpcURL, defraURL, tmpDir string, idx config.IndexerConfig) *config.Config {
 	return &config.Config{
+		Chain: config.ChainConfig{ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           defraURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -393,6 +397,7 @@ func startSignMessagesIndexer(t *testing.T, keyringSecret, defraURL string, p2p 
 	t.Cleanup(srv.Close)
 
 	cfg := &config.Config{
+		Chain: config.ChainConfig{ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			KeyringSecret: keyringSecret,
 			P2P:           p2p,
