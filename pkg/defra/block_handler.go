@@ -509,7 +509,7 @@ func (h *BlockHandler) createDocBatch(
 		var ids []string
 		err := h.writeBatchWithRetry(ctx, blockInt, colName, func() error {
 			var e error
-			ids, e = h.createDocsInTxn(ctx, colName, batch)
+			ids, e = h.createDocsInTxn(ctx, blockInt, colName, batch)
 			return e
 		})
 		allIDs = append(allIDs, ids...)
@@ -521,8 +521,19 @@ func (h *BlockHandler) createDocBatch(
 }
 
 // createDocsInTxn creates documents from data maps in a single transaction.
+//
+// When the bulk write fails because one or more documents already exist
+// (content-addressed identity), the batch attempt is discarded and the
+// documents are retried one by one so exactly the missing ones are stored
+// instead of the whole batch being dropped. Any skip makes the batch fail
+// with a distinct "previously stored" error that deliberately does not match
+// IsErrAlreadyExists — that text stays reserved for genuinely-existing
+// blocks, so Store records a real batch error, fail-fasts, and the block
+// fails truthfully instead of being reported as indexed. writeBatchWithRetry
+// rolls the batch's collector CIDs back on the error.
 func (h *BlockHandler) createDocsInTxn(
 	ctx context.Context,
+	blockInt int64,
 	colName string,
 	dataMaps []map[string]any,
 ) ([]string, error) {
@@ -552,12 +563,13 @@ func (h *BlockHandler) createDocsInTxn(
 		return nil, nil
 	}
 
-	if err := col.AddManyDocuments(ctx, docs); err != nil {
+	bulkErr := col.AddManyDocuments(ctx, docs)
+	if bulkErr != nil {
 		txn.Discard()
-		if errors.IsErrAlreadyExists(err) {
-			return nil, nil
+		if !errors.IsErrAlreadyExists(bulkErr) {
+			return nil, fmt.Errorf("add documents to %s: %w", colName, bulkErr) //nolint:err113
 		}
-		return nil, fmt.Errorf("add documents to %s: %w", colName, err) //nolint:err113
+		return h.writeBatchSkipExisting(ctx, blockInt, colName, dataMaps)
 	}
 
 	if err := txn.Commit(); err != nil {
@@ -569,6 +581,83 @@ func (h *BlockHandler) createDocsInTxn(
 		ids[i] = doc.ID().String()
 	}
 	return ids, nil
+}
+
+// writeBatchSkipExisting replaces a discarded bulk batch attempt with
+// per-document writes via addDocsSkipExisting and logs the outcome. Any skip
+// makes the batch fail with the distinct partial-store error described by
+// createDocsInTxn.
+func (h *BlockHandler) writeBatchSkipExisting(
+	ctx context.Context,
+	blockInt int64,
+	colName string,
+	dataMaps []map[string]any,
+) ([]string, error) {
+	ids, skipped, err := h.addDocsSkipExisting(ctx, colName, dataMaps)
+	if err != nil {
+		return nil, fmt.Errorf("write %s batch per-document: %w", colName, err) //nolint:err113
+	}
+	if skipped > 0 {
+		logger.Sugar.Warnf("Block %d: %s batch: stored %d of %d documents, %d previously stored",
+			blockInt, colName, len(ids), len(dataMaps), skipped)
+		return ids, fmt.Errorf("%s batch: %d of %d documents were previously stored", //nolint:err113
+			colName, skipped, len(dataMaps))
+	}
+	return ids, nil
+}
+
+// addDocsSkipExisting implements the per-document fallback described by
+// createDocsInTxn: it writes each document via AddDocument in a single fresh
+// transaction, skipping the ones whose content is already stored, and returns
+// the written docIDs plus the skip count. Any other failure discards the
+// transaction and returns the error with no IDs.
+func (h *BlockHandler) addDocsSkipExisting(
+	ctx context.Context,
+	colName string,
+	dataMaps []map[string]any,
+) ([]string, int, error) {
+	txn, err := h.db.NewTxn(false)
+	if err != nil {
+		return nil, 0, fmt.Errorf("create txn for %s: %w", colName, err) //nolint:err113
+	}
+
+	col, err := txn.GetCollectionByName(ctx, colName)
+	if err != nil {
+		txn.Discard()
+		return nil, 0, fmt.Errorf("get collection %s: %w", colName, err) //nolint:err113
+	}
+
+	var written []string
+	skipped := 0
+
+	for _, data := range dataMaps {
+		doc, err := client.NewDocFromMap(ctx, data, col.Version())
+		if err != nil {
+			txn.Discard()
+			return nil, 0, fmt.Errorf("create doc in %s: %w", colName, err) //nolint:err113
+		}
+		if err := col.AddDocument(ctx, doc); err != nil {
+			if !errors.IsErrAlreadyExists(err) {
+				txn.Discard()
+				return nil, 0, fmt.Errorf("add document to %s: %w", colName, err) //nolint:err113
+			}
+			skipped++
+			continue
+		}
+		// A document's docID is assigned by AddDocument, not by document
+		// construction — this is the first moment it is valid.
+		written = append(written, doc.ID().String())
+	}
+
+	if len(written) == 0 {
+		txn.Discard()
+		return written, skipped, nil
+	}
+
+	if err := txn.Commit(); err != nil {
+		return nil, 0, fmt.Errorf("commit %s batch: %w", colName, err) //nolint:err113
+	}
+	return written, skipped, nil
 }
 
 // SignExisting creates a block signature for a block that has already been

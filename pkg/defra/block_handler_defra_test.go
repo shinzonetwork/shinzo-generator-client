@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"testing"
 
 	cid "github.com/ipfs/go-cid"
 	"github.com/sourcenetwork/defradb/acp/identity"
+	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
@@ -125,6 +127,22 @@ func extractCollection(collections chains.Collections, role string) string {
 		panic(fmt.Sprintf("programmer error: %v", err))
 	}
 	return name
+}
+
+// preStoreGroupDoc writes one document directly to a collection in its own
+// transaction, bypassing the handler's batch-write path. Used to stage
+// pre-existing document content (a partial block) before the batch write
+// under test runs.
+func preStoreGroupDoc(ctx context.Context, t *testing.T, db blockDB, colName string, data map[string]any) {
+	t.Helper()
+	txn, err := db.NewTxn(false)
+	require.NoError(t, err)
+	col, err := txn.GetCollectionByName(ctx, colName)
+	require.NoError(t, err)
+	doc, err := client.NewDocFromMap(ctx, data, col.Version())
+	require.NoError(t, err)
+	require.NoError(t, col.AddDocument(ctx, doc))
+	require.NoError(t, txn.Commit())
 }
 
 // ---------------------------------------------------------------------------
@@ -686,6 +704,205 @@ func TestStore_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 	_, err = handler.Store(ctx, result2)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
+}
+
+// TestStore_BatchedMode_RepeatedAccessListEntrySignsNormally reproduces the
+// production incident end to end: a transaction that repeats one access-list
+// entry — legal per EIP-2930, observed on mainnet blocks 25727831..25730844
+// and 26077885..26095866. Pre-fix, the repeated entry produced two
+// content-identical ALE docs whose batch write failed with "already exists",
+// was swallowed as success, dropped the whole ALE group and its CIDs, and
+// left the block permanently unsigned (0 batch errors in the log). Post-fix
+// the converter collapses the repeat to one writable doc, the batch writes,
+// and the block stores and signs normally with zero batch errors.
+func TestStore_BatchedMode_RepeatedAccessListEntrySignsNormally(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
+	handler, err := NewBlockHandler(td.Node, 2)
+	require.NoError(t, err)
+
+	tracker := &mockDocIDTracker{}
+	handler.SetDocIDTracker(tracker)
+
+	ctx := ctxWithIdentity(t)
+	block := mockBlock("0x7A0") // 1952
+	tx := mockTransaction("0xeee1deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdead", "1952")
+	tx.AccessList = []evm.AccessListEntry{
+		{
+			Address:     "0x0000000000000000000000000000000000000060",
+			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000007"},
+		},
+		{
+			Address:     "0x0000000000000000000000000000000000000060",
+			StorageKeys: []string{"0x0000000000000000000000000000000000000000000000000000000000000007"},
+		},
+	}
+	receipt := mockReceipt("0xeee1deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdead", "0x7A0")
+
+	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+	res, err := handler.Store(ctx, result)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.BlockID)
+
+	require.Len(t, tracker.trackedResults, 1)
+	require.NotEmpty(t, tracker.trackedResults[0].BlockSignatureID,
+		"a repeated access-list entry must not leave the block unsigned")
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeAccessListEntry)], 1,
+		"the repeated entry must collapse to one writable document")
+
+	aleCol := extractCollection(cols, chains.TypeAccessListEntry)
+	ids, err := handler.queryCollectionDocIDs(ctx, aleCol, "blockNumber", 1952, 1952)
+	require.NoError(t, err)
+	require.Len(t, ids, 1, "exactly the unique ALE doc must be stored")
+}
+
+// ---------------------------------------------------------------------------
+// createDocBatch — batch already-exists fallback (no whole-batch drop)
+// ---------------------------------------------------------------------------
+
+// TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc covers the hardened batch
+// write: when a bulk batch write fails because some documents already exist,
+// the batch must not be dropped. The missing documents are written
+// per-document, only the duplicates are skipped, and the skip is reported as
+// a distinct "previously stored" error — deliberately not matching
+// IsErrAlreadyExists — instead of a silent success. The test drives through
+// createDocBatch so writeBatchWithRetry's rollback is exercised too: an
+// errored batch leaves the batch-signing collector empty, while a committed
+// one carries exactly its documents' CIDs. Observed in production as whole
+// access-list batches vanishing while the block reported zero batch errors.
+func TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		preStore int
+		wantIDs  int
+		wantErr  bool
+	}{
+		{name: "fresh batch uses the bulk path", preStore: 0, wantIDs: 3},
+		{name: "mixed batch writes the missing and skips the existing", preStore: 1, wantIDs: 2, wantErr: true},
+		{name: "all-existing batch writes nothing and errors", preStore: 3, wantIDs: 0, wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			td := testutils.SetupTestDefraDB(t)
+			handler, err := NewBlockHandler(td.Node, 2)
+			require.NoError(t, err)
+
+			cols := evm.NewCollectionNames("Ethereum__Mainnet")
+			block := mockBlock("0x1130") // 4400
+			tx1 := mockTransaction("0xaaa4400000000000000000000000000000000000000000000000000000000001", "4400")
+			tx2 := mockTransaction("0xaaa4400000000000000000000000000000000000000000000000000000000002", "4400")
+			tx3 := mockTransaction("0xaaa4400000000000000000000000000000000000000000000000000000000003", "4400")
+			result := buildGroups(t, block, []*evm.Transaction{tx1, tx2, tx3}, nil)
+
+			txCol := extractCollection(cols, chains.TypeTransaction)
+			var docs []map[string]any
+			for _, g := range result.Groups {
+				if g.Collection == txCol {
+					docs = g.Docs
+				}
+			}
+			require.Len(t, docs, 3)
+
+			for i := range tc.preStore {
+				preStoreGroupDoc(context.Background(), t, td.Node.DB, txCol, docs[i])
+			}
+
+			collector := node.NewBatchCIDCollector()
+			ctx := node.ContextWithBatchSigning(context.Background(), collector)
+
+			// batchSize = len(docs): the whole group goes out as one batch,
+			// so the fallback and its rollback are exercised on all three
+			// documents in a single transaction.
+			ids, err := handler.createDocBatch(ctx, 4400, txCol, docs, len(docs))
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "were previously stored")
+				assert.NotContains(t, err.Error(), "already exists")
+			} else {
+				require.NoError(t, err)
+			}
+			require.Len(t, ids, tc.wantIDs)
+
+			if tc.wantErr {
+				// writeBatchWithRetry rolls the whole batch's collector CIDs
+				// back on any error: the fallback's partial writes must not
+				// leak into the signing set.
+				assert.Equal(t, 0, collector.Len())
+			} else {
+				// The collector carries exactly the committed documents'
+				// CIDs: the discarded bulk attempt must not leak into it.
+				committedCIDs, err := handler.defaultCollectDocCIDs(context.Background(), ids, []string{txCol})
+				require.NoError(t, err)
+				assert.Equal(t, len(ids), collector.Len())
+				assert.ElementsMatch(t, sortedCIDStrings(committedCIDs), sortedCIDStrings(collector.GetCIDs()))
+			}
+
+			stored, err := handler.queryCollectionDocIDs(context.Background(), txCol, "blockNumber", 4400, 4400)
+			require.NoError(t, err)
+			assert.Len(t, stored, 3, "every unique batch document must end up stored")
+		})
+	}
+}
+
+// TestStore_UnwritableDuplicateIsTruthfulAndUnsigned drives a group-level
+// already-exists into Store the way the production incident reached it: a
+// content-identical document inside one group's bulk batch makes the write
+// fail with "already exists" — the class of document the converter no longer
+// emits, injected here at the fixture level. The transaction group is used
+// because its stamps are index-independent (every doc gets the same
+// _blockID), so a fixture-level copy stays content-identical at write time;
+// duplicating an access-list doc would desynchronise the stamper's parent-ref
+// alignment instead. The batch write must not be silently swallowed: Store
+// returns a partial-index error that names the batch, the block stays
+// unsigned, and exactly the unique document lands in the collection — never
+// a second one.
+func TestStore_UnwritableDuplicateIsTruthfulAndUnsigned(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
+	handler, err := NewBlockHandler(td.Node, 2)
+	require.NoError(t, err)
+
+	block := mockBlock("0x1162") // 4450
+	tx := mockTransaction("0xaaa4450000000000000000000000000000000000000000000000000000000001", "4450")
+	result := buildGroups(t, block, []*evm.Transaction{tx}, nil)
+
+	txCol := extractCollection(cols, chains.TypeTransaction)
+	txGroupIdx := -1
+	for i := range result.Groups {
+		if result.Groups[i].Collection == txCol {
+			txGroupIdx = i
+		}
+	}
+	require.GreaterOrEqual(t, txGroupIdx, 0, "fixture must produce a transaction group")
+	require.Len(t, result.Groups[txGroupIdx].Docs, 1)
+
+	// Reintroduce an unwritable duplicate: a content-identical copy placed in
+	// front of the group's docs. Transaction docs carry no per-index parent
+	// refs — every doc is stamped with the same _blockID — so the copy stays
+	// content-identical to the original at write time.
+	dup := maps.Clone(result.Groups[txGroupIdx].Docs[0])
+	require.NotNil(t, dup)
+	result.Groups[txGroupIdx].Docs = append([]map[string]any{dup}, result.Groups[txGroupIdx].Docs...)
+
+	res, err := handler.Store(ctxWithIdentity(t), result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "partially indexed")
+	assert.Contains(t, err.Error(), txCol)
+	assert.Contains(t, err.Error(), "previously stored")
+	assert.NotContains(t, err.Error(), "already exists")
+	require.NotNil(t, res)
+	assert.NotEmpty(t, res.BlockID)
+	assert.Empty(t, res.BlockSignatureID, "an unwritable duplicate must suppress the signature")
+
+	txStored, err := handler.queryCollectionDocIDs(context.Background(), txCol, "blockNumber", 4450, 4450)
+	require.NoError(t, err)
+	assert.Len(t, txStored, 1, "exactly the unique document is stored; the duplicate yields no second doc")
 }
 
 // ---------------------------------------------------------------------------
