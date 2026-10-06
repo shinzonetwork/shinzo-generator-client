@@ -12,6 +12,9 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	stderrors "errors"
 )
@@ -158,6 +161,12 @@ type storeCompletion struct {
 	stale *reorgSignal
 }
 
+type processorMetrics struct {
+	blocks           metric.Int64Counter
+	storeDuration    metric.Float64Histogram
+	success, failure metric.MeasurementOption
+}
+
 // BlockResult holds the result of processing a block.
 type BlockResult struct {
 	BlockNum   int64
@@ -271,6 +280,8 @@ type ConcurrentBlockProcessor struct {
 	// the restart above the resolved fork point re-fills them). MaxInt64
 	// until the first call pins the actual bound.
 	configuredStart int64
+
+	metrics processorMetrics
 }
 
 // NewConcurrentBlockProcessor creates a new concurrent processor. The
@@ -286,6 +297,22 @@ func NewConcurrentBlockProcessor(
 	workers int,
 	blocksPerMinute int,
 ) *ConcurrentBlockProcessor {
+	meter := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/indexer")
+	blocks, err := meter.Int64Counter("shinzo.generator.blocks",
+		metric.WithDescription("Blocks leaving the ordered commit queue, by result."),
+		metric.WithUnit("{block}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	storeDuration, err := meter.Float64Histogram("shinzo.generator.store.duration",
+		metric.WithDescription("Duration of one block store attempt, by result."),
+		metric.WithUnit("ms"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+
 	return &ConcurrentBlockProcessor{
 		fetcher:         fetcher,
 		converter:       converter,
@@ -296,6 +323,12 @@ func NewConcurrentBlockProcessor(
 		resultChan:      make(chan *BlockResult, workers*DefaultWorkersAhead),
 		pending:         make(map[int64]*BlockResult),
 		configuredStart: math.MaxInt64,
+		metrics: processorMetrics{
+			blocks:        blocks,
+			storeDuration: storeDuration,
+			success:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
+			failure:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
+		},
 	}
 }
 
@@ -730,6 +763,7 @@ func (p *ConcurrentBlockProcessor) checkedForDispatch(ctx context.Context, next 
 	// pop time and the throttle keys off it), so the next completion to
 	// arrive pulls the cursor past the hole and drains parked successors.
 	if !next.Success {
+		p.metrics.blocks.Add(ctx, 1, p.metrics.failure)
 		logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
 		p.pendingMu.Lock()
 		p.lastCheckedNum = next.BlockNum
@@ -904,6 +938,7 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 	item := completion.item
 	computed := completion.computed
 	if computed.Error != nil {
+		p.metrics.blocks.Add(ctx, 1, p.metrics.failure)
 		// DefraDB refuses to re-create a document whose content-derived
 		// docID was soft-deleted (an A->B->A sequence re-fetches the
 		// byte-identical A content after the rollback deleted it). Skipping
@@ -957,7 +992,7 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 		// bookkeeping may fire for it in this run.
 		return
 	}
-	p.applyCommit(item, computed, onBlockProcessed)
+	p.applyCommit(ctx, item, computed, onBlockProcessed)
 }
 
 // drainInFlightStores waits for every store the pool accepted - still
@@ -1082,7 +1117,8 @@ func (p *ConcurrentBlockProcessor) openStaleEpisode(ctx context.Context, complet
 // sequence (applyCommit runs only on the single collector goroutine, so
 // ordering and serialization are unchanged), and a callback can no longer
 // re-enter a pendingMu path and self-deadlock.
-func (p *ConcurrentBlockProcessor) applyCommit(item *BlockResult, computed *BlockResult, onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) applyCommit(ctx context.Context, item *BlockResult, computed *BlockResult, onBlockProcessed func(blockNum int64)) {
+	p.metrics.blocks.Add(ctx, 1, p.metrics.success)
 	p.pendingMu.Lock()
 	if computed.BlockID != "" {
 		logger.Sugar.Infof("Committed block %d (ID: %s)", item.BlockNum, computed.BlockID)
@@ -1616,7 +1652,13 @@ func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum 
 			return &BlockResult{BlockNum: blockNum, Hash: blockHash, Error: ctx.Err()}
 		}
 
+		start := time.Now()
 		res, err := p.blockHandler.Store(ctx, result)
+		outcome := p.metrics.success
+		if err != nil {
+			outcome = p.metrics.failure
+		}
+		p.metrics.storeDuration.Record(ctx, float64(time.Since(start))/float64(time.Millisecond), outcome)
 		if err == nil {
 			return &BlockResult{BlockNum: blockNum, BlockID: res.BlockID, Hash: blockHash, Success: true}
 		}

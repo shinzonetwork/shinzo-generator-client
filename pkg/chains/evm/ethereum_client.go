@@ -13,10 +13,14 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -51,6 +55,7 @@ type EthereumClient struct {
 	wsURL        string
 	apiKey       string
 	apiKeyHeader string
+	rpcErrors    metric.Int64Counter
 }
 
 // NewEthereumClient creates a new JSON-RPC Ethereum client with HTTP and
@@ -71,11 +76,20 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 			fmt.Errorf("dial context cancelled before connecting: %w", err))
 	}
 
+	rpcErrors, meterErr := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm").Int64Counter("shinzo.generator.rpc.errors",
+		metric.WithDescription("Failed Ethereum JSON-RPC calls, by method. Not-yet-mined blocks are not counted."),
+		metric.WithUnit("{error}"),
+	)
+	if meterErr != nil {
+		otel.Handle(meterErr)
+	}
+
 	client := &EthereumClient{
 		nodeURL:      httpNodeURL,
 		wsURL:        wsURL,
 		apiKey:       apiKey,
 		apiKeyHeader: apiKeyHeader,
+		rpcErrors:    rpcErrors,
 	}
 
 	// Normalize header name from env (e.g., "x-goog-api-key", "x-api-key")
@@ -294,6 +308,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 
 	// Get the latest block number first.
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest header: %w", err)
 	}
@@ -309,6 +324,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 	// Try progressively older blocks if transaction type errors occur.
 	for retries := range MaxErigonRetries {
 		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
+		c.countRPCError(ctx, "eth_getBlockByNumber", err)
 		if err != nil {
 			if errors.IsErrUnsupportedTxType(err) {
 
@@ -349,6 +365,7 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	}
 
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
 	}
@@ -378,6 +395,7 @@ func (c *EthereumClient) GetHeaderByHash(ctx context.Context, hash string) (*eth
 	}
 
 	header, err := client.HeaderByHash(ctx, blockHash)
+	c.countRPCError(ctx, "eth_getBlockByHash", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get header by hash %s: %w", hash, err)
 	}
@@ -427,6 +445,7 @@ func (c *EthereumClient) headerNumberForTag(ctx context.Context, tag ethrpc.Bloc
 	}
 
 	header, err := client.HeaderByNumber(ctx, big.NewInt(tag.Int64()))
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get %s header: %w", tag, err)
 	}
@@ -443,7 +462,9 @@ func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 		return nil, errNoClientAvailable
 	}
 
-	return client.NetworkID(ctx)
+	id, err := client.NetworkID(ctx)
+	c.countRPCError(ctx, "net_version", err)
+	return id, err
 }
 
 // GetLatestBlockNumber returns just the latest block number (not the offset block).
@@ -454,6 +475,7 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 	}
 
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest header: %w", err)
 	}
@@ -470,6 +492,7 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 
 	hash := common.HexToHash(txHash)
 	receipt, err := client.TransactionReceipt(ctx, hash)
+	c.countRPCError(ctx, "eth_getTransactionReceipt", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
@@ -487,6 +510,7 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string)
 		return nil, errNoClientAvailable
 	}
 	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithHash(common.HexToHash(blockHash), false))
+	c.countRPCError(ctx, "eth_getBlockReceipts", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block receipts for block hash %s: %w", blockHash, err)
 	}
@@ -834,6 +858,15 @@ func createWebSocketWithHeaders(ctx context.Context, wsURL, apiKey, apiKeyHeader
 
 	logger.Sugar.Infof("WebSocket connection established successfully with %s header", headerName)
 	return ethclient.NewClient(rpcClient), nil
+}
+
+// countRPCError counts a failed RPC call. Not-yet-mined blocks and canceled
+// calls are expected outcomes, not failures.
+func (c *EthereumClient) countRPCError(ctx context.Context, method string, err error) {
+	if c.rpcErrors == nil || err == nil || stderrors.Is(err, ethereum.NotFound) || stderrors.Is(err, context.Canceled) {
+		return
+	}
+	c.rpcErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("method", method)))
 }
 
 // isContextError reports whether err was caused by context cancellation or
