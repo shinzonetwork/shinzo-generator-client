@@ -136,22 +136,30 @@ answers *"does it hold with the network in the loop"*.
 ## 3. The report
 
 ```
-BSC replay acceptance report:
-  fixture:          benchmarking/testdata/bsc_blocks_4901_5000.json (BSC Mainnet, blocks 4901..5000, capture_partial=false)
-  blocks processed: 100
-  min / p50 / p95 / max: 38ms / 61ms / 210ms / 480ms
-  average:          74ms
-  target:           450ms
-  headroom:         83.6%
-  outlier: block 4987: 480ms (6.5x avg)
+====================================================================================================
+Blocks Replayed: 126050700 - 126050850   (151 blocks)
+Target:  450ms
+Average:  292.231173ms
+Headroom:    35.1%
+Min: 125.270292ms || p50: 257.144167ms || p95: 517.100084ms || Max: 1.356533708s
+Outliers:
+- 126050782 - 1.356533708s - +367.4% vs avg
+====================================================================================================
+Pruner: 51 blocks / 53882 docs pruned
+Snapshotter: 3 snapshots (last block 126050850)
 ```
+
+Every line inside the box is space-padded to the 100-character banner width
+(long lines are never truncated). The values above are illustrative, not a
+real run; the `Pruner:`/`Snapshotter:` lines print below the box, one per
+enabled service, and are skipped when a service is disabled.
 
 Two verdicts, both asserted:
 
 1. **Throughput**: average per-block processing time ≤ the target block
    interval. Missing it fails the test — the chain outruns the indexer and
    the backlog grows forever.
-2. **Correctness**: the GraphQL `_count` on the block collection equals the
-   blocks processed (stores are duplicate-rejecting, so a mismatch means a
-   block silently failed), and `BlockSignature` docs exist for the stored
-   range.
+2. **Correctness**: a range query on the block collection must count
+   exactly the blocks processed minus what the pruner removed (stores are
+   duplicate-rejecting, so a mismatch means a block silently failed), and
+   `BlockSignature` docs must exist for the stored range.

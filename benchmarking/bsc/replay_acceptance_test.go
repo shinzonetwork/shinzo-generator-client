@@ -259,7 +259,7 @@ func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbe
 
 	// Banners match the content width exactly.
 	logger.Test(strings.Repeat("=", width))
-	pad("Block Replayed: %d - %d   (%d blocks)", fx.Meta.From, fx.Meta.To, len(blocks))
+	pad("Blocks Replayed: %d - %d   (%d blocks)", fx.Meta.From, fx.Meta.To, len(blocks))
 	pad("Target:  %s", target)
 	pad("Average:  %s", avg)
 	pad("Headroom:    %.1f%%", timings.headroomPct(target))
