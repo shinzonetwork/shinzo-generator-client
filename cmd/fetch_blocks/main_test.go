@@ -139,7 +139,9 @@ func TestSanitizeLogLabel(t *testing.T) {
 	assert.Equal(t, "bsc", sanitizeLogLabel("bsc"))
 	assert.Equal(t, "evillog", sanitizeLogLabel("evil\nlog"))
 	assert.Equal(t, "evillog", sanitizeLogLabel("evil\rlog"))
-	assert.Equal(t, "evil\rlog", sanitizeLogLabel("evil\\rlog"))
+	// The two-character sequence "\r" is not a control character; it must
+	// pass through untouched.
+	assert.Equal(t, "evil\\rlog", sanitizeLogLabel("evil\\rlog"))
 	assert.Equal(t, "", sanitizeLogLabel("\n\r"))
 }
 
