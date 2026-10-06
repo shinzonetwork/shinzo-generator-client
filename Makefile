@@ -135,9 +135,12 @@ bsc-bench-fetch:
 # production pipeline (mock JSON-RPC → Fetcher → Converter → BlockHandler.Store)
 # and hard-asserts the average per-block processing time stays within the
 # chain's block interval. BSC_TARGET_BLOCK_TIME overrides the target; a
-# missing fixture skips with regeneration instructions.
+# missing fixture skips with regeneration instructions. -count=1 forces the
+# run every time: Go's test cache key ignores runtime inputs (fixture files,
+# BSC_* env vars), and unlike `go clean -testcache` it leaves the rest of the
+# project's test results cached.
 bsc-acceptance-test:
-	go test -tags=acceptance ./benchmarking/bsc -run TestBSCReplayAcceptance -v -timeout 30m
+	go test -tags=acceptance ./benchmarking/bsc -run TestBSCReplayAcceptance -count=1 -v -timeout 30m
 
 lint:
 	@echo "🔍 Running golangci-lint..."
