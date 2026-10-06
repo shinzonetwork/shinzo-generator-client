@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,8 +18,13 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 	"github.com/sourcenetwork/defradb/node"
+	"github.com/stretchr/testify/require"
 )
 
 // Fixture types duplicated from cmd/fetch_blocks: test packages cannot import
@@ -335,10 +341,77 @@ func parseHexUint(s string) (uint64, error) {
 // identity; throwaway by design because the store directory is a temp dir.
 const replayKeyringSecret = "bsc-replay-keyring-secret"
 
+// Forced-fast service defaults so prune and snapshot cycles actually fire
+// during a replay run: retention below the fixture range produces real
+// deletions, and a small blocks-per-file produces real snapshot writes.
+// resolveReplayServices applies the BSC_REPLAY_* overrides on top.
+const (
+	replayPruneIntervalSeconds    = 10
+	replayPruneMaxBlocks          = 100
+	replayDocsPerBlock            = 1000 // production default
+	replaySnapshotIntervalSeconds = 10
+	replaySnapshotBlocksPerFile   = 50
+)
+
+// resolveReplayServices applies the pruner/snapshotter kill-switches and
+// forced-fast overrides on top of newReplayConfig's defaults.
+func resolveReplayServices(t *testing.T, cfg *config.Config) {
+	t.Helper()
+
+	if replayServiceOn(t, "BSC_REPLAY_PRUNER") {
+		cfg.Pruner.Enabled = true
+		cfg.Pruner.IntervalSeconds = replayServiceInt(t, "BSC_REPLAY_PRUNER_INTERVAL_SECONDS", replayPruneIntervalSeconds)
+		cfg.Pruner.MaxBlocks = int64(replayServiceInt(t, "BSC_REPLAY_PRUNER_MAX_BLOCKS", replayPruneMaxBlocks))
+	} else {
+		logger.Test("pruner disabled via BSC_REPLAY_PRUNER=off")
+		cfg.Pruner.Enabled = false
+	}
+
+	if replayServiceOn(t, "BSC_REPLAY_SNAPSHOT") {
+		cfg.Snapshot.Enabled = true
+		cfg.Snapshot.IntervalSeconds = replayServiceInt(t, "BSC_REPLAY_SNAPSHOT_INTERVAL_SECONDS", replaySnapshotIntervalSeconds)
+		cfg.Snapshot.BlocksPerFile = int64(replayServiceInt(t, "BSC_REPLAY_SNAPSHOT_BLOCKS_PER_FILE", replaySnapshotBlocksPerFile))
+	} else {
+		logger.Test("snapshotter disabled via BSC_REPLAY_SNAPSHOT=off")
+		cfg.Snapshot.Enabled = false
+	}
+}
+
+// replayServiceOn parses a service kill-switch: "off" disables, empty or "on"
+// keeps the service enabled, anything else fails fast so a typo cannot
+// silently change the measured configuration.
+func replayServiceOn(t *testing.T, env string) bool {
+	t.Helper()
+	switch raw := strings.ToLower(os.Getenv(env)); raw {
+	case "", "on":
+		return true
+	case "off":
+		return false
+	default:
+		t.Fatalf("invalid %s=%q: use on or off", env, raw)
+		return false
+	}
+}
+
+// replayServiceInt parses a positive-integer override, returning the
+// forced-fast default when the env is unset.
+func replayServiceInt(t *testing.T, env string, def int) int {
+	t.Helper()
+	raw := os.Getenv(env)
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.Atoi(raw)
+	require.NoError(t, err, "invalid %s %q: want a positive integer", env, raw)
+	require.Greater(t, n, 0, "%s must be positive", env)
+	return n
+}
+
 // newReplayConfig builds the config the pipeline runs under: chain identity
 // BSC/Mainnet/evm (the prefix every collection name derives from), the mock
-// node as endpoint, P2P off, no health server, and no pruner/snapshotter
-// (they would delete or archive what the acceptance test just verified).
+// node as endpoint, P2P off, no health server, and forced-fast pruner +
+// snapshotter defaults whose delete and snapshot IO lands in the timing
+// sample the way production background load does.
 func newReplayConfig(nodeURL, storePath string) *config.Config {
 	cfg := &config.Config{}
 	cfg.Chain.Name = "BSC"
@@ -351,6 +424,7 @@ func newReplayConfig(nodeURL, storePath string) *config.Config {
 
 	cfg.DefraDB.Embedded = true
 	cfg.DefraDB.Store.Path = storePath
+	cfg.DefraDB.Store.ValueLogFileSizeMB = replayValueLogSizeMB
 	cfg.DefraDB.KeyringSecret = replayKeyringSecret
 	cfg.DefraDB.P2P.Enabled = false
 	cfg.DefraDB.P2P.AcceptIncoming = false
@@ -369,8 +443,20 @@ func newReplayConfig(nodeURL, storePath string) *config.Config {
 	cfg.Indexer.OpenBrowserOnStart = false
 	cfg.Indexer.SchemaAuthMode = "none"
 
-	cfg.Pruner.Enabled = false
-	cfg.Snapshot.Enabled = false
+	// Forced-fast service pacing: retention below the fixture range produces
+	// real deletions mid-run, and a small blocks-per-file produces real
+	// snapshot writes. resolveReplayServices applies the BSC_REPLAY_*
+	// kill-switches and overrides on top of these defaults.
+	cfg.Pruner.Enabled = true
+	cfg.Pruner.MaxBlocks = replayPruneMaxBlocks
+	cfg.Pruner.DocsPerBlock = replayDocsPerBlock
+	cfg.Pruner.IntervalSeconds = replayPruneIntervalSeconds
+
+	cfg.Snapshot.Enabled = true
+	cfg.Snapshot.Dir = filepath.Join(storePath, "snapshots")
+	cfg.Snapshot.BlocksPerFile = replaySnapshotBlocksPerFile
+	cfg.Snapshot.IntervalSeconds = replaySnapshotIntervalSeconds
+
 	cfg.Logger.Development = false
 
 	return cfg
@@ -434,4 +520,96 @@ func (bt blockTimings) outlierLines(numbers []uint64, avg time.Duration) []strin
 		}
 	}
 	return lines
+}
+
+// replayQueueTracker adapts pruner's IndexerQueue to the BlockHandler's
+// docID tracker interface — the same adapter pkg/indexer wires in production,
+// duplicated here because the indexer's version is unexported.
+type replayQueueTracker struct {
+	queue *pruner.IndexerQueue
+}
+
+// TrackBlock records every document a stored block created, feeding the queue
+// the pruner drains from. It runs inside BlockHandler.Store, so its cost is
+// part of the measured per-block time, as in production.
+func (t *replayQueueTracker) TrackBlock(_ context.Context, blockNumber int64, result *defra.BlockCreationResult) error {
+	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, result.OtherDocIDs, result.BlockSignatureID)
+}
+
+// replayServices groups the background services running beside the timing
+// loop. Both are optional: nil fields mean the service was disabled.
+type replayServices struct {
+	pruneSvc *pruner.Pruner
+	snapSvc  *snapshot.Snapshotter
+}
+
+// startReplayServices wires the pruner and snapshotter the way the indexer's
+// initServices does: queue bound to its file, docID tracker on the handler,
+// then Start on the identity context (the snapshotter signs with it). Their
+// background cycles run while blocks are replayed, so prune and snapshot IO
+// land in the measurements the way production background load does.
+func startReplayServices(t *testing.T, cfg *config.Config, defraNode *node.Node, converter chains.Converter, handler *defra.BlockHandler, ctx context.Context) *replayServices {
+	t.Helper()
+
+	rs := &replayServices{}
+
+	if cfg.Pruner.Enabled {
+		pruneQueue := pruner.NewIndexerQueue()
+		// Binding the queue to its file must happen before anything tracks
+		// into it; saves are a no-op until then (the store is a fresh temp
+		// dir, so the file does not exist yet and 0 entries load).
+		if _, err := pruneQueue.LoadFromFile(filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")); err != nil {
+			logger.Testf("prune queue file load failed (continuing): %v", err)
+		}
+		rs.pruneSvc = pruner.NewPruner(&cfg.Pruner, defraNode, converter)
+		rs.pruneSvc.SetQueue(pruneQueue)
+		handler.SetDocIDTracker(&replayQueueTracker{queue: pruneQueue})
+		require.NoError(t, rs.pruneSvc.Start(ctx))
+		logger.Testf("pruner started: interval %ds, retention %d blocks", cfg.Pruner.IntervalSeconds, cfg.Pruner.MaxBlocks)
+	}
+
+	if cfg.Snapshot.Enabled {
+		rs.snapSvc = snapshot.New(&cfg.Snapshot, defraNode, converter)
+		require.NoError(t, rs.snapSvc.Start(ctx))
+		logger.Testf("snapshotter started: dir %s, interval %ds, blocks per file %d",
+			cfg.Snapshot.Dir, cfg.Snapshot.IntervalSeconds, cfg.Snapshot.BlocksPerFile)
+	}
+
+	return rs
+}
+
+// stop tears the services down in the indexer's stop order: the snapshotter
+// first (capture data before it is pruned), then the pruner so it cannot race
+// the test's final count queries. The snapshotter's Stop closes its channel
+// unguarded, so this must run exactly once.
+func (rs *replayServices) stop() {
+	if rs.snapSvc != nil {
+		rs.snapSvc.Stop()
+	}
+	if rs.pruneSvc != nil {
+		rs.pruneSvc.Stop()
+	}
+}
+
+// prunedBlocks returns the count of blocks the pruner deleted during the
+// run; zero when the pruner is disabled.
+func (rs *replayServices) prunedBlocks() int64 {
+	if rs.pruneSvc == nil {
+		return 0
+	}
+	return rs.pruneSvc.GetMetrics().TotalBlocksPruned
+}
+
+// logServiceStats prints each service's outcome below the report box so the
+// fixed-width report format stays untouched.
+func logServiceStats(t *testing.T, rs *replayServices) {
+	t.Helper()
+	if rs.pruneSvc != nil {
+		m := rs.pruneSvc.GetMetrics()
+		logger.Testf("Pruner: %d blocks / %d docs pruned", m.TotalBlocksPruned, m.TotalDocsPruned)
+	}
+	if rs.snapSvc != nil {
+		m := rs.snapSvc.GetMetrics()
+		logger.Testf("Snapshotter: %d snapshots (last block %d)", m.TotalSnapshots, m.LastSnapshotBlock)
+	}
 }
