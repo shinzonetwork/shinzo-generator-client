@@ -1,4 +1,4 @@
-.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test bsc-live-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
+.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test bsc-live-test bsc-bench-fetch bsc-acceptance-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -17,6 +17,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
 	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/pkg/indexer.Version=$(VERSION)" -o bin/block_poster cmd/block_poster/main.go
+	go build -o bin/fetch_blocks cmd/fetch_blocks/main.go
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
 	elif grep -aFq "$(VERSION)" bin/block_poster; then \
@@ -117,6 +118,27 @@ bsc-live-test:
 		go test -tags=live -v ./integration/live/bsc/ -timeout=400s; \
 	fi
 
+# bsc-bench-fetch captures a raw replay fixture via the chain-agnostic
+# cmd/fetch_blocks CLI (one-time; needs a real endpoint). FROM/TO are
+# overridable block numbers; the default captures 100 blocks ending at the
+# current tip. Fixtures land in benchmarking/testdata/ (gitignored) as
+# bsc_blocks_<from>_<to>.json.
+bsc-bench-fetch:
+	@if [ -z "$(GETH_RPC_URL)" ]; then \
+		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p benchmarking/testdata
+	go run ./cmd/fetch_blocks --chain bsc --network mainnet --from $(FROM) --to $(TO)
+
+# bsc-acceptance-test replays the newest captured fixture through the full
+# production pipeline (mock JSON-RPC → Fetcher → Converter → BlockHandler.Store)
+# and hard-asserts the average per-block processing time stays within the
+# chain's block interval. BSC_TARGET_BLOCK_TIME overrides the target; a
+# missing fixture skips with regeneration instructions.
+bsc-acceptance-test:
+	go test -tags=acceptance ./benchmarking/bsc -run TestBSCReplayAcceptance -v -timeout 30m
+
 lint:
 	@echo "🔍 Running golangci-lint..."
 	@golangci-lint run ./...
@@ -190,6 +212,10 @@ help:
 	@echo ""
 	@echo "🌐 Per-chain live tests:"
 	@echo "  bsc-live-test      - BSC live integration suite (GETH_RPC_URL or BSC_LIVE; defaults to the public endpoint)"
+	@echo ""
+	@echo "⏱  BSC tip-indexing acceptance (replay):"
+	@echo "  bsc-bench-fetch    - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
+	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
 	@echo "  GETH_RPC_URL   - HTTP RPC endpoint (required)"

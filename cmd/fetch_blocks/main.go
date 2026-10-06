@@ -181,6 +181,10 @@ func run(args []string) error {
 	if rpcURL == "" {
 		return fmt.Errorf("GETH_RPC_URL is required: point it at a JSON-RPC endpoint for %s %s", opts.chain, opts.network)
 	}
+	// The endpoint must be an ARCHIVAL node: fetching an arbitrary historical
+	// block range needs full state/receipt history, which non-archival
+	// (pruned/full) nodes serve only near the tip — deeper ranges return null
+	// blocks or missing receipts and the capture fails partway through.
 	env := &rpcEnv{
 		client:     &http.Client{Timeout: httpTimeout},
 		url:        rpcURL,
