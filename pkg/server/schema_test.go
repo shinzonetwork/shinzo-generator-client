@@ -155,7 +155,8 @@ func TestCollectionsListHandler(t *testing.T) {
 				assert.Equal(t, testNetwork, resp.Network)
 				assert.NotEmpty(t, resp.Collections)
 
-				expectedEntries := schema.ListCollections(evm.NewCollectionNames(testNetwork))
+				expectedEntries, err := schema.ListCollections(evm.NewCollectionNames(testNetwork))
+				require.NoError(t, err)
 				assert.Equal(t, len(expectedEntries), len(resp.Collections))
 				for i, entry := range resp.Collections {
 					assert.Equal(t, expectedEntries[i].Name, entry.Name)

@@ -13,7 +13,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -256,10 +255,10 @@ func (c *Converter) buildALEDocs(txs []*Transaction, blockInt int64) ([]map[stri
 	return docs, parentRefs
 }
 
-// GetSchema implements chains.Converter. It delegates to the schema loader,
-// which concatenates embedded .graphql files and swaps the chain prefix.
+// GetSchema implements chains.Converter. It merges the embedded collection
+// SDLs with the chain's prefix applied.
 func (c *Converter) GetSchema() (string, error) {
-	return schema.GetSchemaForChain(c.collections)
+	return c.collections.MergedSDL()
 }
 
 // GetCollections implements chains.Converter.

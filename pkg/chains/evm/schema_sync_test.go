@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,9 +22,8 @@ func fieldDefined(sdl, name string) bool {
 // these constants as document keys, and pruning/signing queries embed them by
 // name, so a constant drifting from its SDL field would compile fine and only
 // fail as a runtime query error. The block document's number/hash fields —
-// the generator-host contract — live in pkg/constants and are asserted in
-// pkg/schema's sync test, as are all other constants contract fields; each
-// package tests its own names. SDL fields without an evm constant
+// the generator-host contract — live in pkg/constants and are asserted below
+// in TestConstantsMatchCollectionSDL. SDL fields without an evm constant
 // (from/totalDifficulty/topics/...) are written as literals and are
 // intentionally not asserted; the guarded direction is constant → SDL.
 func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
@@ -35,44 +34,45 @@ func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
 		field string
 	}{
 		// Block document. The block number/hash fields are the generator-
-		// host contract and live in pkg/constants, asserted in pkg/schema's
-		// sync test; the rest are JSON-RPC payload carried through.
-		{file: "block.graphql", field: TimestampFieldName},
-		{file: "block.graphql", field: ParentHashFieldName},
-		{file: "block.graphql", field: DifficultyFieldName},
-		{file: "block.graphql", field: GasUsedFieldName},
-		{file: "block.graphql", field: GasLimitFieldName},
-		{file: "block.graphql", field: NonceFieldName},
-		{file: "block.graphql", field: MinerFieldName},
-		{file: "block.graphql", field: StateRootFieldName},
-		{file: "block.graphql", field: Sha3UnclesFieldName},
-		{file: "block.graphql", field: TransactionsRootFieldName},
-		{file: "block.graphql", field: ReceiptsRootFieldName},
-		{file: "block.graphql", field: LogsBloomFieldName},
-		{file: "block.graphql", field: ExtraDataFieldName},
-		{file: "block.graphql", field: MixHashFieldName},
+		// host contract and live in pkg/constants, asserted in
+		// TestConstantsMatchCollectionSDL; the rest are JSON-RPC payload
+		// carried through.
+		{file: blockCollectionFile, field: TimestampFieldName},
+		{file: blockCollectionFile, field: ParentHashFieldName},
+		{file: blockCollectionFile, field: DifficultyFieldName},
+		{file: blockCollectionFile, field: GasUsedFieldName},
+		{file: blockCollectionFile, field: GasLimitFieldName},
+		{file: blockCollectionFile, field: NonceFieldName},
+		{file: blockCollectionFile, field: MinerFieldName},
+		{file: blockCollectionFile, field: StateRootFieldName},
+		{file: blockCollectionFile, field: Sha3UnclesFieldName},
+		{file: blockCollectionFile, field: TransactionsRootFieldName},
+		{file: blockCollectionFile, field: ReceiptsRootFieldName},
+		{file: blockCollectionFile, field: LogsBloomFieldName},
+		{file: blockCollectionFile, field: ExtraDataFieldName},
+		{file: blockCollectionFile, field: MixHashFieldName},
 
 		// Transaction document.
-		{file: "transaction.graphql", field: NonceFieldName},
-		{file: "transaction.graphql", field: TransactionIndexFieldName},
-		{file: "transaction.graphql", field: TypeFieldName},
-		{file: "transaction.graphql", field: CumulativeGasUsedFieldName},
-		{file: "transaction.graphql", field: EffectiveGasPriceFieldName},
-		{file: "transaction.graphql", field: StatusFieldName},
+		{file: transactionCollectionFile, field: NonceFieldName},
+		{file: transactionCollectionFile, field: TransactionIndexFieldName},
+		{file: transactionCollectionFile, field: TypeFieldName},
+		{file: transactionCollectionFile, field: CumulativeGasUsedFieldName},
+		{file: transactionCollectionFile, field: EffectiveGasPriceFieldName},
+		{file: transactionCollectionFile, field: StatusFieldName},
 
 		// Log document.
-		{file: "log.graphql", field: AddressFieldName},
-		{file: "log.graphql", field: TransactionHashFieldName},
-		{file: "log.graphql", field: TransactionIndexFieldName},
+		{file: logCollectionFile, field: AddressFieldName},
+		{file: logCollectionFile, field: TransactionHashFieldName},
+		{file: logCollectionFile, field: TransactionIndexFieldName},
 
 		// Access list entry document.
-		{file: "accessListEntry.graphql", field: AddressFieldName},
+		{file: accessListEntryCollectionFile, field: AddressFieldName},
 	}
 
 	sdls := make(map[string]string, 4)
 	for _, tt := range tests {
 		if _, ok := sdls[tt.file]; !ok {
-			sdl, err := schema.LoadCollectionSDL(tt.file)
+			sdl, err := readCollectionSDL(tt.file)
 			require.NoError(t, err, "load SDL %s", tt.file)
 			sdls[tt.file] = sdl
 		}
@@ -81,6 +81,72 @@ func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
 	for _, tt := range tests {
 		assert.True(t, fieldDefined(sdls[tt.file], tt.field),
 			"SDL %s does not define field %q expected from the evm field-name constants — SDL and constants have drifted",
+			tt.file, tt.field)
+	}
+}
+
+// TestConstantsMatchCollectionSDL pins the pkg/constants contract field names
+// to the embedded collection SDL. These names are written into documents by
+// two independent sites (the evm converter's signature builder and the defra
+// BlockHandler) and filtered on by signing queries, so a constant drifting
+// from its SDL field would only surface as runtime query failures, never at
+// compile time. The block number/hash fields are the generator-host contract
+// (pkg/constants owns them per the documented evm boundary). Non-constant SDL
+// fields are not asserted: a field defined in the SDL but written from a
+// string literal is legal; the guarded direction is constant → SDL.
+func TestConstantsMatchCollectionSDL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		file  string
+		field string
+	}{
+		// Block document: its own number/hash join fields. The host prunes
+		// and bootstraps the Block collection by these names, so they are
+		// part of the generator-host contract this file pins.
+		{file: blockCollectionFile, field: constants.NumberFieldName},
+		{file: blockCollectionFile, field: constants.HashFieldName},
+
+		// Data documents carry the block number/hash payload fields.
+		{file: transactionCollectionFile, field: constants.HashFieldName},
+		{file: transactionCollectionFile, field: constants.BlockNumberFieldName},
+		{file: transactionCollectionFile, field: constants.BlockHashFieldName},
+		{file: logCollectionFile, field: constants.BlockNumberFieldName},
+		{file: logCollectionFile, field: constants.BlockHashFieldName},
+		{file: accessListEntryCollectionFile, field: constants.BlockNumberFieldName},
+
+		// BlockSignature carries the full signature-document contract.
+		{file: blockSignatureCollectionFile, field: constants.BlockNumberFieldName},
+		{file: blockSignatureCollectionFile, field: constants.BlockHashFieldName},
+		{file: blockSignatureCollectionFile, field: constants.MerkleRootFieldName},
+		{file: blockSignatureCollectionFile, field: constants.CIDCountFieldName},
+		{file: blockSignatureCollectionFile, field: constants.CIDsFieldName},
+		{file: blockSignatureCollectionFile, field: constants.SignatureTypeFieldName},
+		{file: blockSignatureCollectionFile, field: constants.SignatureIdentityFieldName},
+		{file: blockSignatureCollectionFile, field: constants.SignatureValueFieldName},
+		{file: blockSignatureCollectionFile, field: constants.CreatedAtFieldName},
+
+		// SnapshotSignature shares the signature fields; block identity comes
+		// from startBlock/endBlock instead of the shared pair.
+		{file: snapshotSignatureCollectionFile, field: constants.MerkleRootFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.SignatureTypeFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.SignatureIdentityFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.SignatureValueFieldName},
+		{file: snapshotSignatureCollectionFile, field: constants.CreatedAtFieldName},
+	}
+
+	sdls := make(map[string]string, 6)
+	for _, tt := range tests {
+		if _, ok := sdls[tt.file]; !ok {
+			sdl, err := readCollectionSDL(tt.file)
+			require.NoError(t, err, "load SDL %s", tt.file)
+			sdls[tt.file] = sdl
+		}
+	}
+
+	for _, tt := range tests {
+		assert.True(t, fieldDefined(sdls[tt.file], tt.field),
+			"SDL %s does not define field %q expected from pkg/constants — SDL and constants have drifted",
 			tt.file, tt.field)
 	}
 }

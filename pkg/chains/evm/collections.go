@@ -2,7 +2,6 @@ package evm
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
@@ -74,31 +73,6 @@ func (c *CollectionNames) AllCollections() []string {
 	}
 }
 
-// SchemaApplyOrder returns collection type names in dependency-safe order
-// for per-file AddSchema calls.
-func (c *CollectionNames) SchemaApplyOrder() []string {
-	return []string{
-		c.Block,
-		c.BlockSignature,
-		c.SnapshotSignature,
-		c.Transaction,
-		c.AccessListEntry,
-		c.Log,
-	}
-}
-
-// CollectionFileForType maps a collection type name to its .graphql filename.
-// e.g. "Ethereum__Mainnet__Block" → "block.graphql"
-// Returns empty string if the type name does not match this chain's prefix.
-func (c *CollectionNames) CollectionFileForType(typeName string) string {
-	prefix := c.prefix + "__"
-	suffix := strings.TrimPrefix(typeName, prefix)
-	if suffix == typeName {
-		return ""
-	}
-	return strings.ToLower(suffix[:1]) + suffix[1:] + ".graphql"
-}
-
 // BlockCollection implements chains.Collections. It returns the collection
 // name that stores block documents.
 func (c *CollectionNames) BlockCollection() string {
@@ -119,19 +93,6 @@ func (c *CollectionNames) BlockSignatureCollection() string {
 
 // DefaultCollections returns all default collection names as a slice.
 func DefaultCollections() []string {
-	return []string{
-		DefaultCollectionBlock,
-		DefaultCollectionBlockSignature,
-		DefaultCollectionSnapshotSignature,
-		DefaultCollectionTransaction,
-		DefaultCollectionAccessListEntry,
-		DefaultCollectionLog,
-	}
-}
-
-// SchemaApplyOrder returns collection type names in dependency-safe order
-// for per-file AddSchema calls, using the default prefix.
-func SchemaApplyOrder() []string {
 	return []string{
 		DefaultCollectionBlock,
 		DefaultCollectionBlockSignature,
