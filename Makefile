@@ -28,6 +28,9 @@ build:
 start:
 	./bin/block_poster
 
+start-bsc:
+	./bin/block_poster -config config/config_bsc.yaml
+	
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
