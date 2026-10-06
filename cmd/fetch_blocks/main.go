@@ -114,10 +114,15 @@ func (e *retryableError) Unwrap() error { return e.err }
 var retryBackoffFn = retryBackoff //nolint:gochecknoglobals // test seam for retry timing
 
 // retryBackoff grows exponentially from retryBaseDelay, capped at
-// retryMaxDelay, so repeated failures never stall capture for minutes.
+// retryMaxDelay, so repeated failures never stall capture for minutes. The
+// cap fires inside the loop: repeated unchecked doubling overflows the
+// int64 duration to zero, which the final clamp would accept as-is.
 func retryBackoff(attempt int) time.Duration {
 	d := retryBaseDelay
 	for range attempt {
+		if d >= retryMaxDelay {
+			return retryMaxDelay
+		}
 		d *= 2
 	}
 	if d > retryMaxDelay {
@@ -261,7 +266,11 @@ func resolveRange(from, to, tip uint64) (uint64, uint64, error) {
 		return 0, 0, fmt.Errorf("--to %d is beyond the current tip %d", to, tip)
 	}
 	if from == 0 {
-		from = max(to+1-defaultBlockCount, 0)
+		// uint64 subtraction wraps below genesis, so the window start is
+		// derived from the count of blocks that actually exist: to+1 blocks
+		// sit at or under --to, so a tipside defaultBlockCount window only
+		// reaches back that far.
+		from = to + 1 - min(to+1, defaultBlockCount)
 	}
 	if from > to {
 		return 0, 0, fmt.Errorf("--from %d is greater than --to %d", from, to)
