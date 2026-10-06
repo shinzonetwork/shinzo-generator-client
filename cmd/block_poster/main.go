@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
@@ -49,12 +50,26 @@ func run(args []string) error {
 	}
 
 	// Set up graceful shutdown
-	_, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Channel to listen for interrupt signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// setup telemetry
+	otelShutdown, err := setupOTel(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "OpenTelemetry setup: %v\n", err)
+	} else {
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := otelShutdown(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
+			}
+		}()
+	}
 
 	// Start indexer in a goroutine
 	errChan := make(chan error, 1)
