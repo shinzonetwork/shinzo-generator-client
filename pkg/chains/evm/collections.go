@@ -12,12 +12,12 @@ const DefaultCollectionPrefix = "Ethereum__Mainnet"
 
 // Collection name constants for the default Ethereum Mainnet chain.
 const (
-	CollectionBlock             = DefaultCollectionPrefix + "__Block"
-	CollectionTransaction       = DefaultCollectionPrefix + "__Transaction"
-	CollectionLog               = DefaultCollectionPrefix + "__Log"
-	CollectionAccessListEntry   = DefaultCollectionPrefix + "__AccessListEntry"
-	CollectionBlockSignature    = DefaultCollectionPrefix + "__BlockSignature"
-	CollectionSnapshotSignature = DefaultCollectionPrefix + "__SnapshotSignature"
+	DefaultCollectionBlock             = DefaultCollectionPrefix + "__Block"
+	DefaultCollectionTransaction       = DefaultCollectionPrefix + "__Transaction"
+	DefaultCollectionLog               = DefaultCollectionPrefix + "__Log"
+	DefaultCollectionAccessListEntry   = DefaultCollectionPrefix + "__AccessListEntry"
+	DefaultCollectionBlockSignature    = DefaultCollectionPrefix + "__BlockSignature"
+	DefaultCollectionSnapshotSignature = DefaultCollectionPrefix + "__SnapshotSignature"
 )
 
 // CollectionNames holds the dynamically generated EVM collection names for a
@@ -25,6 +25,11 @@ const (
 //
 // It implements chains.Collections for the generic schema loader and future
 // generic BlockHandler.
+//
+// Every collection except SnapshotSignature must declare an @index on its
+// block-number field (number on Block, blockNumber elsewhere): the pruner
+// orders and filters by it, and GetDocIDsByBlockRange queries it. Enforced by
+// pruner.TestSchemaIndexesBlockNumberField.
 type CollectionNames struct {
 	prefix            string
 	Block             string
@@ -94,36 +99,33 @@ func (c *CollectionNames) CollectionFileForType(typeName string) string {
 	return strings.ToLower(suffix[:1]) + suffix[1:] + ".graphql"
 }
 
-// GetCollection returns the collection name for the given role string.
-// Returns chains.ErrUnknownCollection for unknown roles.
-func (c *CollectionNames) GetCollection(role string) (string, error) {
-	switch role {
-	case chains.TypeBlock:
-		return c.Block, nil
-	case chains.TypeBlockSignature:
-		return c.BlockSignature, nil
-	case chains.TypeSnapshotSignature:
-		return c.SnapshotSignature, nil
-	case chains.TypeTransaction:
-		return c.Transaction, nil
-	case chains.TypeAccessListEntry:
-		return c.AccessListEntry, nil
-	case chains.TypeLog:
-		return c.Log, nil
-	default:
-		return "", fmt.Errorf("%w: %s", chains.ErrUnknownCollection, role)
-	}
+// BlockCollection implements chains.Collections. It returns the collection
+// name that stores block documents.
+func (c *CollectionNames) BlockCollection() string {
+	return c.Block
+}
+
+// SnapshotSignatureCollection implements chains.Collections. It returns the
+// collection name that stores snapshot signature documents.
+func (c *CollectionNames) SnapshotSignatureCollection() string {
+	return c.SnapshotSignature
+}
+
+// BlockSignatureCollection implements chains.Collections. It returns the
+// collection name that stores block signature documents.
+func (c *CollectionNames) BlockSignatureCollection() string {
+	return c.BlockSignature
 }
 
 // DefaultCollections returns all default collection names as a slice.
 func DefaultCollections() []string {
 	return []string{
-		CollectionBlock,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
-		CollectionTransaction,
-		CollectionAccessListEntry,
-		CollectionLog,
+		DefaultCollectionBlock,
+		DefaultCollectionBlockSignature,
+		DefaultCollectionSnapshotSignature,
+		DefaultCollectionTransaction,
+		DefaultCollectionAccessListEntry,
+		DefaultCollectionLog,
 	}
 }
 
@@ -131,11 +133,11 @@ func DefaultCollections() []string {
 // for per-file AddSchema calls, using the default prefix.
 func SchemaApplyOrder() []string {
 	return []string{
-		CollectionBlock,
-		CollectionBlockSignature,
-		CollectionSnapshotSignature,
-		CollectionTransaction,
-		CollectionAccessListEntry,
-		CollectionLog,
+		DefaultCollectionBlock,
+		DefaultCollectionBlockSignature,
+		DefaultCollectionSnapshotSignature,
+		DefaultCollectionTransaction,
+		DefaultCollectionAccessListEntry,
+		DefaultCollectionLog,
 	}
 }

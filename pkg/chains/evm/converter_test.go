@@ -90,9 +90,7 @@ func TestConverter_Collections(t *testing.T) {
 	require.NotNil(t, cols)
 	assert.Equal(t, "Ethereum__Mainnet", cols.Prefix())
 
-	name, err := cols.GetCollection(chains.TypeBlock)
-	require.NoError(t, err)
-	assert.Equal(t, "Ethereum__Mainnet__Block", name)
+	assert.Equal(t, "Ethereum__Mainnet__Block", cols.BlockCollection())
 }
 
 func TestConverter_SignatureCollection(t *testing.T) {
@@ -121,7 +119,7 @@ func TestConverter_SignatureCollection(t *testing.T) {
 			cfg := testConfig()
 			cfg.Chain = tc.chain
 			c := NewConverter(cfg)
-			assert.Equal(t, tc.wantCol, c.SignatureCollection())
+			assert.Equal(t, tc.wantCol, c.Collections().BlockSignatureCollection())
 		})
 	}
 }
@@ -672,38 +670,4 @@ func TestMockConverter_ConvertFn(t *testing.T) {
 	assert.Equal(t, expectedGroups, result.Groups)
 	assert.Equal(t, expectedSigCol, result.SignatureCollection)
 	assert.Len(t, m.ConvertCalls, 1)
-}
-
-func TestMockConverter_SignatureCollection(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name    string
-		setupFn func(m *testutils.MockConverter)
-		wantCol string
-	}{
-		{
-			name:    "Default",
-			setupFn: func(_ *testutils.MockConverter) {},
-			wantCol: "Ethereum__Mainnet__BlockSignature",
-		},
-		{
-			name: "CustomFn",
-			setupFn: func(m *testutils.MockConverter) {
-				m.SignatureCollectionFn = func() string { return "Custom__Chain__BlockSignature" }
-			},
-			wantCol: "Custom__Chain__BlockSignature",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			m := &testutils.MockConverter{}
-			tc.setupFn(m)
-			result := m.SignatureCollection()
-			assert.Equal(t, tc.wantCol, result)
-			assert.Equal(t, 1, m.SignatureCollectionCalls)
-		})
-	}
 }
