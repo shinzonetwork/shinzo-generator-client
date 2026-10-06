@@ -45,7 +45,16 @@ else
 	: >"$TMP/patterns"
 fi
 
-rest="$(printf '%s\n' "$out" | { [ -s "$TMP/patterns" ] && grep -Evf "$TMP/patterns" || cat; })"
+gstat=0
+rest="$(printf '%s\n' "$out" | grep -Evf "$TMP/patterns")" || gstat=$?
+# grep exits 2 when an allowlist pattern is an invalid regex. Falling back to
+# cat there would silently disable the whole check (the reader already
+# consumed the report), so anything beyond 0/1 aborts the run loudly.
+if [ "$gstat" -gt 1 ]; then
+	echo "deadcode: invalid regex pattern in $ALLOW (grep exit $gstat):" >&2
+	cat "$TMP/patterns" | sed 's/^/  /' >&2
+	exit 1
+fi
 
 # Stale allowlist entries: the analyzer stopped reporting them. Warn only —
 # an emptied allowlist or a format drift must never fail the build here.
