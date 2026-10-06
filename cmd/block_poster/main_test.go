@@ -212,6 +212,9 @@ func TestRun(t *testing.T) {
 		// StartDefraInstance will start a real DefraDB node in the temp dir.
 		// The test will fail at the Ethereum connection step (invalid geth URL).
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
 defradb:
   url: ""
   embedded: true
@@ -252,6 +255,9 @@ logger:
 		// Embedded=false means useExternalDefra=true, so StartIndexing(true) is called.
 		// WaitForDefraDB will fail because the URL is unreachable.
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
 defradb:
   url: "http://127.0.0.1:1"
   embedded: false
@@ -305,6 +311,9 @@ logger:
 		}()
 
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
 defradb:
   url: "http://%s"
   embedded: false
@@ -350,6 +359,9 @@ logger:
 		// Write YAML that is valid YAML but produces an invalid config
 		// (start_height < 0 fails validation)
 		configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
 defradb:
   url: "http://localhost:9181"
   embedded: false

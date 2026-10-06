@@ -66,6 +66,9 @@ func TestRun_TelemetryMisconfiguredStopsBeforeIndexer(t *testing.T) {
 	storePath := filepath.Join(tmpDir, "defra")
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
 defradb:
   embedded: true
   store:
