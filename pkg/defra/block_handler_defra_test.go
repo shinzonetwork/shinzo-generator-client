@@ -758,17 +758,19 @@ func TestStore_BatchedMode_RepeatedAccessListEntrySignsNormally(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// createDocsInTxn — batch already-exists fallback (no whole-batch drop)
+// createDocBatch — batch already-exists fallback (no whole-batch drop)
 // ---------------------------------------------------------------------------
 
 // TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc covers the hardened batch
 // write: when a bulk batch write fails because some documents already exist,
 // the batch must not be dropped. The missing documents are written
-// per-document, only the duplicates are skipped, the batch-signing collector
-// ends up carrying exactly the committed documents' CIDs (no leaked discarded-
-// attempt CIDs), and the skip is reported as an "already exists" error instead
-// of a silent success. Observed in production as whole access-list batches
-// vanishing while the block reported zero batch errors.
+// per-document, only the duplicates are skipped, and the skip is reported as
+// a distinct "previously stored" error — deliberately not matching
+// IsErrAlreadyExists — instead of a silent success. The test drives through
+// createDocBatch so writeBatchWithRetry's rollback is exercised too: an
+// errored batch leaves the batch-signing collector empty, while a committed
+// one carries exactly its documents' CIDs. Observed in production as whole
+// access-list batches vanishing while the block reported zero batch errors.
 func TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc(t *testing.T) {
 	t.Parallel()
 
@@ -813,21 +815,32 @@ func TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc(t *testing.T) {
 			collector := node.NewBatchCIDCollector()
 			ctx := node.ContextWithBatchSigning(context.Background(), collector)
 
-			ids, err := handler.createDocsInTxn(ctx, 4400, txCol, docs)
+			// batchSize = len(docs): the whole group goes out as one batch,
+			// so the fallback and its rollback are exercised on all three
+			// documents in a single transaction.
+			ids, err := handler.createDocBatch(ctx, 4400, txCol, docs, len(docs))
 			if tc.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "already exists")
+				assert.Contains(t, err.Error(), "were previously stored")
+				assert.NotContains(t, err.Error(), "already exists")
 			} else {
 				require.NoError(t, err)
 			}
 			require.Len(t, ids, tc.wantIDs)
 
-			// The collector carries exactly the committed documents' CIDs:
-			// the discarded bulk attempt must not leak into it.
-			committedCIDs, err := handler.defaultCollectDocCIDs(context.Background(), ids, []string{txCol})
-			require.NoError(t, err)
-			assert.Equal(t, len(ids), collector.Len())
-			assert.ElementsMatch(t, sortedCIDStrings(committedCIDs), sortedCIDStrings(collector.GetCIDs()))
+			if tc.wantErr {
+				// writeBatchWithRetry rolls the whole batch's collector CIDs
+				// back on any error: the fallback's partial writes must not
+				// leak into the signing set.
+				assert.Equal(t, 0, collector.Len())
+			} else {
+				// The collector carries exactly the committed documents'
+				// CIDs: the discarded bulk attempt must not leak into it.
+				committedCIDs, err := handler.defaultCollectDocCIDs(context.Background(), ids, []string{txCol})
+				require.NoError(t, err)
+				assert.Equal(t, len(ids), collector.Len())
+				assert.ElementsMatch(t, sortedCIDStrings(committedCIDs), sortedCIDStrings(collector.GetCIDs()))
+			}
 
 			stored, err := handler.queryCollectionDocIDs(context.Background(), txCol, "blockNumber", 4400, 4400)
 			require.NoError(t, err)
@@ -881,8 +894,8 @@ func TestStore_UnwritableDuplicateIsTruthfulAndUnsigned(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "partially indexed")
 	assert.Contains(t, err.Error(), txCol)
-	assert.Contains(t, err.Error(), "already existed")
-	assert.Contains(t, err.Error(), "already exists")
+	assert.Contains(t, err.Error(), "previously stored")
+	assert.NotContains(t, err.Error(), "already exists")
 	require.NotNil(t, res)
 	assert.NotEmpty(t, res.BlockID)
 	assert.Empty(t, res.BlockSignatureID, "an unwritable duplicate must suppress the signature")
