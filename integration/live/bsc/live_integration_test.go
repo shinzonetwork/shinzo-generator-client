@@ -259,19 +259,17 @@ func bscGraphQL(url, query string) (map[string]any, error) {
 }
 
 // bscCollectionCount returns the document count of a collection, or an error.
+// DefraDB v1 aggregate syntax is the capitalized COUNT function (the legacy
+// _count field no longer exists).
 func bscCollectionCount(url, collection string) (int, error) {
-	query := fmt.Sprintf(`{"query":"query { %s { _count } }"}`, collection)
+	query := fmt.Sprintf(`{"query":"query { COUNT(%s: {}) }"}`, collection)
 	data, err := bscGraphQL(url, query)
 	if err != nil {
 		return 0, err
 	}
-	col, ok := data[collection].(map[string]any)
+	raw, ok := data["COUNT"].(float64)
 	if !ok {
-		return 0, fmt.Errorf("collection %s missing from graphql response", collection)
-	}
-	raw, ok := col["_count"].(float64)
-	if !ok {
-		return 0, fmt.Errorf("collection %s _count missing from graphql response", collection)
+		return 0, fmt.Errorf("collection %s COUNT missing from graphql response", collection)
 	}
 	return int(raw), nil
 }
