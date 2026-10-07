@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -316,4 +318,126 @@ func TestRedactEndpoint(t *testing.T) {
 	assert.Equal(t, "(endpoint hidden)", redactEndpoint("http://host\n.evil"))
 	assert.Equal(t, "(endpoint hidden)", redactEndpoint("not a url"))
 	assert.Equal(t, "(endpoint hidden)", redactEndpoint(""))
+}
+
+// receiptTestServer dispatches on the JSON-RPC method: a configurable
+// eth_getBlockReceipts answer that counts batch requests, and per-tx
+// eth_getTransactionReceipt answers keyed by hash. A hash mapped to
+// "missing" is served as null, like non-archival nodes do.
+type receiptTestServer struct {
+	batchResult  string // JSON-RPC result for eth_getBlockReceipts
+	receiptByTx  map[string]string
+	batchQueried int
+	perTxQueried []string
+}
+
+func (s *receiptTestServer) handler(t *testing.T) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Helper()
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &req))
+		w.Header().Set("Content-Type", "application/json")
+
+		switch req.Method {
+		case "eth_getBlockReceipts":
+			s.batchQueried++
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":%s}`, s.batchResult)
+		case "eth_getTransactionReceipt":
+			var txHash string
+			require.NoError(t, json.Unmarshal(req.Params[0], &txHash))
+			s.perTxQueried = append(s.perTxQueried, txHash)
+			result := s.receiptByTx[txHash]
+			if result == "missing" {
+				result = "null"
+			}
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":%s}`, result)
+		default:
+			t.Errorf("unexpected RPC method %s", req.Method)
+		}
+	})
+}
+
+// twoTxBlock is a captured eth_getBlockByNumber result with two transactions.
+const twoTxBlock = `{"number":"0x1","transactions":[{"hash":"0xaa"},{"hash":"0xbb"}]}`
+
+func TestCaptureReceipts(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		batchResult string
+		receiptByTx map[string]string
+		wantMode    string
+		wantKind    string // "batch" = verbatim batchResult, "perTx" = joined array of receiptByTx values
+		wantErr     string
+	}{
+		{
+			name:        "complete batch is kept verbatim",
+			batchResult: `[{"transactionHash":"0xaa"},{"transactionHash":"0xbb"}]`,
+			wantMode:    receiptModeBatch,
+			wantKind:    "batch",
+		},
+		{
+			name:        "null batch falls back to per-tx",
+			batchResult: "null",
+			receiptByTx: map[string]string{"0xaa": `{"transactionHash":"0xaa"}`, "0xbb": `{"transactionHash":"0xbb"}`},
+			wantMode:    receiptModePerTx,
+			wantKind:    "perTx",
+		},
+		{
+			name:        "short batch falls back to per-tx",
+			batchResult: `[{"transactionHash":"0xaa"}]`,
+			receiptByTx: map[string]string{"0xaa": `{"transactionHash":"0xaa"}`, "0xbb": `{"transactionHash":"0xbb"}`},
+			wantMode:    receiptModePerTx,
+			wantKind:    "perTx",
+		},
+		{
+			name:        "missing per-tx receipt fails loudly",
+			batchResult: "null",
+			receiptByTx: map[string]string{"0xaa": `{"transactionHash":"0xaa"}`, "0xbb": "missing"},
+			wantErr:     "receipt for tx 0xbb not found",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := &receiptTestServer{batchResult: tc.batchResult, receiptByTx: tc.receiptByTx}
+			server := httptest.NewServer(s.handler(t))
+			defer server.Close()
+
+			receipts, mode, err := captureReceipts(context.Background(), testEnv(server), "0x1", json.RawMessage(twoTxBlock))
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMode, mode)
+			if tc.wantKind == "batch" {
+				assert.JSONEq(t, tc.batchResult, string(receipts))
+				assert.Equal(t, 1, s.batchQueried, "batch mode must not issue per-tx calls")
+			} else {
+				want := `[` + tc.receiptByTx["0xaa"] + `,` + tc.receiptByTx["0xbb"] + `]`
+				assert.JSONEq(t, want, string(receipts))
+				assert.ElementsMatch(t, []string{"0xaa", "0xbb"}, s.perTxQueried)
+			}
+		})
+	}
+}
+
+func TestCaptureReceiptsEmptyBlock(t *testing.T) {
+	t.Parallel()
+	s := &receiptTestServer{batchResult: `[]`}
+	server := httptest.NewServer(s.handler(t))
+	defer server.Close()
+
+	receipts, mode, err := captureReceipts(context.Background(), testEnv(server), "0x2", json.RawMessage(`{"number":"0x2","transactions":[]}`))
+	require.NoError(t, err)
+	assert.Equal(t, receiptModeBatch, mode)
+	assert.JSONEq(t, `[]`, string(receipts))
+	assert.Equal(t, 1, s.batchQueried)
+	assert.Empty(t, s.perTxQueried)
 }
