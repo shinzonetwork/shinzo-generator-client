@@ -84,23 +84,34 @@ make bsc-acceptance-test
 - `BSC_REPLAY_PRUNER=off` / `BSC_REPLAY_SNAPSHOT=off` disable the background
   services (both are on by default, see below).
 - `BSC_REPLAY_PRUNER_INTERVAL_SECONDS` (10), `BSC_REPLAY_PRUNER_MAX_BLOCKS`
-  (100), `BSC_REPLAY_SNAPSHOT_INTERVAL_SECONDS` (10),
+  (50), `BSC_REPLAY_SNAPSHOT_INTERVAL_SECONDS` (10),
   `BSC_REPLAY_SNAPSHOT_BLOCKS_PER_FILE` (50) tune the services' forced-fast
   cadence and retention.
 
 The harness drives the pipeline directly — it **deliberately bypasses
 `blocks_per_minute` pacing** because it measures raw pipeline capacity against
-the chain's BPS. `max_docs_per_txn` and the per-collection batch sizes stay
-moderate to respect badger's ~9.7 MB per-transaction ceiling.
+the chain's BPS.
 
-The embedded DefraDB node (real badger on disk, P2P off, loopback bind) runs
-with the same node options the production bootstrap applies: the node identity
-comes from a real file keyring under the store dir (throwaway secret, temp
-directory) and is set via `SetNodeIdentity`, and badger gets the production
-value-log file size (64 MB, matching `buildNodeOptions` in `pkg/defradb`).
+The config boots from the shipped `config/config_bsc.yaml` — the same file
+production runs (`block_poster -config config/config_bsc.yaml`) — so chain
+identity, batch sizes, badger caches, `prune_history: true` and the 50-block
+per-cycle cap are production values, not bench approximations. Only what the
+bench cannot take from it is overridden: the mock endpoint, the temp store and
+snapshot dir, P2P off, no health server, open schema auth, a throwaway keyring,
+and the forced-fast cadence below. Env overrides (`CHAIN_*`, `GETH_*`,
+`DEFRADB_*`, `INDEXER_*`, `PRUNER_*`, `SNAPSHOT_*`, `SCHEMA_*`, `CONVERTER_*`,
+`LOGGER_*`, `SHINZOHUB_*` — what a developer `.env` carries) are scrubbed for
+the load, so the shipped yaml is the only input and the measurement reproduces.
+
+The embedded DefraDB node (real badger on disk, loopback bind) runs with the
+same node options the production bootstrap applies: the node identity comes
+from a real file keyring under the store dir (throwaway secret, temp
+directory) and is set via `SetNodeIdentity`, and badger gets its value-log
+file size from the config — 128 MB in the shipped yaml, the same number
+production reads.
 
 The pruner and snapshotter run beside the replay loop with **forced-fast
-defaults** — 10 s cycles, 100-block retention, 50-block snapshot files — so
+defaults** — 10 s cycles, 50-block retention, 50-block snapshot files — so
 delete and snapshot IO lands in the measurements the way production
 background load does. Their outcome prints below the report box, one line
 per service, and the block-count assertion is pruning-aware (expected rows =
@@ -116,10 +127,7 @@ on the local side:
 
 - **P2P off** — the production node runs the libp2p host and pubsub; the bench
   node does not.
-- **Orchestration bypassed** — no `ConcurrentBlockProcessor`, pacing, or
-  head-buffer/WS tip detection. Deliberate: this suite measures raw pipeline
-  capacity; the live suite measures the real loop.
-- **Services forced-fast** — the pruner (10 s cycles, 100-block retention →
+- **Services forced-fast** — the pruner (10 s cycles, 50-block retention →
   real deletions mid-run) and snapshotter (10 s scans, 50-block files → real
   gzip writes) run beside the loop with their IO in the timings; only the
   health server stays off.
