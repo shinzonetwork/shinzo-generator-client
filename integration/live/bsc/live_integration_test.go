@@ -5,13 +5,13 @@ package integration
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,8 +22,9 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
-// BSC public RPC default. It is aggressively rate-limited: the suite treats a
-// warmup timeout against it as a skip, never a failure.
+// BSC public RPC default. It is aggressively rate-limited: when the suite
+// falls back to it (GETH_RPC_URL unset), a warmup timeout is a skip, never a
+// failure. Against an explicitly configured endpoint a timeout fails hard.
 const (
 	defaultBSCRPCEndpoint = "https://bsc-dataseed.bnbchain.org"
 
@@ -46,12 +47,27 @@ const (
 )
 
 var (
-	bscNames         *evm.CollectionNames
-	bscGraphqlURL    string
-	bscHealthURL     string
-	bscChainIndexer  *indexer.ChainIndexer
-	bscIndexerCancel context.CancelFunc
-	bscStarted       bool
+	bscNames        *evm.CollectionNames
+	bscGraphqlURL   string
+	bscHealthURL    string
+	bscChainIndexer atomic.Pointer[indexer.ChainIndexer]
+	bscStarted      bool
+
+	// bscUsingPublicRPC records that the configured endpoint came from the
+	// built-in fallback rather than an explicit GETH_RPC_URL (or a literal
+	// yaml URL). It decides whether a warmup timeout is a skip or a failure.
+	bscUsingPublicRPC bool
+)
+
+// bscWarmupResult distinguishes how the warmup window ended: the two failure
+// kinds have different exit semantics (a startup error is always fatal, a
+// timeout only on a configured endpoint).
+type bscWarmupResult int
+
+const (
+	bscWarmupReady bscWarmupResult = iota
+	bscWarmupStartupFailed
+	bscWarmupTimedOut
 )
 
 // TestMain boots the indexer against a live BSC endpoint using the shipped
@@ -80,27 +96,45 @@ func TestMain(m *testing.M) {
 		logger.Sugar.Warnf("Failed to clean existing BSC live data: %v", err)
 	}
 
-	_, bscIndexerCancel = context.WithCancel(context.Background()) //nolint:gosec
+	// Startup errors travel on a buffered channel (the goroutine sends at most
+	// one per lifetime, and a post-warmup send must never block on an unread
+	// receiver — nothing selects on the channel once tests are running).
+	bscIndexerErrs := make(chan error, 1)
 	go func() {
 		idx, err := indexer.CreateIndexer(cfg)
 		if err != nil {
-			logger.Sugar.Errorf("create BSC indexer failed: %v", err)
+			bscIndexerErrs <- fmt.Errorf("create BSC indexer: %w", err)
 			return
 		}
-		bscChainIndexer = idx
+		bscChainIndexer.Store(idx)
 
 		if err := idx.StartIndexing(false); err != nil {
-			logger.Sugar.Errorf("BSC indexer failed: %v", err)
+			bscIndexerErrs <- fmt.Errorf("BSC indexer exited: %w", err)
 		}
 	}()
 
-	// Warmup: wait for the first indexed block. A timeout stops the indexer
-	// and exits 0 — public-endpoint rate limiting must not fail the suite.
+	// Warmup: wait for the first indexed block. A startup failure always
+	// fails the run — a bad schema, keyring or port clash is a bug, not
+	// endpoint flakiness. A timeout fails only when an endpoint was explicitly
+	// configured; against the rate-limited public fallback it stays a skip.
 	logger.Test("Waiting for the first BSC block to be indexed...")
-	if !waitForBSCFirstBlock(bscWarmupBudget) {
-		logger.Test("⏭ Warmup budget exhausted without an indexed block - treating suite as skipped")
+	res, startupErr := waitForBSCFirstBlock(bscWarmupBudget, bscIndexerErrs)
+	switch res {
+	case bscWarmupReady:
+		// Proceed below.
+	case bscWarmupStartupFailed:
+		logger.Sugar.Errorf("BSC indexer failed during startup: %v", startupErr)
 		bscTeardown()
-		os.Exit(0) //nolint:gocritic
+		os.Exit(1) //nolint:gocritic
+	case bscWarmupTimedOut:
+		if bscUsingPublicRPC {
+			logger.Test("⏭ Warmup budget exhausted without an indexed block - public endpoint is rate-limited, treating suite as skipped")
+			bscTeardown()
+			os.Exit(0) //nolint:gocritic
+		}
+		logger.Sugar.Errorf("Warmup budget exhausted without an indexed block on the configured endpoint (real endpoint, credentials or pipeline bug)")
+		bscTeardown()
+		os.Exit(1) //nolint:gocritic
 	}
 
 	logger.Test("✅ BSC indexer is live and indexing blocks")
@@ -146,8 +180,11 @@ func buildBSCLiveConfig() (*config.Config, error) {
 	cfg.Geth.APIKeyType = bscEnvOrConfig(cfg.Geth.APIKeyType, "GETH_API_KEY_TYPE")
 	if cfg.Geth.NodeURL == "" {
 		// Without a configured endpoint the suite defaults to the free public
-		// one; its rate limiting is why warmup timeouts are skips, not errors.
+		// one. Its rate limiting is why warmup timeouts against this fallback
+		// are skips; an explicitly configured endpoint (even this same host)
+		// never gets that treatment.
 		cfg.Geth.NodeURL = defaultBSCRPCEndpoint
+		bscUsingPublicRPC = true
 		logger.Testf("GETH_RPC_URL not set, using public endpoint %s (rate-limited: warmup timeout is treated as a skip)", cfg.Geth.NodeURL)
 	}
 
@@ -198,11 +235,8 @@ func bscEnvOrConfig(value, envName string) string {
 // bscTeardown stops the indexer and wipes the live store.
 func bscTeardown() {
 	logger.Test("TestMain - BSC live integration teardown")
-	if bscChainIndexer != nil {
-		bscChainIndexer.StopIndexing()
-	}
-	if bscIndexerCancel != nil {
-		bscIndexerCancel()
+	if idx := bscChainIndexer.Load(); idx != nil {
+		idx.StopIndexing()
 	}
 	// Give the indexer time to release the store before deleting it.
 	time.Sleep(2 * time.Second)
@@ -216,11 +250,22 @@ func bscTeardown() {
 // and an error here (node still booting, transient transport) is retried,
 // never fatal. Poll errors are logged (first, then every 10th attempt): a
 // silently spinning poll hid a dead-URL failure mode for entire runs.
-func waitForBSCFirstBlock(timeout time.Duration) bool {
+//
+// startupErrs carries the indexer goroutine's failure; it is checked between
+// and during every poll pause so a fast startup error ends the wait
+// immediately. The error is returned verbatim for the caller to log and act
+// on — reading it twice would deadlock on this one-element channel.
+func waitForBSCFirstBlock(timeout time.Duration, startupErrs <-chan error) (bscWarmupResult, error) {
 	deadline := time.Now().Add(timeout)
 	attempts := 0
 
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-startupErrs:
+			return bscWarmupStartupFailed, err
+		default:
+		}
+
 		attempts++
 		graphqlURL := bscDefraGraphQLURL()
 		if graphqlURL != "" {
@@ -228,7 +273,7 @@ func waitForBSCFirstBlock(timeout time.Duration) bool {
 			if err == nil && found {
 				logger.Testf("✅ BSC block collection live at %s, tip block %d", graphqlURL, tip)
 				bscGraphqlURL = graphqlURL
-				return true
+				return bscWarmupReady, nil
 			}
 			if attempts == 1 || attempts%10 == 0 {
 				if err != nil {
@@ -240,9 +285,14 @@ func waitForBSCFirstBlock(timeout time.Duration) bool {
 		} else if attempts == 1 || attempts%10 == 0 {
 			logger.Testf("BSC warmup attempt %d: embedded DefraDB API URL not available yet", attempts)
 		}
-		time.Sleep(2 * time.Second)
+
+		select {
+		case err := <-startupErrs:
+			return bscWarmupStartupFailed, err
+		case <-time.After(2 * time.Second):
+		}
 	}
-	return false
+	return bscWarmupTimedOut, nil
 }
 
 // bscDefraGraphQLURL returns the embedded node's GraphQL endpoint, or "" until
@@ -250,10 +300,11 @@ func waitForBSCFirstBlock(timeout time.Duration) bool {
 // embedded node binds a non-loopback address with a random port; appending the
 // GraphQL path mirrors how the health server and WaitForDefraDB build it.
 func bscDefraGraphQLURL() string {
-	if bscChainIndexer == nil {
+	idx := bscChainIndexer.Load()
+	if idx == nil {
 		return ""
 	}
-	url := bscChainIndexer.GetDefraDBURL()
+	url := idx.GetDefraDBURL()
 	if url == "" {
 		return ""
 	}
