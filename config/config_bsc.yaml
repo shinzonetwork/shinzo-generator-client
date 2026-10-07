@@ -80,19 +80,19 @@ logger:
   level: "info"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
-  max_blocks: 1000          # Number of blocks to retain
-  max_blocks_per_cycle: 50  # Max blocks one prune cycle may delete
+  max_blocks: 16000          # Number of blocks to retain (~2h at BSC's 0.45s block time)
+  max_blocks_per_cycle: 100  # Max blocks one prune cycle may delete. BSC produces ~67 blocks per 30s interval, so the cap must exceed that or retention drifts upward indefinitely.
   prune_threshold: 1        # Trigger pruning when exceeding max_blocks by this amount
   interval_seconds: 30      # How often to check and prune
   prune_history: true       # Walk DAG chains to delete historical block versions (2-3x slower)
 snapshot:
   enabled: true             # Set to true to enable automatic snapshots before pruning
   dir: "./.defra/snapshots" # Directory to store snapshot files
-  blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
-  interval_seconds: 30 
-  max_snapshots: 100        # Keep the N newest snapshot files
-  # Older files (and their signature docs) are purged. -1 = unlimited (env: SNAPSHOT_MAX_SNAPSHOTS). 
-  # Must satisfy: max_snapshots * blocks_per_file >= pruner.max_blocks     # How often to check and create snapshots
+  blocks_per_file: 100      # Snapshot granularity (blocks per snapshot file)
+  interval_seconds: 30      # How often to check and create snapshots
+  max_snapshots: 200        # Keep the N newest snapshot files
+  # Older files (and their signature docs) are purged. -1 = unlimited (env: SNAPSHOT_MAX_SNAPSHOTS).
+  # Must satisfy: max_snapshots * blocks_per_file >= pruner.max_blocks
 converter:
   lowest_block_query_limit: 1   # Row window for the lowest-block number query (env: CONVERTER_LOWEST_BLOCK_QUERY_LIMIT).
   # ⚠ >1 makes the query skip purge residue: block rows left behind by DefraDB purges
