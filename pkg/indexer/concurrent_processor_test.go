@@ -118,7 +118,7 @@ func TestNewConcurrentBlockProcessor(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			p := NewConcurrentBlockProcessor(nil, nil, nil, tc.workers, tc.blocksPerMinute)
+			p := NewConcurrentBlockProcessor(nil, nil, nil, nil, tc.workers, tc.blocksPerMinute)
 			require.NotNil(t, p)
 			assert.Equal(t, tc.workers, p.workers)
 			assert.Equal(t, tc.blocksPerMinute, p.blocksPerMinute)
@@ -185,7 +185,7 @@ func TestFetchAndProcessBlock_FetchFailure(t *testing.T) {
 
 			fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 
 			ctx := context.Background()
 			if tc.cancelCtx {
@@ -270,7 +270,7 @@ func TestFetchAndProcessBlock_RetryThenSuccess(t *testing.T) {
 
 			fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 
 			var ctx context.Context
 			if tc.useContextTimeout {
@@ -325,7 +325,7 @@ func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
 
 			fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 
 			result1 := p.fetchAndProcessBlock(context.Background(), tc.blockNum)
 			require.True(t, result1.Success)
@@ -404,7 +404,7 @@ func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
 				wg.Add(1)
 				go func(idx int) {
 					defer wg.Done()
-					p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+					p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 					processors[idx] = p
 					results[idx] = p.fetchAndProcessBlock(ctx, tc.blockNum)
 				}(i)
@@ -484,7 +484,7 @@ func TestStoreWithRetry_SignersTracked(t *testing.T) {
 		},
 	}
 
-	p := NewConcurrentBlockProcessor(nil, nil, storer, 1, 0)
+	p := NewConcurrentBlockProcessor(nil, nil, storer, nil, 1, 0)
 
 	result := p.storeWithRetry(context.Background(), 5001, chains.ConversionResult{})
 	require.NotNil(t, result)
@@ -537,7 +537,7 @@ func TestStoreWithRetry_PartialStoreErrorFailsBlockWithoutSigner(t *testing.T) {
 		},
 	}
 
-	p := NewConcurrentBlockProcessor(nil, nil, storer, 1, 0)
+	p := NewConcurrentBlockProcessor(nil, nil, storer, nil, 1, 0)
 
 	result := p.storeWithRetry(context.Background(), 5002, chains.ConversionResult{})
 	require.NotNil(t, result)
@@ -576,7 +576,7 @@ func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
 	fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
 	// First, insert the block to make subsequent inserts trigger "already exists".
-	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 	result1 := p.fetchAndProcessBlock(context.Background(), 0xdead1)
 	require.True(t, result1.Success)
 
@@ -622,7 +622,7 @@ func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
 			td := testutils.SetupTestDefraDB(t)
 
 			var callCount atomic.Int64
-			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+			rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 				switch method {
 				case ethGetBlockByNumber:
 					n := callCount.Add(1)
@@ -630,6 +630,9 @@ func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
 						return nil, fmt.Errorf("server error")
 					}
 					num := fmt.Sprintf("0x%x", tc.blockBase+n)
+					if requested, ok := requestedBlockNumber(params); ok {
+						num = fmt.Sprintf("0x%x", requested)
+					}
 					return fullBlockResponse(num, nil), nil
 				case ethGetBlockReceipts:
 					return []any{}, nil
@@ -641,7 +644,7 @@ func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
 
 			fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, tc.workers, tc.blocksPerMinute)
+			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, tc.workers, tc.blocksPerMinute)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			if tc.cancelDelay == 0 {
@@ -706,7 +709,7 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 			td := testutils.SetupTestDefraDB(t)
 
 			var callCount atomic.Int64
-			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+			rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 				switch method {
 				case ethGetBlockByNumber:
 					n := callCount.Add(1)
@@ -714,6 +717,9 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 						time.Sleep(tc.slowDelay)
 					}
 					num := fmt.Sprintf("0x%x", tc.blockBase+n)
+					if requested, ok := requestedBlockNumber(params); ok {
+						num = fmt.Sprintf("0x%x", requested)
+					}
 					return fullBlockResponse(num, nil), nil
 				case ethGetBlockReceipts:
 					return []any{}, nil
@@ -725,7 +731,7 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 
 			fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 
 			var ctx context.Context
 			var cancel context.CancelFunc
@@ -792,7 +798,7 @@ func TestProcessBlocks_OutOfOrderCompletion(t *testing.T) {
 		},
 	}
 
-	p := NewConcurrentBlockProcessor(mc, mcConv, &mockBlockStorer{}, 4, 0)
+	p := NewConcurrentBlockProcessor(mc, mcConv, &mockBlockStorer{}, nil, 4, 0)
 
 	var (
 		mu        sync.Mutex
@@ -880,7 +886,7 @@ func TestProcessBlocks_ErrorAndExisting(t *testing.T) {
 
 			fetcher, converter, blockHandler := newTestProcessor(t, td, rpcServer.URL, 2)
 
-			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, 1, 0)
+			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 
 			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
 			defer cancel()
@@ -941,7 +947,7 @@ func TestProcessBlocks_ShutdownDrainsSigners(t *testing.T) {
 		},
 	}
 
-	p := NewConcurrentBlockProcessor(mc, mcConv, storer, 1, 0)
+	p := NewConcurrentBlockProcessor(mc, mcConv, storer, nil, 1, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

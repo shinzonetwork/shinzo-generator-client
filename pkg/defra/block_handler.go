@@ -24,6 +24,11 @@ import (
 
 var errNoIdentity = stderrors.New("no identity available for signing") //nolint:gochecknoglobals
 
+// docIDFieldName is DefraDB's implicit document-ID field name: it appears
+// both as a GraphQL query field/filter key and as the result-map key
+// identifying each row.
+const docIDFieldName = "_docID"
+
 // blockDB abstracts the DB operations used by BlockHandler for testability.
 type blockDB interface {
 	NewTxn(readOnly bool) (client.Txn, error)
@@ -54,6 +59,11 @@ type BlockCreationResult struct {
 // DocIDTrackerInterface defines the interface for tracking docIDs.
 type DocIDTrackerInterface interface {
 	TrackBlock(ctx context.Context, blockNumber int64, result *BlockCreationResult) error
+
+	// RollbackBlocks drops the tracker's entries for heights [from, to].
+	// The reorg rollback soft-deletes those docs, so the tracker must not
+	// keep the dead docIDs alongside the fresh entries the re-index tracks.
+	RollbackBlocks(from, to int64) error
 }
 
 // BlockHandler manages the creation and storage of blocks, transactions, and logs in DefraDB.
@@ -156,7 +166,7 @@ func buildDocIDJSONArray(docIDs []string) string {
 
 // extractCIDsFromCollection queries a single collection and returns all CIDs found.
 func (h *BlockHandler) extractCIDsFromCollection(ctx context.Context, colName, idsJSON string) []cid.Cid {
-	query := `query { ` + colName + `(filter: {_docID: {_in: ` + idsJSON + `}}) { _version { cid } } }`
+	query := `query { ` + colName + `(filter: {` + docIDFieldName + `: {_in: ` + idsJSON + `}}) { _version { cid } } }`
 	result := h.db.ExecRequest(ctx, query)
 	if len(result.GQL.Errors) > 0 {
 		return nil
@@ -912,8 +922,8 @@ func (h *BlockHandler) queryCollectionDocIDs(ctx context.Context, colName, field
 		chunkEnd = min(chunkEnd, to)
 
 		query := fmt.Sprintf(
-			`query { %s(filter: {%s: {_geq: %d, _leq: %d}}) { _docID } }`,
-			colName, field, chunkStart, chunkEnd,
+			`query { %s(filter: {%s: {_geq: %d, _leq: %d}}) { %s } }`,
+			colName, field, chunkStart, chunkEnd, docIDFieldName,
 		)
 
 		result := h.db.ExecRequest(ctx, query)
@@ -949,7 +959,7 @@ func (h *BlockHandler) queryCollectionDocIDs(ctx context.Context, colName, field
 			if !ok {
 				continue
 			}
-			if docID, ok := m["_docID"].(string); ok {
+			if docID, ok := m[docIDFieldName].(string); ok {
 				allDocIDs = append(allDocIDs, docID)
 			}
 		}

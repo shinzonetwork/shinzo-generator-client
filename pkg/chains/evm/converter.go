@@ -117,11 +117,12 @@ func (c *Converter) Convert(
 
 	groups := []chains.DocumentGroup{
 		{
-			Collection:     c.collections.Block,
-			Docs:           []map[string]any{blockData},
-			BatchSize:      defaultBatch,
-			BlockNumField:  constants.NumberFieldName,
-			BlockHashField: constants.HashFieldName,
+			Collection:      c.collections.Block,
+			Docs:            []map[string]any{blockData},
+			BatchSize:       defaultBatch,
+			BlockNumField:   constants.NumberFieldName,
+			BlockHashField:  constants.HashFieldName,
+			ParentHashField: ParentHashFieldName,
 		},
 	}
 	if len(txDocs) > 0 {
