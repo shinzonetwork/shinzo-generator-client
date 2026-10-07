@@ -27,6 +27,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -135,12 +137,57 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 			indexerErrors.WithMetadata("host", "nil"),
 			indexerErrors.WithMetadata("port", "nil"))
 	}
-	return &ChainIndexer{
+	i := &ChainIndexer{
 		cfg:                       cfg,
 		shouldIndex:               false,
 		isStarted:                 false,
 		hasIndexedAtLeastOneBlock: false,
-	}, nil
+	}
+
+	meter := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/indexer")
+	_, err := meter.Int64ObservableGauge("shinzo.generator.block.height",
+		metric.WithDescription("Highest block committed in order."),
+		metric.WithUnit("{block}"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			// 0 means no blocks commited yet.
+			if h := i.GetCurrentBlock(); h > 0 {
+				o.Observe(h)
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	_, err = meter.Int64ObservableGauge("shinzo.p2p.peers",
+		metric.WithDescription("Unique peers connected to the embedded DefraDB node."),
+		metric.WithUnit("{peer}"),
+		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
+			i.mutex.RLock()
+			n, nh := i.defraNode, i.networkHandler
+			i.mutex.RUnlock()
+			// P2P disabled or unavailable: report no value rather than 0.
+			if n == nil || nh == nil || !nh.IsNetworkActive() {
+				return nil
+			}
+			addrs, err := n.DB.ActivePeers(ctx)
+			if err != nil {
+				return nil
+			}
+			peers, _ := defradb.BootstrapIntoPeers(addrs)
+			unique := make(map[string]struct{}, len(peers))
+			for _, p := range peers {
+				unique[p.ID] = struct{}{}
+			}
+			o.Observe(int64(len(unique)))
+			return nil
+		}),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+
+	return i, nil
 }
 
 // StartIndexing initializes dependencies and starts concurrent block indexing.
@@ -857,12 +904,12 @@ func (i *ChainIndexer) SignMessages(message string) (server.DefraPKRegistration,
 	}
 
 	return server.DefraPKRegistration{
-			PublicKey:   nodePubKey,
-			SignedPKMsg: signedMsg,
-		}, server.PeerIDRegistration{
-			PeerID:        peerPubKey,
-			SignedPeerMsg: peerSignedMsg,
-		}, nil
+		PublicKey:   nodePubKey,
+		SignedPKMsg: signedMsg,
+	}, server.PeerIDRegistration{
+		PeerID:        peerPubKey,
+		SignedPeerMsg: peerSignedMsg,
+	}, nil
 }
 
 // SignRegistrationMessage signs a registration message using only the DefraDB identity key.
