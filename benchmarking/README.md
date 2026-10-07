@@ -94,8 +94,8 @@ the chain's BPS.
 
 The config boots from the shipped `config/config_bsc.yaml` — the same file
 production runs (`block_poster -config config/config_bsc.yaml`) — so chain
-identity, batch sizes, badger caches, `prune_history: true` and the 50-block
-per-cycle cap are production values, not bench approximations. Only what the
+identity, batch sizes, badger caches, `prune_history: true` and the per-cycle
+prune cap are production values, not bench approximations. Only what the
 bench cannot take from it is overridden: the mock endpoint, the temp store and
 snapshot dir, P2P off, no health server, open schema auth, a throwaway keyring,
 and the forced-fast cadence below. Env overrides (`CHAIN_*`, `GETH_*`,
@@ -113,9 +113,12 @@ production reads.
 The pruner and snapshotter run beside the replay loop with **forced-fast
 defaults** — 10 s cycles, 50-block retention, 50-block snapshot files — so
 delete and snapshot IO lands in the measurements the way production
-background load does. Their outcome prints below the report box, one line
-per service, and the block-count assertion is pruning-aware (expected rows =
-processed − pruned).
+background load does. The per-cycle prune size is the one pruner knob the
+harness does not override: whatever the shipped yaml sets, the bench runs
+with it, so raising it there concentrates the same deletes into fewer,
+heavier cycles and moves this benchmark's average and tail. Their outcome
+prints below the report box, one line per service, and the block-count
+assertion is pruning-aware (expected rows = processed − pruned).
 
 ### What this measures vs. live indexing
 
