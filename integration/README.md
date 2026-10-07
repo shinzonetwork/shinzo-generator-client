@@ -2,17 +2,21 @@
 
 ## Mock Tests
 ```bash
-go test -v ./integration/
+make integration-test
 ```
-Fast tests with mock data. No external dependencies.
+Self-contained suite with synthetic mock data (build tag `integration`). No
+chain endpoint, no credentials, no external dependencies.
 
-## Live Tests  
+## Live Tests 
+
+### Ethereum
+
 ```bash
 # Set environment variables first
 source .env
 
 # Run with build tag
-make integration-test
+make ethereum-live-test
 ```
 End-to-end tests with real Ethereum data. Requires `GETH_RPC_URL`, `GETH_WS_URL`, `GETH_API_KEY`.
 
