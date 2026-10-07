@@ -123,6 +123,33 @@ func TestCreateIndexer(t *testing.T) {
 	}
 }
 
+func TestGetSourceChainInfo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		chain       config.ChainConfig
+		wantName    string
+		wantChainID uint64
+	}{
+		{name: "Ethereum mainnet", chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: 1}, wantName: "ethereum", wantChainID: 1},
+		{name: "Ethereum Sepolia", chain: config.ChainConfig{Name: "Ethereum", Network: "Sepolia", ChainID: 11155111}, wantName: "ethereum", wantChainID: 11155111},
+		{name: "BSC mainnet", chain: config.ChainConfig{Name: "BSC", Network: "Mainnet", ChainID: 56}, wantName: "bsc", wantChainID: 56},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := &ChainIndexer{cfg: &config.Config{Chain: tt.chain}}
+
+			name, chainID := indexer.GetSourceChainInfo()
+
+			assert.Equal(t, tt.wantName, name)
+			assert.Equal(t, tt.wantChainID, chainID)
+		})
+	}
+}
+
 // TestGetDefraDBPort tests port retrieval with and without an embedded node.
 func TestGetDefraDBPort(t *testing.T) {
 	t.Parallel()
