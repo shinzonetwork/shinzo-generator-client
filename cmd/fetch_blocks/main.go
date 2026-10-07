@@ -364,15 +364,13 @@ func captureBlock(ctx context.Context, env *rpcEnv, num uint64) (*fixtureBlock, 
 }
 
 // captureReceipts prefers the batch eth_getBlockReceipts call and falls back
-// to per-transaction eth_getTransactionReceipt when the node rejects it,
-// mirroring the production fetcher's fallback.
+// to per-transaction eth_getTransactionReceipt when the batch answer is
+// unavailable — a transport/envelope error, a null result (pruned or
+// non-archival nodes), or a receipt count that disagrees with the block's
+// transaction count — mirroring the production fetcher's fallback. Serving
+// null or partial receipts to the replay would time a block without its
+// receipt work and flatter the benchmark.
 func captureReceipts(ctx context.Context, env *rpcEnv, hexNum string, blockRaw json.RawMessage) (json.RawMessage, string, error) {
-	receipts, err := rpcCall(ctx, env, "eth_getBlockReceipts", []any{hexNum})
-	if err == nil {
-		return receipts, receiptModeBatch, nil
-	}
-	log.Printf("block %s: eth_getBlockReceipts unavailable, falling back to per-tx receipts: %v", hexNum, err)
-
 	var block struct {
 		Transactions []struct {
 			Hash string `json:"hash"`
@@ -380,6 +378,20 @@ func captureReceipts(ctx context.Context, env *rpcEnv, hexNum string, blockRaw j
 	}
 	if err := json.Unmarshal(blockRaw, &block); err != nil {
 		return nil, "", fmt.Errorf("parse block transactions: %w", err)
+	}
+
+	receipts, err := rpcCall(ctx, env, "eth_getBlockReceipts", []any{hexNum})
+	switch {
+	case err == nil && !isJSONNull(receipts):
+		var batch []json.RawMessage
+		if jerr := json.Unmarshal(receipts, &batch); jerr == nil && len(batch) == len(block.Transactions) {
+			return receipts, receiptModeBatch, nil
+		}
+		log.Printf("block %s: eth_getBlockReceipts returned %d receipts for %d transactions, falling back to per-tx receipts", hexNum, len(batch), len(block.Transactions))
+	case err != nil:
+		log.Printf("block %s: eth_getBlockReceipts unavailable, falling back to per-tx receipts: %v", hexNum, err)
+	default:
+		log.Printf("block %s: eth_getBlockReceipts returned null (pruned or non-archival node), falling back to per-tx receipts", hexNum)
 	}
 
 	perTx := make([]json.RawMessage, 0, len(block.Transactions))
