@@ -153,7 +153,8 @@ func TestBSCReplayAcceptance(t *testing.T) {
 
 	// Stop the services before the report and assertions: the pruner must
 	// not race the final count queries, and the snapshotter's stats are
-	// final once stopped.
+	// final once stopped. Idempotent: the Cleanup registered at startup
+	// becomes a no-op after this.
 	services.stop()
 
 	reportResults(t, fx, blocks, numbers, timings, target)
