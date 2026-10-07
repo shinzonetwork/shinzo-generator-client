@@ -19,6 +19,10 @@ func TestLoadConfig_ValidYAML(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://localhost:9181"
   keyring_secret: "test_secret"
@@ -91,7 +95,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 
 			tempDir := t.TempDir()
 			configPath := filepath.Join(tempDir, "config.yaml")
-			configContent := "defradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
+			configContent := "chain:\n  name: Ethereum\n  network: Mainnet\n  chain_id: 1\ndefradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
 
 			require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
@@ -149,7 +153,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
-	cfg.Chain.Adapter = DefaultChainAdapter
+	cfg.Chain = testChain
 	cfg.Indexer.StartHeight = -1
 
 	err := validateConfig(cfg)
@@ -160,7 +164,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
-	cfg.Chain.Adapter = DefaultChainAdapter
+	cfg.Chain = testChain
 	cfg.DefraDB.Embedded = false
 	cfg.DefraDB.URL = ""
 
@@ -172,7 +176,7 @@ func TestValidateConfig_Valid(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
-	cfg.Chain.Adapter = DefaultChainAdapter
+	cfg.Chain = testChain
 	cfg.Indexer.StartHeight = 0
 	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 
@@ -405,6 +409,10 @@ func TestLoadConfig_EnvironmentOverrides_Integration(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://localhost:9181"
   keyring_secret: "pingpong"
@@ -426,6 +434,10 @@ func TestLoadConfig_InvalidEnvironmentValues(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   embedded: true
 indexer:
@@ -512,7 +524,7 @@ func TestValidateConfig_AuthModes(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
-			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Chain = testChain
 			cfg.Indexer.SchemaAuthMode = tt.mode
 			err := validateConfig(cfg)
 			if tt.shouldError {
@@ -546,7 +558,7 @@ func TestChainAdapter_EnvOverride(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{}
 			t.Setenv("CHAIN_ADAPTER", tt.envVal)
-			applyChainEnvOverrides(cfg)
+			require.NoError(t, applyChainEnvOverrides(cfg))
 			assert.Equal(t, tt.want, cfg.Chain.Adapter, "Chain.Adapter")
 		})
 	}
@@ -556,7 +568,7 @@ func TestChainAdapter_EnvOverrideEmptyIgnored(t *testing.T) {
 	cfg := &Config{}
 	cfg.Chain.Adapter = DefaultChainAdapter
 	t.Setenv("CHAIN_ADAPTER", "")
-	applyChainEnvOverrides(cfg)
+	require.NoError(t, applyChainEnvOverrides(cfg))
 	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "empty CHAIN_ADAPTER should not override")
 }
 
@@ -578,6 +590,7 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
+			cfg.Chain = testChain
 			cfg.Chain.Adapter = tt.chainAdapter
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			err := validateConfig(cfg)
@@ -597,6 +610,10 @@ func TestLoadConfig_DefaultChainAdapter(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   embedded: true
 indexer:
@@ -754,7 +771,7 @@ func TestValidateConfig_MaxSnapshotsRange(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
-			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Chain = testChain
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			cfg.Snapshot.MaxSnapshots = tt.maxSnapshots
 
@@ -792,7 +809,7 @@ func TestValidateConfig_SnapshotCoverage(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
-			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Chain = testChain
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			cfg.Snapshot = SnapshotConfig{
 				Enabled:       tt.snapshotEnabled,

@@ -68,6 +68,7 @@ func TestCreateIndexer(t *testing.T) {
 		{
 			name: "custom config is preserved",
 			cfg: &config.Config{
+				Chain: config.ChainConfig{ChainID: testChainID},
 				DefraDB: config.DefraDBConfig{
 					URL: "http://localhost:8888",
 					Store: config.DefraDBStoreConfig{
@@ -118,6 +119,33 @@ func TestCreateIndexer(t *testing.T) {
 				assert.False(t, indexer.hasIndexedAtLeastOneBlock)
 				assert.Nil(t, indexer.defraNode)
 			}
+		})
+	}
+}
+
+func TestGetSourceChainInfo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		chain       config.ChainConfig
+		wantName    string
+		wantChainID uint64
+	}{
+		{name: "Ethereum mainnet", chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: 1}, wantName: "ethereum", wantChainID: 1},
+		{name: "Ethereum Sepolia", chain: config.ChainConfig{Name: "Ethereum", Network: "Sepolia", ChainID: 11155111}, wantName: "ethereum", wantChainID: 11155111},
+		{name: "BSC mainnet", chain: config.ChainConfig{Name: "BSC", Network: "Mainnet", ChainID: 56}, wantName: "bsc", wantChainID: 56},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := &ChainIndexer{cfg: &config.Config{Chain: tt.chain}}
+
+			name, chainID := indexer.GetSourceChainInfo()
+
+			assert.Equal(t, tt.wantName, name)
+			assert.Equal(t, tt.wantChainID, chainID)
 		})
 	}
 }

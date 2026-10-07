@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -129,6 +130,54 @@ func TestFetcher_Connect(t *testing.T) {
 			f := tc.setup()
 			err := f.Connect(context.Background())
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestFetcher_Connect_ChecksChainID(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		desc          string
+		reported      string
+		rpcErr        error
+		wantErr       error
+		wantConnected bool
+	}{
+		{desc: "endpoint serves the configured chain", reported: "0xaa36a7", wantConnected: true},
+		{desc: "endpoint serves another chain", reported: "0x1", wantErr: errChainIDMismatch},
+		{desc: "chain id cannot be read", rpcErr: errors.New("eth_chainId unavailable")},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+			srv := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+				if method != ethChainID {
+					return nil, fmt.Errorf("unexpected method %s", method)
+				}
+				return tc.reported, tc.rpcErr
+			})
+			defer srv.Close()
+
+			cfg := testConfig()
+			cfg.Chain.ChainID = 11155111
+			cfg.Geth.NodeURL = srv.URL
+			f, err := NewFetcherFromConfig(cfg)
+			require.NoError(t, err)
+
+			err = f.Connect(context.Background())
+
+			if tc.wantConnected {
+				require.NoError(t, err)
+				require.NotNil(t, f.client)
+				return
+			}
+			require.Error(t, err)
+			require.Nil(t, f.client)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
 		})
 	}
 }

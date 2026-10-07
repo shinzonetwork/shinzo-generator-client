@@ -40,6 +40,8 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 		startExternal   bool
 		wantErrContains string
 		wantNil         func(t *testing.T, ix *ChainIndexer)
+		// wantStoreUntouched means DefraDB never started, so its store directory is still empty.
+		wantStoreUntouched bool
 	}{
 		{
 			name: "nil config",
@@ -56,13 +58,17 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 			// returns "defraNode is required" after applying schema.
 			setup: func(t *testing.T) *ChainIndexer {
 				td := testutils.SetupTestDefraDB(t)
+				// The RPC reports the configured chain ID, so startup reaches DefraDB.
+				rpcServer := newMockRPCServer(func(string, json.RawMessage) (any, error) { return "0x1", nil })
+				t.Cleanup(rpcServer.Close)
 
 				// Create a config pointing to the test DefraDB as "external".
 				cfg := &config.Config{
+					Chain: config.ChainConfig{ChainID: testChainID},
 					DefraDB: config.DefraDBConfig{
 						URL: fmt.Sprintf("http://localhost:%d", td.Port),
 					},
-					Geth: config.GethConfig{NodeURL: "http://localhost:9999"},
+					Geth: config.GethConfig{NodeURL: rpcServer.URL},
 					Indexer: config.IndexerConfig{
 						StartHeight:    0,
 						ReceiptWorkers: 1,
@@ -77,6 +83,33 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 			},
 			startExternal:   true,
 			wantErrContains: "defraNode is required",
+		},
+		{
+			name: "RPC serves another chain",
+			setup: func(t *testing.T) *ChainIndexer {
+				// The RPC reports chain ID 56 to a generator configured for chain 1.
+				rpcServer := newMockRPCServer(func(string, json.RawMessage) (any, error) { return "0x38", nil })
+				t.Cleanup(rpcServer.Close)
+
+				cfg := &config.Config{
+					Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
+					DefraDB: config.DefraDBConfig{
+						URL:           testDefraRandomURL,
+						KeyringSecret: "test-secret-for-keyring-12345678",
+						P2P:           testDefraP2PDisabled,
+						Store:         config.DefraDBStoreConfig{Path: t.TempDir()},
+					},
+					Geth:    config.GethConfig{NodeURL: rpcServer.URL},
+					Indexer: config.IndexerConfig{ReceiptWorkers: 1, MaxDocsPerTxn: 100},
+					Logger:  config.LoggerConfig{Development: true},
+				}
+
+				indexer, err := CreateIndexer(cfg)
+				require.NoError(t, err)
+				return indexer
+			},
+			wantErrContains:    "failed to connect fetcher for Ethereum Mainnet (chain_id 1)",
+			wantStoreUntouched: true,
 		},
 		{
 			name:        "get latest block number error",
@@ -104,6 +137,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 				t.Cleanup(rpcServer.Close)
 
 				cfg := &config.Config{
+					Chain: config.ChainConfig{ChainID: testChainID},
 					DefraDB: config.DefraDBConfig{
 						URL:           testDefraRandomURL,
 						KeyringSecret: "test-secret-for-keyring-12345678",
@@ -151,6 +185,11 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 
 			if tc.wantNil != nil {
 				tc.wantNil(t, indexer)
+			}
+			if tc.wantStoreUntouched {
+				entries, err := os.ReadDir(indexer.cfg.DefraDB.Store.Path)
+				require.NoError(t, err)
+				assert.Empty(t, entries, "DefraDB started before the RPC's chain ID was checked")
 			}
 		})
 	}
@@ -746,6 +785,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 
 	// Phase 1: Start an indexer to populate some blocks.
 	cfg1 := &config.Config{
+		Chain: config.ChainConfig{ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -807,6 +847,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	blockCallCount.Store(0)
 
 	cfg2 := &config.Config{
+		Chain: config.ChainConfig{ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -922,6 +963,7 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 			defer rpcServer.Close()
 
 			cfg := &config.Config{
+				Chain: config.ChainConfig{ChainID: testChainID},
 				DefraDB: config.DefraDBConfig{
 					URL:           testDefraRandomURL,
 					KeyringSecret: "test-secret-for-keyring-12345678",
