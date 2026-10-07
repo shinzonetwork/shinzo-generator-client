@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -71,6 +72,8 @@ const (
 	// IndexingStartStopTimeout bounds how long StopIndexing waits for an
 	// in-flight StartIndexing to settle before tearing down anyway.
 	IndexingStartStopTimeout = 30 * time.Second
+	// ChainHeadPollInterval is how often the chain head is read for the lag metric.
+	ChainHeadPollInterval = 30 * time.Second
 )
 
 // var requiredPeers = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process.
@@ -93,6 +96,7 @@ type ChainIndexer struct {
 	pruner                    *pruner.Pruner        // Document pruner for removing old blocks.
 	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks.
 	currentBlock              int64
+	chainHead                 atomic.Int64
 	lastProcessedTime         time.Time
 	indexingCancel            context.CancelCauseFunc // Cancel for the indexing loop; nil unless concurrent indexing is running.
 	indexingDone              chan struct{}           // Closed when the indexing loop has fully exited; guarded by mutex.
@@ -180,6 +184,33 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 				unique[p.ID] = struct{}{}
 			}
 			o.Observe(int64(len(unique)))
+			return nil
+		}),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	_, err = meter.Int64ObservableGauge("shinzo.generator.chain.head",
+		metric.WithDescription("Latest block number reported by the RPC node."),
+		metric.WithUnit("{block}"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			if head := i.chainHead.Load(); head > 0 {
+				o.Observe(head)
+			}
+			return nil
+		}),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	_, err = meter.Int64ObservableGauge("shinzo.generator.block.lag",
+		metric.WithDescription("Blocks between the chain head and the committed height."),
+		metric.WithUnit("{block}"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			head, height := i.chainHead.Load(), i.GetCurrentBlock()
+			if head > 0 && height > 0 {
+				o.Observe(max(head-height, 0))
+			}
 			return nil
 		}),
 	)
@@ -530,6 +561,14 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		cfg.Indexer.BlocksPerMinute,
 	)
 
+	headCtx, stopHead := context.WithCancel(ctx)
+	var headWg sync.WaitGroup
+	headWg.Go(func() { i.pollChainHead(headCtx, i.fetcher) })
+	defer func() {
+		stopHead()
+		headWg.Wait()
+	}()
+
 	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
 		i.updateBlockInfo(blockNum)
 		i.mutex.Lock()
@@ -540,6 +579,25 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		return nil
 	}
 	return err
+}
+
+// pollChainHead stores the chain head every ChainHeadPollInterval until ctx is
+// done. A failed read stores 0, so head and lag are not reported from stale data.
+func (i *ChainIndexer) pollChainHead(ctx context.Context, fetcher chains.Fetcher) {
+	ticker := time.NewTicker(ChainHeadPollInterval)
+	defer ticker.Stop()
+	for {
+		head, err := fetcher.FetchHighestBlockNumber(ctx)
+		if err != nil {
+			head = 0
+		}
+		i.chainHead.Store(head)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // beginStart marks a StartIndexing as in-flight by setting the flag, creating
