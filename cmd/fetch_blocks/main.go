@@ -23,6 +23,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -214,10 +215,11 @@ func run(args []string) error {
 			fmt.Sprintf("%s%d_%d%s", fixturePrefix(opts.chain), resolvedFrom, resolvedTo, fixtureExt))
 	}
 	//nolint:gosec // G706 false positive: the tainted labels are CR/LF-stripped
-	// by sanitizeLogLabel, but this gosec build does not apply the rule's
-	// documented sanitizers (strings.ReplaceAll, strconv.Quote) interprocedurally.
+	// by sanitizeLogLabel, and the endpoint is reduced to scheme://host, but
+	// this gosec build does not apply the rule's documented sanitizers
+	// (strings.ReplaceAll, strconv.Quote) interprocedurally.
 	log.Printf("capturing %s %s blocks %d..%d (tip %d) from %s",
-		sanitizeLogLabel(opts.chain), sanitizeLogLabel(opts.network), resolvedFrom, resolvedTo, tip, sanitizeLogLabel(rpcURL))
+		sanitizeLogLabel(opts.chain), sanitizeLogLabel(opts.network), resolvedFrom, resolvedTo, tip, redactEndpoint(rpcURL))
 
 	return captureRange(ctx, env, opts, resolvedFrom, resolvedTo)
 }
@@ -228,6 +230,18 @@ func run(args []string) error {
 func sanitizeLogLabel(s string) string {
 	s = strings.ReplaceAll(s, "\n", "")
 	return strings.ReplaceAll(s, "\r", "")
+}
+
+// redactEndpoint reduces an endpoint URL to scheme://host so API keys that
+// providers embed in the path (.../v2/<key>) never reach terminal or CI logs.
+// url.Parse rejects control characters, so a CR/LF-forged value falls into the
+// unparseable branch rather than being echoed.
+func redactEndpoint(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return "(endpoint hidden)"
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // parseFlags parses and validates the CLI flags.
@@ -465,12 +479,12 @@ func rpcOnce(ctx context.Context, env *rpcEnv, method string, params any) (json.
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 		return nil, &retryableError{
 			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
-			err:        fmt.Errorf("http status %d from %s", resp.StatusCode, env.url),
+			err:        fmt.Errorf("http status %d from %s", resp.StatusCode, redactEndpoint(env.url)),
 		}
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		return nil, fmt.Errorf("http status %d from %s: %s", resp.StatusCode, env.url, string(body))
+		return nil, fmt.Errorf("http status %d from %s: %s", resp.StatusCode, redactEndpoint(env.url), string(body))
 	}
 
 	var envelope struct {
