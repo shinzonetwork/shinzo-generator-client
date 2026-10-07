@@ -6,16 +6,18 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
-func setupOTel(ctx context.Context) (func(context.Context) error, error) {
+func setupOTel(ctx context.Context, chain config.ChainConfig) (func(context.Context) error, error) {
 	if os.Getenv("OTEL_METRICS_EXPORTER") == "" {
 		return func(context.Context) error { return nil }, nil
 	}
@@ -25,6 +27,8 @@ func setupOTel(ctx context.Context) (func(context.Context) error, error) {
 			semconv.ServiceName("shinzo-generator"),
 			semconv.ServiceVersion(indexer.Version),
 			semconv.HostArchKey.String(runtime.GOARCH),
+			attribute.String("shinzo.chain.name", chain.Name),
+			attribute.String("shinzo.chain.network", chain.Network),
 		),
 		resource.WithOSType(),
 		resource.WithTelemetrySDK(),
