@@ -342,14 +342,51 @@ func parseHexUint(s string) (uint64, error) {
 // identity; throwaway by design because the store directory is a temp dir.
 const replayKeyringSecret = "bsc-replay-keyring-secret"
 
-// Forced-fast service defaults so prune and snapshot cycles actually fire
-// during a replay run: retention below the fixture range produces real
-// deletions, and a small blocks-per-file produces real snapshot writes.
-// resolveReplayServices applies the BSC_REPLAY_* overrides on top.
+// scrubReplayEnv unsets every env override applyEnvOverrides honors so
+// config_bsc.yaml is the only input the config loader sees. The Makefile
+// exports the developer's .env into every target, and without this a stray
+// INDEXER_MAX_DOCS_PER_TXN or badger cache value would silently change the
+// measured configuration between machines. Originals are restored after the
+// test so nothing outside LoadConfig's window observes the scrub.
+func scrubReplayEnv(t *testing.T) {
+	t.Helper()
+
+	prefixes := [...]string{
+		"CHAIN_", "GETH_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
+		"SCHEMA_", "CONVERTER_", "LOGGER_", "SHINZOHUB_",
+	}
+
+	for _, key := range os.Environ() {
+		key = key[:strings.IndexByte(key, '=')]
+		matched := false
+		for _, p := range prefixes {
+			if strings.HasPrefix(key, p) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		old, had := os.LookupEnv(key)
+		require.NoError(t, os.Unsetenv(key))
+		t.Cleanup(func() {
+			if had {
+				require.NoError(t, os.Setenv(key, old))
+			} else {
+				require.NoError(t, os.Unsetenv(key))
+			}
+		})
+	}
+}
+
+// Forced-fast service deltas from the shipped config: retention well below
+// the default capture range produces real deletions, and a small
+// blocks-per-file produces real snapshot writes. resolveReplayServices
+// applies the BSC_REPLAY_* overrides on top.
 const (
 	replayPruneIntervalSeconds    = 10
-	replayPruneMaxBlocks          = 100
-	replayDocsPerBlock            = 1000 // production default
+	replayPruneMaxBlocks          = 50
 	replaySnapshotIntervalSeconds = 10
 	replaySnapshotBlocksPerFile   = 50
 )
@@ -408,52 +445,53 @@ func replayServiceInt(t *testing.T, env string, def int) int {
 	return n
 }
 
-// newReplayConfig builds the config the pipeline runs under: chain identity
-// BSC/Mainnet/evm (the prefix every collection name derives from), the mock
-// node as endpoint, P2P off, no health server, and forced-fast pruner +
-// snapshotter defaults whose delete and snapshot IO lands in the timing
-// sample the way production background load does.
-func newReplayConfig(nodeURL, storePath string) *config.Config {
-	cfg := &config.Config{}
-	cfg.Chain.Name = "BSC"
-	cfg.Chain.Network = "Mainnet"
-	cfg.Chain.Adapter = config.DefaultChainAdapter
-	cfg.Chain.Hub = "testnet.shinzo.network"
+// newReplayConfig boots from the shipped config_bsc.yaml — the same file
+// production block_poster runs — and overrides only what the harness cannot
+// take from it: the mock node as endpoint, the temp store, P2P off, no
+// health server, open schema, the throwaway keyring, and the forced-fast
+// pruner + snapshotter cadence. Everything else (chain identity, batch
+// sizes, prune_history, the per-cycle cap, badger caches, the 128 MB value
+// log) is exactly what production runs, and the env scrub above keeps
+// developer .env values out of the measurement.
+func newReplayConfig(t *testing.T, nodeURL, storePath string) *config.Config {
+	t.Helper()
 
+	scrubReplayEnv(t)
+
+	cfg, err := config.LoadConfig("../../config/config_bsc.yaml")
+	require.NoError(t, err, "load config_bsc.yaml")
+	require.Equal(t, "BSC", cfg.Chain.Name, "config_bsc.yaml must define the BSC chain")
+	require.Equal(t, "Mainnet", cfg.Chain.Network, "config_bsc.yaml must target Mainnet")
+
+	// The mock server replaces the endpoint; the geth section name is
+	// historical (any JSON-RPC endpoint works), and the ${GETH_*} yaml
+	// placeholders are zeroed so no literal leaks to a future consumer.
 	cfg.Geth.NodeURL = nodeURL
-	cfg.Geth.DialTimeoutSeconds = 10
+	cfg.Geth.WsURL = ""
+	cfg.Geth.APIKey = ""
+	cfg.Geth.APIKeyType = ""
 
-	cfg.DefraDB.Embedded = true
+	// Harness-only DefraDB settings: temp store, no peers, throwaway signing
+	// identity. The store cache sizes and 128 MB value log ride from the
+	// yaml, matching the shipped configuration.
 	cfg.DefraDB.Store.Path = storePath
-	cfg.DefraDB.Store.ValueLogFileSizeMB = replayValueLogSizeMB
-	cfg.DefraDB.KeyringSecret = replayKeyringSecret
 	cfg.DefraDB.P2P.Enabled = false
-	cfg.DefraDB.P2P.AcceptIncoming = false
+	cfg.DefraDB.KeyringSecret = replayKeyringSecret
 
-	// max_docs_per_txn and the per-collection batch sizes stay moderate to
-	// respect badger's ~9.7 MB per-transaction ceiling: a BSC mainnet block
-	// can carry hundreds of transactions and thousands of logs.
-	cfg.Indexer.StartHeight = 0
-	cfg.Indexer.ConcurrentBlocks = 1
-	cfg.Indexer.ReceiptWorkers = 8
-	cfg.Indexer.MaxDocsPerTxn = 100
-	cfg.Indexer.MaxTxDocsPerBatch = 100
-	cfg.Indexer.MaxLogDocsPerBatch = 125
-	cfg.Indexer.MaxALEDocsPerBatch = 500
+	// The harness never starts the indexer, so the health server would
+	// never bind — pinned off anyway — and schema auth stays open because
+	// the harness applies its own schema without tokens.
 	cfg.Indexer.HealthServerPort = -1
-	cfg.Indexer.OpenBrowserOnStart = false
 	cfg.Indexer.SchemaAuthMode = "none"
 
-	// Forced-fast service pacing: retention below the fixture range produces
-	// real deletions mid-run, and a small blocks-per-file produces real
-	// snapshot writes. resolveReplayServices applies the BSC_REPLAY_*
-	// kill-switches and overrides on top of these defaults.
-	cfg.Pruner.Enabled = true
+	// Forced-fast service pacing on top of the yaml's production values:
+	// retention half the default capture produces real deletions mid-run,
+	// and a small blocks-per-file produces real snapshot writes.
+	// resolveReplayServices applies the BSC_REPLAY_* kill-switches and
+	// overrides on top of these.
 	cfg.Pruner.MaxBlocks = replayPruneMaxBlocks
-	cfg.Pruner.DocsPerBlock = replayDocsPerBlock
 	cfg.Pruner.IntervalSeconds = replayPruneIntervalSeconds
 
-	cfg.Snapshot.Enabled = true
 	cfg.Snapshot.Dir = filepath.Join(storePath, "snapshots")
 	cfg.Snapshot.BlocksPerFile = replaySnapshotBlocksPerFile
 	cfg.Snapshot.IntervalSeconds = replaySnapshotIntervalSeconds

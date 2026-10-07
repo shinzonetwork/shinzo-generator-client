@@ -42,12 +42,6 @@ const (
 	// when no explicit path is given.
 	fixtureGlob = "bsc_blocks_*.json"
 
-	// replayValueLogSizeMB matches the production badger value-log file size
-	// default (defaultBadgerValueLogFileSizeMB in pkg/defradb, unexported),
-	// carried in the config so the node-option callback below reads it the
-	// same way the production buildNodeOptions does.
-	replayValueLogSizeMB = 64
-
 	// badgerVlogSizeShift is log2 of one mebibyte: the config field is in MB,
 	// SetBadgerFileSize wants bytes.
 	badgerVlogSizeShift = 20
@@ -82,7 +76,7 @@ func TestBSCReplayAcceptance(t *testing.T) {
 	defer mockNode.Close()
 
 	storePath := t.TempDir()
-	cfg := newReplayConfig(mockNode.URL(), storePath)
+	cfg := newReplayConfig(t, mockNode.URL(), storePath)
 	resolveReplayServices(t, cfg)
 
 	// Embedded DefraDB with the BSC-prefixed schema. The ForChain variant is
@@ -96,9 +90,9 @@ func TestBSCReplayAcceptance(t *testing.T) {
 
 	// The node runs with the production bootstrap's node options: the
 	// identity comes from the real file keyring at {storePath}/keys and is
-	// set as the node identity, and badger gets the production value-log
-	// file size. P2P stays off to keep the measurement free of libp2p
-	// background traffic.
+	// set as the node identity, and badger gets the value-log file size the
+	// shipped config carries (defra.go reads the same field). P2P stays off
+	// to keep the measurement free of libp2p background traffic.
 	nodeIdent, err := defradb.GetOrCreateNodeIdentity(cfg)
 	require.NoError(t, err, "open the replay keyring")
 	td := testutils.SetupTestDefraDBWithSchemaOpts(t, sdl, storePath,
