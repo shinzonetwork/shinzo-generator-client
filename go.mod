@@ -345,7 +345,7 @@ require (
 	github.com/sourcenetwork/go-p2p v0.1.11 // indirect
 	github.com/sourcenetwork/goji v0.0.10 // indirect
 	github.com/sourcenetwork/goleveldb v0.0.0-20251217012629-27249d06b81b // indirect
-	github.com/sourcenetwork/graphql-go v0.7.10-0.20260603160416-fba12ae14d3b // indirect
+	github.com/sourcenetwork/graphql-go v0.7.10-0.20261007192339-02418a8a6594 // indirect
 	github.com/sourcenetwork/lens/host-go v0.11.0 // indirect
 	github.com/sourcenetwork/raccoondb v0.2.1-0.20240722161350-d4a78b691ec8 // indirect
 	github.com/sourcenetwork/raccoondb/v2 v2.0.0 // indirect
