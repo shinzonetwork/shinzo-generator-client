@@ -1,4 +1,4 @@
-.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test bsc-live-test bsc-bench-fetch bsc-acceptance-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
+.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test ethereum-live-test bsc-live-test bsc-bench-fetch bsc-acceptance-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -10,6 +10,13 @@ endif
 GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
+
+# Capture range for bsc-bench-fetch. 0 = auto: latest 100 blocks from the
+# current chain tip. Without these defaults a bare `make bsc-bench-fetch`
+# would expand to a bare `--from --to` and the flag package would eat the
+# next token as the value, failing the run.
+FROM ?= 0
+TO ?= 0
 
 # Version injected into the binary at build time via -ldflags (git tag plus
 # commit offset and dirty state; falls back to "dev" outside a git repo).
@@ -90,6 +97,12 @@ test-local:
 	@echo "✅ Using node endpoint: $(GETH_RPC_URL)"
 	@go test ./pkg/indexer -v -run TestIndexing
 
+# integration-test runs the self-contained mock suite (build tag
+# "integration"): an embedded DefraDB fed with synthetic block data. No chain
+# endpoint and no credentials, so it is safe to run anywhere at any time.
+integration-test:
+	@go test -tags=integration -v ./integration/
+
 coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
@@ -105,7 +118,7 @@ ethereum-live-test:
 	@echo "🧪 Running Ethereum live tests..."
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
-		go test -tags=live -v ./integration/live/ -count=1 -timeout=20s; \
+		go test -tags=live -v ./integration/live -count=1 -timeout=20s; \
 	else \
 		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
 	fi
@@ -199,8 +212,17 @@ help:
 	@echo "📦 Build & Test:"
 	@echo "  build              - Build the generator binary"
 	@echo "  test               - Run all tests with summary"
+	@echo "  integration-test   - Fast mock integration suite (no chain endpoint, no credentials)"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
+	@echo ""
+	@echo "🌐 Per-chain live tests:"
+	@echo "  ethereum-live-test - Ethereum live suite (GETH_RPC_URL gates the run)"
+	@echo "  bsc-live-test      - BSC live integration suite (GETH_RPC_URL or BSC_LIVE; defaults to the public endpoint)"
+	@echo ""
+	@echo "⏱  BSC tip-indexing acceptance (replay):"
+	@echo "  bsc-bench-fetch    - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
+	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
@@ -216,13 +238,6 @@ help:
 	@echo "  start              - Start the generator"
 	@echo "  start-bsc          - Start the generator with the BSC config"
 	@echo "  stop               - Stop all services"
-	@echo ""
-	@echo "🌐 Per-chain live tests:"
-	@echo "  bsc-live-test      - BSC live integration suite (GETH_RPC_URL or BSC_LIVE; defaults to the public endpoint)"
-	@echo ""
-	@echo "⏱  BSC tip-indexing acceptance (replay):"
-	@echo "  bsc-bench-fetch    - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
-	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
 	@echo "  GETH_RPC_URL   - HTTP RPC endpoint (required)"
