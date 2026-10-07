@@ -58,7 +58,7 @@ func run(args []string) error {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// setup telemetry
-	otelShutdown, err := setupOTel(ctx)
+	otelShutdown, err := setupOTel(ctx, cfg.Chain)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "OpenTelemetry setup: %v\n", err)
 	} else {
