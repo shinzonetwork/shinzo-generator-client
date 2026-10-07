@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -537,10 +538,12 @@ func (t *replayQueueTracker) TrackBlock(_ context.Context, blockNumber int64, re
 }
 
 // replayServices groups the background services running beside the timing
-// loop. Both are optional: nil fields mean the service was disabled.
+// loop. Both are optional: nil fields mean the service was disabled. stopOnce
+// makes stop idempotent: Cleanup and the happy path both call it.
 type replayServices struct {
 	pruneSvc *pruner.Pruner
 	snapSvc  *snapshot.Snapshotter
+	stopOnce sync.Once
 }
 
 // startReplayServices wires the pruner and snapshotter the way the indexer's
@@ -575,20 +578,28 @@ func startReplayServices(t *testing.T, cfg *config.Config, defraNode *node.Node,
 			cfg.Snapshot.Dir, cfg.Snapshot.IntervalSeconds, cfg.Snapshot.BlocksPerFile)
 	}
 
+	// Register teardown for every exit path: if a require in the replay loop
+	// fails, the test goroutine stops there and Cleanup must stop the
+	// services before the node is torn down, or the buried errors from a
+	// pruner/snapshotter racing the dying node drown out the real failure.
+	t.Cleanup(rs.stop)
+
 	return rs
 }
 
 // stop tears the services down in the indexer's stop order: the snapshotter
 // first (capture data before it is pruned), then the pruner so it cannot race
-// the test's final count queries. The snapshotter's Stop closes its channel
-// unguarded, so this must run exactly once.
+// the test's final count queries. Idempotent via stopOnce: the snapshotter's
+// Stop closes its channel unguarded, so a second call would panic.
 func (rs *replayServices) stop() {
-	if rs.snapSvc != nil {
-		rs.snapSvc.Stop()
-	}
-	if rs.pruneSvc != nil {
-		rs.pruneSvc.Stop()
-	}
+	rs.stopOnce.Do(func() {
+		if rs.snapSvc != nil {
+			rs.snapSvc.Stop()
+		}
+		if rs.pruneSvc != nil {
+			rs.pruneSvc.Stop()
+		}
+	})
 }
 
 // prunedBlocks returns the count of blocks the pruner deleted during the
