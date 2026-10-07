@@ -7,27 +7,27 @@ make integration-test
 Self-contained suite with synthetic mock data (build tag `integration`). No
 chain endpoint, no credentials, no external dependencies.
 
-## Live Tests 
-
-### Ethereum
+## Live Tests
+End-to-end tests with real chain data. Both are gated on `GETH_RPC_URL`. The
+Ethereum suite additionally requires `GETH_WS_URL` and `GETH_API_KEY`; for BSC
+they are optional (see its table below).
 
 ```bash
 # Set environment variables first
 source .env
+```
 
+### Ethereum
+
+```bash
 # Run with build tag
 make ethereum-live-test
 ```
-End-to-end tests with real Ethereum data. Requires `GETH_RPC_URL`, `GETH_WS_URL`, `GETH_API_KEY`.
 
 ### BSC
 
 ```bash
-# Optional: point at your own BSC node (defaults to the free public endpoint
-# https://bsc-dataseed.bnbchain.org when unset)
-export GETH_RPC_URL=https://your-bsc-node:8545
-
-# Run the suite (also enabled by BSC_LIVE=1 alone)
+# Run with build tag
 make bsc-live-test
 ```
 
@@ -51,15 +51,16 @@ indexes a different chain.
 
 | Variable | Purpose |
 |----------|---------|
-| `GETH_RPC_URL` | HTTP JSON-RPC endpoint (default: public `https://bsc-dataseed.bnbchain.org`). `GETH_*` names are historical — the Generator is chain-agnostic, so the BSC suite reuses them |
+| `GETH_RPC_URL` | HTTP JSON-RPC endpoint (required; no public fallback). `GETH_*` names are historical — the Generator is chain-agnostic, so the BSC suite reuses them |
 | `GETH_WS_URL` | WebSocket endpoint; opt-in (`TestLiveBSCWSNotificationIndexing` skips without it) |
 | `GETH_API_KEY` / `GETH_API_KEY_TYPE` | API key + header type for authenticated endpoints |
 | `BSC_LIVE_NETWORK` | Network override applied after load (default: the yaml's `Mainnet`) |
-| `BSC_LIVE` | Any value enables `make bsc-live-test` without a custom RPC URL |
 
-Skip semantics: the public default endpoint is aggressively rate-limited, so the
-suite waits up to 180 s for the first indexed block and **exits 0** (treated as
-skipped) on timeout — rate limiting never fails the run. Tests that need
-indexed data skip when the indexer did not warm up.
+Skip semantics: with `GETH_RPC_URL` unset the suite skips before starting
+anything (exit 0, same as the Ethereum suite). Once an endpoint is configured,
+the suite waits up to 180 s for the first indexed block and **exits 1** on
+timeout — with no public fallback to blame, a rate-limited or stalled provider
+is a real failure, like on Ethereum. Tests that need indexed data skip when the
+indexer did not warm up.
 
 
