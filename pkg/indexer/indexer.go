@@ -885,19 +885,13 @@ func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRe
 	}, nil
 }
 
-// GetSourceChainInfo returns the ShinzoHub registration source chain metadata for this indexer.
+// GetSourceChainInfo returns the source chain this generator registers on ShinzoHub: the
+// configured chain name in lower case and the configured chain ID.
 func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
 		return "", 0
 	}
-
-	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
-	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
-	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
-		return "ethereum", 1
-	}
-
-	return "", 0
+	return strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name)), i.cfg.Chain.ChainID
 }
 
 // GetNodePublicKey returns the DefraDB node's public key as a hex string.
