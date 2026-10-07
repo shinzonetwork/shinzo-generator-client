@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
@@ -39,6 +41,19 @@ func setupOTel(ctx context.Context) (func(context.Context) error, error) {
 
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(metricReader), sdkmetric.WithResource(res))
 	otel.SetMeterProvider(meterProvider)
+
+	start := time.Now()
+	_, err = meterProvider.Meter("github.com/shinzonetwork/shinzo-generator-client/cmd/block_poster").Float64ObservableGauge("process.uptime",
+		metric.WithDescription("Time since the process started."),
+		metric.WithUnit("s"),
+		metric.WithFloat64Callback(func(_ context.Context, o metric.Float64Observer) error {
+			o.Observe(time.Since(start).Seconds())
+			return nil
+		}),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
 
 	return meterProvider.Shutdown, nil
 }
