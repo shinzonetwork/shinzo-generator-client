@@ -22,18 +22,13 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
-// BSC public RPC default. It is aggressively rate-limited: when the suite
-// falls back to it (GETH_RPC_URL unset), a warmup timeout is a skip, never a
-// failure. Against an explicitly configured endpoint a timeout fails hard.
 const (
-	defaultBSCRPCEndpoint = "https://bsc-dataseed.bnbchain.org"
-
 	// bscHealthPort is chosen away from ports other live suites use (e.g.
 	// 9876) so two suites can run side by side.
 	bscHealthPort = 9877
 
 	// bscWarmupBudget bounds how long TestMain waits for the first indexed
-	// block before declaring the run skipped.
+	// block before failing the run.
 	bscWarmupBudget = 180 * time.Second
 
 	// bscLiveDefraDir is wiped before and after every run so each suite
@@ -52,16 +47,11 @@ var (
 	bscHealthURL    string
 	bscChainIndexer atomic.Pointer[indexer.ChainIndexer]
 	bscStarted      bool
-
-	// bscUsingPublicRPC records that the configured endpoint came from the
-	// built-in fallback rather than an explicit GETH_RPC_URL (or a literal
-	// yaml URL). It decides whether a warmup timeout is a skip or a failure.
-	bscUsingPublicRPC bool
 )
 
-// bscWarmupResult distinguishes how the warmup window ended: the two failure
-// kinds have different exit semantics (a startup error is always fatal, a
-// timeout only on a configured endpoint).
+// bscWarmupResult distinguishes how the warmup window ended. Both failure
+// kinds are fatal, but they keep distinct messages: a startup error is a
+// suite bug, a timeout is an endpoint or pipeline problem.
 type bscWarmupResult int
 
 const (
@@ -74,10 +64,20 @@ const (
 // config/config_bsc.yaml — the same file operators run via -config — and runs
 // the suite only once the first block is indexed. A config that fails to load
 // is a bug in the bundled file, not endpoint flakiness, so it fails the run
-// immediately instead of going through the warmup/skip path.
+// immediately instead of going through the warmup path.
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
 	logger.Test("TestMain - Starting BSC live integration tests")
+
+	// Single tripwire, same as the Ethereum live suite: without an endpoint
+	// the suite has nothing to index, so it skips before starting anything.
+	// There is no public-endpoint fallback — a bare run must never touch a
+	// chain endpoint by accident, and rate limiting on a configured provider
+	// is a real failure, not a skip.
+	if os.Getenv("GETH_RPC_URL") == "" {
+		logger.Sugar.Error("GETH_RPC_URL not set - the BSC live suite needs a real JSON-RPC endpoint (no public fallback)")
+		os.Exit(0) // treat as skipped instead of failed.
+	}
 
 	bscHealthURL = fmt.Sprintf("http://localhost:%d", bscHealthPort)
 
@@ -88,7 +88,9 @@ func TestMain(m *testing.M) {
 	}
 
 	bscNames = evm.NewCollectionNames(cfg.Chain.Name + "__" + cfg.Chain.Network)
-	logger.Testf("Indexing BSC %s from %s", cfg.Chain.Network, cfg.Geth.NodeURL)
+	// The endpoint is deliberately not echoed: provider API keys ride in URL
+	// paths, the same leak class the capture tool redacts.
+	logger.Testf("Indexing BSC %s from the configured endpoint", cfg.Chain.Network)
 
 	// Fresh store per run.
 	logger.Test("Cleaning up existing BSC live DefraDB data...")
@@ -113,10 +115,10 @@ func TestMain(m *testing.M) {
 		}
 	}()
 
-	// Warmup: wait for the first indexed block. A startup failure always
-	// fails the run — a bad schema, keyring or port clash is a bug, not
-	// endpoint flakiness. A timeout fails only when an endpoint was explicitly
-	// configured; against the rate-limited public fallback it stays a skip.
+	// Warmup: wait for the first indexed block. Both endings are fatal — a
+	// startup failure is a bad schema/keyring/port (a suite bug, not endpoint
+	// flakiness), and a timeout means the configured endpoint or the pipeline
+	// could not keep up. Neither is a skip.
 	logger.Test("Waiting for the first BSC block to be indexed...")
 	res, startupErr := waitForBSCFirstBlock(bscWarmupBudget, bscIndexerErrs)
 	switch res {
@@ -127,12 +129,7 @@ func TestMain(m *testing.M) {
 		bscTeardown()
 		os.Exit(1) //nolint:gocritic
 	case bscWarmupTimedOut:
-		if bscUsingPublicRPC {
-			logger.Test("⏭ Warmup budget exhausted without an indexed block - public endpoint is rate-limited, treating suite as skipped")
-			bscTeardown()
-			os.Exit(0) //nolint:gocritic
-		}
-		logger.Sugar.Errorf("Warmup budget exhausted without an indexed block on the configured endpoint (real endpoint, credentials or pipeline bug)")
+		logger.Sugar.Errorf("Warmup budget exhausted without an indexed block on the configured endpoint (endpoint, credentials or pipeline bug)")
 		bscTeardown()
 		os.Exit(1) //nolint:gocritic
 	}
@@ -178,15 +175,6 @@ func buildBSCLiveConfig() (*config.Config, error) {
 	cfg.Geth.WsURL = bscEnvOrConfig(cfg.Geth.WsURL, "GETH_WS_URL")
 	cfg.Geth.APIKey = bscEnvOrConfig(cfg.Geth.APIKey, "GETH_API_KEY")
 	cfg.Geth.APIKeyType = bscEnvOrConfig(cfg.Geth.APIKeyType, "GETH_API_KEY_TYPE")
-	if cfg.Geth.NodeURL == "" {
-		// Without a configured endpoint the suite defaults to the free public
-		// one. Its rate limiting is why warmup timeouts against this fallback
-		// are skips; an explicitly configured endpoint (even this same host)
-		// never gets that treatment.
-		cfg.Geth.NodeURL = defaultBSCRPCEndpoint
-		bscUsingPublicRPC = true
-		logger.Testf("GETH_RPC_URL not set, using public endpoint %s (rate-limited: warmup timeout is treated as a skip)", cfg.Geth.NodeURL)
-	}
 
 	// The store path is pinned to the same directory TestMain wipes before and
 	// after every run, so store and wipe target can never drift apart.
@@ -587,8 +575,8 @@ func TestLiveBSCHealthEndpoints(t *testing.T) {
 // window and asserts it never regresses. The tip is monotonically increasing
 // under normal operation, so it detects stalls while staying immune to the
 // pruner legitimately shrinking the stored block range. Stalls are logged,
-// not failed: public endpoints rate-limit aggressively and indexing may pause
-// without being broken.
+// not failed: the configured endpoint may throttle or hiccup without being
+// broken, and the warmup gate has already proven the pipeline works.
 func TestLiveBSCIndexingAdvances(t *testing.T) {
 	t.Parallel()
 	bscRequireStarted(t)

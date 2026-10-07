@@ -107,8 +107,8 @@ The embedded DefraDB node (real badger on disk, loopback bind) runs with the
 same node options the production bootstrap applies: the node identity comes
 from a real file keyring under the store dir (throwaway secret, temp
 directory) and is set via `SetNodeIdentity`, and badger gets its value-log
-file size from the config — 128 MB in the shipped yaml, the same number
-production reads.
+file size straight from the config — whatever the shipped yaml sets, the
+bench and production both run with it.
 
 The pruner and snapshotter run beside the replay loop with **forced-fast
 defaults** — 10 s cycles, 50-block retention, 50-block snapshot files — so

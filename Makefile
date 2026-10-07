@@ -123,16 +123,18 @@ ethereum-live-test:
 		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
 	fi
 
-# bsc-live-test runs the BSC live integration suite. It is guarded on
-# GETH_RPC_URL/BSC_LIVE so CI (which sets neither) never hammers the public
-# BSC endpoint by accident; without GETH_RPC_URL the suite itself falls back
-# to the free public endpoint. GETH_* env names are historical — the
-# Generator is chain-agnostic, so the BSC suite reuses them.
+# bsc-live-test runs the BSC live integration suite with the same guard
+# semantics as ethereum-live-test: GETH_RPC_URL is the single tripwire, and
+# without it the target warns and skips instead of touching any endpoint by
+# accident. The suite has no public-endpoint fallback of its own — real
+# credentials are always required, and a warmup timeout fails the run.
+# GETH_* env names are historical — the Generator is chain-agnostic, so the
+# BSC suite reuses them.
 bsc-live-test:
-	@if [ -z "$(GETH_RPC_URL)" ] && [ -z "$(BSC_LIVE)" ]; then \
-		echo "⚠️  Skipping BSC live tests - GETH_RPC_URL or BSC_LIVE not set"; \
-	else \
+	@if [ -n "$(GETH_RPC_URL)" ]; then \
 		go test -tags=live -v ./integration/live/bsc/ -count=1 -timeout=400s; \
+	else \
+		echo "⚠️  Skipping BSC live tests - GETH_RPC_URL not set"; \
 	fi
 
 # bsc-bench-fetch captures a raw replay fixture via the chain-agnostic
@@ -218,7 +220,7 @@ help:
 	@echo ""
 	@echo "🌐 Per-chain live tests:"
 	@echo "  ethereum-live-test - Ethereum live suite (GETH_RPC_URL gates the run)"
-	@echo "  bsc-live-test      - BSC live integration suite (GETH_RPC_URL or BSC_LIVE; defaults to the public endpoint)"
+	@echo "  bsc-live-test      - BSC live suite (GETH_RPC_URL gates the run)"
 	@echo ""
 	@echo "⏱  BSC tip-indexing acceptance (replay):"
 	@echo "  bsc-bench-fetch    - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
