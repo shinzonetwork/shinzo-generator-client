@@ -497,7 +497,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		cfg.Indexer.BlocksPerMinute,
 	)
 
-	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
+	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64, _ time.Duration) {
 		i.updateBlockInfo(blockNum)
 		i.mutex.Lock()
 		i.hasIndexedAtLeastOneBlock = true

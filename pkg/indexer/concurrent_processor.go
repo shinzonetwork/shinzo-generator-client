@@ -31,12 +31,16 @@ const (
 	RPCErrorRetryBaseDelay = 500 * time.Millisecond
 )
 
-// BlockResult holds the result of processing a block.
+// BlockResult holds the result of processing a block. FetchDuration carries
+// the successful FetchBlock attempt's wall time; every committed block reports
+// it to the onBlockProcessed callback, though no sample is contributed for
+// failed or not-yet-committed blocks.
 type BlockResult struct {
-	BlockNum int64
-	BlockID  string
-	Success  bool
-	Error    error
+	BlockNum      int64
+	BlockID       string
+	Success       bool
+	Error         error
+	FetchDuration time.Duration
 }
 
 // BlockStorer is the store-side interface used by the processor. The concrete
@@ -84,7 +88,7 @@ func NewConcurrentBlockProcessor(
 func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	ctx context.Context,
 	startBlock int64,
-	onBlockProcessed func(blockNum int64),
+	onBlockProcessed func(blockNum int64, fetchDuration time.Duration),
 ) error {
 	p.nextToCommit = startBlock
 
@@ -102,7 +106,7 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 }
 
 // startWorkers launches processing and result-collection goroutines.
-func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProcessed func(blockNum int64)) (chan int64, *sync.WaitGroup, *sync.WaitGroup) {
+func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) (chan int64, *sync.WaitGroup, *sync.WaitGroup) {
 	workChan := make(chan int64, p.workers*DefaultWorkersAhead)
 
 	var wg sync.WaitGroup
@@ -128,7 +132,7 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 }
 
 // collectResults reads from resultChan and commits blocks in order.
-func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) {
 	for result := range p.resultChan {
 		p.pendingMu.Lock()
 		p.pending[result.BlockNum] = result
@@ -147,7 +151,7 @@ func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum
 					logger.Sugar.Infof("Committed block %d", next.BlockNum)
 				}
 				if onBlockProcessed != nil {
-					onBlockProcessed(next.BlockNum)
+					onBlockProcessed(next.BlockNum, next.FetchDuration)
 				}
 			} else {
 				logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
@@ -215,7 +219,7 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 //   - store: up to MaxRPCRetries on transaction conflicts; ErrAlreadyExists
 //     triggers a fire-and-forget SignExisting goroutine
 func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blockNum int64) *BlockResult {
-	raw, err := p.fetchBlockWithRetry(ctx, blockNum)
+	raw, fetchDuration, err := p.fetchBlockWithRetry(ctx, blockNum)
 	if err != nil {
 		return &BlockResult{BlockNum: blockNum, Error: err}
 	}
@@ -225,30 +229,38 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 		return &BlockResult{BlockNum: blockNum, Error: fmt.Errorf("convert block: %w", err)}
 	}
 
-	return p.storeWithRetry(ctx, blockNum, result)
+	blockResult := p.storeWithRetry(ctx, blockNum, result)
+	blockResult.FetchDuration = fetchDuration
+	return blockResult
 }
 
 // fetchBlockWithRetry fetches a block from the fetcher with retry
 // classification:
 //   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
 //   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
-func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
+//
+// It returns the successful attempt's wall time; retries discard the failed
+// attempts' timings, so the reported latency reflects exactly the network
+// fetch that eventually delivered the block.
+func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, time.Duration, error) {
 	otherErrors := 0
 	for {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		}
 
+		attemptStart := time.Now()
 		raw, err := p.fetcher.FetchBlock(ctx, blockNum)
+		fetchDuration := time.Since(attemptStart)
 		if err == nil {
-			return raw, nil
+			return raw, fetchDuration, nil
 		}
 
 		if errors.IsErrNotFound(err) {
 			logger.Sugar.Infof("Block %d not available yet, waiting...", blockNum)
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, 0, ctx.Err()
 			case <-time.After(BlockNotFoundRetryDelay):
 			}
 			continue
@@ -256,11 +268,11 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 
 		otherErrors++
 		if otherErrors >= MaxRPCRetries {
-			return nil, fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
+			return nil, 0, fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-time.After(time.Duration(otherErrors) * RPCErrorRetryBaseDelay):
 		}
 	}
