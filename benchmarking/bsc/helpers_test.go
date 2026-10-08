@@ -21,6 +21,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
@@ -642,11 +643,14 @@ func (f *timedFetcher) FetchHighestBlockNumber(ctx context.Context) (int64, erro
 func (f *timedFetcher) Close() error { return f.inner.Close() }
 
 // timedStorer wraps the processor's BlockStorer, closing each block's timing
-// window when its Store succeeds. The processor's own extractBlockHash finds
+// window when its store lands. The processor's own extractBlockHash finds
 // the block group by its BlockHashField; the number is recovered the same
 // way via the group's BlockNumField ("number" on block groups per the
-// converter). No sample is recorded on failure — the sample-count check
-// then fails loudly instead, so silence cannot hide a failed store.
+// converter). An already-exists outcome closes the window too: the processor
+// commits a block through that path (it fires the detached SignExisting and
+// reports success), so the sample spans every store attempt the block took.
+// Only a store the processor also failed leaves the window open — the
+// sample-count check then names the block, so silence cannot hide a lost one.
 type timedStorer struct {
 	inner   indexer.BlockStorer
 	timings *replayTimings
@@ -654,7 +658,7 @@ type timedStorer struct {
 
 func (s *timedStorer) Store(ctx context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
 	res, err := s.inner.Store(ctx, result)
-	s.timings.endStore(extractReplayBlockNum(result), err == nil)
+	s.timings.endStore(extractReplayBlockNum(result), err == nil || errors.IsErrAlreadyExists(err))
 	return res, err
 }
 

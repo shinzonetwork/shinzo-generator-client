@@ -151,6 +151,17 @@ on the local side:
 - **Deployment** — production typically runs containerized with cgroup memory
   limits; the bench runs on the host.
 
+**Write-collision concentration**: the loopback mock answers in near-zero
+time and pacing is off, so concurrent workers reach `Store` within the same
+milliseconds, back to back — write pressure that paced production (real
+fetch latency plus the `blocks_per_minute` dispatch floor) spreads over
+minutes is compressed here into seconds. Under that pressure a block's
+batch writes can exhaust their conflict retries and commit partially; the
+block then lands unsigned and the signature-count verdict fails naming it.
+Paced production stays below that pressure today — a red signature count
+at several concurrent workers is the deliberate stress finding, not a
+harness bug.
+
 So live per-block time ≈ acceptance average + (real RPC time − loopback time)
 + those residuals. This suite answers the
 *"is the pipeline fast enough"* question, the live suite (`make bsc-live-test`)
@@ -197,12 +208,16 @@ Two verdicts, both asserted:
 2. **Correctness**: a range query on the block collection must count
    exactly the blocks processed minus what the pruner removed (stores are
    duplicate-rejecting, so a mismatch means a block silently failed), and
-   `BlockSignature` docs must exist for the stored range.
+   every stored block (processed − pruned) must carry a `BlockSignature` —
+   a signed block is a complete block, so a shortfall names a block that
+   was committed with a partial store.
 
 The remaining statistics — `Average Block Time`, `Min`/`p50`/`p95`/`Max`,
 `Outliers` — are per-block fetch→store latencies under concurrency: reported
-as evidence, not gated. At more than one worker they include the shared badger/`/seq/doc`
-write contention and any transaction-conflict retries the processor performs.
+as evidence, not gated. At more than one worker they include the shared
+badger/`/seq/doc` write contention and every retry attempt a block needed —
+a block that reaches store only after processor retries carries its full
+retry window.
 Beyond-tip fetch dispatches that are still in flight when the run's last
 block commits are cancelled and contribute no samples (they are also
 excluded from the wall clock).

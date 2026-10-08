@@ -374,8 +374,9 @@ func assertVerdict(t *testing.T, fx *replayFixture, blockCount int, wall time.Du
 }
 
 // assertCorrectness is the "can index" half of the verdict: every processed
-// block must be present in DefraDB unless the pruner removed it, and
-// signature docs must exist for the stored range.
+// block must be present in DefraDB unless the pruner removed it, every stored
+// block must carry a BlockSignature (a signed block is a complete block), and
+// the pruner's deletions are accounted for on both counts.
 func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Context, cols chains.Collections, numbers []uint64, processed int, pruned int64) {
 	t.Helper()
 
@@ -395,8 +396,16 @@ func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Cont
 	sigCount, err := graphqlCountInRange(ctx, td.Node, mustSignatureCollection(t, cols),
 		constants.BlockNumberFieldName, first, last, processed+1)
 	require.NoError(t, err)
-	assert.Greater(t, sigCount, 0,
-		"no BlockSignature docs were written for the stored range")
+	// The pruner deletes a block's signature together with its docs (the
+	// queue tracks it per block), so stored − pruned is the expected count,
+	// same arithmetic as the block rows. A shortfall names the real damage,
+	// not a counting error: a block whose store landed partially and that
+	// was committed through the already-exists path without a signature
+	// counts toward zero here. This is the assertion that catches lost
+	// blocks under concurrent write contention.
+	assert.Equal(t, expected, sigCount,
+		"every stored block must carry a BlockSignature (expected %d = %d stored - %d pruned) - a shortfall means a block was committed with a partial store or its signature could not be created",
+		expected, processed, pruned)
 	logger.Testf("✓ correctness: %d blocks stored, %d block signatures (expected %d blocks after pruning %d)",
 		blockCount, sigCount, expected, pruned)
 }
