@@ -75,6 +75,11 @@ indexer:
   # Example: SCHEMA_API_KEYS=key1,key2,key3
   # If you set schema_auth_mode to "token" (or leave it empty) without providing keys,
   # ALL schema requests will return 503 Service Unavailable.
+  max_network_latency_ms: 0 # Max average wall time of the block-fetch RPC over the rolling window. (env: INDEXER_MAX_NETWORK_LATENCY_MS)
+  # 0 = latency tracking on, enforcement off. 
+  # Threshold must be ≤ half the block time (60000/blocks_per_minute/2). 
+  latency_window_blocks: 50 # Number of recent committed blocks the rolling latency window holds. (env: INDEXER_LATENCY_WINDOW_BLOCKS)
+  # Must be ≤ half snapshot blocks_per_file so the frozen post-breach window fits one snapshot file 
 logger:
   development: true
   level: "info"
