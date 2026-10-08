@@ -42,7 +42,7 @@ type LatencyBreachError struct {
 
 func (e *LatencyBreachError) Error() string {
 	return fmt.Sprintf(
-		"network latency exceeded: average fetch of %dms over the last %d blocks exceeds the %dms threshold (last recorded block %d)",
+		"network latency exceeded: average fetch of %dms over the last %d blocks exceeds the %dms threshold (last recorded block %d); at this pace the indexer cannot catch up with the network tip — please switch to a lower latency provider",
 		e.AverageMs, e.WindowSize, e.ThresholdMs, e.LastBlock,
 	)
 }
@@ -124,6 +124,15 @@ func (m *NetworkLatencyMonitor) Record(blockNum int64, latency time.Duration) er
 	}
 
 	return nil
+}
+
+// WindowFull reports whether the rolling window has filled. Until then the
+// average covers only the samples recorded so far and is not yet
+// representative of a full window.
+func (m *NetworkLatencyMonitor) WindowFull() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.count == m.windowSize
 }
 
 // Metrics returns a snapshot of the current window state for observability.
