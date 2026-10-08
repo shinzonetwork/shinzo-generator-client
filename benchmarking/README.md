@@ -181,6 +181,7 @@ Network Latency Budget: 157.387606ms / block
 ____________________________________________________________________________________________________
 Sequential Block Processing Stats:
  -  Average Block Time:  292.231173ms
+ -  Average Phase Times:  fetch 2.1ms || convert 41ms || store 553ms
  -  Min: 125.270292ms || p50: 257.144167ms || p95: 517.100084ms || Max: 1.356533708s
  - Outliers:
     - 126050782 - 1.356533708s - +367.4% vs avg
@@ -221,3 +222,7 @@ retry window.
 Beyond-tip fetch dispatches that are still in flight when the run's last
 block commits are cancelled and contribute no samples (they are also
 excluded from the wall clock).
+
+`Average Phase Times` decomposes the average block time into its
+fetch / convert / store phases; the store share is the throughput ceiling
+if stores are ever serialized — which is why the line exists.

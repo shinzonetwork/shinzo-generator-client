@@ -142,7 +142,7 @@ func TestBSCReplayAcceptance(t *testing.T) {
 	timings := newReplayTimings()
 	processor := indexer.NewConcurrentBlockProcessor(
 		&timedFetcher{inner: fetcher, timings: timings},
-		converter,
+		&timedConverter{inner: converter, timings: timings},
 		&timedStorer{inner: handler, timings: timings},
 		workers,
 		0, // pacing off: blocks_per_minute's rate limiter must not soak up the measurement
@@ -217,13 +217,16 @@ func TestBSCReplayAcceptance(t *testing.T) {
 	require.Len(t, timingsList, len(blocks),
 		"sample count must equal the fixture block count - a missing sample means a block failed inside the processor")
 
+	phaseAvg, err := timings.phaseAverages(first, last)
+	require.NoError(t, err, "every replayed block must have complete phase records - fetch success precedes convert, convert precedes any store, so a total sample implies all three")
+
 	// Stop the services before the report and assertions: the pruner must
 	// not race the final count queries, and the snapshotter's stats are
 	// final once stopped. Idempotent: the Cleanup registered at startup
 	// becomes a no-op after this.
 	services.stop()
 
-	reportResults(t, fx, blocks, numbers, timingsList, workers, wall, target)
+	reportResults(t, fx, blocks, numbers, timingsList, phaseAvg, workers, wall, target)
 	logServiceStats(t, services)
 	assertVerdict(t, fx, len(blocks), wall, workers, target)
 	assertCorrectness(t, td, ctx, cols, numbers, len(blocks), services.prunedBlocks())
@@ -315,8 +318,10 @@ func parsePositiveInt(raw string) (int, error) {
 // truncated). The report splits in two: the throughput section (concurrency,
 // total time, effective per-block interval) backs the acceptance verdict,
 // while the sequential block processing stats are the per-block contended
-// fetch→store latencies — reported as evidence, not gated.
-func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbers []uint64, timings blockTimings, workers int, wall time.Duration, target time.Duration) {
+// fetch→store latencies — reported as evidence, not gated. The phase line
+// decomposes the average into fetch / convert / store; the store share is
+// the throughput ceiling if stores are ever serialized.
+func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbers []uint64, timings blockTimings, phaseAvg replayPhases, workers int, wall time.Duration, target time.Duration) {
 	t.Helper()
 	avg := timings.avg()
 	effective := wall / time.Duration(len(blocks))
@@ -345,6 +350,7 @@ func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbe
 	pad(" -  Average Block Time:  %s", avg)
 	pad(" -  Min: %s || p50: %s || p95: %s || Max: %s",
 		timings.min(), timings.percentile(50), timings.percentile(95), timings.max())
+	pad(" -  Average Phase Times:  fetch %s || convert %s || store %s", phaseAvg.fetch, phaseAvg.convert, phaseAvg.store)
 	pad(" - Outliers:")
 	for _, line := range timings.outlierLines(numbers, avg) {
 		pad("    - %s", line)
