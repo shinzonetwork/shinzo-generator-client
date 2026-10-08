@@ -21,6 +21,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -540,12 +541,6 @@ func (bt blockTimings) percentile(p int) time.Duration {
 	return sorted[idx]
 }
 
-// headroomPct returns how much faster the average is than the target, as a
-// percentage of the target (negative when the target is missed).
-func (bt blockTimings) headroomPct(target time.Duration) float64 {
-	return float64(target-bt.avg()) / float64(target) * 100
-}
-
 // outlierLines lists blocks whose processing time exceeded twice the
 // average, formatted as "block no - time - deviation from average" for the
 // report's outlier list.
@@ -559,6 +554,127 @@ func (bt blockTimings) outlierLines(numbers []uint64, avg time.Duration) []strin
 		}
 	}
 	return lines
+}
+
+// replayTimings collects per-block fetch→store durations in the concurrent
+// replay. The ConcurrentBlockProcessor exposes no per-block timing hook, so
+// the wrappers around its Fetcher and BlockStorer interfaces feed this
+// collector: the fetcher stamps each block's start, the storer closes it.
+// Completion order differs from block order under concurrency, so samples
+// are keyed by block number and emit in ascending order — the fixture range
+// is contiguous (capture invariant, capSample keeps a prefix), which keeps
+// the slice index-aligned with the parsed block numbers for the outlier list.
+type replayTimings struct {
+	mu      sync.Mutex
+	starts  map[int64]time.Time
+	samples map[int64]time.Duration
+}
+
+// newReplayTimings creates an empty collector.
+func newReplayTimings() *replayTimings {
+	return &replayTimings{
+		starts:  make(map[int64]time.Time),
+		samples: make(map[int64]time.Duration),
+	}
+}
+
+// startFetch records a block's fetch start; retried fetches overwrite the
+// stamp so only a completed fetch→store pair yields a sample.
+func (rt *replayTimings) startFetch(blockNum int64) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.starts[blockNum] = time.Now()
+}
+
+// endStore closes a block's window at store completion.
+func (rt *replayTimings) endStore(blockNum int64, stored bool) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if !stored {
+		return
+	}
+	start, ok := rt.starts[blockNum]
+	if !ok {
+		return
+	}
+	rt.samples[blockNum] = time.Since(start)
+	delete(rt.starts, blockNum)
+}
+
+// snapshotOrdered returns the collected samples as a blockTimings slice in
+// ascending block-number order, requiring every block in the inclusive range
+// to have produced one.
+func (rt *replayTimings) snapshotOrdered(first, last int64) (blockTimings, error) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for num := first; num <= last; num++ {
+		if _, ok := rt.samples[num]; !ok {
+			return nil, fmt.Errorf("block %d has no timing sample (never stored)", num)
+		}
+	}
+	out := make(blockTimings, 0, last-first+1)
+	for num := first; num <= last; num++ {
+		out = append(out, rt.samples[num])
+	}
+	return out, nil
+}
+
+// timedFetcher wraps a chains.Fetcher, stamping each block's start into a
+// replayTimings collector before passing through. It exists for the same
+// reason replayQueueTracker does: the timing is not exposed by the
+// orchestration layer, so the harness instruments the interfaces it owns.
+type timedFetcher struct {
+	inner   chains.Fetcher
+	timings *replayTimings
+}
+
+func (f *timedFetcher) Connect(ctx context.Context) error { return f.inner.Connect(ctx) }
+
+func (f *timedFetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
+	f.timings.startFetch(height)
+	return f.inner.FetchBlock(ctx, height)
+}
+
+func (f *timedFetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
+	return f.inner.FetchHighestBlockNumber(ctx)
+}
+
+func (f *timedFetcher) Close() error { return f.inner.Close() }
+
+// timedStorer wraps the processor's BlockStorer, closing each block's timing
+// window when its Store succeeds. The processor's own extractBlockHash finds
+// the block group by its BlockHashField; the number is recovered the same
+// way via the group's BlockNumField ("number" on block groups per the
+// converter). No sample is recorded on failure — the sample-count check
+// then fails loudly instead, so silence cannot hide a failed store.
+type timedStorer struct {
+	inner   indexer.BlockStorer
+	timings *replayTimings
+}
+
+func (s *timedStorer) Store(ctx context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+	res, err := s.inner.Store(ctx, result)
+	s.timings.endStore(extractReplayBlockNum(result), err == nil)
+	return res, err
+}
+
+func (s *timedStorer) SignExisting(ctx context.Context, result chains.ConversionResult, blockHash string, blockNumber int64) (string, error) {
+	return s.inner.SignExisting(ctx, result, blockHash, blockNumber)
+}
+
+// extractReplayBlockNum recovers a ConversionResult's block number the way
+// the processor recovers the block hash: the block group is the one with a
+// BlockHashField, and its first doc carries the number under BlockNumField.
+func extractReplayBlockNum(result chains.ConversionResult) int64 {
+	for _, g := range result.Groups {
+		if g.BlockHashField == "" || len(g.Docs) == 0 {
+			continue
+		}
+		if num, ok := g.Docs[0][g.BlockNumField].(int64); ok {
+			return num
+		}
+	}
+	return 0
 }
 
 // replayQueueTracker adapts pruner's IndexerQueue to the BlockHandler's
