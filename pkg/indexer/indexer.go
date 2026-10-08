@@ -153,7 +153,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 		metric.WithDescription("Highest block committed in order."),
 		metric.WithUnit("{block}"),
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
-			// 0 means no blocks commited yet.
+			// 0 means no blocks committed yet.
 			if h := i.GetCurrentBlock(); h > 0 {
 				o.Observe(h)
 			}
@@ -176,7 +176,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 			}
 			addrs, err := n.DB.ActivePeers(ctx)
 			if err != nil {
-				return nil
+				return nil //nolint:nilerr // no need to send err to OTEL
 			}
 			peers, _ := defradb.BootstrapIntoPeers(addrs)
 			unique := make(map[string]struct{}, len(peers))

@@ -153,14 +153,14 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 
 	var collectWg sync.WaitGroup
 	collectWg.Go(func() {
-		p.collectResults(onBlockProcessed)
+		p.collectResults(ctx, onBlockProcessed)
 	})
 
 	return workChan, &wg, &collectWg
 }
 
 // collectResults reads from resultChan and commits blocks in order.
-func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockProcessed func(blockNum int64)) {
 	for result := range p.resultChan {
 		p.pendingMu.Lock()
 		p.pending[result.BlockNum] = result
@@ -173,7 +173,7 @@ func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum
 			delete(p.pending, p.nextToCommit)
 
 			if next.Success {
-				p.metrics.blocks.Add(context.Background(), 1, p.metrics.success)
+				p.metrics.blocks.Add(ctx, 1, p.metrics.success)
 				if next.BlockID != "" {
 					logger.Sugar.Infof("Committed block %d (ID: %s)", next.BlockNum, next.BlockID)
 				} else {
@@ -183,7 +183,7 @@ func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum
 					onBlockProcessed(next.BlockNum)
 				}
 			} else {
-				p.metrics.blocks.Add(context.Background(), 1, p.metrics.failure)
+				p.metrics.blocks.Add(ctx, 1, p.metrics.failure)
 				logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
 			}
 			p.nextToCommit++
