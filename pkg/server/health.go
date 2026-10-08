@@ -118,10 +118,21 @@ type HealthResponse struct {
 
 // MetricsResponse represents basic metrics.
 type MetricsResponse struct {
-	BlocksProcessed   int64     `json:"blocks_processed"`
-	CurrentBlock      int64     `json:"current_block"`
-	LastProcessedTime time.Time `json:"last_processed_time"`
-	Uptime            string    `json:"uptime"`
+	BlocksProcessed   int64           `json:"blocks_processed"`
+	CurrentBlock      int64           `json:"current_block"`
+	LastProcessedTime time.Time       `json:"last_processed_time"`
+	Uptime            string          `json:"uptime"`
+	Latency           *LatencyMetrics `json:"network_latency,omitempty"`
+}
+
+// LatencyMetrics is the read-only view of the indexer's rolling network
+// fetch latency. It lives here so the health server can consume it directly;
+// AverageMs covers the current window and ThresholdMs reports 0 when
+// enforcement is off (tracking only).
+type LatencyMetrics struct {
+	AverageMs   int64 `json:"average_ms"`
+	ThresholdMs int64 `json:"threshold_ms"`
+	WindowSize  int   `json:"window_size"`
 }
 
 // NewHealthServer creates a new health server.

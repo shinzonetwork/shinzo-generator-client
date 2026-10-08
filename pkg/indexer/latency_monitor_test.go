@@ -33,8 +33,10 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 		samples   []latencySample
 		// want is the frozen metrics snapshot after the whole sequence; for
 		// breaching sequences the window is sticky, so it reflects the state
-		// that tripped the wire.
-		want NetworkLatencyMetrics
+		// that tripped the wire. wantFull is the corresponding report of
+		// WindowFull, tested alongside because the display hook gates on it.
+		want     NetworkLatencyMetrics
+		wantFull bool
 	}{
 		{
 			name:      "fill below full window never breaches despite samples above threshold",
@@ -45,7 +47,8 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 				{block: 2, latency: 500 * time.Millisecond},
 				{block: 3, latency: 500 * time.Millisecond},
 			},
-			want: NetworkLatencyMetrics{AverageMs: 500, WindowSize: 4, ThresholdMs: 100, LastBlock: 3},
+			want:     NetworkLatencyMetrics{AverageMs: 500, WindowSize: 4, ThresholdMs: 100, LastBlock: 3},
+			wantFull: false,
 		},
 		{
 			name:      "breach exactly when the window fills",
@@ -56,7 +59,8 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 				{block: 2, latency: 150 * time.Millisecond},
 				{block: 3, latency: 150 * time.Millisecond, wantBreach: true},
 			},
-			want: NetworkLatencyMetrics{AverageMs: 150, WindowSize: 3, ThresholdMs: 100, LastBlock: 3},
+			want:     NetworkLatencyMetrics{AverageMs: 150, WindowSize: 3, ThresholdMs: 100, LastBlock: 3},
+			wantFull: true,
 		},
 		{
 			name:      "average must strictly exceed the threshold",
@@ -69,7 +73,8 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 				// Eviction pushes the average past it: (200+201)/2 > 200ms.
 				{block: 3, latency: 201 * time.Millisecond, wantBreach: true},
 			},
-			want: NetworkLatencyMetrics{AverageMs: 200, WindowSize: 2, ThresholdMs: 200, LastBlock: 3},
+			want:     NetworkLatencyMetrics{AverageMs: 200, WindowSize: 2, ThresholdMs: 200, LastBlock: 3},
+			wantFull: true,
 		},
 		{
 			name:      "eviction keeps the running sum consistent",
@@ -84,7 +89,8 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 				// Evict 20ms, add 10ms: window now {30, 40, 10}, total 80/3 → 26.
 				{block: 5, latency: 10 * time.Millisecond},
 			},
-			want: NetworkLatencyMetrics{AverageMs: 26, WindowSize: 3, ThresholdMs: 0, LastBlock: 5},
+			want:     NetworkLatencyMetrics{AverageMs: 26, WindowSize: 3, ThresholdMs: 0, LastBlock: 5},
+			wantFull: true,
 		},
 		{
 			name:      "threshold zero is track only",
@@ -101,6 +107,7 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 				ThresholdMs: 0,
 				LastBlock:   3,
 			},
+			wantFull: true,
 		},
 		{
 			name:      "sticky breach freezes the window",
@@ -114,7 +121,8 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 				{block: 3, latency: time.Millisecond},
 				{block: 4, latency: time.Millisecond},
 			},
-			want: NetworkLatencyMetrics{AverageMs: 150, WindowSize: 2, ThresholdMs: 100, LastBlock: 2},
+			want:     NetworkLatencyMetrics{AverageMs: 150, WindowSize: 2, ThresholdMs: 100, LastBlock: 2},
+			wantFull: true,
 		},
 		{
 			name:      "negative sample clamped to zero",
@@ -123,7 +131,8 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 			samples: []latencySample{
 				{block: 1, latency: -time.Second},
 			},
-			want: NetworkLatencyMetrics{AverageMs: 0, WindowSize: 2, ThresholdMs: 0, LastBlock: 1},
+			want:     NetworkLatencyMetrics{AverageMs: 0, WindowSize: 2, ThresholdMs: 0, LastBlock: 1},
+			wantFull: false,
 		},
 	}
 
@@ -151,6 +160,7 @@ func TestNetworkLatencyMonitor_WindowSemantics(t *testing.T) {
 			}
 
 			assert.Equal(t, tc.want, monitor.Metrics())
+			assert.Equal(t, tc.wantFull, monitor.WindowFull())
 		})
 	}
 }

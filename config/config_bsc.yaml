@@ -75,7 +75,7 @@ indexer:
   # Example: SCHEMA_API_KEYS=key1,key2,key3
   # If you set schema_auth_mode to "token" (or leave it empty) without providing keys,
   # ALL schema requests will return 503 Service Unavailable.
-  max_network_latency_ms: 200 # Max average wall time of the block-fetch RPC over the rolling window. Env: INDEXER_MAX_NETWORK_LATENCY_MS
+  max_network_latency_ms: 100 # Max average wall time of the block-fetch RPC over the rolling window. Env: INDEXER_MAX_NETWORK_LATENCY_MS
   # 200ms is exactly the cap enforced by validation: 150 blocks_per_minute →
   # 60000/150 = 400ms/block → threshold must be ≤ 400/2 = 200ms. A generator whose
   # average fetch burns half a block interval can never hold the tip, so arm the

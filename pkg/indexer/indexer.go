@@ -39,6 +39,14 @@ var (
 	// clean shutdown of the indexing loop; runConcurrentIndexing maps it to a
 	// nil error so a clean stop does not surface as a failure.
 	errIndexingStopped = errors.New("indexing stopped")
+
+	// errNetworkLatencyExceeded is the cancel cause used when the rolling
+	// average of per-block fetch latencies breaches the configured threshold.
+	// The commit hook runs inside the collector goroutine, so it must only
+	// cancel: StopIndexing waits for the loop it is running inside and would
+	// deadlock. runConcurrentIndexing maps this cause into a stopMu-guarded
+	// teardown and a typed system error so the process exits non-zero.
+	errNetworkLatencyExceeded = errors.New("maximum allowed network latency exceeded. At this fetch pace the indexer cannot catch up with the network tip. Please switch to a lower latency provider")
 )
 
 // Version is the generator version, set at build time via -ldflags (see the
@@ -88,8 +96,9 @@ type ChainIndexer struct {
 	defraNode                 *node.Node              // Embedded DefraDB node (nil if using external)
 	networkHandler            *defradb.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
-	pruner                    *pruner.Pruner        // Document pruner for removing old blocks.
-	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks.
+	pruner                    *pruner.Pruner         // Document pruner for removing old blocks.
+	snapshotter               *snapshot.Snapshotter  // Snapshot exporter for archiving blocks.
+	latencyMonitor            *NetworkLatencyMonitor // Rolling fetch-latency tracker of the last/current indexing run; guarded by mutex, nil before indexing starts.
 	currentBlock              int64
 	lastProcessedTime         time.Time
 	indexingCancel            context.CancelCauseFunc // Cancel for the indexing loop; nil unless concurrent indexing is running.
@@ -489,6 +498,17 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		return nil
 	}
 
+	// Always construct the monitor, even when enforcement is off (threshold
+	// 0): the rolling average keeps accumulating so /metrics can report
+	// observed latency for operators sizing the threshold.
+	monitor := NewNetworkLatencyMonitor(
+		time.Duration(cfg.Indexer.MaxNetworkLatencyMs)*time.Millisecond,
+		cfg.Indexer.LatencyWindowBlocks,
+	)
+	i.mutex.Lock()
+	i.latencyMonitor = monitor
+	i.mutex.Unlock()
+
 	processor := NewConcurrentBlockProcessor(
 		i.fetcher,
 		i.converter,
@@ -497,16 +517,78 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		cfg.Indexer.BlocksPerMinute,
 	)
 
-	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64, _ time.Duration) {
+	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64, fetchDuration time.Duration) {
 		i.updateBlockInfo(blockNum)
 		i.mutex.Lock()
 		i.hasIndexedAtLeastOneBlock = true
 		i.mutex.Unlock()
+
+		breach := monitor.Record(blockNum, fetchDuration)
+		if breach == nil {
+			// Once the window has filled, the rolling average is
+			// representative: surface it as a heartbeat on every committed
+			// block. On the breach block the error line below already reports
+			// the same numbers, so the heartbeat is skipped there.
+			if monitor.WindowFull() {
+				metrics := monitor.Metrics()
+				if metrics.ThresholdMs > 0 {
+					logger.Sugar.Infof("Network latency for the last %d blocks: %dms (avg) / %dms (threshold)",
+						metrics.WindowSize, metrics.AverageMs, metrics.ThresholdMs)
+				} else {
+					logger.Sugar.Infof("Network latency for the last %d blocks: %dms (avg) / off (tracking only)",
+						metrics.WindowSize, metrics.AverageMs)
+				}
+			}
+			return
+		}
+		logger.Sugar.Errorf("Stopping indexing: %s", breach.Error())
+		// Cancel-only breach path: StopIndexing waits for indexingDone, which
+		// is closed by this loop's own exit, so calling it from inside the
+		// commit hook would deadlock. The post-process cause branch owns the
+		// teardown; WithCancelCause keeps this first cause unmasked.
+		cancel(errNetworkLatencyExceeded)
 	})
 	if errors.Is(context.Cause(ctx), errIndexingStopped) {
 		return nil
 	}
+	if errors.Is(context.Cause(ctx), errNetworkLatencyExceeded) {
+		return i.stopOnLatencyBreach(monitor) //nolint:contextcheck // teardown builds its own fresh contexts; the cancelled indexing ctx must not abort subsystem shutdown
+	}
 	return err
+}
+
+// stopOnLatencyBreach tears down every owned subsystem after a latency
+// breach and returns the typed system error StartIndexing surfaces. It holds
+// stopMu so teardown cannot interleave with a concurrent external
+// StopIndexing. context.WithCancelCause keeps the breach as the first cause,
+// so a later errIndexingStopped cancel never masks the typed error here. The
+// benign race — an external stop grabbing stopMu first — only delays this
+// path by up to IndexingStopTimeout, and teardownSubsystems' nil checks make
+// whichever teardown runs second a no-op.
+func (i *ChainIndexer) stopOnLatencyBreach(monitor *NetworkLatencyMonitor) error {
+	// The monitor froze its window at the breach, so the snapshot carries the
+	// exact tripwire values.
+	metrics := monitor.Metrics()
+	breach := &LatencyBreachError{
+		AverageMs:   metrics.AverageMs,
+		ThresholdMs: metrics.ThresholdMs,
+		WindowSize:  metrics.WindowSize,
+		LastBlock:   metrics.LastBlock,
+	}
+	i.stopMu.Lock()
+	i.teardownSubsystems()
+	i.stopMu.Unlock()
+	return indexerErrors.NewServiceUnavailable(
+		"indexer",
+		"ProcessBlocks",
+		"block source",
+		"",
+		breach,
+		indexerErrors.WithBlockNumber(metrics.LastBlock),
+		indexerErrors.WithMetadata("average_ms", metrics.AverageMs),
+		indexerErrors.WithMetadata("threshold_ms", metrics.ThresholdMs),
+		indexerErrors.WithMetadata("window_size", metrics.WindowSize),
+	)
 }
 
 // beginStart marks a StartIndexing as in-flight by setting the flag, creating
@@ -929,6 +1011,25 @@ func (i *ChainIndexer) GetPrunerMetrics() *pruner.Metrics {
 	}
 	metrics := i.pruner.GetMetrics()
 	return &metrics
+}
+
+// GetLatencyMetrics returns a snapshot of the rolling network fetch-latency
+// tracker for the current or last indexing run, or nil before indexing
+// starts. The threshold reports 0 when enforcement is off; after a breach
+// the snapshot carries the frozen tripwire values.
+func (i *ChainIndexer) GetLatencyMetrics() *server.LatencyMetrics {
+	i.mutex.RLock()
+	monitor := i.latencyMonitor
+	i.mutex.RUnlock()
+	if monitor == nil {
+		return nil
+	}
+	metrics := monitor.Metrics()
+	return &server.LatencyMetrics{
+		AverageMs:   metrics.AverageMs,
+		ThresholdMs: metrics.ThresholdMs,
+		WindowSize:  metrics.WindowSize,
+	}
 }
 
 // newAuthenticator constructs an Authenticator based on the configured auth mode.
