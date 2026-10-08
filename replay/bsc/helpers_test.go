@@ -498,10 +498,6 @@ func newReplayConfig(t *testing.T, nodeURL, storePath string) *config.Config {
 	cfg.Snapshot.BlocksPerFile = replaySnapshotBlocksPerFile
 	cfg.Snapshot.IntervalSeconds = replaySnapshotIntervalSeconds
 
-	// blocks_per_file: 50 forces window ≤ 25 for the frozen-window invariant;
-	// halve the shipped 50-entry window to stay inside half a snapshot file.
-	cfg.Indexer.LatencyWindowBlocks = replaySnapshotBlocksPerFile / 2
-
 	cfg.Logger.Development = false
 
 	return cfg
