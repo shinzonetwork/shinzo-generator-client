@@ -83,6 +83,7 @@ type HealthChecker interface {
 	GetLastProcessedTime() time.Time
 	GetPeerInfo() (*P2PInfo, error)
 	GetSourceChainInfo() (string, uint64)
+	GetLatencyMetrics() *LatencyMetrics
 	SignRegistrationMessage(message string) (DefraPKRegistration, error)
 	SignMessages(message string) (DefraPKRegistration, PeerIDRegistration, error)
 }
@@ -314,6 +315,7 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 		metrics.CurrentBlock = hs.indexer.GetCurrentBlock()
 		metrics.LastProcessedTime = hs.indexer.GetLastProcessedTime()
 		metrics.BlocksProcessed = hs.indexer.GetCurrentBlock() // Simplified
+		metrics.Latency = hs.indexer.GetLatencyMetrics()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
