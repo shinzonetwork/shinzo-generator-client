@@ -16,6 +16,8 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 )
 
+const otelShutdownTimeout = 10 * time.Second
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -63,7 +65,7 @@ func run(args []string) error {
 		fmt.Fprintf(os.Stderr, "OpenTelemetry setup: %v\n", err)
 	} else {
 		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
 			defer cancel()
 			if err := otelShutdown(ctx); err != nil {
 				fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
