@@ -16,7 +16,7 @@ GETH_API_KEY ?=
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
-	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/pkg/indexer.Version=$(VERSION)" -o bin/block_poster cmd/block_poster/main.go
+	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/pkg/indexer.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
 	elif grep -aFq "$(VERSION)" bin/block_poster; then \
