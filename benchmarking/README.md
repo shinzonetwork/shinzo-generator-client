@@ -1,10 +1,10 @@
 # Benchmarking — BSC Tip-Indexing Acceptance
 
 Answers the question **"can we index BSC blocks at the tip"** with a hard,
-repeatable verdict: capture real blocks once, replay them through the full
-production pipeline on any machine, and assert the average per-block
-processing time stays within the chain's block interval (450 ms on BSC
-mainnet since the Fermi hardfork, Jan 2026).
+repeatable verdict: capture real blocks once, replay them through the
+production pipeline and orchestration on any machine, and assert the
+effective per-block interval stays within the chain's block time (450 ms on
+BSC mainnet since the Fermi hardfork, Jan 2026).
 
 ```
 capture (one-time, needs a real endpoint)          acceptance (make bsc-acceptance-test)
@@ -20,10 +20,15 @@ capture (one-time, needs a real endpoint)          acceptance (make bsc-acceptan
                                                    └──────────────┬───────────────────┘
                                                                   │
                                                                   ▼
+                                                   the indexer's ConcurrentBlockProcessor
+                                                   (workers from config_bsc.yaml)
+                                                                  │
+                                                                  ▼
                                                    Fetcher → Converter → BlockHandler.Store
                                                                   │
                                                                   ▼
-                                                   avg block time ≤ target?  (hard assert)
+                                                   effective per-block interval ≤ target?
+                                                   (hard assert)
 ```
 
 ## 1. Capture a fixture (one-time)
@@ -88,8 +93,15 @@ make bsc-acceptance-test
   `BSC_REPLAY_SNAPSHOT_BLOCKS_PER_FILE` (50) tune the services' forced-fast
   cadence and retention.
 
-The harness drives the pipeline directly — it **deliberately bypasses
-`blocks_per_minute` pacing** because it measures raw pipeline capacity against
+The loop runs through the indexer's **`ConcurrentBlockProcessor`** — the real
+production orchestration (worker pool, retry classification, in-order commit,
+per-block `Committed block N` info logs). The worker count comes from the
+shipped yaml's `concurrent_blocks` like production reads it; there is no bench
+override knob, and the env scrub keeps stray `INDEXER_*` values out, so
+raising concurrency is a yaml change exercised identically in production.
+
+The run deliberately bypasses `blocks_per_minute` pacing (`0` disables the
+processor's rate limiter) because it measures raw pipeline capacity against
 the chain's BPS.
 
 The config boots from the shipped `config/config_bsc.yaml` — the same file
@@ -149,28 +161,48 @@ answers *"does it hold with the network in the loop"*.
 ```
 ====================================================================================================
 Blocks Replayed: 126050700 - 126050850   (151 blocks)
-Target:  450ms
-Average:  292.231173ms
-Headroom:    35.1%
-Min: 125.270292ms || p50: 257.144167ms || p95: 517.100084ms || Max: 1.356533708s
-Outliers:
-- 126050782 - 1.356533708s - +367.4% vs avg
+Concurrent Blocks: 1
+Total Time:  44.184471515s
+Target Throughput:  450ms  / block
+Effective Throughput:  292.612394ms / block
+Headroom:    35.0%
+Network Latency Budget: 157.387606ms / block
+____________________________________________________________________________________________________
+Sequential Block Processing Stats:
+ -  Average Block Time:  292.231173ms
+ -  Min: 125.270292ms || p50: 257.144167ms || p95: 517.100084ms || Max: 1.356533708s
+ - Outliers:
+    - 126050782 - 1.356533708s - +367.4% vs avg
 ====================================================================================================
 Pruner: 51 blocks / 53882 docs pruned
 Snapshotter: 3 snapshots (last block 126050850)
 ```
 
-Every line inside the box is space-padded to the 100-character banner width
-(long lines are never truncated). The values above are illustrative, not a
-real run; the `Pruner:`/`Snapshotter:` lines print below the box, one per
-enabled service, and are skipped when a service is disabled.
+The report is bracketed by two `=` banners and splits inside: the throughput
+section backs the verdict, the underscore divider opens the sequential block
+processing stats. Every content line is space-padded to the 100-character
+banner width (long lines are never truncated). The values above are
+illustrative, not a real run; the `Pruner:`/`Snapshotter:` lines print below
+the report, one per enabled service, and are skipped when a service is
+disabled.
 
 Two verdicts, both asserted:
 
-1. **Throughput**: average per-block processing time ≤ the target block
-   interval. Missing it fails the test — the chain outruns the indexer and
-   the backlog grows forever.
+1. **Throughput**: the effective per-block interval — wall clock from first
+   dispatch to the last in-order commit, divided by the block count — must
+   stay ≤ the target block interval. Missing it fails the test — the chain
+   outruns the indexer and the backlog grows forever. This — not per-block
+   latency — is the gate, because contention inflates individual latencies
+   even when the concurrent pipeline comfortably keeps up.
 2. **Correctness**: a range query on the block collection must count
    exactly the blocks processed minus what the pruner removed (stores are
    duplicate-rejecting, so a mismatch means a block silently failed), and
    `BlockSignature` docs must exist for the stored range.
+
+The remaining statistics — `Average Block Time`, `Min`/`p50`/`p95`/`Max`,
+`Outliers` — are per-block fetch→store latencies under concurrency: reported
+as evidence, not gated. At more than one worker they include the shared badger/`/seq/doc`
+write contention and any transaction-conflict retries the processor performs.
+Beyond-tip fetch dispatches that are still in flight when the run's last
+block commits are cancelled and contribute no samples (they are also
+excluded from the wall clock).
