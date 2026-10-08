@@ -4,7 +4,7 @@
 # Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
 # Collection names are derived as: {name}__{network}__Block, etc.
 chain:
-  name: "Ethereum"       # Chain name (env: CHAIN_NAME)
+  name: "BSC"        # Chain name (env: CHAIN_NAME)
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
   adapter: "evm"         # Chain adapter: "evm" (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
@@ -65,11 +65,11 @@ indexer:
   max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
   max_log_docs_per_batch: 125  # Per-batch size for logs (0 = use max_docs_per_txn)
   max_ale_docs_per_batch: 500  # Per-batch size for ALEs (0 = use max_docs_per_txn)
-  blocks_per_minute: 60     # Block indexing rate limit
+  blocks_per_minute: 150     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
-  schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
+  schema_auth_mode: "token" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE overrides)
   # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
   # You MUST set keys via the SCHEMA_API_KEYS environment variable (comma-separated).
   # Example: SCHEMA_API_KEYS=key1,key2,key3
@@ -80,8 +80,8 @@ logger:
   level: "info"
 pruner:
   enabled: true             # Set to true to enable automatic pruning
-  max_blocks: 1000          # Number of blocks to retain
-  max_blocks_per_cycle: 50  # Max blocks one prune cycle may delete
+  max_blocks: 16000          # Number of blocks to retain (~2h at BSC's 0.45s block time)
+  max_blocks_per_cycle: 100  # Max blocks one prune cycle may delete. BSC produces ~67 blocks per 30s interval, so the cap must exceed that or retention drifts upward indefinitely.
   prune_threshold: 1        # Trigger pruning when exceeding max_blocks by this amount
   interval_seconds: 30      # How often to check and prune
   prune_history: true       # Walk DAG chains to delete historical block versions (2-3x slower)
@@ -90,7 +90,7 @@ snapshot:
   dir: "./.defra/snapshots" # Directory to store snapshot files
   blocks_per_file: 100      # Snapshot granularity (blocks per snapshot file)
   interval_seconds: 30      # How often to check and create snapshots
-  max_snapshots: 100        # Keep the N newest snapshot files
+  max_snapshots: 200        # Keep the N newest snapshot files
   # Older files (and their signature docs) are purged. -1 = unlimited (env: SNAPSHOT_MAX_SNAPSHOTS).
   # Must satisfy: max_snapshots * blocks_per_file >= pruner.max_blocks
 converter:

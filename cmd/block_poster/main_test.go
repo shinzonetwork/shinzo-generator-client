@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
@@ -336,6 +338,74 @@ indexer:
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
+}
+
+// TestLoadBSCConfig verifies the bundled BSC config works through the same
+// -config path operators use: it must parse, pass validation with no
+// environment help, and identify BSC Mainnet on the evm adapter — the chain
+// identity every collection name (BSC__Mainnet__*) derives from.
+func TestLoadBSCConfig(t *testing.T) {
+	// CHAIN_* env overrides would masquerade as the file's own chain section,
+	// so scrub them before loading the bundled file.
+	scrubChainEnv(t)
+
+	root := findProjectRoot(t)
+	cfg, err := config.LoadConfig(filepath.Join(root, "config", "config_bsc.yaml"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "BSC", cfg.Chain.Name)
+	assert.Equal(t, "Mainnet", cfg.Chain.Network)
+	assert.Equal(t, "evm", cfg.Chain.Adapter)
+
+	// The chain identity must survive the adapter registry: the collection
+	// prefix is what the schema, documents, and signatures derive from.
+	collections, err := chains.NewCollections(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "BSC__Mainnet", collections.Prefix())
+
+	blockCol, err := collections.GetCollection(chains.TypeBlock)
+	require.NoError(t, err)
+	assert.Equal(t, "BSC__Mainnet__Block", blockCol)
+
+	sigCol, err := collections.GetCollection(chains.TypeBlockSignature)
+	require.NoError(t, err)
+	assert.Equal(t, "BSC__Mainnet__BlockSignature", sigCol)
+}
+
+// findProjectRoot walks up to the directory containing go.mod so bundled
+// config paths resolve regardless of the go test working directory.
+func findProjectRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("could not locate project root (no go.mod found)")
+		}
+		dir = parent
+	}
+}
+
+// scrubChainEnv unsets the CHAIN_* environment overrides for the test and
+// restores them afterwards, so the bundled config file's chain section is
+// what LoadConfig sees rather than values from a developer .env.
+func scrubChainEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"CHAIN_NAME", "CHAIN_NETWORK", "CHAIN_ADAPTER"} {
+		old, had := os.LookupEnv(key)
+		require.NoError(t, os.Unsetenv(key))
+		t.Cleanup(func() {
+			if had {
+				require.NoError(t, os.Setenv(key, old))
+			} else {
+				require.NoError(t, os.Unsetenv(key))
+			}
+		})
+	}
 }
 
 // createTestSnapshot creates a gzipped JSONL snapshot file containing block_signature
