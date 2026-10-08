@@ -37,6 +37,12 @@ services:
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
       - SCHEMA_AUTH_MODE=none
+
+      # Metrics (off unless OTEL_METRICS_EXPORTER is set)
+      - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - OTEL_RESOURCE_ATTRIBUTES=${OTEL_RESOURCE_ATTRIBUTES:-}
     logging:
       options:
         max-size: "50m"
