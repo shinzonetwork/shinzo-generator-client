@@ -42,7 +42,7 @@ type LatencyBreachError struct {
 
 func (e *LatencyBreachError) Error() string {
 	return fmt.Sprintf(
-		"network latency exceeded: average fetch of %dms over the last %d blocks exceeds the %dms threshold (last recorded block %d); at this pace the indexer cannot catch up with the network tip — please switch to a lower latency provider",
+		"network latency exceeded: average fetch of %dms over the last %d blocks exceeds the %dms threshold (last recorded block %d); at this pace the indexer cannot catch up with the network tip — co-locate the generator with the node or use a lower-latency deployment location",
 		e.AverageMs, e.WindowSize, e.ThresholdMs, e.LastBlock,
 	)
 }
