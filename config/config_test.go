@@ -34,6 +34,9 @@ geth:
 
 indexer:
   start_height: 1000
+  blocks_per_minute: 150
+  max_network_latency_ms: 200
+  latency_window_blocks: 25
 
 logger:
   development: true
@@ -49,6 +52,8 @@ logger:
 	assert.Len(t, cfg.DefraDB.P2P.BootstrapPeers, 2, "P2P.BootstrapPeers")
 	assert.NotEmpty(t, cfg.Geth.NodeURL, "Geth.NodeURL")
 	assert.Equal(t, 1000, cfg.Indexer.StartHeight, "Indexer.StartHeight")
+	assert.Equal(t, 200, cfg.Indexer.MaxNetworkLatencyMs, "Indexer.MaxNetworkLatencyMs")
+	assert.Equal(t, 25, cfg.Indexer.LatencyWindowBlocks, "Indexer.LatencyWindowBlocks")
 }
 
 func TestLoadConfig_InvalidPath(t *testing.T) {
@@ -121,6 +126,8 @@ func TestApplyDefaults_AllZeroValues(t *testing.T) {
 	assert.Equal(t, 1000, cfg.Indexer.MaxDocsPerTxn, "MaxDocsPerTxn")
 	assert.Equal(t, 8080, cfg.Indexer.HealthServerPort, "HealthServerPort")
 	assert.Equal(t, 100, cfg.Indexer.StartBuffer, "StartBuffer")
+	assert.Equal(t, 0, cfg.Indexer.MaxNetworkLatencyMs, "MaxNetworkLatencyMs: 0 = tracking on, enforcement off")
+	assert.Equal(t, DefaultLatencyWindowBlocks, cfg.Indexer.LatencyWindowBlocks, "LatencyWindowBlocks")
 	assert.Equal(t, snapshotsDefaultDir, cfg.Snapshot.Dir, "Snapshot.Dir")
 	assert.Equal(t, int64(1000), cfg.Snapshot.BlocksPerFile, "Snapshot.BlocksPerFile")
 	assert.Equal(t, 60, cfg.Snapshot.IntervalSeconds, "Snapshot.IntervalSeconds")
@@ -306,6 +313,8 @@ func TestApplyEnvOverrides_IndexerConfig(t *testing.T) {
 	t.Setenv("INDEXER_BLOCKS_PER_MINUTE", "60")
 	t.Setenv("INDEXER_HEALTH_SERVER_PORT", "9090")
 	t.Setenv("INDEXER_START_BUFFER", "200")
+	t.Setenv("INDEXER_MAX_NETWORK_LATENCY_MS", "200")
+	t.Setenv("INDEXER_LATENCY_WINDOW_BLOCKS", "25")
 	require.NoError(t, applyEnvOverrides(cfg))
 
 	assert.Equal(t, 5000, cfg.Indexer.StartHeight, "Indexer.StartHeight")
@@ -315,6 +324,81 @@ func TestApplyEnvOverrides_IndexerConfig(t *testing.T) {
 	assert.Equal(t, 60, cfg.Indexer.BlocksPerMinute, "Indexer.BlocksPerMinute")
 	assert.Equal(t, 9090, cfg.Indexer.HealthServerPort, "Indexer.HealthServerPort")
 	assert.Equal(t, 200, cfg.Indexer.StartBuffer, "Indexer.StartBuffer")
+	assert.Equal(t, 200, cfg.Indexer.MaxNetworkLatencyMs, "Indexer.MaxNetworkLatencyMs")
+	assert.Equal(t, 25, cfg.Indexer.LatencyWindowBlocks, "Indexer.LatencyWindowBlocks")
+}
+
+// Latency env overrides are strictly positive and error on bad values
+// (envPositiveInt), unlike the silent-ignore handling above.
+func TestApplyEnvOverrides_NetworkLatencyErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		key         string
+		value       string
+		errContains string
+	}{
+		{"not a number", "INDEXER_MAX_NETWORK_LATENCY_MS", "not_a_number", "INDEXER_MAX_NETWORK_LATENCY_MS"},
+		{"zero rejected", "INDEXER_LATENCY_WINDOW_BLOCKS", "0", "must be positive"},
+		{"negative rejected", "INDEXER_MAX_NETWORK_LATENCY_MS", "-5", "must be positive"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			t.Setenv(tt.key, tt.value)
+			err := applyEnvOverrides(cfg)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}
+
+func TestValidateConfig_NetworkLatencyKnobs(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                string
+		maxNetworkLatencyMs int
+		latencyWindowBlocks int
+		blocksPerMinute     int
+		snapshotEnabled     bool
+		blocksPerFile       int64
+		shouldError         bool
+		errContains         string
+	}{
+		{"window positive accepted", 0, 25, 60, false, 0, false, ""},
+		{"window negative rejected", 0, -1, 60, false, 0, true, "latency_window_blocks"},
+		{"window cap skipped when snapshotter disabled", 0, 500, 60, false, 100, false, ""},
+		{"window within half a snapshot file", 0, 50, 60, true, 100, false, ""},
+		{"window above half a snapshot file rejected", 0, 51, 60, true, 100, true, "snapshot window cap"},
+		{"threshold zero means enforcement off", 0, 50, 60, true, 1000, false, ""},
+		{"threshold negative rejected", -1, 50, 0, false, 0, true, "max_network_latency_ms"},
+		{"threshold below cap accepted", 100, 50, 150, true, 1000, false, ""},
+		{"threshold exactly at cap accepted", 200, 50, 150, true, 1000, false, ""},
+		{"threshold above cap rejected", 201, 50, 150, true, 1000, true, "max_network_latency_ms"},
+		{"threshold far above cap rejected", 500, 50, 150, true, 1000, true, "max_network_latency_ms"},
+		{"threshold cap skipped when blocks_per_minute 0", 60000, 50, 0, true, 1000, false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			cfg.Indexer.MaxNetworkLatencyMs = tt.maxNetworkLatencyMs
+			cfg.Indexer.LatencyWindowBlocks = tt.latencyWindowBlocks
+			cfg.Indexer.BlocksPerMinute = tt.blocksPerMinute
+			cfg.Snapshot.Enabled = tt.snapshotEnabled
+			cfg.Snapshot.BlocksPerFile = tt.blocksPerFile
+
+			err := validateConfig(cfg)
+			if tt.shouldError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestApplyEnvOverrides_IndexerConfig_InvalidValues(t *testing.T) {

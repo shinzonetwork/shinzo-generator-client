@@ -44,6 +44,7 @@ type mockHealthChecker struct {
 	signErr       error
 	sourceChain   string
 	sourceChainID uint64
+	latency       *LatencyMetrics
 }
 
 func (m *mockHealthChecker) IsHealthy() bool                 { return m.healthy }
@@ -53,6 +54,8 @@ func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.p2pInfo,
 func (m *mockHealthChecker) GetSourceChainInfo() (string, uint64) {
 	return m.sourceChain, m.sourceChainID
 }
+
+func (m *mockHealthChecker) GetLatencyMetrics() *LatencyMetrics { return m.latency }
 
 func (m *mockHealthChecker) SignRegistrationMessage(_ string) (DefraPKRegistration, error) {
 	return m.defraReg, m.signErr
@@ -440,6 +443,51 @@ func TestMetricsHandler_WithIndexer(t *testing.T) {
 	var resp MetricsResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, int64(200), resp.CurrentBlock)
+}
+
+func TestMetricsHandler_NetworkLatency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		latency      *LatencyMetrics
+		wantIncluded bool
+	}{
+		{
+			name:         "included when non-nil",
+			latency:      &LatencyMetrics{AverageMs: 42, ThresholdMs: 200, WindowSize: 50},
+			wantIncluded: true,
+		},
+		{
+			name:         "omitted when nil",
+			latency:      nil,
+			wantIncluded: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hs := NewHealthServer(0, &mockHealthChecker{latency: tt.latency}, "")
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+			hs.metricsHandler(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp MetricsResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			if tt.wantIncluded {
+				require.NotNil(t, resp.Latency)
+				assert.Equal(t, int64(42), resp.Latency.AverageMs)
+				assert.Equal(t, int64(200), resp.Latency.ThresholdMs)
+				assert.Equal(t, 50, resp.Latency.WindowSize)
+				assert.Contains(t, rec.Body.String(), "average_ms")
+			} else {
+				assert.Nil(t, resp.Latency)
+				assert.NotContains(t, rec.Body.String(), "network_latency")
+			}
+		})
+	}
 }
 
 // --- rootHandler ---

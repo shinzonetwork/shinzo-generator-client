@@ -84,7 +84,7 @@ func TestConcurrentProcessor_FetchBlockWithRetry(t *testing.T) {
 				fetcher: mock,
 			}
 
-			got, err := p.fetchBlockWithRetry(context.Background(), 42)
+			got, _, err := p.fetchBlockWithRetry(context.Background(), 42)
 			if tc.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "failed to fetch block")
@@ -617,10 +617,10 @@ func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
 			var (
 				processed []int64
 				mu        sync.Mutex
-				callback  func(blockNum int64)
+				callback  func(blockNum int64, _ time.Duration)
 			)
 			if tc.trackProcessed {
-				callback = func(blockNum int64) {
+				callback = func(blockNum int64, _ time.Duration) {
 					mu.Lock()
 					processed = append(processed, blockNum)
 					mu.Unlock()
@@ -760,7 +760,7 @@ func TestProcessBlocks_OutOfOrderCompletion(t *testing.T) {
 		committed []int64
 		done      = make(chan struct{})
 	)
-	callback := func(blockNum int64) {
+	callback := func(blockNum int64, _ time.Duration) {
 		mu.Lock()
 		committed = append(committed, blockNum)
 		if len(committed) == 5 {
@@ -847,7 +847,7 @@ func TestProcessBlocks_ErrorAndExisting(t *testing.T) {
 			defer cancel()
 
 			var processedBlocks atomic.Int64
-			err := p.ProcessBlocks(ctx, 100000, func(_ int64) {
+			err := p.ProcessBlocks(ctx, 100000, func(_ int64, _ time.Duration) {
 				processedBlocks.Add(1)
 			})
 
@@ -936,5 +936,122 @@ func TestProcessBlocks_ShutdownDrainsSigners(t *testing.T) {
 		assert.ErrorIs(t, err, context.Canceled)
 	case <-time.After(5 * time.Second):
 		t.Fatal("ProcessBlocks did not return after the signer finished")
+	}
+}
+
+// ---------------------------------------------------------------------------.
+// ProcessBlocks — fetch-duration reporting via onBlockProcessed.
+// ---------------------------------------------------------------------------.
+
+// TestProcessBlocks_FetchDurationCallback proves the latency-tracking contract
+// on the commit callback: a committed block's FetchBlock wall time (at least
+// the fetcher's sleep) reaches onBlockProcessed, while a block that exhausts
+// its fetch retries is logged as a failure and contributes no sample.
+func TestProcessBlocks_FetchDurationCallback(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		failFirst  bool
+		fetchSleep time.Duration
+		// firstCommit is the block whose commit must be the first hook call.
+		// The failed-fetch case skips 1001 entirely: it exhausts retries and
+		// is dropped at collectResults, so 1002 is the first (and only)
+		// expected sample.
+		firstCommit int64
+		wantMinDur  time.Duration
+	}{
+		{name: "HookReceivesFetchDuration", fetchSleep: 80 * time.Millisecond, firstCommit: 1001, wantMinDur: 80 * time.Millisecond},
+		{name: "FailedFetchNotReported", failFirst: true, firstCommit: 1002},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
+
+			mc := &testutils.MockFetcher{
+				FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+					if tc.failFirst && height == 1001 {
+						return nil, errors.New("persistent RPC error")
+					}
+					time.Sleep(tc.fetchSleep)
+					return fmt.Sprintf("0x%x", height), nil
+				},
+			}
+
+			mcConv := &testutils.MockConverter{
+				ConvertFn: func(_ context.Context, _ any) (chains.ConversionResult, error) {
+					return chains.ConversionResult{}, nil
+				},
+			}
+
+			p := NewConcurrentBlockProcessor(mc, mcConv, &mockBlockStorer{}, 1, 0)
+
+			var (
+				mu      sync.Mutex
+				samples []struct {
+					block int64
+					dur   time.Duration
+				}
+				done = make(chan struct{})
+			)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- p.ProcessBlocks(ctx, 1001, func(blockNum int64, fetchDuration time.Duration) {
+					mu.Lock()
+					if len(samples) == 0 {
+						// Only the first commit closes the race-free window.
+						close(done)
+					}
+					samples = append(samples, struct {
+						block int64
+						dur   time.Duration
+					}{blockNum, fetchDuration})
+					mu.Unlock()
+				})
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatalf("no commit landed within 10s (want first commit at %d)", tc.firstCommit)
+			}
+
+			mu.Lock()
+			wantAtLeast := tc.firstCommit
+			first := samples[0]
+			mu.Unlock()
+
+			assert.Equal(t, wantAtLeast, first.block,
+				"first committed block must be the hook's first call: failed fetches never fire the hook")
+			assert.GreaterOrEqual(t, first.dur, tc.wantMinDur,
+				"committed block must report at least the fetcher's fetch sleep as FetchDuration")
+
+			cancel()
+			select {
+			case err := <-errCh:
+				assert.ErrorIs(t, err, context.Canceled)
+			case <-time.After(10 * time.Second):
+				t.Fatal("ProcessBlocks did not return after cancel")
+			}
+
+			if !tc.failFirst {
+				return
+			}
+
+			// Non-sample check (second acceptance): the exhausted fetch on
+			// 1001 must not have fired the hook at any point, even though
+			// nextToCommit advanced past it.
+			mu.Lock()
+			defer mu.Unlock()
+			for _, s := range samples {
+				assert.NotEqual(t, int64(1001), s.block,
+					"a block whose fetch exhausted its retries must contribute no latency sample")
+			}
+			assert.NotEmpty(t, samples, "blocks committed after the failure must reach the hook")
+		})
 	}
 }

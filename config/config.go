@@ -109,6 +109,17 @@ type IndexerConfig struct {
 	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"`
 	StartBuffer        int    `yaml:"start_buffer"`
 	SchemaAuthMode     string `yaml:"schema_auth_mode"`
+	// MaxNetworkLatencyMs is the maximum allowable average wall time of the
+	// FetchBlock RPC over the rolling latency window. 0 = latency tracking on,
+	// enforcement off. When set, the threshold must be at most half the chain
+	// block time (enforced in validateConfig) so a generator whose average
+	// fetch burns half a block interval can never hold the tip.
+	MaxNetworkLatencyMs int `yaml:"max_network_latency_ms"`
+	// LatencyWindowBlocks is the number of recent committed blocks the rolling
+	// latency window holds. 0 = DefaultLatencyWindowBlocks. Validation keeps
+	// it at most half snapshot.blocks_per_file so the frozen post-breach
+	// window fits in a single snapshot file.
+	LatencyWindowBlocks int `yaml:"latency_window_blocks"`
 	// SchemaAPIKeys are the accepted bearer tokens for the /api/v1/schema/* endpoints.
 	//
 	// ⚠ IMPORTANT: This field uses yaml:"-", which means YAML configuration is SILENTLY IGNORED.
@@ -157,6 +168,17 @@ func (c *PrunerConfig) SetDefaults() {
 
 // DefaultMaxSnapshots is the default number of snapshot files retained when max_snapshots is unset.
 const DefaultMaxSnapshots = 100
+
+// DefaultLatencyWindowBlocks is the default rolling-window size for network latency tracking.
+const DefaultLatencyWindowBlocks = 50
+
+// millisecondsPerMinute converts a chain's blocks-per-minute pace into a
+// millisecond block interval for the latency-threshold cap.
+const millisecondsPerMinute = 60000
+
+// halfFraction caps the network-latency threshold at half the chain block time
+// and the latency window at half a snapshot file.
+const halfFraction = 2
 
 // SnapshotConfig holds snapshot configuration.
 type SnapshotConfig struct {
@@ -273,6 +295,11 @@ func applyDefaults(cfg *Config) {
 	if cfg.Indexer.StartBuffer <= 0 {
 		cfg.Indexer.StartBuffer = 100
 	}
+	// Latency window: only 0 is defaulted to 50; negatives are left untouched
+	// so validation can still fail loudly.
+	if cfg.Indexer.LatencyWindowBlocks == 0 {
+		cfg.Indexer.LatencyWindowBlocks = DefaultLatencyWindowBlocks
+	}
 	if cfg.Indexer.SchemaAuthMode == "" {
 		cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 	}
@@ -327,6 +354,45 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
+	// Latency knobs: the rolling window was already defaulted (0 → 50) before
+	// validation, so only negatives can reach here.
+	if cfg.Indexer.MaxNetworkLatencyMs < 0 {
+		return fmt.Errorf("max_network_latency_ms must be >= 0 (0 = tracking on, enforcement off)")
+	}
+	if cfg.Indexer.LatencyWindowBlocks < 0 {
+		return fmt.Errorf("latency_window_blocks must be >= 0 (0 = default %d)", DefaultLatencyWindowBlocks)
+	}
+
+	// A threshold beyond half the chain block time can never be honoured: a
+	// generator whose average fetch takes more than half a block interval
+	// cannot keep up with the chain, so fail it at startup instead of mid-run.
+	// Skipped when blocks_per_minute is 0 (no pace configured).
+	if cfg.Indexer.MaxNetworkLatencyMs > 0 && cfg.Indexer.BlocksPerMinute > 0 {
+		blockTimeMs := millisecondsPerMinute / cfg.Indexer.BlocksPerMinute
+		capMs := blockTimeMs / halfFraction
+		if cfg.Indexer.MaxNetworkLatencyMs*halfFraction > blockTimeMs {
+			return fmt.Errorf(
+				"max_network_latency_ms (%dms) exceeds the cap of %dms (half the block time: %d blocks_per_minute → %dms/block → threshold ≤ %dms)",
+				cfg.Indexer.MaxNetworkLatencyMs, capMs, cfg.Indexer.BlocksPerMinute, blockTimeMs, capMs,
+			)
+		}
+	}
+
+	// The latency window must span no more than half a snapshot file: on
+	// breach the window is frozen for post-mortem metrics, and spanning at
+	// most half a file keeps that read confined to a single snapshot. Skipped
+	// when the snapshotter is disabled (no file to fit into) or no granularity
+	// is set.
+	if cfg.Snapshot.Enabled && cfg.Snapshot.BlocksPerFile > 0 {
+		windowCap := int(cfg.Snapshot.BlocksPerFile) / halfFraction
+		if cfg.Indexer.LatencyWindowBlocks > windowCap {
+			return fmt.Errorf(
+				"latency_window_blocks (%d) exceeds the snapshot window cap (%d = blocks_per_file %d / %d): lower latency_window_blocks or raise blocks_per_file",
+				cfg.Indexer.LatencyWindowBlocks, windowCap, cfg.Snapshot.BlocksPerFile, halfFraction,
+			)
+		}
+	}
+
 	return nil
 }
 
@@ -336,7 +402,9 @@ func applyEnvOverrides(cfg *Config) error {
 		return err
 	}
 	applyChainEnvOverrides(cfg)
-	applyIndexerEnvOverrides(cfg)
+	if err := applyIndexerEnvOverrides(cfg); err != nil {
+		return err
+	}
 	applySchemaEnvOverrides(cfg)
 	applyPrunerEnvOverrides(cfg)
 	applySnapshotEnvOverrides(cfg)
@@ -484,7 +552,7 @@ func applyChainEnvOverrides(cfg *Config) {
 }
 
 // applyIndexerEnvOverrides applies indexer environment variable overrides.
-func applyIndexerEnvOverrides(cfg *Config) {
+func applyIndexerEnvOverrides(cfg *Config) error {
 	if startHeight := os.Getenv("INDEXER_START_HEIGHT"); startHeight != "" {
 		if h, err := strconv.Atoi(startHeight); err == nil {
 			cfg.Indexer.StartHeight = h
@@ -535,6 +603,22 @@ func applyIndexerEnvOverrides(cfg *Config) {
 			cfg.Indexer.StartBuffer = n
 		}
 	}
+	// Latency knobs: unlike their YAML counterparts (0 = tracking on /
+	// window default), env overrides are strictly positive — a bad value is
+	// an error rather than silently ignored, matching the other resource
+	// limits that use envPositiveInt.
+	if n, ok, err := envPositiveInt("INDEXER_MAX_NETWORK_LATENCY_MS"); err != nil {
+		return err
+	} else if ok {
+		cfg.Indexer.MaxNetworkLatencyMs = n
+	}
+	if n, ok, err := envPositiveInt("INDEXER_LATENCY_WINDOW_BLOCKS"); err != nil {
+		return err
+	} else if ok {
+		cfg.Indexer.LatencyWindowBlocks = n
+	}
+
+	return nil
 }
 
 func applySchemaEnvOverrides(cfg *Config) {
