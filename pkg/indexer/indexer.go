@@ -46,7 +46,7 @@ var (
 	// cancel: StopIndexing waits for the loop it is running inside and would
 	// deadlock. runConcurrentIndexing maps this cause into a stopMu-guarded
 	// teardown and a typed system error so the process exits non-zero.
-	errNetworkLatencyExceeded = errors.New("maximum allowed network latency exceeded. At this fetch pace the indexer cannot catch up with the network tip. Please switch to a lower latency provider")
+	errNetworkLatencyExceeded = errors.New("maximum allowed network latency exceeded. At this fetch pace the indexer cannot catch up with the network tip — co-locate the generator with the node or use a lower-latency deployment location")
 )
 
 // Version is the generator version, set at build time via -ldflags (see the
