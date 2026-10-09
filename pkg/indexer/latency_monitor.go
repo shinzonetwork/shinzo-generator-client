@@ -142,7 +142,7 @@ func (m *NetworkLatencyMonitor) Metrics() NetworkLatencyMetrics {
 
 	var averageMs int64
 	if m.count > 0 {
-		averageMs = (m.total / time.Duration(m.count)).Milliseconds()
+		averageMs = m.total.Milliseconds() / int64(m.count)
 	}
 
 	return NetworkLatencyMetrics{
