@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
@@ -636,6 +637,171 @@ func TestFetcher_Close_NilClient(t *testing.T) {
 
 	f := &Fetcher{}
 	require.NoError(t, f.Close())
+}
+
+// ---------------------------------------------------------------------------
+// FetchBlockByHash
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchBlockByHash(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		client     *fakeRPCClient
+		hash       string
+		wantBlock  *Block
+		wantTxLen  int
+		wantRcvLen int
+		wantErrSub string
+	}{
+		{
+			name: "BundlesBlockTransactionsAndReceipts",
+			client: &fakeRPCClient{
+				block:         fakeBlockWithTxs(50, fakeTx("0xtx")),
+				batchReceipts: []*TransactionReceipt{fakeReceipt("0xtx", 50)},
+			},
+			hash:       fakeHash("reachable"),
+			wantBlock:  fakeBlockWithTxs(50, fakeTx("0xtx")),
+			wantTxLen:  1,
+			wantRcvLen: 1,
+		},
+		{
+			name:       "NotConnected",
+			client:     nil,
+			hash:       fakeHash("unreachable"),
+			wantErrSub: "not connected",
+		},
+		{
+			name:       "InvalidNumberInBlock",
+			client:     &fakeRPCClient{block: &Block{Hash: fakeHash("corrupt"), Number: "garbage"}},
+			hash:       fakeHash("corrupt"),
+			wantErrSub: "block by hash",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var f *Fetcher
+			if tt.client == nil {
+				f = &Fetcher{}
+			} else {
+				f = NewFetcher(tt.client, 4)
+			}
+
+			raw, err := f.FetchBlockByHash(context.Background(), tt.hash)
+			if tt.wantErrSub != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSub)
+				return
+			}
+
+			require.NoError(t, err)
+			bundle, ok := raw.(*BlockBundle)
+			require.True(t, ok, "FetchBlockByHash must return the same bundle shape as FetchBlock")
+			require.NotNil(t, bundle.Block)
+			assert.Equal(t, tt.wantBlock.Number, bundle.Block.Number)
+			assert.Equal(t, tt.wantBlock.Hash, bundle.Block.Hash)
+			assert.Len(t, bundle.Transactions, tt.wantTxLen)
+			assert.Len(t, bundle.Receipts, tt.wantRcvLen)
+		})
+	}
+}
+
+func TestFetcher_FetchBlockByHash_NotFoundIsClassified(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeRPCClient{blockByHashErr: fmt.Errorf("block not found")}
+	f := NewFetcher(client, 4)
+
+	_, err := f.FetchBlockByHash(context.Background(), fakeHash("missing"))
+	require.Error(t, err)
+	assert.True(t, pkgerrors.IsErrNotFound(err),
+		"the by-hash not-found error must keep its message so IsErrNotFound classifies it for the shared retry logic")
+}
+
+// ---------------------------------------------------------------------------
+// FetchFinalizedBlockNumber
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchFinalizedBlockNumber(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		client     *fakeRPCClient
+		wantHeight int64
+		wantErrSub string
+	}{
+		{
+			name:       "PassthroughNumber",
+			client:     &fakeRPCClient{finalizedNum: 42},
+			wantHeight: 42,
+		},
+		{
+			name:       "ClientErrorSurfaces",
+			client:     &fakeRPCClient{finalizedErr: fmt.Errorf("finalized header not found")},
+			wantErrSub: "finalized header not found",
+		},
+		{
+			name:       "NotConnected",
+			client:     nil,
+			wantErrSub: "not connected",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var f *Fetcher
+			if tt.client == nil {
+				f = &Fetcher{}
+			} else {
+				f = NewFetcher(tt.client, 4)
+			}
+
+			height, err := f.FetchFinalizedBlockNumber(context.Background())
+			if tt.wantErrSub != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSub)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHeight, height)
+		})
+	}
+}
+
+func TestFetcher_ParseBlockNumberString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    int64
+		wantErr bool
+	}{
+		{name: "Decimal", input: "200", want: 200},
+		{name: "Hex", input: "0xc8", want: 200},
+		{name: "HexZero", input: "0x0", want: 0},
+		{name: "Garbage", input: "garbage", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseBlockNumberString(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

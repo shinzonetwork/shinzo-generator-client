@@ -167,6 +167,14 @@ type fakeRPCClient struct {
 	txErr         error
 	closed        bool
 
+	blockByHash    *Block
+	blockByHashErr error
+	blockByHashFn  func(ctx context.Context, hash string) (*Block, error)
+
+	finalizedNum int64
+	finalizedErr error
+	finalizedFn  func(ctx context.Context) (int64, error)
+
 	blockFn     func(ctx context.Context, n *big.Int) (*Block, error)
 	batchFn     func(ctx context.Context, n *big.Int) ([]*TransactionReceipt, error)
 	txReceiptFn func(ctx context.Context, hash string) (*TransactionReceipt, error)
@@ -183,6 +191,16 @@ func (f *fakeRPCClient) GetBlockByNumber(ctx context.Context, n *big.Int) (*Bloc
 	return f.block, f.blockErr
 }
 
+func (f *fakeRPCClient) GetBlockByHash(ctx context.Context, hash string) (*Block, error) {
+	if f.blockByHashFn != nil {
+		return f.blockByHashFn(ctx, hash)
+	}
+	if f.blockByHash != nil || f.blockByHashErr != nil {
+		return f.blockByHash, f.blockByHashErr
+	}
+	return f.block, f.blockErr
+}
+
 func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, n *big.Int) ([]*TransactionReceipt, error) {
 	if f.batchFn != nil {
 		return f.batchFn(ctx, n)
@@ -195,6 +213,13 @@ func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) 
 		return f.txReceiptFn(ctx, hash)
 	}
 	return f.txReceipt, f.txErr
+}
+
+func (f *fakeRPCClient) GetFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	if f.finalizedFn != nil {
+		return f.finalizedFn(ctx)
+	}
+	return f.finalizedNum, f.finalizedErr
 }
 
 func (f *fakeRPCClient) Close() error {
@@ -223,6 +248,14 @@ const (
 	// ethChainID and ethNetVersion are the two chain-identity probe methods used by the mock servers.
 	ethChainID    = "eth_chainId"
 	ethNetVersion = "net_version"
+
+	// ethGetBlockByHash is used in tests to identify the by-hash block retrieval RPC call.
+	ethGetBlockByHash = "eth_getBlockByHash"
+
+	// ethGetBlockTagFinalized and ethGetBlockTagSafe are the special block
+	// tags served to / requested from the finalized-height fetch.
+	ethGetBlockTagFinalized = "finalized"
+	ethGetBlockTagSafe      = "safe"
 
 	testBlockNumber = 100
 )
@@ -276,6 +309,21 @@ func simpleRPCServer() *httptest.Server {
 			return "0x1", nil
 		}
 	})
+}
+
+// requestedBlockTag extracts the first eth_getBlockByNumber param as a block
+// tag string ("latest", "finalized", "safe"); ok is false for hex numbers,
+// null, and unparseable params.
+func requestedBlockTag(params json.RawMessage) (string, bool) {
+	var rawParams []json.RawMessage
+	if err := json.Unmarshal(params, &rawParams); err != nil || len(rawParams) == 0 {
+		return "", false
+	}
+	var tag string
+	if err := json.Unmarshal(rawParams[0], &tag); err != nil {
+		return "", false
+	}
+	return tag, true
 }
 
 func fullBlockResponse(number string, txs []any) map[string]any {

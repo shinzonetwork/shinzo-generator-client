@@ -127,9 +127,25 @@ type Fetcher interface {
 	// an EVM block bundle); callers type-assert or pass it to a Converter.
 	FetchBlock(ctx context.Context, height int64) (any, error)
 
+	// FetchBlockByHash retrieves the raw block data for the block with the
+	// given content hash, regardless of which branch of the chain it sits
+	// on (the reorg walk-back uses this to fetch orphan parents that live
+	// off the canonical branch). The hash format is chain-specific (e.g. a
+	// 0x-prefixed hex hash for EVM). The concrete return type matches
+	// FetchBlock. A hash the node does not know must surface as a not-found
+	// error recognized by pkg/errors.IsErrNotFound, so retry semantics match
+	// by-height fetches.
+	FetchBlockByHash(ctx context.Context, hash string) (any, error)
+
 	// FetchHighestBlockNumber returns the latest block number known to the
 	// chain (the on-chain tip), querying the RPC endpoint directly.
 	FetchHighestBlockNumber(ctx context.Context) (int64, error)
+
+	// FetchFinalizedBlockNumber returns the finalized block height known to
+	// the chain, with the safe height as the implementation-level fallback
+	// when the finalized tag is unsupported. Used as the lower floor of the
+	// reorg walk-back.
+	FetchFinalizedBlockNumber(ctx context.Context) (int64, error)
 
 	// Close releases the underlying RPC connection.
 	Close() error
