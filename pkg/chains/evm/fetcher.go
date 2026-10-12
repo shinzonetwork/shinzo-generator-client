@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,8 +21,10 @@ import (
 type rpcClient interface {
 	GetLatestBlockNumber(ctx context.Context) (*big.Int, error)
 	GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error)
+	GetBlockByHash(ctx context.Context, hash string) (*Block, error)
 	GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*TransactionReceipt, error)
 	GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
+	GetFinalizedBlockNumber(ctx context.Context) (int64, error)
 	Close() error
 }
 
@@ -142,6 +146,58 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("failed to get latest block number: %w", err)
 	}
 	return n.Int64(), nil
+}
+
+// FetchBlockByHash implements chains.Fetcher. It retrieves the block with the
+// given 0x-prefixed content hash together with its transactions and receipts,
+// returning the same *BlockBundle shape as FetchBlock — the reorg walk-back
+// type-asserts and reads the header fields. Not-found errors from the client
+// keep their message, so pkg/errors.IsErrNotFound continues to classify them
+// for the shared retry logic.
+func (f *Fetcher) FetchBlockByHash(ctx context.Context, hash string) (any, error) {
+	if f.client == nil {
+		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlockByHash")
+	}
+	block, err := f.client.GetBlockByHash(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	height, err := parseBlockNumberString(block.Number)
+	if err != nil {
+		return nil, fmt.Errorf("block by hash %s: %w", hash, err)
+	}
+	transactions, receipts, err := f.fetchTransactionsAndReceipts(ctx, block, height)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch receipts for block by hash %s: %w", hash, err)
+	}
+	return &BlockBundle{
+		Block:        block,
+		Transactions: transactions,
+		Receipts:     receipts,
+	}, nil
+}
+
+// FetchFinalizedBlockNumber implements chains.Fetcher. It returns the
+// finalized chain height (the client falls back to the safe height when the
+// finalized tag is unavailable), used as the floor of the reorg walk-back.
+func (f *Fetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	if f.client == nil {
+		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchFinalizedBlockNumber")
+	}
+	return f.client.GetFinalizedBlockNumber(ctx)
+}
+
+// parseBlockNumberString parses a block-number string in its decimal form
+// (EthereumClient conversion) or its 0x-hex form (raw fixtures and mock
+// clients), so by-hash bundling works for both.
+func parseBlockNumberString(s string) (int64, error) {
+	if after, ok := strings.CutPrefix(s, "0x"); ok {
+		// strconv.ParseInt only honors the 0x prefix with base 0, and base 0
+		// would also read leading-zero decimals as octal, so the prefix is
+		// stripped explicitly, matching the helpers in pkg/indexer.
+		return strconv.ParseInt(after, 16, 64)
+	}
+	return strconv.ParseInt(s, 10, 64)
 }
 
 // Close implements chains.Fetcher. It closes the underlying RPC client.

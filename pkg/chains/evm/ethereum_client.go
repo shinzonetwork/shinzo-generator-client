@@ -356,6 +356,82 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	return c.convertGethBlock(gethBlock), nil
 }
 
+// GetBlockByHash fetches a full block by its content hash, regardless of
+// which branch of the chain it sits on. The hash must be a 0x-prefixed, 32
+// byte hex hash. Not-found is surfaced with its message preserved (ethclient
+// reports the node's "block not found" or the empty-response sentinel, both
+// keeping "not found" in the message) so pkg/errors.IsErrNotFound classifies
+// it and the caller's retry logic matches by-number fetches.
+func (c *EthereumClient) GetBlockByHash(ctx context.Context, hash string) (*Block, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, errNoClientAvailable
+	}
+
+	blockHash, err := normalizeBlockHash(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	gethBlock, err := client.BlockByHash(ctx, blockHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block by hash %s: %w", hash, err)
+	}
+
+	return c.convertGethBlock(gethBlock), nil
+}
+
+// normalizeBlockHash validates a 0x-prefixed 32-byte block-hash string.
+// common.HexToHash silently mis-pads wrong-length input, so the round trip
+// through common.Hash.Hex() is the shape check: it matches only exact
+// 0x + 64 lowercase hex characters.
+func normalizeBlockHash(hash string) (common.Hash, error) {
+	trimmed := strings.TrimSpace(hash)
+	h := common.HexToHash(trimmed)
+	if h.Hex() != strings.ToLower(trimmed) {
+		return common.Hash{}, fmt.Errorf("block hash %q: not a 0x-prefixed %d-byte hex hash", trimmed, common.HashLength)
+	}
+	return h, nil
+}
+
+// GetFinalizedBlockNumber returns the finalized chain height, falling back to
+// the safe height when the node rejects the finalized tag (older nodes,
+// unfinalized chains). Both tags failing is an error; callers (the reorg
+// walk-back) respond with their hard cap. The error messages keep "not
+// found" where the node reports it, so pkg/errors.IsErrNotFound keeps
+// classifying unavailable tags the same way as missing blocks.
+func (c *EthereumClient) GetFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	finalizedNum, finalizedErr := c.headerNumberForTag(ctx, ethrpc.FinalizedBlockNumber)
+	if finalizedErr == nil {
+		return finalizedNum, nil
+	}
+	safeNum, safeErr := c.headerNumberForTag(ctx, ethrpc.SafeBlockNumber)
+	if safeErr == nil {
+		return safeNum, nil
+	}
+	return 0, fmt.Errorf("finalized block number unavailable: %w; safe fallback also failed: %w", finalizedErr, safeErr)
+}
+
+// headerNumberForTag resolves a special block tag ("finalized", "safe") to
+// its height via a header-only eth_getBlockByNumber fetch. A nil header or a
+// header without a block number is malformed and reported as an error rather
+// than height 0.
+func (c *EthereumClient) headerNumberForTag(ctx context.Context, tag ethrpc.BlockNumber) (int64, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return 0, errNoClientAvailable
+	}
+
+	header, err := client.HeaderByNumber(ctx, big.NewInt(tag.Int64()))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get %s header: %w", tag, err)
+	}
+	if header == nil || header.Number == nil {
+		return 0, fmt.Errorf("%s header has no block number", tag)
+	}
+	return header.Number.Int64(), nil
+}
+
 // GetNetworkID returns the network ID.
 func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 	client := c.getPreferredClient()

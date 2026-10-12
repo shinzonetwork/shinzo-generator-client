@@ -10,9 +10,12 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -122,6 +125,181 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 
 	_, err = client.GetBlockByNumber(context.Background(), big.NewInt(999999))
 	assert.Error(t, err)
+}
+
+// --- GetBlockByHash with mock server ---
+
+func TestGetBlockByHash_Success(t *testing.T) {
+	t.Parallel()
+	servedHashCh := make(chan string, 1)
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByHash:
+			var rawParams []json.RawMessage
+			if err := json.Unmarshal(params, &rawParams); err != nil || len(rawParams) == 0 {
+				return nil, fmt.Errorf("bad params")
+			}
+			var requested string
+			_ = json.Unmarshal(rawParams[0], &requested)
+			servedHashCh <- requested
+			return fullBlockResponse(testBlockNumberHex, nil), nil
+		default:
+			return "0x1", nil
+		}
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	testHash := fakeHash("by-hash")
+	block, err := client.GetBlockByHash(context.Background(), testHash)
+	require.NoError(t, err)
+	require.NotNil(t, block)
+	assert.Equal(t, strconv.Itoa(testBlockNumber), block.Number)
+	assert.Equal(t, strings.ToLower(testHash), <-servedHashCh)
+}
+
+func TestGetBlockByHash_NotFoundIsClassified(t *testing.T) {
+	t.Parallel()
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByHash:
+			return nil, fmt.Errorf("block not found")
+		default:
+			return "0x1", nil
+		}
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.GetBlockByHash(context.Background(), fakeHash("missing"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get block by hash")
+	assert.True(t, errors.IsErrNotFound(err),
+		"the by-hash not-found error must keep its message so IsErrNotFound classifies it for the shared retry logic")
+}
+
+func TestGetBlockByHash_InvalidHash(t *testing.T) {
+	t.Parallel()
+	server := simpleRPCServer()
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	for _, hash := range []string{
+		"", "0xdeadbeef", strings.TrimPrefix(fakeHash("no-prefix"), "0x"),
+		fakeHash("too-long") + "ab",
+	} {
+		_, err = client.GetBlockByHash(context.Background(), hash)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "block hash")
+		assert.False(t, errors.IsErrNotFound(err),
+			"malformed hashes must not classify as not-found: they are caller bugs, not node misses")
+	}
+}
+
+// --- GetFinalizedBlockNumber with mock server ---
+
+func TestGetFinalizedBlockNumber_Success(t *testing.T) {
+	t.Parallel()
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			tag, ok := requestedBlockTag(params)
+			if !ok {
+				return nil, fmt.Errorf("bad params")
+			}
+			switch tag {
+			case ethGetBlockTagFinalized:
+				return fullBlockResponse("0x10", nil), nil
+			default:
+				return nil, fmt.Errorf("unexpected tag %q", tag)
+			}
+		default:
+			return "0x1", nil
+		}
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	height, err := client.GetFinalizedBlockNumber(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(16), height)
+}
+
+func TestGetFinalizedBlockNumber_SafeFallback(t *testing.T) {
+	t.Parallel()
+	var tagMu sync.Mutex
+	var servedTags []string
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			tag, ok := requestedBlockTag(params)
+			if !ok {
+				return nil, fmt.Errorf("bad params")
+			}
+			tagMu.Lock()
+			servedTags = append(servedTags, tag)
+			tagMu.Unlock()
+			switch tag {
+			case ethGetBlockTagSafe:
+				return fullBlockResponse("0x8", nil), nil
+			default:
+				return nil, fmt.Errorf("%s header not found", tag)
+			}
+		default:
+			return "0x1", nil
+		}
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	height, err := client.GetFinalizedBlockNumber(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(8), height)
+
+	tagMu.Lock()
+	defer tagMu.Unlock()
+	assert.Equal(t, []string{ethGetBlockTagFinalized, ethGetBlockTagSafe}, servedTags,
+		"the safe height must be served only after the finalized tag failed")
+}
+
+func TestGetFinalizedBlockNumber_BothTagsFail(t *testing.T) {
+	t.Parallel()
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			tag, ok := requestedBlockTag(params)
+			if !ok {
+				return nil, fmt.Errorf("bad params")
+			}
+			return nil, fmt.Errorf("%s header not found", tag)
+		default:
+			return "0x1", nil
+		}
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.GetFinalizedBlockNumber(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finalized block number unavailable")
 }
 
 // --- GetTransactionReceipt with mock server ---

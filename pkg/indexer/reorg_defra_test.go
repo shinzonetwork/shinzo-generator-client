@@ -233,6 +233,17 @@ func (s *forkScript) responseFor(n int64, countFork bool) map[string]any {
 	return resp
 }
 
+// forkResponse serves the orphan block at a height unconditionally (used by
+// by-hash serving), without touching the per-height first-fetch counters.
+func (s *forkScript) forkResponse(n int64) map[string]any {
+	forkHash := s.forkHashes[n]
+	parent := reorgChainHash(n - 1)
+	if prev, ok := s.forkHashes[n-1]; ok {
+		parent = prev
+	}
+	return forkBlockResponse(n, parent.Hex(), forkHash.Hex())
+}
+
 func (s *forkScript) handle(method string, params json.RawMessage) (any, error) {
 	switch method {
 	case ethGetBlockByNumber:
@@ -261,7 +272,15 @@ func (s *forkScript) handle(method string, params json.RawMessage) (any, error) 
 		if !ok {
 			return nil, fmt.Errorf("block not found")
 		}
-		return s.responseFor(heightAny.(int64), false), nil
+		n := heightAny.(int64)
+		// By-hash serving is hash-faithful: a fork hash gets the orphan
+		// response, whose content re-derives to exactly that hash, so a
+		// walk-back fetch of a parent that lives off the canonical branch
+		// decodes into the orphan block instead of the canonical one.
+		if forkHash, isFork := s.forkHashes[n]; isFork && strings.EqualFold(forkHash.Hex(), hashStr) {
+			return s.forkResponse(n), nil
+		}
+		return s.responseFor(n, false), nil
 	case ethGetBlockReceipts:
 		return []any{}, nil
 	case ethBlockNumber:

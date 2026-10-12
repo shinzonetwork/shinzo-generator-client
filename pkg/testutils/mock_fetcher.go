@@ -12,6 +12,10 @@ import (
 // FetchBlockFn override is configured.
 var ErrMockFetchBlockFnNotSet = errors.New("mock: FetchBlockFn not set")
 
+// ErrMockFetchBlockByHashFnNotSet is returned by MockFetcher.FetchBlockByHash
+// when no FetchBlockByHashFn override is configured.
+var ErrMockFetchBlockByHashFnNotSet = errors.New("mock: FetchBlockByHashFn not set")
+
 // MockFetcher implements the chains.Fetcher interface with configurable
 // per-method functions and call recording. It follows the same pattern as
 // MockChain: each method dispatches to an optional Fn field; if a Fn is nil
@@ -21,16 +25,20 @@ type MockFetcher struct {
 	mu sync.Mutex
 
 	// Optional overrides. When nil the method returns its zero value.
-	ConnectFn                 func(ctx context.Context) error
-	FetchBlockFn              func(ctx context.Context, height int64) (any, error)
-	FetchHighestBlockNumberFn func(ctx context.Context) (int64, error)
-	CloseFn                   func() error
+	ConnectFn                   func(ctx context.Context) error
+	FetchBlockFn                func(ctx context.Context, height int64) (any, error)
+	FetchBlockByHashFn          func(ctx context.Context, hash string) (any, error)
+	FetchHighestBlockNumberFn   func(ctx context.Context) (int64, error)
+	FetchFinalizedBlockNumberFn func(ctx context.Context) (int64, error)
+	CloseFn                     func() error
 
 	// Call recording.
-	ConnectCalls                 int
-	FetchBlockCalls              []int64
-	FetchHighestBlockNumberCalls int
-	CloseCalls                   int
+	ConnectCalls                   int
+	FetchBlockCalls                []int64
+	FetchBlockByHashCalls          []string
+	FetchHighestBlockNumberCalls   int
+	FetchFinalizedBlockNumberCalls int
+	CloseCalls                     int
 }
 
 // Compile-time guarantee that MockFetcher implements chains.Fetcher.
@@ -58,6 +66,17 @@ func (m *MockFetcher) FetchBlock(ctx context.Context, height int64) (any, error)
 	return nil, ErrMockFetchBlockFnNotSet
 }
 
+// FetchBlockByHash records the hash and delegates to FetchBlockByHashFn.
+func (m *MockFetcher) FetchBlockByHash(ctx context.Context, hash string) (any, error) {
+	m.mu.Lock()
+	m.FetchBlockByHashCalls = append(m.FetchBlockByHashCalls, hash)
+	m.mu.Unlock()
+	if m.FetchBlockByHashFn != nil {
+		return m.FetchBlockByHashFn(ctx, hash)
+	}
+	return nil, ErrMockFetchBlockByHashFnNotSet
+}
+
 // FetchHighestBlockNumber records the call and delegates to FetchHighestBlockNumberFn.
 func (m *MockFetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	m.mu.Lock()
@@ -65,6 +84,18 @@ func (m *MockFetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error
 	m.mu.Unlock()
 	if m.FetchHighestBlockNumberFn != nil {
 		return m.FetchHighestBlockNumberFn(ctx)
+	}
+	return 0, nil
+}
+
+// FetchFinalizedBlockNumber records the call and delegates to
+// FetchFinalizedBlockNumberFn.
+func (m *MockFetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	m.mu.Lock()
+	m.FetchFinalizedBlockNumberCalls++
+	m.mu.Unlock()
+	if m.FetchFinalizedBlockNumberFn != nil {
+		return m.FetchFinalizedBlockNumberFn(ctx)
 	}
 	return 0, nil
 }
