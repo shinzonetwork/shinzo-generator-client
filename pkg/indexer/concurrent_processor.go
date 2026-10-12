@@ -71,10 +71,20 @@ var errReorgDetected = stderrors.New("reorg detected")
 // ancestor at forkPoint, so the orphan range [forkPoint+1, oldTip] must be
 // rolled back and indexing restarted from forkPoint+1. oldTip is the highest
 // height dispatched when the run drained; heights above the last stored
-// block hold nothing to delete, so it acts as an upper bound.
+// block hold nothing to delete, so it acts as an upper bound. chainHashes
+// carries the verified new-chain hash per height for the walked segment -
+// it travels to the rollback handler through the rollback context
+// (defra.WithRollbackChainHashes) so the roller deletes only heights whose
+// stored hash disagrees with the new chain.
 type rollbackPoint struct {
 	forkPoint int64
 	oldTip    int64
+
+	// chainHashes maps height to the verified new-chain hash for every
+	// height the walk-back and the confirmation wait touched: the common
+	// ancestor, every descended height, the parked mismatch and its
+	// confirmed successor.
+	chainHashes map[int64]string
 }
 
 // reorgSignal describes a detected continuity break: the stored (orphan)
@@ -247,7 +257,11 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 
 		logger.Sugar.Warnf("Rolling back orphan blocks [%d, %d] after reorg detection; restarting from %d",
 			restart, rb.oldTip, restart)
-		if err := p.reorgHandler.RollbackBlocks(ctx, restart, rb.oldTip); err != nil {
+		// The verified new-chain hashes ride the rollback context: the
+		// handler signature is a stable two-integer contract, and the
+		// wrappers around it forward the context untouched, so the roller
+		// can still delete strictly by height and hash.
+		if err := p.reorgHandler.RollbackBlocks(defra.WithRollbackChainHashes(ctx, rb.chainHashes), restart, rb.oldTip); err != nil {
 			return fmt.Errorf("rollback blocks [%d, %d]: %w (partial rollback followed by re-indexing would leave duplicate heights; indexing stopped)",
 				restart, rb.oldTip, err) //nolint:err113
 		}
@@ -572,9 +586,9 @@ func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item 
 
 		if item.Success && item.Hash != "" && item.ParentHash != "" &&
 			item.ParentHash == ep.lastParkedHash {
-			start, startHash := ep.baseHeight-1, ep.baseParentHash
+			confirmed := item.Hash
 			p.pendingMu.Unlock()
-			p.finalizeEpisode(ctx, start, startHash)
+			p.finalizeEpisode(ctx, ep, confirmed)
 			return
 		}
 
@@ -658,14 +672,17 @@ func (p *ConcurrentBlockProcessor) refillEpisodeGap(ctx context.Context, ep *reo
 }
 
 // finalizeEpisode runs the walk-back for a confirmed episode and records the
-// rollback point the outer ProcessBlocks loop acts on. A walk-back failure
+// rollback point the outer ProcessBlocks loop acts on. The verified
+// new-chain hashes (the walk-back descent, the parked mismatch and the
+// confirming successor) travel inside the rollback point, so the rollback
+// handler can delete strictly by height and hash. A walk-back failure
 // is fatal unless the run context is already cancelled (user shutdown:
 // nothing was stored or deleted, so the episode can simply be abandoned -
 // the next run's seed and gap checks re-detect the mismatch).
-func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, startHeight int64, startChainHash string) {
+func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reorgEpisode, confirmedHash string) {
 	logger.Sugar.Infof("Reorg episode confirmed: walking back the new chain from height %d (hash %s)",
-		startHeight, startChainHash)
-	forkPoint, err := p.resolveForkPoint(ctx, startHeight, startChainHash)
+		ep.baseHeight-1, ep.baseParentHash)
+	forkPoint, chainHashes, err := p.resolveForkPoint(ctx, ep.baseHeight-1, ep.baseParentHash)
 
 	if err != nil && ctx.Err() != nil {
 		logger.Sugar.Warnf("Reorg episode abandoned during shutdown: %v", err)
@@ -675,12 +692,20 @@ func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, startHei
 		return
 	}
 
+	if err == nil {
+		// The confirmation wait verified the parked mismatch height and the
+		// chained successor above it; the walk-back itself never saw
+		// that segment.
+		chainHashes[ep.baseHeight] = ep.lastParkedHash
+		chainHashes[ep.baseHeight+1] = confirmedHash
+	}
+
 	p.pendingMu.Lock()
 	p.episode = nil
 	if err != nil {
-		p.episodeErr = fmt.Errorf("reorg detected at height %d: %w", startHeight+1, err) //nolint:err113
+		p.episodeErr = fmt.Errorf("reorg detected at height %d: %w", ep.baseHeight, err) //nolint:err113
 	} else {
-		p.rollbackPoint = &rollbackPoint{forkPoint: forkPoint}
+		p.rollbackPoint = &rollbackPoint{forkPoint: forkPoint, chainHashes: chainHashes}
 	}
 	p.pendingMu.Unlock()
 	p.runCancel(errReorgDetected)
@@ -889,7 +914,9 @@ func (p *ConcurrentBlockProcessor) fetchByHashWithRetry(ctx context.Context, has
 
 // resolveForkPoint walks the new chain back by hash until a stored block
 // hash matches the chain's hash at that height (the common ancestor, i.e.
-// the fork point). The descent never stores: it fetches each ancestor by
+// the fork point). Along the way it records every visited height's verified
+// new-chain hash (the descent's hash chain), which the rollback verification
+// consumes. The descent never stores: it fetches each ancestor by
 // hash (retry classification matches by-height fetches), converts it, and
 // follows the extracted parent hash. Bounds: never below the finalized
 // height (safe as the implementation-level fallback; when neither tag is
@@ -899,12 +926,12 @@ func (p *ConcurrentBlockProcessor) fetchByHashWithRetry(ctx context.Context, has
 // that height as the fork point bound (everything stored above it is
 // unverifiable suspect content and gets rolled back). No common ancestor
 // within bounds is a fatal error.
-func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHeight int64, startChainHash string) (int64, error) {
+func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHeight int64, startChainHash string) (int64, map[int64]string, error) {
 	if startHeight < 0 {
-		return 0, fmt.Errorf("reorg walk-back: walked past genesis without a common ancestor") //nolint:err113
+		return 0, nil, fmt.Errorf("reorg walk-back: walked past genesis without a common ancestor") //nolint:err113
 	}
 	if startChainHash == "" {
-		return 0, fmt.Errorf("reorg walk-back from height %d: the chain hash at the conflict height is unknown", startHeight) //nolint:err113
+		return 0, nil, fmt.Errorf("reorg walk-back from height %d: the chain hash at the conflict height is unknown", startHeight) //nolint:err113
 	}
 
 	floor, err := p.fetcher.FetchFinalizedBlockNumber(ctx)
@@ -914,20 +941,22 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 		floor = -1
 	}
 
+	chainHashes := make(map[int64]string)
 	cur, curHash := startHeight, startChainHash
 	for depth := 0; ; depth++ {
 		if cur < 0 {
-			return 0, fmt.Errorf("reorg walk-back from height %d: walked past genesis without a common ancestor", startHeight) //nolint:err113
+			return 0, nil, fmt.Errorf("reorg walk-back from height %d: walked past genesis without a common ancestor", startHeight) //nolint:err113
 		}
+		chainHashes[cur] = curHash
 
 		stored, err := p.reorgHandler.GetStoredBlockHash(ctx, cur)
 		if err != nil {
-			return 0, fmt.Errorf("reorg walk-back: query stored hash at %d: %w", cur, err) //nolint:err113
+			return 0, nil, fmt.Errorf("reorg walk-back: query stored hash at %d: %w", cur, err) //nolint:err113
 		}
 		if stored != "" {
 			if stored == curHash {
 				logger.Sugar.Infof("Reorg walk-back: common ancestor found at height %d (hash %s)", cur, curHash)
-				return cur, nil
+				return cur, chainHashes, nil
 			}
 		} else if cur < startHeight {
 			// Nothing stored at a descended height: the store's verified
@@ -935,29 +964,29 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 			// confirmed. Everything stored above is suspect and gets rolled
 			// back; restart from here re-fetches the chain's content.
 			logger.Sugar.Infof("Reorg walk-back: reached the lowest stored height at %d (hash %s)", cur, curHash)
-			return cur, nil
+			return cur, chainHashes, nil
 		}
 
 		if floor >= 0 && cur <= floor {
-			return 0, fmt.Errorf("reorg walk-back from height %d: no common ancestor at or above the finalized height %d",
+			return 0, nil, fmt.Errorf("reorg walk-back from height %d: no common ancestor at or above the finalized height %d",
 				startHeight, floor) //nolint:err113
 		}
 		if depth >= maxWalkBackDepth {
-			return 0, fmt.Errorf("reorg walk-back from height %d: exceeded the %d-level depth cap without a common ancestor",
+			return 0, nil, fmt.Errorf("reorg walk-back from height %d: exceeded the %d-level depth cap without a common ancestor",
 				startHeight, maxWalkBackDepth) //nolint:err113
 		}
 
 		raw, err := p.fetchByHashWithRetry(ctx, curHash)
 		if err != nil {
-			return 0, fmt.Errorf("reorg walk-back from height %d: %w", startHeight, err) //nolint:err113
+			return 0, nil, fmt.Errorf("reorg walk-back from height %d: %w", startHeight, err) //nolint:err113
 		}
 		converted, err := p.converter.Convert(ctx, raw)
 		if err != nil {
-			return 0, fmt.Errorf("reorg walk-back: convert block %s: %w", curHash, err) //nolint:err113
+			return 0, nil, fmt.Errorf("reorg walk-back: convert block %s: %w", curHash, err) //nolint:err113
 		}
 		parent := extractBlockParentHash(converted.Groups)
 		if parent == "" {
-			return 0, fmt.Errorf("reorg walk-back: block %s carries no parent hash", curHash) //nolint:err113
+			return 0, nil, fmt.Errorf("reorg walk-back: block %s carries no parent hash", curHash) //nolint:err113
 		}
 		cur--
 		curHash = parent
