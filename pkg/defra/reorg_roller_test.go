@@ -87,7 +87,8 @@ func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 		require.Contains(t, pre, colName, "collection %s must hold docs for the full range before rollback", colName)
 	}
 
-	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101))
+	rollbackCtx := rollbackCtxWithOrphan(ctx, 2101)
+	require.NoError(t, roller.RollbackBlocks(rollbackCtx, 2101, 2101))
 
 	assertCollectionEmptyForRange(ctx, t, handler, blockCol, constants.NumberFieldName, 2101, 2101)
 	assertCollectionEmptyForRange(ctx, t, handler, txCol, constants.BlockNumberFieldName, 2101, 2101)
@@ -125,7 +126,7 @@ func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 		assert.Contains(t, reindexed, colName, "the re-indexed block must be queryable in %s", colName)
 	}
 
-	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101),
+	require.NoError(t, roller.RollbackBlocks(rollbackCtx, 2101, 2101),
 		"the rollback is repeatable: re-running it over the re-indexed height soft-deletes again without error")
 
 	assertCollectionEmptyForRange(ctx, t, handler, blockCol, constants.NumberFieldName, 2101, 2101)
@@ -160,7 +161,7 @@ func TestReorgRoller_GetStoredBlockHash(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, missing, "a height with no stored block reports an empty hash")
 
-	require.NoError(t, roller.RollbackBlocks(ctx, 1000, 1000))
+	require.NoError(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 1000), 1000, 1000))
 
 	purged, err := roller.GetStoredBlockHash(ctx, 1000)
 	require.NoError(t, err)
@@ -179,61 +180,20 @@ func TestNewReorgRoller_RejectsNilArgs(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestReorgRoller_RollbackBlocks_InvokesDocIDTracker proves the roller hands
-// the rolled-back range to its docID tracker (prune-queue cleanup), that a
-// tracker failure surfaces as a rollback error so indexing stops loudly, and
-// that a nil tracker simply skips the cleanup.
-func TestReorgRoller_RollbackBlocks_InvokesDocIDTracker(t *testing.T) {
-	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
-
-	handler, err := NewBlockHandler(td.Node, 1000)
-	require.NoError(t, err)
-
-	converter := evm.NewConverter(nil)
-
-	ctx := ctxWithIdentity(t)
-	_, err = handler.Store(ctx, buildGroups(t, mockBlock("0x64"), nil, nil)) // 100
-	require.NoError(t, err)
-
-	roller, err := NewReorgRoller(td.Node, converter)
-	require.NoError(t, err)
-	tracker := &mockDocIDTracker{}
-	roller.SetDocIDTracker(tracker)
-	require.NoError(t, roller.RollbackBlocks(ctx, 100, 100))
-	require.Len(t, tracker.rolledBack, 1, "the rollback must report its range to the tracker")
-	assert.Equal(t, [2]int64{100, 100}, tracker.rolledBack[0])
-
-	// A failing tracker must fail the rollback — the processor treats a
-	// rollback error as fatal, which keeps the prune queue from silently
-	// drifting after a partially cleaned rollback.
-	failing, err := NewReorgRoller(td.Node, converter)
-	require.NoError(t, err)
-	failing.SetDocIDTracker(&failingDocIDTracker{})
-	require.ErrorContains(t, failing.RollbackBlocks(ctx, 100, 100), "queue save failed")
-
-	// A nil tracker (pruner disabled) skips the cleanup without error.
-	bare, err := NewReorgRoller(td.Node, converter)
-	require.NoError(t, err)
-	require.NoError(t, bare.RollbackBlocks(ctx, 100, 100))
-	assert.Len(t, tracker.rolledBack, 1, "the bare roller must not touch the tracker")
-}
-
-// failingDocIDTracker always errors, to prove the roller surfaces tracker
-// failures instead of swallowing them.
-type failingDocIDTracker struct{}
-
-func (f *failingDocIDTracker) TrackBlock(context.Context, int64, *BlockCreationResult) error {
-	return nil
-}
-
-func (f *failingDocIDTracker) RollbackBlocks(_, _ int64) error {
-	return fmt.Errorf("queue save failed")
+// rollbackCtxWithOrphan marks every given height as a verified orphan in
+// the rollback context: the new chain carries a hash no stored content can
+// produce, so the verify-by-hash contract deletes exactly those heights
+// (the direct roller tests provide the verification the processor would).
+func rollbackCtxWithOrphan(ctx context.Context, heights ...int64) context.Context {
+	chainHashes := make(map[int64]string, len(heights))
+	for _, h := range heights {
+		chainHashes[h] = deterministicHash(fmt.Sprintf("rollback-orphan-%d", h))
+	}
+	return WithRollbackChainHashes(ctx, chainHashes)
 }
 
 // queueRollbackTracker mirrors the indexer's queue wiring for tests: TrackBlock
-// feeds the real pruner queue and RollbackBlocks drops the range from it;
-// the reorg design removes this cleanup.
+// feeds the real pruner queue; the rollback retains every entry by design.
 type queueRollbackTracker struct {
 	queue *pruner.IndexerQueue
 }
@@ -242,16 +202,6 @@ func (t *queueRollbackTracker) TrackBlock(_ context.Context, blockNumber int64, 
 	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, result.OtherDocIDs, result.BlockSignatureID)
 }
 
-func (t *queueRollbackTracker) RollbackBlocks(from, to int64) error {
-	removed := t.queue.RemoveBlockRange(from, to)
-	if removed == 0 {
-		return nil
-	}
-	return t.queue.Save()
-}
-
-// TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused pins the
-// DefraDB constraint the reorg design is built around (dvncan's ask): docIDs
 // TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused pins the
 // DefraDB constraint the reorg design is built around (dvncan's ask): docIDs
 // are content-derived and a soft-deleted docID is never re-addable, so Storing
@@ -289,7 +239,7 @@ func TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused(t *testing.
 	_, err = handler.Store(ctx, groups)
 	require.NoError(t, err)
 
-	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101))
+	require.NoError(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 2101), 2101, 2101))
 
 	// Re-store the byte-identical content: the docIDs were content-derived
 	// and are now soft-deleted, so DefraDB refuses the re-creation instead
@@ -339,11 +289,11 @@ func TestReorgRoller_RollbackBlocks_RetainsQueueEntries(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, queue.Len(), "the stored orphan must be tracked in the prune queue")
 
-	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101))
+	require.NoError(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 2101), 2101, 2101))
 
-	// The docs are now soft-deleted (invisible to queries) but their queue
+	// The docs are now soft-deleted (invisible to queries) and their queue
 	// entries must be retained: the pruner later hard-purges via exactly
-	// these docIDs. Today's cleanup path drops them instead.
+	// these docIDs, and the cleanup path that used to drop them is gone.
 	assert.Equal(t, 1, queue.Len(),
 		"the rollback must retain the prune-queue entry so the soft-deleted orphan docs stay purgeable")
 }
