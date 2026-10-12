@@ -3,6 +3,7 @@ package defra
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
@@ -227,4 +229,121 @@ func (f *failingDocIDTracker) TrackBlock(context.Context, int64, *BlockCreationR
 
 func (f *failingDocIDTracker) RollbackBlocks(_, _ int64) error {
 	return fmt.Errorf("queue save failed")
+}
+
+// queueRollbackTracker mirrors the indexer's queue wiring for tests: TrackBlock
+// feeds the real pruner queue and RollbackBlocks drops the range from it;
+// the reorg design removes this cleanup.
+type queueRollbackTracker struct {
+	queue *pruner.IndexerQueue
+}
+
+func (t *queueRollbackTracker) TrackBlock(_ context.Context, blockNumber int64, result *BlockCreationResult) error {
+	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, result.OtherDocIDs, result.BlockSignatureID)
+}
+
+func (t *queueRollbackTracker) RollbackBlocks(from, to int64) error {
+	removed := t.queue.RemoveBlockRange(from, to)
+	if removed == 0 {
+		return nil
+	}
+	return t.queue.Save()
+}
+
+// TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused pins the
+// DefraDB constraint the reorg design is built around (dvncan's ask): docIDs
+// TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused pins the
+// DefraDB constraint the reorg design is built around (dvncan's ask): docIDs
+// are content-derived and a soft-deleted docID is never re-addable, so Storing
+// byte-identical block content after a RollbackBlocks over it must be refused,
+// leaving every collection still hidden for the rolled-back height. This is
+// why the reorg flow must never store a block before the continuity check
+// (check-before-store) and must delete only orphans by height and hash: a
+// swept-then-re-fetched identical block would be silently lost.
+func TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+
+	handler, err := NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+
+	converter := evm.NewConverter(nil)
+	roller, err := NewReorgRoller(td.Node, converter)
+	require.NoError(t, err)
+
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
+	blockCol := extractCollection(cols, chains.TypeBlock)
+	txCol := extractCollection(cols, chains.TypeTransaction)
+	sigCol := extractCollection(cols, chains.TypeBlockSignature)
+
+	ctx := ctxWithIdentity(t)
+
+	// A full block so the rollback covers block, transaction and signature
+	// docs: every one of them becomes a soft-deleted docID.
+	block := mockBlock("0x835") // 2101
+	txHash := "0xrst000000000000000000000000000000000000000000000000000000000001"
+	tx := mockTransaction(txHash, "2101")
+	receipt := mockReceipt(txHash, "0x835")
+	groups := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+
+	_, err = handler.Store(ctx, groups)
+	require.NoError(t, err)
+
+	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101))
+
+	// Re-store the byte-identical content: the docIDs were content-derived
+	// and are now soft-deleted, so DefraDB refuses the re-creation instead
+	// of resurrecting the deleted documents.
+	_, err = handler.Store(ctx, buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt}))
+	require.Error(t, err, "re-adding a soft-deleted content-derived dockey must be refused")
+	assert.Contains(t, strings.ToLower(err.Error()), "deleted",
+		"the refusal must be the deleted-dockey conflict, not a fresh store")
+
+	// The refusal must not have resurrected anything: the rolled-back
+	// height stays hidden in every collection.
+	assertCollectionEmptyForRange(ctx, t, handler, blockCol, constants.NumberFieldName, 2101, 2101)
+	assertCollectionEmptyForRange(ctx, t, handler, txCol, constants.BlockNumberFieldName, 2101, 2101)
+	assertCollectionEmptyForRange(ctx, t, handler, sigCol, constants.BlockNumberFieldName, 2101, 2101)
+}
+
+// TestReorgRoller_RollbackBlocks_RetainsQueueEntries pins the defect-7 fix
+// (prune-queue retention): after a rollback soft-deletes the orphan docs,
+// their prune-queue entries must SURVIVE, because the pruner is the only
+// mechanism that hard-purges them locally. Today the roller drops the
+// rolled-back range from the tracker via RemoveBlockRange, so the soft-deleted
+// docs lose their only purge driver and leak in storage forever.
+func TestReorgRoller_RollbackBlocks_RetainsQueueEntries(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+
+	handler, err := NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+
+	converter := evm.NewConverter(nil)
+	roller, err := NewReorgRoller(td.Node, converter)
+	require.NoError(t, err)
+
+	queue := pruner.NewIndexerQueue()
+	tracker := &queueRollbackTracker{queue: queue}
+	handler.SetDocIDTracker(tracker)
+	roller.SetDocIDTracker(tracker)
+
+	ctx := ctxWithIdentity(t)
+
+	block := mockBlock("0x835") // 2101
+	txHash := "0xqqq000000000000000000000000000000000000000000000000000000000001"
+	tx := mockTransaction(txHash, "2101")
+	receipt := mockReceipt(txHash, "0x835")
+
+	_, err = handler.Store(ctx, buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt}))
+	require.NoError(t, err)
+	require.Equal(t, 1, queue.Len(), "the stored orphan must be tracked in the prune queue")
+
+	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101))
+
+	// The docs are now soft-deleted (invisible to queries) but their queue
+	// entries must be retained: the pruner later hard-purges via exactly
+	// these docIDs. Today's cleanup path drops them instead.
+	assert.Equal(t, 1, queue.Len(),
+		"the rollback must retain the prune-queue entry so the soft-deleted orphan docs stay purgeable")
 }
