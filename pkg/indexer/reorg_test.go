@@ -1,11 +1,15 @@
 package indexer
 
-// reorg_test.go covers the parentHash continuity check and the rollback
-// orchestration: orphan chains are detected at commit time, the dispatched
-// range is rolled back via the ReorgHandler, and indexing restarts from the
-// rollback height. Pure unit tests — no DefraDB, no RPC server; a scripted
-// fetcher serves the chain state and a mock converter carries the served
-// hash/parentHash into the DocumentGroup contract the check consumes.
+// reorg_test.go covers the parentHash continuity check and the episode
+// procedure: orphan chains are detected in the ordered commit path (nothing
+// is stored before the check passes), the mismatched block and everything
+// served past it are held back during a bounded confirmation wait, the
+// walk-back resolves the fork point by hash, and the outer loop rolls back
+// the orphan range and restarts from forkPoint+1. Pure unit tests - no
+// DefraDB, no RPC server; a scripted fetcher serves the chain state (by
+// height and by hash, for the walk-back descent) and a mock converter
+// carries the served hash/parentHash into the DocumentGroup contract the
+// check consumes.
 
 import (
 	"context"
@@ -49,6 +53,34 @@ func orphanHash(height int64) string {
 // node for the guard tests.
 func forkParentHash() string {
 	return "0xface" + strings.Repeat("f", 60)
+}
+
+// canonicalHashIndex builds the by-hash entries for the canonical chain over
+// [lo, hi]: hash canonicalHash(h) resolves to the canonical block at h, the
+// content the walk-back descent consumes when it follows the new chain's
+// parent hashes downward.
+func canonicalHashIndex(lo, hi int64) map[string]*servedBlock {
+	index := make(map[string]*servedBlock, hi-lo+1)
+	for h := lo; h <= hi; h++ {
+		index[strings.ToLower(canonicalHash(h))] = &servedBlock{
+			height:     h,
+			hash:       canonicalHash(h),
+			parentHash: canonicalHash(h - 1),
+		}
+	}
+	return index
+}
+
+// byHashLookup turns a hash-keyed block index into a FetchBlockByHash
+// function; an unknown hash surfaces as a not-found error so the walk-back's
+// retry classification applies.
+func byHashLookup(blocks map[string]*servedBlock) func(context.Context, string) (any, error) {
+	return func(_ context.Context, hash string) (any, error) {
+		if b, ok := blocks[strings.ToLower(hash)]; ok {
+			return b, nil
+		}
+		return nil, fmt.Errorf("block not found")
+	}
 }
 
 // chainConverter adapts servedBlocks into conversion results carrying the
@@ -145,9 +177,11 @@ func runProcessor(p *ConcurrentBlockProcessor, startBlock int64, onBlockProcesse
 // TestReorgProcessor_RollbackAndResume is the incident scenario: height 100
 // is served as an orphan on the first fetch and canonically afterwards (the
 // reorg lands between the two fetches), so canonical 101 disagrees with the
-// committed orphan. The processor must roll back from 100, re-fetch the
-// canonical 100, and resume ordered commits. onBlockProcessed fires once for
-// the (briefly stored) orphan commit and again for the canonical re-commit.
+// committed orphan. The processor holds block 101 back, waits for chained
+// 102 to confirm the new chain, walks back by hash to the stored common
+// ancestor at 99, and rolls back only the orphan range [100, tip). onBlock-
+// Processed fires once for the (briefly stored) orphan commit and again for
+// the canonical re-commit.
 func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
@@ -160,6 +194,7 @@ func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
 	}
 
 	rec := &commitRecorder{}
@@ -184,7 +219,7 @@ func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 
 	// Cancel races the collector: a few extra canonical commits may land
-	// after the 6th — assert the expected prefix, not an exact total.
+	// after the 6th - assert the expected prefix, not an exact total.
 	got := rec.snapshot()
 	require.GreaterOrEqual(t, len(got), 6)
 	assert.Equal(t, []int64{100, 100, 101, 102, 103, 104}, got[:6])
@@ -207,10 +242,11 @@ func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 }
 
 // TestReorgProcessor_MultiBlockReorgConverges walks a two-deep orphan chain:
-// orphan 100 and 101 commit in-run, canonical 102 disagrees, the first
-// rollback peels 101, the restarted run detects the stored orphan 100 via
-// its seed, and the second rollback peels it — one level per rollback, then
-// canonical indexing resumes.
+// orphan 100 and 101 commit in-run (both chain on the committed predecessors),
+// canonical 102 disagrees and is held back, chained 103 confirms the new
+// chain, and the walk-back descends past both orphans to the stored common
+// ancestor at 99 - a single rollback episode covering [100, tip) replaces
+// today's one-level-per-rollback peeling, then canonical indexing resumes.
 func TestReorgProcessor_MultiBlockReorgConverges(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
@@ -231,6 +267,7 @@ func TestReorgProcessor_MultiBlockReorgConverges(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
 	}
 
 	reorg := &mockReorgHandler{
@@ -260,15 +297,17 @@ func TestReorgProcessor_MultiBlockReorgConverges(t *testing.T) {
 	assert.Equal(t, []int64{100, 101, 100, 101, 102, 103}, got[:6])
 
 	calls := reorg.calls()
-	require.Len(t, calls, 2, "a two-deep reorg peels one level per rollback")
-	assert.Equal(t, int64(101), calls[0].from)
-	assert.Equal(t, int64(100), calls[1].from)
+	require.Len(t, calls, 1, "the walk-back collapses the two-deep reorg into a single rollback episode")
+	assert.Equal(t, int64(100), calls[0].from)
+	assert.GreaterOrEqual(t, calls[0].to, int64(101), "the purge must cover the orphan chain above the fork point")
 }
 
 // TestReorgProcessor_SeedCheckRestartSeam covers the resume-after-downtime
 // path: an orphan sits stored at startBlock-1 from a previous run, the first
-// fetched block's parentHash disagrees with the seed, and the rollback peels
-// the stale seam without any in-run predecessor.
+// fetched block's parentHash disagrees with the seed, and the episode's
+// walk-back resolves the fork point below the lowest stored height (nothing
+// is stored below the seam), deleting the orphan seam and re-committing the
+// canonical content.
 func TestReorgProcessor_SeedCheckRestartSeam(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
@@ -277,6 +316,7 @@ func TestReorgProcessor_SeedCheckRestartSeam(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
 	}
 
 	reorg := &mockReorgHandler{storedHashes: map[int64]string{100: orphanHash(100)}}
@@ -306,12 +346,14 @@ func TestReorgProcessor_SeedCheckRestartSeam(t *testing.T) {
 	assert.GreaterOrEqual(t, calls[0].to, int64(101))
 }
 
-// TestReorgProcessor_AlreadyExistsBackstop covers the resume seam where the
-// tail reorged while the indexer was down: the store reports "already
-// exists", the stored hash differs from the fetched one, and the processor
-// rolls back from that height instead of signing a stale block forward. An
-// already-exists with an equal stored hash keeps the idempotent sign path.
-func TestReorgProcessor_AlreadyExistsBackstop(t *testing.T) {
+// TestReorgProcessor_GapFallbackDetectsStalePredecessor covers the gap
+// fallback: a stale orphan from a previous run sits stored at startBlock
+// while the fresh store of that same height fails transiently, so nothing
+// commits at the seam. Block 101's predecessor was therefore not committed
+// in this run - the gap fallback queries the stored hash at 100, finds the
+// stale orphan hash, and starts the resolve episode from it, instead of
+// silently indexing over the failed height.
+func TestReorgProcessor_GapFallbackDetectsStalePredecessor(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
@@ -319,25 +361,25 @@ func TestReorgProcessor_AlreadyExistsBackstop(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
 	}
 
-	var signCalls atomic.Int64
+	var storeCalls atomic.Int64
 	storer := &mockBlockStorer{
-		storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
-			return nil, fmt.Errorf("block already exists")
-		},
-		signExistingFn: func(_ context.Context, _ chains.ConversionResult, _ string, _ int64) (string, error) {
-			signCalls.Add(1)
-			return "sig", nil
+		storeFn: func(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			// Exactly one transient store failure so the seam height stays
+			// uncommitted and the stale stored content becomes the only
+			// visible predecessor.
+			if blockNumOfResult(result) == 100 && storeCalls.Add(1) == 1 {
+				return nil, fmt.Errorf("store exploded")
+			}
+			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
 		},
 	}
 
 	reorg := &mockReorgHandler{
 		storedHashes: map[int64]string{
 			100: orphanHash(100),
-			// 102 stored with the canonical hash: the equal-hash backstop
-			// must keep the routine sign path, not trigger a rollback.
-			102: canonicalHash(102),
 		},
 	}
 	reorg.rollbackFn = func(from, to int64) error {
@@ -350,7 +392,9 @@ func TestReorgProcessor_AlreadyExistsBackstop(t *testing.T) {
 	cancel, errCh := runProcessor(p, 100, rec.record)
 	defer cancel()
 
-	// 100 rolls back, then everything after commits via the sign path.
+	// The failed seam makes the gap fallback detect the stored orphan from
+	// block 101; the rolled-back restart re-commits the canonical seam and
+	// resumes.
 	waitForCommits(t, rec, 4, errCh)
 	cancel()
 	err := <-errCh
@@ -361,9 +405,8 @@ func TestReorgProcessor_AlreadyExistsBackstop(t *testing.T) {
 	assert.Equal(t, []int64{100, 101, 102, 103}, got[:4])
 
 	calls := reorg.calls()
-	require.Len(t, calls, 1, "only the stale stored block must trigger a rollback")
+	require.Len(t, calls, 1, "the stale stored predecessor must be detected by the gap fallback and rolled back once")
 	assert.Equal(t, int64(100), calls[0].from)
-	assert.GreaterOrEqual(t, signCalls.Load(), int64(1), "idempotent already-exists must go through SignExisting")
 }
 
 // blockNumOfResult extracts the block height from a conversion result's
@@ -418,12 +461,23 @@ func TestReorgProcessor_GapNoFalseReorg(t *testing.T) {
 	assert.Empty(t, reorg.calls())
 }
 
-// TestReorgProcessor_GuardSameHeightRollbacks trips the per-height guard: a
-// forked RPC persistently serves 101 with a wrong parentHash, so the same
-// height rolls back again and again until the guard errors out.
+// TestReorgProcessor_GuardSameHeightRollbacks trips the per-height guard
+// with consecutive rollbacks and no intervening commit: a forked RPC
+// persistently serves 101 with a wrong parentHash, so the same height
+// resolves to the same fork point and rolls back again and again. Any
+// commit resets the episode guards, so the scenario pins the no-progress
+// case: the re-store of the rolled-back height 100 is refused (the
+// soft-deleted dockey behavior real DefraDB shows) and the stale stored
+// hash at 100 keeps the gap fallback firing at 101. The by-hash server
+// keeps the walk-back resolvable (a garbage parent hash fetches a
+// chain-consistent fork block) so the guard itself is what stops the loop.
 func TestReorgProcessor_GuardSameHeightRollbacks(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
+
+	forkBlock := &servedBlock{height: 100, hash: forkParentHash(), parentHash: canonicalHash(99)}
+	byHash := canonicalHashIndex(95, 110)
+	byHash[strings.ToLower(forkParentHash())] = forkBlock
 
 	fetcher := &testutils.MockFetcher{
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
@@ -432,11 +486,32 @@ func TestReorgProcessor_GuardSameHeightRollbacks(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
+		FetchBlockByHashFn: byHashLookup(byHash),
 	}
 
-	reorg := &mockReorgHandler{storedHashes: map[int64]string{99: canonicalHash(99)}}
+	// The first store at height 100 succeeds (the run-1 commit that makes
+	// 101's mismatch a contiguous-rule detection); every later store is
+	// refused with the DefraDB message for a soft-deleted content-derived
+	// dockey, so nothing ever commits again and the guards accumulate.
+	storeCalls := atomic.Int64{}
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			if blockNumOfResult(result) == 100 && storeCalls.Add(1) > 1 {
+				return nil, fmt.Errorf("create block: a document with the given ID has been deleted")
+			}
+			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
+		},
+	}
 
-	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+	// The no-op mock rollback leaves the stored hashes untouched, so every
+	// restart run sees the same stale stored 100 and rolls to the same fork
+	// point at 99.
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{
+		99:  canonicalHash(99),
+		100: canonicalHash(100),
+	}}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), storer, reorg, 1, 0)
 
 	_, errCh := runProcessor(p, 100, nil)
 
@@ -457,10 +532,12 @@ func TestReorgProcessor_GuardSameHeightRollbacks(t *testing.T) {
 	}
 }
 
-// TestReorgProcessor_GuardTotalRollbacks trips the per-run guard: a reorg
-// handler whose stored hashes never match any parent makes every restart
-// peel one level further down, until the total count exceeds the limit.
-func TestReorgProcessor_GuardTotalRollbacks(t *testing.T) {
+// TestReorgProcessor_WalkBackCapFailsWithoutCommonAncestor proves the
+// walk-back's hard bound: a chain whose stored hashes never agree with any
+// served hash (persistently forked node) cannot converge, so the episode
+// fails fatally once the descent exceeds the depth cap instead of rolling
+// back on a guess. Nothing is deleted on that path.
+func TestReorgProcessor_WalkBackCapFailsWithoutCommonAncestor(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
@@ -468,8 +545,16 @@ func TestReorgProcessor_GuardTotalRollbacks(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(0, 110)),
+		// Disable the finalized floor so the hard depth cap is the only
+		// bound this test exercises.
+		FetchFinalizedBlockNumberFn: func(_ context.Context) (int64, error) {
+			return 0, fmt.Errorf("finalized block number unavailable")
+		},
 	}
 
+	// A handler that serves a constant wrong hash for every height: no
+	// common ancestor can exist anywhere.
 	reorg := &mockReorgHandler{defaultHash: forkParentHash()}
 
 	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
@@ -479,12 +564,13 @@ func TestReorgProcessor_GuardTotalRollbacks(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "per-run limit")
+		assert.Contains(t, err.Error(), "walk-back")
+		assert.Contains(t, err.Error(), "depth cap")
 	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for the total rollback guard")
+		t.Fatal("timed out waiting for the walk-back depth cap")
 	}
 
-	assert.NotEmpty(t, reorg.calls())
+	assert.Empty(t, reorg.calls(), "no deletion may happen when no common ancestor can be verified")
 }
 
 // TestReorgProcessor_RollbackFailureIsFatal proves a failing rollback stops
@@ -501,6 +587,7 @@ func TestReorgProcessor_RollbackFailureIsFatal(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
 	}
 
 	reorg := &mockReorgHandler{storedHashes: map[int64]string{99: canonicalHash(99)}}
