@@ -129,10 +129,11 @@ func TestNewConcurrentBlockProcessor(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// fetchAndProcessBlock tests.
+// fetchAndConvertBlock tests (the worker path: fetch + convert only, no
+// store).
 // ---------------------------------------------------------------------------.
 
-func TestFetchAndProcessBlock_FetchFailure(t *testing.T) {
+func TestFetchAndConvertBlock_FetchFailure(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -198,7 +199,7 @@ func TestFetchAndProcessBlock_FetchFailure(t *testing.T) {
 				defer cancel()
 			}
 
-			result := p.fetchAndProcessBlock(ctx, tc.blockNum)
+			result := p.fetchAndConvertBlock(ctx, tc.blockNum)
 			require.NotNil(t, result)
 			assert.False(t, result.Success)
 			assert.Error(t, result.Error)
@@ -210,10 +211,10 @@ func TestFetchAndProcessBlock_FetchFailure(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// fetchAndProcessBlock — retry-then-success paths.
+// fetchAndConvertBlock - retry-then-success paths.
 // ---------------------------------------------------------------------------.
 
-func TestFetchAndProcessBlock_RetryThenSuccess(t *testing.T) {
+func TestFetchAndConvertBlock_RetryThenSuccess(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -281,18 +282,22 @@ func TestFetchAndProcessBlock_RetryThenSuccess(t *testing.T) {
 				ctx = context.Background()
 			}
 
-			result := p.fetchAndProcessBlock(ctx, tc.blockNum)
+			result := p.fetchAndConvertBlock(ctx, tc.blockNum)
 			require.NotNil(t, result)
-			assert.True(t, result.Success, "should succeed after retry: %v", result.Error)
+			require.NoError(t, result.Error, "should succeed after retry")
+			assert.True(t, result.Success)
+			assert.NotEmpty(t, result.Hash, "the worker path extracts the block hash for the continuity check")
+			assert.NotNil(t, result.Converted.Groups, "the conversion result travels to the commit path")
 		})
 	}
 }
 
 // ---------------------------------------------------------------------------.
-// fetchAndProcessBlock — duplicate block / existing path.
+// storeWithRetry - duplicate block / existing path (the second store of the
+// same content hits already-exists and signs instead).
 // ---------------------------------------------------------------------------.
 
-func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
+func TestStoreWithRetry_DuplicateBlock(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -327,10 +332,13 @@ func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
 
 			p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 
-			result1 := p.fetchAndProcessBlock(context.Background(), tc.blockNum)
+			converted := p.fetchAndConvertBlock(context.Background(), tc.blockNum)
+			require.NoError(t, converted.Error)
+
+			result1 := p.storeWithRetry(context.Background(), tc.blockNum, converted.Converted)
 			require.True(t, result1.Success)
 
-			result2 := p.fetchAndProcessBlock(context.Background(), tc.blockNum)
+			result2 := p.storeWithRetry(context.Background(), tc.blockNum, converted.Converted)
 			require.NotNil(t, result2)
 			assert.True(t, result2.Success)
 
@@ -342,12 +350,12 @@ func TestFetchAndProcessBlock_DuplicateBlock(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// fetchAndProcessBlock — concurrent conflict paths.
+// storeWithRetry - concurrent conflict paths.
 // We trigger IsErrTransactionConflict by running multiple concurrent processors
 // that try to create the same block at the same time.
 // ---------------------------------------------------------------------------
 
-func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
+func TestStoreWithRetry_ConcurrentConflict(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -406,7 +414,12 @@ func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
 					defer wg.Done()
 					p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
 					processors[idx] = p
-					results[idx] = p.fetchAndProcessBlock(ctx, tc.blockNum)
+					converted := p.fetchAndConvertBlock(ctx, tc.blockNum)
+					if converted.Error != nil {
+						results[idx] = converted
+						return
+					}
+					results[idx] = p.storeWithRetry(ctx, tc.blockNum, converted.Converted)
 				}(i)
 			}
 
@@ -453,13 +466,13 @@ func TestFetchAndProcessBlock_ConcurrentConflict(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// storeWithRetry — signer goroutines are tracked by signWg (deterministic).
+// storeWithRetry - signer goroutines are tracked by signWg (deterministic).
 // ---------------------------------------------------------------------------.
 
 // TestStoreWithRetry_SignersTracked proves that the fire-and-forget
 // SignExisting goroutines spawned on ErrAlreadyExists are tracked by the
 // processor's signWg: signWg.Wait must block until they finish. This is
-// the deterministic mutation detector for the raw-`go` revert — without the
+// the deterministic mutation detector for the raw-`go` revert - without the
 // signWg tracking, signWg.Wait returns immediately while the signer is
 // still parked below. Pure mocks: no DefraDB, no RPC server.
 func TestStoreWithRetry_SignersTracked(t *testing.T) {
@@ -501,7 +514,7 @@ func TestStoreWithRetry_SignersTracked(t *testing.T) {
 
 	select {
 	case <-waitDone:
-		t.Fatal("signWg.Wait returned while the signer goroutine was still running — signer goroutines are not tracked")
+		t.Fatal("signWg.Wait returned while the signer goroutine was still running - signer goroutines are not tracked")
 	case <-time.After(200 * time.Millisecond):
 	}
 
@@ -514,8 +527,8 @@ func TestStoreWithRetry_SignersTracked(t *testing.T) {
 }
 
 // TestStoreWithRetry_PartialStoreErrorFailsBlockWithoutSigner proves a
-// partially-stored batch — Store's distinct "previously stored" error wrapped
-// inside "partially indexed with N batch errors" — fails the block
+// partially-stored batch - Store's distinct "previously stored" error wrapped
+// inside "partially indexed with N batch errors" - fails the block
 // truthfully: no Success, the error surfaces on the result, and no
 // fire-and-forget SignExisting goroutine ever starts (it could never complete
 // a block missing whole groups). Pure mocks: no DefraDB, no RPC server.
@@ -553,10 +566,10 @@ func TestStoreWithRetry_PartialStoreErrorFailsBlockWithoutSigner(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// fetchAndProcessBlock — context cancel during conflict retry wait.
+// storeWithRetry - context cancel during conflict retry wait.
 // ---------------------------------------------------------------------------.
 
-func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
+func TestStoreWithRetry_ContextCancelDuringConflictRetry(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	td := testutils.SetupTestDefraDB(t)
@@ -577,7 +590,9 @@ func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
 
 	// First, insert the block to make subsequent inserts trigger "already exists".
 	p := NewConcurrentBlockProcessor(fetcher, converter, blockHandler, nil, 1, 0)
-	result1 := p.fetchAndProcessBlock(context.Background(), 0xdead1)
+	converted := p.fetchAndConvertBlock(context.Background(), 0xdead1)
+	require.NoError(t, converted.Error)
+	result1 := p.storeWithRetry(context.Background(), 0xdead1, converted.Converted)
 	require.True(t, result1.Success)
 
 	// The "already exists" path doesn't go through conflict retry.
@@ -588,7 +603,7 @@ func TestFetchAndProcessBlock_ContextCancelDuringConflictRetry(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// ProcessBlocks — cancel after delay (rate-limit, callback, and immediate variants).
+// ProcessBlocks - cancel after delay (rate-limit, callback, and immediate variants).
 // ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
@@ -682,7 +697,7 @@ func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// ProcessBlocks — tooFarAhead throttle paths.
+// ProcessBlocks - tooFarAhead throttle paths.
 // ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_TooFarAhead(t *testing.T) {
@@ -757,7 +772,7 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ProcessBlocks — out-of-order completion is committed in nonce order.
+// ProcessBlocks - out-of-order completion is committed in nonce order.
 // ---------------------------------------------------------------------------
 
 // TestProcessBlocks_OutOfOrderCompletion verifies that collectResults commits
@@ -845,7 +860,7 @@ func TestProcessBlocks_OutOfOrderCompletion(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// ProcessBlocks — always-succeed (existing path) and always-fail (exhaustion).
+// ProcessBlocks - always-succeed (existing path) and always-fail (exhaustion).
 // ---------------------------------------------------------------------------.
 
 func TestProcessBlocks_ErrorAndExisting(t *testing.T) {
@@ -905,14 +920,14 @@ func TestProcessBlocks_ErrorAndExisting(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------.
-// ProcessBlocks — shutdown drains signer goroutines before returning.
+// ProcessBlocks - shutdown drains signer goroutines before returning.
 // ---------------------------------------------------------------------------.
 
 // TestProcessBlocks_ShutdownDrainsSigners proves the production shutdown
 // ordering: ProcessBlocks must not return until every spawned SignExisting
 // goroutine has finished, even after the context is canceled. Under the
 // raw-`go` mutation (signWg tracking reverted), ProcessBlocks returns while
-// the signer is still parked — reintroducing the badger "Unclosed iterator"
+// the signer is still parked - reintroducing the badger "Unclosed iterator"
 // panic once the defra node is closed underneath it. Pure mocks: no DefraDB,
 // no RPC server.
 func TestProcessBlocks_ShutdownDrainsSigners(t *testing.T) {
@@ -971,7 +986,7 @@ func TestProcessBlocks_ShutdownDrainsSigners(t *testing.T) {
 	// the caller does next (StopIndexing closes the defra node there).
 	select {
 	case err := <-errCh:
-		t.Fatalf("ProcessBlocks returned while the signer goroutine was still running (err=%v) — shutdown does not drain signers", err)
+		t.Fatalf("ProcessBlocks returned while the signer goroutine was still running (err=%v) - shutdown does not drain signers", err)
 	case <-time.After(200 * time.Millisecond):
 	}
 
