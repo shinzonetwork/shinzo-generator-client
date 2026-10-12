@@ -116,13 +116,30 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
 	}
+
+	// Per-block RPC latency accounting: the collector rides the context so
+	// every EthereumClient call (including the concurrent per-tx receipt
+	// fan-out) records its network round-trip and local conversion time.
+	stats := newRPCStats()
+	ctx = withRPCStats(ctx, stats)
+
+	t := logger.NewPerfTimer()
+
 	block, err := f.fetchBlock(ctx, height)
+	t.Stage("fetch")
 	if err != nil {
 		return nil, err
 	}
+
 	transactions, receipts, err := f.fetchTransactionsAndReceipts(ctx, block, height)
+	t.Stage("receipts")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch block %d receipts: %w", height, err)
+	}
+
+	logger.Perff("Block %d (rpc): %s", height, t.Total())
+	if detail := stats.render(); detail != "" {
+		logger.Perff("Block %d (rpc detail): %s", height, detail)
 	}
 	return &BlockBundle{
 		Block:        block,
@@ -137,9 +154,15 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	if f.client == nil {
 		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchHighestBlockNumber")
 	}
+
+	stats := newRPCStats()
+	ctx = withRPCStats(ctx, stats)
 	n, err := f.client.GetLatestBlockNumber(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block number: %w", err)
+	}
+	if detail := stats.render(); detail != "" {
+		logger.Perff("chain tip (rpc): %s", detail)
 	}
 	return n.Int64(), nil
 }
