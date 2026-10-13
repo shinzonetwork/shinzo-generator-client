@@ -736,10 +736,10 @@ func TestStore_BatchedMode_RepeatedAccessListEntrySignsNormally(t *testing.T) {
 	require.Len(t, tracker.trackedResults, 1)
 	require.NotEmpty(t, tracker.trackedResults[0].BlockSignatureID,
 		"a repeated access-list entry must not leave the block unsigned")
-	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeAccessListEntry)], 1,
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[cols.AccessListEntry], 1,
 		"the repeated entry must collapse to one writable document")
 
-	aleCol := extractCollection(cols, chains.TypeAccessListEntry)
+	aleCol := cols.AccessListEntry
 	ids, err := handler.queryCollectionDocIDs(ctx, aleCol, "blockNumber", 1952, 1952)
 	require.NoError(t, err)
 	require.Len(t, ids, 1, "exactly the unique ALE doc must be stored")
@@ -787,7 +787,7 @@ func TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc(t *testing.T) {
 			tx3 := mockTransaction("0xaaa4400000000000000000000000000000000000000000000000000000000003", "4400")
 			result := buildGroups(t, block, []*evm.Transaction{tx1, tx2, tx3}, nil)
 
-			txCol := extractCollection(cols, chains.TypeTransaction)
+			txCol := cols.Transaction
 			var docs []map[string]any
 			for _, g := range result.Groups {
 				if g.Collection == txCol {
@@ -860,7 +860,7 @@ func TestStore_UnwritableDuplicateIsTruthfulAndUnsigned(t *testing.T) {
 	tx := mockTransaction("0xaaa4450000000000000000000000000000000000000000000000000000000001", "4450")
 	result := buildGroups(t, block, []*evm.Transaction{tx}, nil)
 
-	txCol := extractCollection(cols, chains.TypeTransaction)
+	txCol := cols.Transaction
 	txGroupIdx := -1
 	for i := range result.Groups {
 		if result.Groups[i].Collection == txCol {
