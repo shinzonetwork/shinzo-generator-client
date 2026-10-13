@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/TBD54566975/ssi-sdk v0.0.4-alpha
-	github.com/ethereum/go-ethereum v1.17.6
+	github.com/ethereum/go-ethereum v1.17.7
 	github.com/ipfs/go-cid v0.6.2
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.48.0
