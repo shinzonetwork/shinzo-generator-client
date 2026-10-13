@@ -379,6 +379,7 @@ func TestLoadBSCConfig(t *testing.T) {
 
 	assert.Equal(t, "BSC", cfg.Chain.Name)
 	assert.Equal(t, "Mainnet", cfg.Chain.Network)
+	assert.Equal(t, uint64(56), cfg.Chain.ChainID)
 	assert.Equal(t, "evm", cfg.Chain.Adapter)
 
 	// The chain identity must survive the adapter registry: the collection
