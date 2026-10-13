@@ -415,7 +415,7 @@ func findProjectRoot(t *testing.T) string {
 // what LoadConfig sees rather than values from a developer .env.
 func scrubChainEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"CHAIN_NAME", "CHAIN_NETWORK", "CHAIN_ADAPTER"} {
+	for _, key := range []string{"CHAIN_NAME", "CHAIN_NETWORK", "CHAIN_ADAPTER", "CHAIN_ID"} {
 		old, had := os.LookupEnv(key)
 		require.NoError(t, os.Unsetenv(key))
 		t.Cleanup(func() {
