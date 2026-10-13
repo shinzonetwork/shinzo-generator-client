@@ -758,8 +758,6 @@ func (c *timedConverter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node
 	return c.inner.GetDocIDsByBlockRange(ctx, n, from, to)
 }
 
-func (c *timedConverter) SignatureCollection() string { return c.inner.SignatureCollection() }
-
 // timedStorer wraps the processor's BlockStorer, closing each block's timing
 // window when its store lands. The processor's own extractBlockHash finds
 // the block group by its BlockHashField; the number is recovered the same
