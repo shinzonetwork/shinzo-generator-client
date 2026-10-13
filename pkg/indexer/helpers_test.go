@@ -131,7 +131,8 @@ func newTestProcessor(t *testing.T, td *testutils.TestDefraDB, rpcServerURL stri
 	require.NoError(t, fetcher.Connect(context.Background()))
 	t.Cleanup(func() { _ = fetcher.Close() })
 
-	converter := evm.NewConverter(cfg)
+	converter, err := evm.NewConverter(cfg)
+	require.NoError(t, err)
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, cfg.Indexer.MaxDocsPerTxn)
 	require.NoError(t, err)
@@ -400,7 +401,7 @@ func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 // startPathBaseCfg builds the common StartIndexing test config.
 func startPathBaseCfg(rpcURL, defraURL, tmpDir string, idx config.IndexerConfig) *config.Config {
 	return &config.Config{
-		Chain: config.ChainConfig{ChainID: testChainID},
+		Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           defraURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -564,7 +565,7 @@ func startSignMessagesIndexer(t *testing.T, keyringSecret, defraURL string, p2p 
 	t.Cleanup(srv.Close)
 
 	cfg := &config.Config{
-		Chain: config.ChainConfig{ChainID: testChainID},
+		Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			KeyringSecret: keyringSecret,
 			P2P:           p2p,

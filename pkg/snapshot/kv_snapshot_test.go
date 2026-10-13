@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -92,9 +91,7 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	assert.Equal(t, int64(1004), importResult.EndBlock)
 
 	// Rebuild indexes after bulk KV import
-	cols, err := chains.NewCollections(nil)
-	require.NoError(t, err)
-	err = RebuildAllIndexes(ctx, td2.Node, cols.AllCollections())
+	err = RebuildAllIndexes(ctx, td2.Node, evm.NewCollectionNames(evm.DefaultCollectionPrefix).AllCollections())
 	require.NoError(t, err)
 
 	// Verify blocks exist in the second node
@@ -241,9 +238,7 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 	assert.Equal(t, int64(109), importResult.EndBlock)
 
 	// Rebuild indexes after bulk KV import
-	cols, err := chains.NewCollections(nil)
-	require.NoError(t, err)
-	err = RebuildAllIndexes(ctx, td2.Node, cols.AllCollections())
+	err = RebuildAllIndexes(ctx, td2.Node, evm.NewCollectionNames(evm.DefaultCollectionPrefix).AllCollections())
 	require.NoError(t, err)
 
 	// Verify

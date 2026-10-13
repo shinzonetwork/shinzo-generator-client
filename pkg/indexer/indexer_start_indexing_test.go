@@ -62,7 +62,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 
 				// Create a config pointing to the test DefraDB as "external".
 				cfg := &config.Config{
-					Chain: config.ChainConfig{ChainID: testChainID},
+					Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 					DefraDB: config.DefraDBConfig{
 						URL: fmt.Sprintf("http://localhost:%d", td.Port),
 					},
@@ -111,7 +111,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 				t.Cleanup(rpcServer.Close)
 
 				cfg := &config.Config{
-					Chain: config.ChainConfig{ChainID: testChainID},
+					Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 					DefraDB: config.DefraDBConfig{
 						URL:           testDefraRandomURL,
 						KeyringSecret: "test-secret-for-keyring-12345678",
@@ -768,7 +768,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 
 	// Phase 1: Start an indexer to populate some blocks.
 	cfg1 := &config.Config{
-		Chain: config.ChainConfig{ChainID: testChainID},
+		Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -832,7 +832,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	blockCallCount.Store(0)
 
 	cfg2 := &config.Config{
-		Chain: config.ChainConfig{ChainID: testChainID},
+		Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -951,7 +951,7 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 			defer rpcServer.Close()
 
 			cfg := &config.Config{
-				Chain: config.ChainConfig{ChainID: testChainID},
+				Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 				DefraDB: config.DefraDBConfig{
 					URL:           testDefraRandomURL,
 					KeyringSecret: "test-secret-for-keyring-12345678",

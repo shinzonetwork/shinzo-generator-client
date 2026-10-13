@@ -604,9 +604,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	assert.Equal(t, int64(104), importResult.EndBlock)
 
 	// Rebuild indexes after bulk KV import
-	cols, err := chains.NewCollections(nil)
-	require.NoError(t, err)
-	err = RebuildAllIndexes(ctx, td2.Node, cols.AllCollections())
+	err = RebuildAllIndexes(ctx, td2.Node, evm.NewCollectionNames(evm.DefaultCollectionPrefix).AllCollections())
 	require.NoError(t, err)
 
 	// Verify the second node has the blocks
