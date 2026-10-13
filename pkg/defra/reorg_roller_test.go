@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	client "github.com/sourcenetwork/defradb/client"
+
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -296,4 +298,136 @@ func TestReorgRoller_RollbackBlocks_RetainsQueueEntries(t *testing.T) {
 	// these docIDs, and the cleanup path that used to drop them is gone.
 	assert.Equal(t, 1, queue.Len(),
 		"the rollback must retain the prune-queue entry so the soft-deleted orphan docs stay purgeable")
+}
+
+// TestReorgRoller_GetStoredBlockHash_MultiRowErrors pins the multi-row
+// guard: two visible block documents at one height mean an inconsistent
+// store (the number field is indexed but not unique), and the stranded
+// guess could false-rollback a good block - so the query must error on the
+// multi-row state and the rollback must stop loudly instead of verifying
+// or deleting anything from a wrong guess.
+func TestReorgRoller_GetStoredBlockHash_MultiRowErrors(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+
+	handler, err := NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+
+	converter := evm.NewConverter(nil)
+	roller, err := NewReorgRoller(td.Node, converter)
+	require.NoError(t, err)
+
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
+	blockCol := extractCollection(cols, chains.TypeBlock)
+
+	ctx := ctxWithIdentity(t)
+
+	// Two blocks at the same height: distinct content, distinct dockeys,
+	// both visible (fixture precondition, not the behavior under test).
+	duplicate := mockBlock("0x835") // 2101
+	duplicate.Hash = deterministicHash("duplicate-block-2101")
+	_, err = handler.Store(ctx, buildGroups(t, duplicate, nil, nil))
+	require.NoError(t, err)
+	shared := mockBlock("0x835")
+	shared.Hash = deterministicHash("shared-block-2101")
+	_, err = handler.Store(ctx, buildGroups(t, shared, nil, nil))
+	require.NoError(t, err)
+
+	rows, err := converter.GetDocIDsByBlockRange(ctx, td.Node, 2101, 2101)
+	require.NoError(t, err)
+	require.Len(t, rows[blockCol], 2, "the fixture must leave two visible block docs at the height")
+
+	stored, hashErr := roller.GetStoredBlockHash(ctx, 2101)
+	require.Error(t, hashErr, "the multi-row state must surface as an error, not a guess")
+	assert.Contains(t, hashErr.Error(), "share the height")
+	assert.Empty(t, stored, "no row may be guessed when the store state is inconsistent")
+
+	require.Error(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 2101), 2101, 2101),
+		"the rollback must stop loudly on the inconsistent store")
+
+	after, err := converter.GetDocIDsByBlockRange(ctx, td.Node, 2101, 2101)
+	require.NoError(t, err)
+	require.Len(t, after[blockCol], 2, "nothing may be deleted on the inconsistent-store error")
+}
+
+// TestReorgRoller_QueueRetainedOrphansAreHardPurgeable is the purge-after-
+// soft-delete hard requirement: the rollback retains the orphan's
+// prune-queue entry so the pruner can hard-purge the soft-deleted docs
+// locally, and PurgeByDocIDs must actually reclaim them. After the purge,
+// the byte-identical orphan content stores again (it was refused with the
+// deleted-dockey conflict before the purge) and every collection answers
+// queries for the height again. If PurgeByDocIDs cannot reclaim a
+// soft-deleted doc, the defect-7 fix needs an explicit purge step in the
+// rollback instead of the retained-entry flow.
+func TestReorgRoller_QueueRetainedOrphansAreHardPurgeable(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+
+	handler, err := NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+
+	converter := evm.NewConverter(nil)
+	roller, err := NewReorgRoller(td.Node, converter)
+	require.NoError(t, err)
+
+	cols := evm.NewCollectionNames("Ethereum__Mainnet")
+	blockCol := extractCollection(cols, chains.TypeBlock)
+	txCol := extractCollection(cols, chains.TypeTransaction)
+	logCol := extractCollection(cols, chains.TypeLog)
+	sigCol := extractCollection(cols, chains.TypeBlockSignature)
+
+	queue := pruner.NewIndexerQueue()
+	tracker := &queueRollbackTracker{queue: queue}
+	handler.SetDocIDTracker(tracker)
+
+	ctx := ctxWithIdentity(t)
+
+	block := mockBlock("0x835") // 2101
+	txHash := "0xpurge00000000000000000000000000000000000000000000000000000000001"
+	tx := mockTransaction(txHash, "2101")
+	receipt := mockReceipt(txHash, "0x835")
+	groups := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
+
+	_, err = handler.Store(ctx, groups)
+	require.NoError(t, err)
+	require.Equal(t, 1, queue.Len(), "the stored orphan must be tracked in the prune queue")
+
+	require.NoError(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 2101), 2101, 2101))
+
+	// Precondition: the orphan is soft-deleted - hidden and re-add refused.
+	_, err = handler.Store(ctx, groups)
+	require.Error(t, err, "the soft-deleted content-derived dockey must be refused before the purge")
+	assert.Contains(t, strings.ToLower(err.Error()), "deleted")
+
+	// Hard-purge through the retained queue entry, mirroring the pruner's
+	// drain-and-purge path: the retained entry is the only record of the
+	// soft-deleted docIDs, since range queries skip soft-deleted docs.
+	drained := queue.Drain(0, blockCol, sigCol)
+	require.NotNil(t, drained, "the retained entry must be drainable for the purge")
+	require.NotEmpty(t, drained.DocIDsByCollection)
+
+	for colName, docIDs := range drained.DocIDsByCollection {
+		require.NotEmpty(t, docIDs, "collection %s must carry docIDs from the retained entry", colName)
+		col, colErr := td.Node.DB.GetCollectionByName(ctx, colName)
+		require.NoError(t, colErr)
+		purgeIDs := make([]client.DocID, 0, len(docIDs))
+		for _, id := range docIDs {
+			parsed, parseErr := client.NewDocIDFromString(id)
+			require.NoError(t, parseErr)
+			purgeIDs = append(purgeIDs, parsed)
+		}
+		require.NoError(t, col.PurgeByDocIDs(ctx, purgeIDs, true),
+			"the purge must reclaim the soft-deleted docs of %s", colName)
+	}
+
+	// Reclaimed: the byte-identical content stores again and every
+	// collection answers queries for the height again.
+	_, err = handler.Store(ctx, groups)
+	require.NoError(t, err, "after the hard purge the identical orphan content must store again")
+
+	reindexed, err := converter.GetDocIDsByBlockRange(ctx, td.Node, 2101, 2101)
+	require.NoError(t, err)
+	for _, colName := range []string{blockCol, txCol, logCol, sigCol} {
+		assert.Contains(t, reindexed, colName, "the re-stored block must be queryable in %s", colName)
+	}
 }

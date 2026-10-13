@@ -10,6 +10,14 @@ package indexer
 // height and by hash, for the walk-back descent) and a mock converter
 // carries the served hash/parentHash into the DocumentGroup contract the
 // check consumes.
+//
+// The scenarios here double as the Phase 3 unit coverage for the episode
+// bounds: walk-back depth below the first mismatch (MultiBlockReorgConverges,
+// SeedCheckRestartSeam), the finalized-floor fatal, the confirmation wait
+// re-anchoring on a mid-wait chain flip without deleting anything, the
+// guard reset on intervening commits, and the gap fallback catching a
+// partially stored seam. The by-hash/finalized fetcher behavior itself is
+// covered in pkg/chains/evm.
 
 import (
 	"context"
@@ -47,6 +55,13 @@ func canonicalHash(height int64) string {
 // 62 hex digits keeps the 0x-prefixed 64-digit shape.
 func orphanHash(height int64) string {
 	return fmt.Sprintf("0xdead%062x", height)
+}
+
+// flipHash derives the hash of the chain-side block the RPC node serves
+// after it flips to a second fork mid-confirmation-wait ("0xbeef" prefix,
+// same 64-hex-digit shape as canonicalHash/orphanHash).
+func flipHash(height int64) string {
+	return fmt.Sprintf("0xbeef%062x", height)
 }
 
 // forkParentHash is a persistently wrong parent hash served by a forked RPC
@@ -606,4 +621,248 @@ func TestReorgProcessor_RollbackFailureIsFatal(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for the rollback failure")
 	}
+}
+
+// TestReorgProcessor_FinalizedFloorStopsWalkBack proves the walk-back's
+// finalized bound: the chain reports a finalized height, the stored hashes
+// disagree with the served chain all the way down to it, and the episode
+// fails fatally at the floor instead of rolling back anything at or below
+// the safety bound. Nothing is deleted on that path.
+func TestReorgProcessor_FinalizedFloorStopsWalkBack(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(0, 110)),
+		// The chain reports finalized 98; the walk never descends past it.
+		FetchFinalizedBlockNumberFn: func(_ context.Context) (int64, error) {
+			return 98, nil
+		},
+	}
+
+	// A handler that serves a constant wrong hash for every height: no
+	// common ancestor can exist anywhere.
+	reorg := &mockReorgHandler{defaultHash: forkParentHash()}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+
+	_, errCh := runProcessor(p, 100, nil)
+
+	select {
+	case err := <-errCh:
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "walk-back")
+		assert.Contains(t, err.Error(), "finalized height")
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the finalized-floor fatal")
+	}
+
+	assert.Empty(t, reorg.calls(), "no deletion may happen at or past the finalized height")
+}
+
+// TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain covers the
+// confirmation wait's flip handling: a mid-wait disagreement re-anchors the
+// episode on the newest chain observation and keeps waiting, and the episode
+// is only confirmed - and rolled back - once a block chains onto the newest
+// anchor. Nothing is ever stored or deleted during the wait (exactly one
+// rollback episode fires, after the confirm), so a flip-flopping chain costs
+// re-plans, not deletions.
+func TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	fetch101 := atomic.Int64{}
+	fetch102 := atomic.Int64{}
+	fetch103 := atomic.Int64{}
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			switch height {
+			case 101:
+				// First fetch: chain A, disagreeing with the committed
+				// canonical 100 - the mismatch that opens the episode.
+				if fetch101.Add(1) == 1 {
+					return &servedBlock{height: 101, hash: orphanHash(101), parentHash: forkParentHash()}, nil
+				}
+			case 102:
+				// First fetch: chain B - breaks the pending continuity of
+				// chain A, so the wait re-anchors before anything confirms.
+				if fetch102.Add(1) == 1 {
+					return &servedBlock{height: 102, hash: flipHash(102), parentHash: flipHash(101)}, nil
+				}
+			case 103:
+				// First fetch only: chain B's next block, chaining onto the
+				// re-anchored newest observation to confirm the episode.
+				// Later fetches (the restart after the rollback) serve the
+				// canonical chain so the re-commit does not re-detect.
+				if fetch103.CompareAndSwap(0, 1) {
+					return &servedBlock{height: 103, hash: canonicalHash(103), parentHash: flipHash(102)}, nil
+				}
+			}
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		// The walk-back must descend chain B past the seam: the served
+		// chain-B block at 101 leads into the stored canonical 100.
+		FetchBlockByHashFn: byHashLookup(map[string]*servedBlock{
+			strings.ToLower(flipHash(101)): {height: 101, hash: flipHash(101), parentHash: canonicalHash(100)},
+		}),
+	}
+
+	// The handler carries the pre-reorg stored state; the rollback purges
+	// like a real soft-delete would.
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{100: canonicalHash(100)}}
+	reorg.rollbackFn = func(from, to int64) error {
+		return purgeStoredHashes(reorg, from, to)
+	}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+
+	rec := &commitRecorder{}
+	cancel, errCh := runProcessor(p, 100, rec.record)
+	defer cancel()
+
+	// [100 canonical, then the restart re-commits 101, 102, 103]
+	waitForCommits(t, rec, 4, errCh)
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled)
+
+	got := rec.snapshot()
+	require.GreaterOrEqual(t, len(got), 4)
+	assert.Equal(t, []int64{100, 101, 102, 103}, got[:4])
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1,
+		"the wait re-anchors without deleting: a single rollback fires after the confirm")
+	assert.Equal(t, int64(101), calls[0].from,
+		"the rollback restarts above the newest chain's common ancestor (the stored 100)")
+	assert.GreaterOrEqual(t, calls[0].to, int64(102),
+		"the rollback must cover the heights dispatched during the wait")
+}
+
+// TestReorgProcessor_GuardResetsOnProgress pins the episode-based guard
+// semantics: 65+ rollbacks that are each interleaved with a successful
+// commit never trip the per-run limit, because every commit resets the
+// guards. The scenario keeps cycling a one-block reorg (persistently
+// forked fork at 101, stores always succeeding, mock rollback a no-op),
+// so the test itself stops the loop once the cap has been passed.
+func TestReorgProcessor_GuardResetsOnProgress(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	forkBlock := &servedBlock{height: 100, hash: forkParentHash(), parentHash: canonicalHash(99)}
+	byHash := canonicalHashIndex(95, 110)
+	byHash[strings.ToLower(forkParentHash())] = forkBlock
+
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			if height == 101 {
+				return &servedBlock{height: 101, hash: canonicalHash(101), parentHash: forkParentHash()}, nil
+			}
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockByHashFn: byHashLookup(byHash),
+	}
+
+	// Every store succeeds, so each rollback cycle interleaves a commit
+	// (at the restart height 100) before the next mismatch at 101.
+	storer := &mockBlockStorer{}
+
+	// The no-op rollback preserves the stored hashes, so every cycle
+	// resolves to the same fork point at 99 and restarts from 100.
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{
+		99:  canonicalHash(99),
+		100: canonicalHash(100),
+	}}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), storer, reorg, 1, 0)
+
+	cancel, errCh := runProcessor(p, 100, nil)
+
+	deadline := time.After(30 * time.Second)
+	for len(reorg.calls()) <= maxRollbacksPerRun {
+		select {
+		case <-time.After(5 * time.Millisecond):
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d interleaved rollback cycles (got %d)",
+				maxRollbacksPerRun+1, len(reorg.calls()))
+		case err := <-errCh:
+			t.Fatalf("ProcessBlocks exited early: %v", err)
+		}
+	}
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled,
+		"a reorg per committed block must never trip the guards")
+
+	calls := reorg.calls()
+	require.Greater(t, len(calls), maxRollbacksPerRun,
+		"the test must have driven more rollbacks than the per-run limit to prove the resets")
+	for _, call := range calls {
+		assert.Equal(t, int64(100), call.from)
+	}
+}
+
+// TestReorgProcessor_GapFallbackCatchesPartialStore covers the partial-store
+// variant of the gap fallback from the spec: the first store of height 100
+// writes its block doc and then fails, so the generated orphan keeps a
+// visible block doc (exactly what a crash or a later-group failure leaves
+// behind) and nothing commits at the seam. Block 101's predecessor was not
+// committed in this run, so the gap fallback queries the stored hash at 100,
+// finds the partially stored orphan, and opens the episode instead of
+// silently indexing over the suspect height.
+func TestReorgProcessor_GapFallbackCatchesPartialStore(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
+	}
+
+	// storedHashes starts empty but non-nil: the scripted storer writes the
+	// partially stored block doc into it, mirroring what a real partial
+	// store leaves visible.
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{}}
+	var storeCalls atomic.Int64
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			// The first store of 100 persists the block doc (the visible
+			// partial state) and then fails, so nothing commits at the seam.
+			if blockNumOfResult(result) == 100 && storeCalls.Add(1) == 1 {
+				reorg.mu.Lock()
+				reorg.storedHashes[100] = orphanHash(100)
+				reorg.mu.Unlock()
+				return nil, fmt.Errorf("write tx docs: store exploded")
+			}
+			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
+		},
+	}
+	reorg.rollbackFn = func(from, to int64) error {
+		return purgeStoredHashes(reorg, from, to)
+	}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), storer, reorg, 1, 0)
+
+	rec := &commitRecorder{}
+	cancel, errCh := runProcessor(p, 100, rec.record)
+	defer cancel()
+
+	waitForCommits(t, rec, 4, errCh)
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled)
+
+	got := rec.snapshot()
+	require.GreaterOrEqual(t, len(got), 4)
+	assert.Equal(t, []int64{100, 101, 102, 103}, got[:4])
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1,
+		"the partially stored seam must be detected by the gap fallback and rolled back once")
+	assert.Equal(t, int64(100), calls[0].from)
 }
