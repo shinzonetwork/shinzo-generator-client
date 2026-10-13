@@ -387,13 +387,8 @@ func TestLoadBSCConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "BSC__Mainnet", collections.Prefix())
 
-	blockCol, err := collections.GetCollection(chains.TypeBlock)
-	require.NoError(t, err)
-	assert.Equal(t, "BSC__Mainnet__Block", blockCol)
-
-	sigCol, err := collections.GetCollection(chains.TypeBlockSignature)
-	require.NoError(t, err)
-	assert.Equal(t, "BSC__Mainnet__BlockSignature", sigCol)
+	assert.Equal(t, "BSC__Mainnet__Block", collections.BlockCollection())
+	assert.Equal(t, "BSC__Mainnet__BlockSignature", collections.BlockSignatureCollection())
 }
 
 // findProjectRoot walks up to the directory containing go.mod so bundled
