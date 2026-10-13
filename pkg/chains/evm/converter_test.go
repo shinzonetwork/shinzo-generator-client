@@ -20,16 +20,36 @@ import (
 // Construction
 // ---------------------------------------------------------------------------
 
-func TestNewConverter_NilConfig(t *testing.T) {
+// TestNewConverter_ChainUnset calls the converter and collections factories
+// through the chains registry, so the factories' error returns are covered as
+// well: neither may fill in a chain name or network.
+func TestNewConverter_ChainUnset(t *testing.T) {
 	t.Parallel()
-	c := NewConverter(nil)
-	assert.Equal(t, "Ethereum__Mainnet", c.collections.Prefix())
+	cases := []struct {
+		name string
+		cfg  *config.Config
+	}{
+		{name: "nil config", cfg: nil},
+		{name: "no chain", cfg: &config.Config{}},
+		{name: "no network", cfg: &config.Config{Chain: config.ChainConfig{Name: "BSC"}}},
+		{name: "no name", cfg: &config.Config{Chain: config.ChainConfig{Network: "Testnet"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := chains.NewConverter(tc.cfg)
+			require.ErrorIs(t, err, config.ErrChainUnset)
+			_, err = chains.NewCollections(tc.cfg)
+			require.ErrorIs(t, err, config.ErrChainUnset)
+		})
+	}
 }
 
-func TestNewConverter_DefaultPrefix(t *testing.T) {
+func TestNewConverter_EthereumMainnetPrefix(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 	assert.Equal(t, "Ethereum__Mainnet", c.collections.Prefix())
 }
 
@@ -37,7 +57,8 @@ func TestNewConverter_CustomPrefix(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.Chain = config.ChainConfig{Name: "Arbitrum", Network: "One"}
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 	assert.Equal(t, "Arbitrum__One", c.collections.Prefix())
 }
 
@@ -48,7 +69,8 @@ func TestNewConverter_CustomPrefix(t *testing.T) {
 func TestConverter_GetSchema_Delegates(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	sdl, err := c.GetSchema()
 	require.NoError(t, err)
@@ -60,7 +82,8 @@ func TestConverter_GetSchema_CustomPrefix(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.Chain = config.ChainConfig{Name: "Arbitrum", Network: "One"}
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	sdl, err := c.GetSchema()
 	require.NoError(t, err)
@@ -70,7 +93,8 @@ func TestConverter_GetSchema_CustomPrefix(t *testing.T) {
 func TestConverter_GetCollections(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	cols := c.GetCollections()
 	assert.Len(t, cols, 6)
@@ -85,7 +109,8 @@ func TestConverter_GetCollections(t *testing.T) {
 func TestConverter_Collections(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	cols := c.Collections()
 	require.NotNil(t, cols)
@@ -119,7 +144,8 @@ func TestConverter_SignatureCollection(t *testing.T) {
 			t.Parallel()
 			cfg := testConfig()
 			cfg.Chain = tc.chain
-			c := NewConverter(cfg)
+			c, err := NewConverter(cfg)
+			require.NoError(t, err)
 			assert.Equal(t, tc.wantCol, c.Collections().BlockSignatureCollection())
 		})
 	}
@@ -132,7 +158,8 @@ func TestConverter_SignatureCollection(t *testing.T) {
 func TestConvert_TypeMismatch(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	result, err := c.Convert(context.Background(), "not a bundle")
 	assert.Error(t, err)
@@ -143,7 +170,8 @@ func TestConvert_TypeMismatch(t *testing.T) {
 func TestConvert_NilVP(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	// Convert no longer uses vp (link-ID pre-computation removed); nil vp
 	// should succeed for a block-only bundle.
@@ -157,7 +185,8 @@ func TestConvert_NilVP(t *testing.T) {
 func TestConvert_NilBlockInBundle(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	result, err := c.Convert(context.Background(), &BlockBundle{})
 	assert.Error(t, err)
@@ -167,7 +196,8 @@ func TestConvert_NilBlockInBundle(t *testing.T) {
 func TestConvert_EmptyBlock(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	block := fakeBlock(42)
 	bundle := &BlockBundle{Block: block, Transactions: nil, Receipts: nil}
@@ -186,7 +216,8 @@ func TestConvert_EmptyBlock(t *testing.T) {
 func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	txHash := fakeHash("tx-1")
 	tx := fakeTx(txHash)
@@ -248,7 +279,8 @@ func TestConvert_SignatureCollectionName(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.Chain = config.ChainConfig{Name: "Optimism", Network: "Mainnet"}
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	block := fakeBlock(1)
 	bundle := &BlockBundle{Block: block}
@@ -306,7 +338,8 @@ func TestConvert_GroupFieldContract(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			c := NewConverter(testConfig())
+			c, err := NewConverter(testConfig())
+			require.NoError(t, err)
 
 			result, err := c.Convert(context.Background(), tc.bundle)
 			require.NoError(t, err)
@@ -325,7 +358,8 @@ func TestConvert_GroupFieldContract(t *testing.T) {
 func TestConvert_WithAccessListEntries(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	txHash := fakeHash("tx-ale")
 	tx := fakeTx(txHash)
@@ -531,27 +565,30 @@ func TestConvert_ALEGroupHasNoContentIdenticalDocsPerTx(t *testing.T) {
 func TestGetHighestStoredBlockNumber_NoBlocks(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	td := testutils.SetupTestDefraDB(t)
-	_, err := c.GetHighestStoredBlockNumber(context.Background(), td.Node)
+	_, err = c.GetHighestStoredBlockNumber(context.Background(), td.Node)
 	assert.Error(t, err)
 }
 
 func TestGetLowestStoredBlockNumber_NoBlocks(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	td := testutils.SetupTestDefraDB(t)
-	_, err := c.GetLowestStoredBlockNumber(context.Background(), td.Node)
+	_, err = c.GetLowestStoredBlockNumber(context.Background(), td.Node)
 	assert.Error(t, err)
 }
 
 func TestGetDocIDsByBlockRange_Empty(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 
 	td := testutils.SetupTestDefraDB(t)
 	result, err := c.GetDocIDsByBlockRange(context.Background(), td.Node, 1, 100)
@@ -562,7 +599,8 @@ func TestGetDocIDsByBlockRange_Empty(t *testing.T) {
 func TestGetStoredBlockNumbers_WithBlocks(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -588,7 +626,8 @@ func TestGetStoredBlockNumbers_WithBlocks(t *testing.T) {
 func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -669,7 +708,8 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := testConfig()
-			c := NewConverter(cfg)
+			c, err := NewConverter(cfg)
+			require.NoError(t, err)
 			td := testutils.SetupTestDefraDB(t)
 			ctx := context.Background()
 
@@ -726,7 +766,8 @@ func TestParseBlockNumberRow(t *testing.T) {
 func TestQueryBlockNumber_CustomLimits(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 
@@ -772,12 +813,17 @@ func TestLowestBlockQueryLimit_ConfigPaths(t *testing.T) {
 	configured := testConfig()
 	configured.Converter.LowestBlockQueryLimit = 7
 
+	unset, err := NewConverter(testConfig())
+	require.NoError(t, err)
+	withLimit, err := NewConverter(configured)
+	require.NoError(t, err)
+
 	assert.Equal(t, config.DefaultLowestBlockQueryLimit,
-		NewConverter(nil).lowestBlockQueryLimit(), "nil config falls back to default")
+		(&Converter{}).lowestBlockQueryLimit(), "nil config falls back to default")
 	assert.Equal(t, config.DefaultLowestBlockQueryLimit,
-		NewConverter(testConfig()).lowestBlockQueryLimit(), "unset config falls back to default")
+		unset.lowestBlockQueryLimit(), "unset config falls back to default")
 	assert.Equal(t, 7,
-		NewConverter(configured).lowestBlockQueryLimit(), "configured value is honored")
+		withLimit.lowestBlockQueryLimit(), "configured value is honored")
 }
 
 // TestGetLowestStoredBlockNumber_ConfigWindow proves the configured window is
@@ -786,7 +832,8 @@ func TestGetLowestStoredBlockNumber_ConfigWindow(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	cfg.Converter.LowestBlockQueryLimit = 2
-	c := NewConverter(cfg)
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
 	td := testutils.SetupTestDefraDB(t)
 	ctx := context.Background()
 

@@ -68,7 +68,7 @@ func TestCreateIndexer(t *testing.T) {
 		{
 			name: "custom config is preserved",
 			cfg: &config.Config{
-				Chain: config.ChainConfig{ChainID: testChainID},
+				Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 				DefraDB: config.DefraDBConfig{
 					URL: "http://localhost:8888",
 					Store: config.DefraDBStoreConfig{

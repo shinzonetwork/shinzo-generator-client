@@ -6,10 +6,11 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
-// DefaultCollectionPrefix is the default collection prefix for backward compatibility.
+// DefaultCollectionPrefix is the prefix the embedded SDL files are written with;
+// CollectionFiles replaces it with the configured chain's prefix.
 const DefaultCollectionPrefix = "Ethereum__Mainnet"
 
-// Collection name constants for the default Ethereum Mainnet chain.
+// Collection names for Ethereum Mainnet, built from DefaultCollectionPrefix.
 const (
 	DefaultCollectionBlock             = DefaultCollectionPrefix + "__Block"
 	DefaultCollectionTransaction       = DefaultCollectionPrefix + "__Transaction"
@@ -91,7 +92,7 @@ func (c *CollectionNames) BlockSignatureCollection() string {
 	return c.BlockSignature
 }
 
-// DefaultCollections returns all default collection names as a slice.
+// DefaultCollections returns the Ethereum Mainnet collection names as a slice.
 func DefaultCollections() []string {
 	return []string{
 		DefaultCollectionBlock,
