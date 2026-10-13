@@ -386,7 +386,7 @@ func TestValidateConfig_NetworkLatencyKnobs(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
-			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Chain = testChain
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			cfg.Indexer.MaxNetworkLatencyMs = tt.maxNetworkLatencyMs
 			cfg.Indexer.LatencyWindowBlocks = tt.latencyWindowBlocks
