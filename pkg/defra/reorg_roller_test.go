@@ -50,7 +50,7 @@ func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
-	converter := evm.NewConverter(nil)
+	converter := newTestConverter(t)
 	roller, err := NewReorgRoller(td.Node, converter)
 	require.NoError(t, err)
 
@@ -144,7 +144,7 @@ func TestReorgRoller_GetStoredBlockHash(t *testing.T) {
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
-	converter := evm.NewConverter(nil)
+	converter := newTestConverter(t)
 	roller, err := NewReorgRoller(td.Node, converter)
 	require.NoError(t, err)
 
@@ -174,7 +174,7 @@ func TestNewReorgRoller_RejectsNilArgs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	_, err := NewReorgRoller(nil, evm.NewConverter(nil))
+	_, err := NewReorgRoller(nil, newTestConverter(t))
 	require.Error(t, err)
 
 	_, err = NewReorgRoller(td.Node, nil)
@@ -219,7 +219,7 @@ func TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused(t *testing.
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
-	converter := evm.NewConverter(nil)
+	converter := newTestConverter(t)
 	roller, err := NewReorgRoller(td.Node, converter)
 	require.NoError(t, err)
 
@@ -271,7 +271,7 @@ func TestReorgRoller_RollbackBlocks_RetainsQueueEntries(t *testing.T) {
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
-	converter := evm.NewConverter(nil)
+	converter := newTestConverter(t)
 	roller, err := NewReorgRoller(td.Node, converter)
 	require.NoError(t, err)
 
@@ -313,7 +313,7 @@ func TestReorgRoller_GetStoredBlockHash_MultiRowErrors(t *testing.T) {
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
-	converter := evm.NewConverter(nil)
+	converter := newTestConverter(t)
 	roller, err := NewReorgRoller(td.Node, converter)
 	require.NoError(t, err)
 
@@ -365,7 +365,7 @@ func TestReorgRoller_QueueRetainedOrphansAreHardPurgeable(t *testing.T) {
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
-	converter := evm.NewConverter(nil)
+	converter := newTestConverter(t)
 	roller, err := NewReorgRoller(td.Node, converter)
 	require.NoError(t, err)
 

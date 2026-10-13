@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -984,6 +985,7 @@ func TestSnapshotImportHandler_ImportError(t *testing.T) {
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
+	hs.collections = evm.NewCollectionNames(testNetwork)
 	hs.SetSnapshotter(s)
 
 	rec := httptest.NewRecorder()
@@ -1038,6 +1040,7 @@ func TestSnapshotImportHandler_InvalidGzipFile(t *testing.T) {
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
+	hs.collections = evm.NewCollectionNames(testNetwork)
 	hs.SetSnapshotter(s)
 
 	rec := httptest.NewRecorder()
@@ -1119,21 +1122,17 @@ func TestSnapshotImportHandler_Success(t *testing.T) {
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = defraNode
+	hs.collections = evm.NewCollectionNames(testNetwork)
 	hs.SetSnapshotter(s)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/snapshots/import?file="+filename, nil)
 	hs.snapshotImportHandler(rec, req)
 
-	// ImportKV reads a valid header then calls ImportRawKVs on the real DB.
-	// With no KV data after the header, it either succeeds (0 pairs) or errors.
-	// Either way we cover the handler path.
-	if rec.Code == http.StatusOK {
-		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "ok", resp["status"])
-	} else {
-		// Error path is already covered by other tests, but don't fail
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	}
+	// The snapshot holds a header and no KV pairs, so the import writes nothing
+	// and the handler rebuilds the indexes of hs.collections.
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ok", resp["status"])
 }
