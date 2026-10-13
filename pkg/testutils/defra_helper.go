@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -22,11 +23,12 @@ type TestDefraDB struct {
 	Port int
 }
 
-// SetupTestDefraDB creates and starts an in-memory DefraDB node with schema applied.
+// SetupTestDefraDB creates and starts an in-memory DefraDB node with the
+// Ethereum mainnet schema applied.
 // It uses a temporary directory and a random free port to avoid conflicts.
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDB(t *testing.T) *TestDefraDB {
-	collections, err := chains.NewCollections(nil)
+	collections, err := chains.NewCollections(&config.Config{Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet"}})
 	if err != nil {
 		t.Fatalf("failed to create collections: %v", err)
 	}
