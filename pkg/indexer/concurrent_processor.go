@@ -89,7 +89,8 @@ func NewConcurrentBlockProcessor(
 	}
 	storeDuration, err := meter.Float64Histogram("shinzo.generator.store.duration",
 		metric.WithDescription("Duration of one block store attempt, by result."),
-		metric.WithUnit("ms"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1, 2.5, 5, 10),
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -318,7 +319,7 @@ func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum 
 		if err != nil {
 			outcome = p.metrics.failure
 		}
-		p.metrics.storeDuration.Record(ctx, float64(time.Since(start))/float64(time.Millisecond), outcome)
+		p.metrics.storeDuration.Record(ctx, time.Since(start).Seconds(), outcome)
 		if err == nil {
 			return &BlockResult{BlockNum: blockNum, BlockID: res.BlockID, Success: true}
 		}
