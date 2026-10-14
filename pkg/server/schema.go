@@ -25,18 +25,23 @@ type collectionsResponse struct {
 // The SDL and network values are captured by the handler closure at registration time,
 // making them immutable for the lifetime of the server.
 //
-// It returns an error if the per-collection SDL cache cannot be precomputed, so
-// startup fails fast instead of serving a degraded set of collections.
+// It returns an error if the per-collection SDL cache or the collections list
+// cannot be precomputed, so startup fails fast instead of serving a degraded
+// set of collections.
 func (hs *HealthServer) EnableSchemaEndpoint(sdl string, c chains.Collections, auth Authenticator) error {
 	hs.collections = c
 	collectionH, err := collectionHandler(c)
 	if err != nil {
 		return fmt.Errorf("precompute collection SDLs for network %s: %w", c.Prefix(), err)
 	}
+	entries, err := schema.ListCollections(c)
+	if err != nil {
+		return fmt.Errorf("list collections for network %s: %w", c.Prefix(), err)
+	}
 	handler := newSchemaHandler(sdl, c.Prefix())
 	hs.mux.HandleFunc("GET /api/v1/schema", authMiddleware(auth, handler, slog.Default()))
 	hs.mux.HandleFunc("GET /api/v1/schema/{collection}", authMiddleware(auth, collectionH, slog.Default()))
-	hs.mux.HandleFunc("GET /api/v1/schema/collections", authMiddleware(auth, collectionsListHandler(c), slog.Default()))
+	hs.mux.HandleFunc("GET /api/v1/schema/collections", authMiddleware(auth, collectionsListHandler(c.Prefix(), entries), slog.Default()))
 	return nil
 }
 
@@ -53,9 +58,11 @@ func newSchemaHandler(sdl string, network string) http.HandlerFunc {
 	}
 }
 
-// collectionsListHandler returns an http.HandlerFunc that serves the list of collections as JSON.
+// collectionsListHandler returns an http.HandlerFunc that serves the list of
+// collections as JSON. Entries are computed at registration time and captured
+// by the closure, keeping the handler allocation-free.
 // HEAD requests receive headers but no body.
-func collectionsListHandler(c chains.Collections) http.HandlerFunc {
+func collectionsListHandler(network string, entries []schema.CollectionEntry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", constants.ContentTypeJSON)
 		w.Header().Set("Cache-Control", constants.CacheControlSchema)
@@ -63,8 +70,8 @@ func collectionsListHandler(c chains.Collections) http.HandlerFunc {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(collectionsResponse{
-			Network:     c.Prefix(),
-			Collections: schema.ListCollections(c),
+			Network:     network,
+			Collections: entries,
 		})
 	}
 }
