@@ -71,6 +71,29 @@ func TestIsErrTransactionConflict(t *testing.T) {
 	}
 }
 
+func TestIsErrDocumentDeleted(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{"nil", nil, false},
+		{"deleted doc", errors.New("a document with the given ID has been deleted"), true},               //nolint: err113
+		{"wrapped", errors.New("create block: a document with the given ID has been deleted"), true},     //nolint: err113
+		{"previously stored", errors.New("block batch: 3 of 5 documents were previously stored"), false}, //nolint: err113
+		{"unrelated", errors.New("timeout"), false},                                                      //nolint: err113
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsErrDocumentDeleted(tt.err); got != tt.expected {
+				t.Errorf("IsErrDocumentDeleted() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestIsErrUnsupportedTxType(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

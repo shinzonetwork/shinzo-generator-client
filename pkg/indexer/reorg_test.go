@@ -710,11 +710,12 @@ func TestReorgProcessor_GapNoFalseReorg(t *testing.T) {
 // persistently serves 101 with a wrong parentHash, so the same height
 // resolves to the same fork point and rolls back again and again. Any
 // commit resets the episode guards, so the scenario pins the no-progress
-// case: the re-store of the rolled-back height 100 is refused (the
-// soft-deleted dockey behavior real DefraDB shows) and the stale stored
-// hash at 100 keeps the gap fallback firing at 101. The by-hash server
-// keeps the walk-back resolvable (a garbage parent hash fetches a
-// chain-consistent fork block) so the guard itself is what stops the loop.
+// case: the re-store of the rolled-back height 100 fails with a generic
+// store error (the soft-deleted docID refusal is classified as fatal and
+// pinned by RestoreRefusalStopsRun instead) and the stale stored hash at
+// 100 keeps the gap fallback firing at 101. The by-hash server keeps the
+// walk-back resolvable (a garbage parent hash fetches a chain-consistent
+// fork block) so the guard itself is what stops the loop.
 func TestReorgProcessor_GuardSameHeightRollbacks(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
@@ -734,14 +735,16 @@ func TestReorgProcessor_GuardSameHeightRollbacks(t *testing.T) {
 	}
 
 	// The first store at height 100 succeeds (the run-1 commit that makes
-	// 101's mismatch a contiguous-rule detection); every later store is
-	// refused with the DefraDB message for a soft-deleted content-derived
-	// dockey, so nothing ever commits again and the guards accumulate.
+	// 101's mismatch a contiguous-rule detection); every later store fails
+	// generically so nothing ever commits again and the guards accumulate.
+	// The failure message must match neither the deleted-docID refusal
+	// (fatal since the classification) nor the already-exists idempotence
+	// (an idempotent success would commit and reset the guards).
 	storeCalls := atomic.Int64{}
 	storer := &mockBlockStorer{
 		storeFn: func(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
 			if blockNumOfResult(result) == 100 && storeCalls.Add(1) > 1 {
-				return nil, fmt.Errorf("create block: a document with the given ID has been deleted")
+				return nil, fmt.Errorf("create block: store exploded")
 			}
 			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
 		},
@@ -850,6 +853,93 @@ func TestReorgProcessor_RollbackFailureIsFatal(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for the rollback failure")
 	}
+}
+
+// TestReorgProcessor_RestoreRefusalStopsRun pins the fatal classification of
+// the DefraDB deleted-docID refusal: an A->B->A sequence stores B content at
+// 100 over the prior run's A content, the confirmed A chain rolls the forked
+// height back (the A and B content-derived dockeys both go soft-deleted),
+// and the chain still serves the same A content at 100 for the resumed run.
+// The byte-identical re-store is refused ("a document with the given ID has
+// been deleted"); the run must stop with that refusal as the indexing error
+// instead of skipping the height silently and leaving a permanently
+// un-indexable hole behind (the pruner is the only mechanism that can
+// reclaim the soft-deleted docIDs).
+func TestReorgProcessor_RestoreRefusalStopsRun(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	// The chain serves B content at 100 and 101 on the first fetches, which
+	// makes the A content stored under the previous run the verified
+	// orphans; every later fetch serves the canonical A content again, so
+	// the resumed run re-fetches byte-identical content for 100.
+	var fetched100 atomic.Int64
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			if height == 100 {
+				if fetched100.Add(1) == 1 {
+					return &servedBlock{height: 100, hash: flipHash(100), parentHash: canonicalHash(99)}, nil
+				}
+				return &servedBlock{height: 100, hash: canonicalHash(100), parentHash: canonicalHash(99)}, nil
+			}
+			if height == 101 {
+				return &servedBlock{height: 101, hash: flipHash(101), parentHash: flipHash(100)}, nil
+			}
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
+	}
+
+	// A content stored at 99 and 100 under the previous run; the first fetch
+	// of 100 serves B content over the verified seed seam, so the walk-back
+	// sees B's hash at 100 and rolls the A content back as the verified
+	// orphan of a fork at 99.
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{
+		99:  canonicalHash(99),
+		100: canonicalHash(100),
+	}}
+	reorg.rollbackFn = func(from, to int64) error {
+		return purgeStoredHashes(reorg, from, to)
+	}
+
+	// The re-store of the rolled-back A content is refused with the real
+	// DefraDB message; every fresh-content store succeeds. The store mirrors
+	// a real store by publishing the stored hash, and the rollback purges it
+	// like a real soft-delete, so the walk-back sees the same DB state a real
+	// DefraDB would.
+	var stored100 atomic.Int64
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			if blockNumOfResult(result) == 100 && stored100.Add(1) > 1 {
+				return nil, fmt.Errorf("create block: a document with the given ID has been deleted")
+			}
+			reorg.mu.Lock()
+			reorg.storedHashes[blockNumOfResult(result)] = extractBlockHash(result.Groups)
+			reorg.mu.Unlock()
+			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
+		},
+	}
+
+	rec := &commitRecorder{}
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), storer, reorg, 1, 0)
+
+	_, errCh := runProcessor(p, 100, rec.record)
+
+	select {
+	case fatalErr := <-errCh:
+		require.Error(t, fatalErr)
+		assert.Contains(t, fatalErr.Error(), "refused")
+		assert.Contains(t, strings.ToLower(fatalErr.Error()), "deleted")
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the refused re-store to stop the run")
+	}
+
+	assert.Equal(t, []int64{100, 101}, rec.snapshot(),
+		"only the forked B commits may land before the rollback; the refused A re-store in the resumed run must not commit or skip")
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1, "the A->B flip must roll back exactly once before the refusal stops the run")
+	assert.Equal(t, int64(100), calls[0].from)
 }
 
 // TestReorgProcessor_FinalizedFloorStopsWalkBack proves the walk-back's
