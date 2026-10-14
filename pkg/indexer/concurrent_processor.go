@@ -90,7 +90,7 @@ func NewConcurrentBlockProcessor(
 	storeDuration, err := meter.Float64Histogram("shinzo.generator.store.duration",
 		metric.WithDescription("Duration of one block store attempt, by result."),
 		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1, 2.5, 5, 10),
+		metric.WithExplicitBucketBoundaries(0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1, 2.5, 5, 10), //nolint:mnd
 	)
 	if err != nil {
 		otel.Handle(err)

@@ -717,7 +717,7 @@ const (
 	jsonRPCMethodNotFound = -32601
 )
 
-// rpcErrorType maps err to error.type value, so dashboards can separate method_not_found errors (e.g. a node without eth_getBlockReceipts)
+// rpcErrorType maps err to error.type value, so dashboards can separate method_not_found errors (e.g. a node without eth_getBlockReceipts).
 func rpcErrorType(err error) string {
 	if rpcErr, ok := stderrors.AsType[ethrpc.Error](err); ok {
 		if rpcErr.ErrorCode() == jsonRPCMethodNotFound {
