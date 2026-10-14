@@ -45,33 +45,33 @@ func run(args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Set up graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up telemetry before creating the indexer, so a node with telemetry
+	// enabled but misconfigured exits before it opens DefraDB or connects.
+	otelShutdown, err := setupOTel(ctx, cfg.Chain)
+	if err != nil {
+		return fmt.Errorf("telemetry setup: %w", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+		defer cancel()
+		if err := otelShutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
+		}
+	}()
+
 	// Create and start indexer
 	chainIndexer, err := indexer.CreateIndexer(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create indexer: %w", err)
 	}
 
-	// Set up graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Channel to listen for interrupt signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	// setup telemetry
-	otelShutdown, err := setupOTel(ctx, cfg.Chain)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "OpenTelemetry setup: %v\n", err)
-	} else {
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
-			defer cancel()
-			if err := otelShutdown(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
-			}
-		}()
-	}
 
 	// Start indexer in a goroutine
 	errChan := make(chan error, 1)

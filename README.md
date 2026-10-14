@@ -43,6 +43,8 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20<base64 of instanceID:token>
 OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<unique-node-id>
 ```
 
+If metrics are enabled but misconfigured (e.g. a malformed `OTEL_RESOURCE_ATTRIBUTES` entry or an unknown exporter), the generator refuses to start.
+
 ## Deployment
 
 See the [Shinzo documentation site](https://docs.shinzo.network/generator/overview) for production deployment instructions.
