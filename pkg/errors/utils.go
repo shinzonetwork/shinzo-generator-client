@@ -14,8 +14,6 @@ const (
 	ErrStrAlreadyExists           = "already exists"
 	ErrStrCollectionAlreadyExists = "collection already exists"
 	ErrStrTransactionConflict     = "transaction conflict"
-	ErrStrTxTypeNotSupported      = "transaction type not supported"
-	ErrStrInvalidTxType           = "invalid transaction type"
 	DefaultRetryDelay             = 30 * time.Second
 )
 
@@ -42,15 +40,6 @@ func IsErrTransactionConflict(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), ErrStrTransactionConflict)
-}
-
-// IsErrUnsupportedTxType checks if an error indicates an unsupported transaction type.
-func IsErrUnsupportedTxType(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, ErrStrTxTypeNotSupported) || strings.Contains(msg, ErrStrInvalidTxType)
 }
 
 // IsRetryable checks if an error can be retried.
