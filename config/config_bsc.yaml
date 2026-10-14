@@ -39,7 +39,7 @@ defradb:
     resource_file_descriptors: 8192   # Must be <= the process ulimit -n
     max_streams_per_peer: 4096        # Per direction. Must exceed 256, the unscaled base, or it is a no-op.
   store:
-    path: "./.defra"
+    path: "./.defra-bsc"
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size
     memtable_mb: 64      # Memtable size
@@ -65,7 +65,7 @@ indexer:
   max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
   max_log_docs_per_batch: 125  # Per-batch size for logs (0 = use max_docs_per_txn)
   max_ale_docs_per_batch: 500  # Per-batch size for ALEs (0 = use max_docs_per_txn)
-  blocks_per_minute: 150     # Block indexing rate limit
+  blocks_per_minute: 400     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
@@ -87,7 +87,7 @@ pruner:
   prune_history: true       # Walk DAG chains to delete historical block versions (2-3x slower)
 snapshot:
   enabled: true             # Set to true to enable automatic snapshots before pruning
-  dir: "./.defra/snapshots" # Directory to store snapshot files
+  dir: "./.defra-bsc/snapshots" # Directory to store snapshot files
   blocks_per_file: 100      # Snapshot granularity (blocks per snapshot file)
   interval_seconds: 30      # How often to check and create snapshots
   max_snapshots: 200        # Keep the N newest snapshot files
