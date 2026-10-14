@@ -841,6 +841,55 @@ func TestReorgProcessor_WalkBackCapFailsWithoutCommonAncestor(t *testing.T) {
 	assert.Empty(t, reorg.calls(), "no deletion may happen when no common ancestor can be verified")
 }
 
+// TestReorgProcessor_WalkBackPastCapWithFloorFindsAncestor proves the depth
+// cap is a fallback bound, not a hard limit: with a finalized height
+// reported, a walk-back deeper than maxWalkBackDepth still descends and
+// finds the stored common ancestor instead of failing fatally.
+func TestReorgProcessor_WalkBackPastCapWithFloorFindsAncestor(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(0, 110)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(0, 110)),
+		// No FetchFinalizedBlockNumberFn override: the MockFetcher default
+		// reports a finalized height (0), so the finalized floor - not the
+		// 64-level depth cap - bounds this walk-back.
+	}
+
+	// The handler reports the ancestor's hash for EVERY height: above 34
+	// that disagrees with every served canonical hash, and at 34 it matches
+	// exactly - 65 descent levels below the conflict height 99, one level
+	// past where the unconditional depth cap used to fail the walk-back.
+	reorg := &mockReorgHandler{defaultHash: canonicalHash(34)}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+
+	rec := &commitRecorder{}
+	cancel, errCh := runProcessor(p, 100, rec.record)
+	defer cancel()
+
+	// The descent resolves fork 34 and the restart re-indexes from 35.
+	waitForCommits(t, rec, 6, errCh)
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled)
+
+	// Cancel races the collector: assert the expected prefix.
+	got := rec.snapshot()
+	require.GreaterOrEqual(t, len(got), 6)
+	assert.Equal(t, []int64{35, 36, 37, 38, 39, 40}, got[:6],
+		"the >64-level walk-back must restart at the stored ancestor +1, not fail the run")
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1, "exactly one rollback episode may run for the deeper-than-cap descent")
+	assert.Equal(t, int64(35), calls[0].from,
+		"the restart must begin at the resolved fork point +1 (34+1), proving the descent got past the cap")
+}
+
 // TestReorgProcessor_RollbackFailureIsFatal proves a failing rollback stops
 // indexing loudly instead of re-indexing over a partially purged range.
 func TestReorgProcessor_RollbackFailureIsFatal(t *testing.T) {

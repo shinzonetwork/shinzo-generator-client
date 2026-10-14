@@ -1039,8 +1039,12 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 			return 0, nil, fmt.Errorf("reorg walk-back from height %d: no common ancestor at or above the finalized height %d",
 				startHeight, floor) //nolint:err113
 		}
-		if depth >= maxWalkBackDepth {
-			return 0, nil, fmt.Errorf("reorg walk-back from height %d: exceeded the %d-level depth cap without a common ancestor",
+		if floor < 0 && depth >= maxWalkBackDepth {
+			// The cap is a fallback bound only: it applies when the chain
+			// cannot report a finalized height. With a finalized floor the
+			// check above bounds the descent instead, so a walk-back deeper
+			// than the cap still descends and may still verify an ancestor.
+			return 0, nil, fmt.Errorf("reorg walk-back from height %d: exceeded the %d-level depth cap without a common ancestor (no finalized height available)",
 				startHeight, maxWalkBackDepth) //nolint:err113
 		}
 
