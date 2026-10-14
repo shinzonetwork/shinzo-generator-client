@@ -988,8 +988,13 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 			// (failed stores, interrupted rollbacks) and were descended past,
 			// so everything stored higher is suspect and gets rolled back;
 			// restarting above this height re-fetches the chain's content and
-			// re-fills the holes on the way.
-			logger.Sugar.Infof("Reorg walk-back: reached the lowest stored height at %d (hash %s)", cur, curHash)
+			// re-fills the holes on the way. A restarted processor that
+			// resumed above pre-existing stored content learns no lower
+			// bound from that content, so a hole inside that older range
+			// still stops the descent here: content stored under a previous
+			// run at or below this height is then left unverified, which is
+			// why the stop is surfaced as a warning rather than an info line.
+			logger.Sugar.Warnf("Reorg walk-back: reached the verification boundary at %d (hash %s); blocks stored at or below this height under a previous run were not re-verified", cur, curHash)
 			return cur, chainHashes, nil
 		}
 
