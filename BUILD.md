@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.27+
+- Go 1.26+
 - Make
 - A blockchain node with JSON-RPC and WebSocket access.
 
