@@ -98,6 +98,19 @@ func byHashLookup(blocks map[string]*servedBlock) func(context.Context, string) 
 	}
 }
 
+// headerLookup adapts a hash-keyed block index into a FetchBlockHeaderByHash
+// function consumed by the walk-back descent, which reads only the header
+// fields; an unknown hash surfaces as a not-found error so the descent's
+// retry classification applies.
+func headerLookup(blocks map[string]*servedBlock) func(context.Context, string) (chains.BlockHeader, error) {
+	return func(_ context.Context, hash string) (chains.BlockHeader, error) {
+		if b, ok := blocks[strings.ToLower(hash)]; ok {
+			return chains.BlockHeader{Number: b.height, Hash: b.hash, ParentHash: b.parentHash}, nil
+		}
+		return chains.BlockHeader{}, fmt.Errorf("block not found")
+	}
+}
+
 // chainConverter adapts servedBlocks into conversion results carrying the
 // served hash/parentHash, exercising the real extraction path.
 func chainConverter() *testutils.MockConverter {
@@ -210,6 +223,7 @@ func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
 	}
 
 	rec := &commitRecorder{}
@@ -283,6 +297,7 @@ func TestReorgProcessor_MultiBlockReorgConverges(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
 	}
 
 	reorg := &mockReorgHandler{
@@ -345,6 +360,7 @@ func TestReorgProcessor_InterruptedRollbackResumesWithoutHole(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
 	}
 
 	reorg := &mockReorgHandler{
@@ -483,6 +499,7 @@ func TestReorgProcessor_WalkBackDescendsPastStoreHole(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
 	}
 
 	// Stored state at the episode: canonical 99, orphan 100, the hole at 101
@@ -561,6 +578,7 @@ func TestReorgProcessor_SeedCheckRestartSeam(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
 	reorg := &mockReorgHandler{storedHashes: map[int64]string{100: orphanHash(100)}}
@@ -606,6 +624,7 @@ func TestReorgProcessor_GapFallbackDetectsStalePredecessor(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
 	var storeCalls atomic.Int64
@@ -732,6 +751,7 @@ func TestReorgProcessor_GuardSameHeightRollbacks(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(byHash),
+		FetchBlockHeaderFn: headerLookup(byHash),
 	}
 
 	// The first store at height 100 succeeds (the run-1 commit that makes
@@ -793,6 +813,7 @@ func TestReorgProcessor_WalkBackCapFailsWithoutCommonAncestor(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(0, 110)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(0, 110)),
 		// Disable the finalized floor so the hard depth cap is the only
 		// bound this test exercises.
 		FetchFinalizedBlockNumberFn: func(_ context.Context) (int64, error) {
@@ -835,6 +856,7 @@ func TestReorgProcessor_RollbackFailureIsFatal(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
 	reorg := &mockReorgHandler{storedHashes: map[int64]string{99: canonicalHash(99)}}
@@ -888,6 +910,7 @@ func TestReorgProcessor_RestoreRefusalStopsRun(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
 	// A content stored at 99 and 100 under the previous run; the first fetch
@@ -956,6 +979,7 @@ func TestReorgProcessor_FinalizedFloorStopsWalkBack(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(0, 110)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(0, 110)),
 		// The chain reports finalized 98; the walk never descends past it.
 		FetchFinalizedBlockNumberFn: func(_ context.Context) (int64, error) {
 			return 98, nil
@@ -996,6 +1020,11 @@ func TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain(t *testing.T) {
 	fetch101 := atomic.Int64{}
 	fetch102 := atomic.Int64{}
 	fetch103 := atomic.Int64{}
+	// The walk-back must descend chain B past the seam: the served chain-B
+	// block at 101 leads into the stored canonical 100.
+	chainBByHash := map[string]*servedBlock{
+		strings.ToLower(flipHash(101)): {height: 101, hash: flipHash(101), parentHash: canonicalHash(100)},
+	}
 	fetcher := &testutils.MockFetcher{
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			switch height {
@@ -1022,11 +1051,8 @@ func TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		// The walk-back must descend chain B past the seam: the served
-		// chain-B block at 101 leads into the stored canonical 100.
-		FetchBlockByHashFn: byHashLookup(map[string]*servedBlock{
-			strings.ToLower(flipHash(101)): {height: 101, hash: flipHash(101), parentHash: canonicalHash(100)},
-		}),
+		FetchBlockByHashFn: byHashLookup(chainBByHash),
+		FetchBlockHeaderFn: headerLookup(chainBByHash),
 	}
 
 	// The handler carries the pre-reorg stored state; the rollback purges
@@ -1083,6 +1109,7 @@ func TestReorgProcessor_GuardResetsOnProgress(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(byHash),
+		FetchBlockHeaderFn: headerLookup(byHash),
 	}
 
 	// Every store succeeds, so each rollback cycle interleaves a commit
@@ -1141,6 +1168,7 @@ func TestReorgProcessor_GapFallbackCatchesPartialStore(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
 	// storedHashes starts empty but non-nil: the scripted storer writes the

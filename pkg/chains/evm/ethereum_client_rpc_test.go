@@ -393,10 +393,43 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
-	receipts, err := client.GetBlockReceipts(context.Background(), big.NewInt(testBlockNumber))
+	receipts, err := client.GetBlockReceipts(context.Background(), fakeHash("pinned"))
 	require.NoError(t, err)
 	require.Len(t, receipts, 1)
 	assert.Equal(t, "1", receipts[0].Status)
+}
+
+// TestGetBlockReceipts_RequestPinsBlockHash proves the wire shape: the
+// eth_getBlockReceipts request selects the block by its CONTENT HASH, not by
+// number, so the receipts always answer for the exact block the caller
+// holds, whichever branch it sits on.
+func TestGetBlockReceipts_RequestPinsBlockHash(t *testing.T) {
+	t.Parallel()
+
+	var receiptParams json.RawMessage
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		if method == ethGetBlockReceipts {
+			receiptParams = params
+			return []any{}, nil
+		}
+		return "0x1", nil
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	blockHash := fakeHash("race-closure")
+	_, err = client.GetBlockReceipts(context.Background(), blockHash)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, receiptParams, "the receipts RPC request must have been made")
+	var rawParams []map[string]any
+	require.NoError(t, json.Unmarshal(receiptParams, &rawParams))
+	require.Len(t, rawParams, 1)
+	assert.Equal(t, blockHash, rawParams[0]["blockHash"],
+		"eth_getBlockReceipts must be requested with a block-hash selector, not a block number")
 }
 
 func TestGetBlockReceipts_Error(t *testing.T) {
@@ -415,7 +448,7 @@ func TestGetBlockReceipts_Error(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
-	_, err = client.GetBlockReceipts(context.Background(), big.NewInt(999999))
+	_, err = client.GetBlockReceipts(context.Background(), fakeHash("missing"))
 	assert.Error(t, err)
 }
 

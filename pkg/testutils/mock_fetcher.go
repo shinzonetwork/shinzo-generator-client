@@ -16,6 +16,11 @@ var ErrMockFetchBlockFnNotSet = errors.New("mock: FetchBlockFn not set")
 // when no FetchBlockByHashFn override is configured.
 var ErrMockFetchBlockByHashFnNotSet = errors.New("mock: FetchBlockByHashFn not set")
 
+// ErrMockFetchBlockHeaderFnNotSet is returned by
+// MockFetcher.FetchBlockHeaderByHash when no FetchBlockHeaderFn override is
+// configured.
+var ErrMockFetchBlockHeaderFnNotSet = errors.New("mock: FetchBlockHeaderFn not set")
+
 // MockFetcher implements the chains.Fetcher interface with configurable
 // per-method functions and call recording. It follows the same pattern as
 // MockChain: each method dispatches to an optional Fn field; if a Fn is nil
@@ -28,6 +33,7 @@ type MockFetcher struct {
 	ConnectFn                   func(ctx context.Context) error
 	FetchBlockFn                func(ctx context.Context, height int64) (any, error)
 	FetchBlockByHashFn          func(ctx context.Context, hash string) (any, error)
+	FetchBlockHeaderFn          func(ctx context.Context, hash string) (chains.BlockHeader, error)
 	FetchHighestBlockNumberFn   func(ctx context.Context) (int64, error)
 	FetchFinalizedBlockNumberFn func(ctx context.Context) (int64, error)
 	CloseFn                     func() error
@@ -36,6 +42,7 @@ type MockFetcher struct {
 	ConnectCalls                   int
 	FetchBlockCalls                []int64
 	FetchBlockByHashCalls          []string
+	FetchBlockHeaderCalls          []string
 	FetchHighestBlockNumberCalls   int
 	FetchFinalizedBlockNumberCalls int
 	CloseCalls                     int
@@ -75,6 +82,17 @@ func (m *MockFetcher) FetchBlockByHash(ctx context.Context, hash string) (any, e
 		return m.FetchBlockByHashFn(ctx, hash)
 	}
 	return nil, ErrMockFetchBlockByHashFnNotSet
+}
+
+// FetchBlockHeaderByHash records the hash and delegates to FetchBlockHeaderFn.
+func (m *MockFetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chains.BlockHeader, error) {
+	m.mu.Lock()
+	m.FetchBlockHeaderCalls = append(m.FetchBlockHeaderCalls, hash)
+	m.mu.Unlock()
+	if m.FetchBlockHeaderFn != nil {
+		return m.FetchBlockHeaderFn(ctx, hash)
+	}
+	return chains.BlockHeader{}, ErrMockFetchBlockHeaderFnNotSet
 }
 
 // FetchHighestBlockNumber records the call and delegates to FetchHighestBlockNumberFn.

@@ -922,26 +922,30 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 	}
 }
 
-// fetchByHashWithRetry fetches a block by its content hash for the walk-back
-// descent, with the same retry classification as fetchBlockWithRetry: a
-// hash the node does not (yet) know is a not-found and retries indefinitely.
-func (p *ConcurrentBlockProcessor) fetchByHashWithRetry(ctx context.Context, hash string) (any, error) {
+// fetchHeaderByHashWithRetry fetches a block header by its content hash for
+// the walk-back descent, with the same retry classification as
+// fetchBlockWithRetry: a hash the node does not (yet) know is a not-found
+// and retries indefinitely. Header-only by design: the descent reads the
+// parent hash directly, performing no conversion and no receipt fetches,
+// so a full bundle's by-number receipt fetch can never mix branches into
+// the parent chain the descent follows.
+func (p *ConcurrentBlockProcessor) fetchHeaderByHashWithRetry(ctx context.Context, hash string) (chains.BlockHeader, error) {
 	otherErrors := 0
 	for {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return chains.BlockHeader{}, ctx.Err()
 		}
 
-		raw, err := p.fetcher.FetchBlockByHash(ctx, hash)
+		header, err := p.fetcher.FetchBlockHeaderByHash(ctx, hash)
 		if err == nil {
-			return raw, nil
+			return header, nil
 		}
 
 		if errors.IsErrNotFound(err) {
 			logger.Sugar.Infof("Block %s not available yet, waiting...", hash)
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return chains.BlockHeader{}, ctx.Err()
 			case <-time.After(BlockNotFoundRetryDelay):
 			}
 			continue
@@ -949,23 +953,26 @@ func (p *ConcurrentBlockProcessor) fetchByHashWithRetry(ctx context.Context, has
 
 		otherErrors++
 		if otherErrors >= MaxRPCRetries {
-			return nil, fmt.Errorf("failed to fetch block by hash %s: %w", hash, err)
+			return chains.BlockHeader{}, fmt.Errorf("failed to fetch block header by hash %s: %w", hash, err)
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return chains.BlockHeader{}, ctx.Err()
 		case <-time.After(time.Duration(otherErrors) * RPCErrorRetryBaseDelay):
 		}
 	}
 }
 
-// resolveForkPoint walks the new chain back by hash until a stored block
+// resolveForkPoint walks the new chain back by header until a stored block
 // hash matches the chain's hash at that height (the common ancestor, i.e.
 // the fork point). Along the way it records every visited height's verified
 // new-chain hash (the descent's hash chain), which the rollback verification
-// consumes. The descent never stores: it fetches each ancestor by
-// hash (retry classification matches by-height fetches), converts it, and
-// follows the extracted parent hash. Empty descended heights do not stop the
+// consumes. The descent never stores: it fetches each ancestor's header by
+// hash (retry classification matches by-height fetches) and follows the
+// header's parent hash directly, with no conversion and no receipt fetches -
+// receipts are fetched by block number and therefore always land on the
+// canonical branch, so a full bundle fetch would poison the descent on
+// orphan ancestors. Empty descended heights do not stop the
 // walk-back: failed stores and interrupted rollbacks leave holes with stored
 // content above and below them, so the descent continues through the empties
 // to find the verifiable ancestor, and the restart above the fork point
@@ -1037,20 +1044,15 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 				startHeight, maxWalkBackDepth) //nolint:err113
 		}
 
-		raw, err := p.fetchByHashWithRetry(ctx, curHash)
+		header, err := p.fetchHeaderByHashWithRetry(ctx, curHash)
 		if err != nil {
 			return 0, nil, fmt.Errorf("reorg walk-back from height %d: %w", startHeight, err) //nolint:err113
 		}
-		converted, err := p.converter.Convert(ctx, raw)
-		if err != nil {
-			return 0, nil, fmt.Errorf("reorg walk-back: convert block %s: %w", curHash, err) //nolint:err113
-		}
-		parent := extractBlockParentHash(converted.Groups)
-		if parent == "" {
+		if header.ParentHash == "" {
 			return 0, nil, fmt.Errorf("reorg walk-back: block %s carries no parent hash", curHash) //nolint:err113
 		}
 		cur--
-		curHash = parent
+		curHash = header.ParentHash
 	}
 }
 

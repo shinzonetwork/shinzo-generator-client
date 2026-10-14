@@ -472,15 +472,19 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 	return c.convertGethReceipt(receipt), nil
 }
 
-// GetBlockReceipts fetches all receipts for a block in a single RPC call.
-func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*TransactionReceipt, error) {
+// GetBlockReceipts fetches all receipts for a block in a single RPC call,
+// pinned to the block's content hash. The hash parameter keeps the receipts
+// on the same branch as the block the caller already holds: a reorg between
+// the block fetch and the receipt fetch can no longer serve receipts from
+// the new chain's differently numbered block.
+func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, errNoClientAvailable
 	}
-	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
+	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithHash(common.HexToHash(blockHash), false))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
+		return nil, fmt.Errorf("failed to get block receipts for block hash %s: %w", blockHash, err)
 	}
 	result := make([]*TransactionReceipt, len(receipts))
 	for i, receipt := range receipts {

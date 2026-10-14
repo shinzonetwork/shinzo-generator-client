@@ -107,7 +107,16 @@ type Collections interface {
 	SnapshotSignatureCollection() string
 }
 
-// ------ Phase 2 ------
+// BlockHeader carries the chain-agnostic subset of block header fields the
+// reorg walk-back consumes: the block height, its content hash, and its
+// parent hash. FetchBlockHeaderByHash returns it, so the processor reads
+// header fields directly without chain SDK knowledge or document
+// conversion.
+type BlockHeader struct {
+	Number     int64
+	Hash       string
+	ParentHash string
+}
 
 // Fetcher is the RPC I/O layer: fetches raw block data from the chain node.
 // Concrete implementations (e.g. EVMFetcher) live in chain-specific packages.
@@ -129,13 +138,26 @@ type Fetcher interface {
 
 	// FetchBlockByHash retrieves the raw block data for the block with the
 	// given content hash, regardless of which branch of the chain it sits
-	// on (the reorg walk-back uses this to fetch orphan parents that live
-	// off the canonical branch). The hash format is chain-specific (e.g. a
-	// 0x-prefixed hex hash for EVM). The concrete return type matches
-	// FetchBlock. A hash the node does not know must surface as a not-found
-	// error recognized by pkg/errors.IsErrNotFound, so retry semantics match
-	// by-height fetches.
+	// on. The hash format is chain-specific (e.g. a 0x-prefixed hex hash
+	// for EVM). The concrete return type matches FetchBlock, with the
+	// receipts pinned to the same hash as the block itself, so the bundle
+	// is branch-consistent for orphan blocks too (the reorg walk-back still
+	// uses FetchBlockHeaderByHash, which needs no receipt call and no
+	// conversion). A hash the node does not know must surface as a
+	// not-found error recognized by pkg/errors.IsErrNotFound, so retry
+	// semantics match by-height fetches.
 	FetchBlockByHash(ctx context.Context, hash string) (any, error)
+
+	// FetchBlockHeaderByHash retrieves only the header fields (height,
+	// content hash, parent hash) of the block with the given content hash,
+	// regardless of which branch of the chain it sits on. It performs no
+	// receipt fetches and needs no conversion, so the reorg walk-back can
+	// follow parent hashes down the new chain without paying for bundle
+	// data, and without the by-number receipt fetch mixing branches on
+	// orphan blocks. A hash the node does not know must surface as a
+	// not-found error recognized by pkg/errors.IsErrNotFound, matching
+	// FetchBlockByHash retry semantics.
+	FetchBlockHeaderByHash(ctx context.Context, hash string) (BlockHeader, error)
 
 	// FetchHighestBlockNumber returns the latest block number known to the
 	// chain (the on-chain tip), querying the RPC endpoint directly.
