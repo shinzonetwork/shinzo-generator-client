@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -17,6 +18,10 @@ import (
 )
 
 func setupOTel(ctx context.Context, chain config.ChainConfig) (func(context.Context) error, error) {
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		logger.Sugar.Errorf("OpenTelemetry: %v", err)
+	}))
+
 	if os.Getenv("OTEL_METRICS_EXPORTER") == "" {
 		return func(context.Context) error { return nil }, nil
 	}

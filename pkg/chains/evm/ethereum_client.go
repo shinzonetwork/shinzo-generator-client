@@ -21,16 +21,10 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 const (
-	// InitialBlocksBack is the number of blocks behind chain tip to start fetching.
-	// This avoids transaction type compatibility issues with Erigon nodes.
-	InitialBlocksBack = 100
-
-	// MaxErigonRetries is the maximum number of retries for Erigon compatibility issues.
-	MaxErigonRetries = 8
-
 	// ZeroAddress is the Ethereum zero address used as fallback for unsigned transactions.
 	ZeroAddress = "0x0000000000000000000000000000000000000000"
 )
@@ -77,7 +71,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 	}
 
 	rpcErrors, meterErr := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm").Int64Counter("shinzo.generator.rpc.errors",
-		metric.WithDescription("Failed Ethereum JSON-RPC calls, by method. Not-yet-mined blocks are not counted."),
+		metric.WithDescription("Failed Ethereum JSON-RPC calls, by rpc.method and error.type. Not-yet-mined blocks are not counted."),
 		metric.WithUnit("{error}"),
 	)
 	if meterErr != nil {
@@ -297,64 +291,6 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		logger.Sugar.Debugf("HTTP request successful, status: %s", resp.Status)
 	}
 	return resp, err
-}
-
-// GetLatestBlock fetches the latest block.
-func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
-	client := c.getPreferredClient()
-	if client == nil {
-		return nil, errNoClientAvailable
-	}
-
-	// Get the latest block number first.
-	latestHeader, err := client.HeaderByNumber(ctx, nil)
-	c.countRPCError(ctx, "eth_getBlockByNumber", err)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
-	}
-
-	// For GCP Erigon nodes, start with blocks that are significantly behind.
-	// to avoid transaction type compatibility issues.
-	targetBlockNumber := big.NewInt(1).Sub(latestHeader.Number, big.NewInt(InitialBlocksBack))
-	logger.Sugar.Infof("Latest block: %s, targeting block: %s (%d blocks behind for Erigon compatibility)",
-		latestHeader.Number.String(), targetBlockNumber.String(), InitialBlocksBack)
-
-	var gethBlock *ethtypes.Block
-
-	// Try progressively older blocks if transaction type errors occur.
-	for retries := range MaxErigonRetries {
-		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
-		c.countRPCError(ctx, "eth_getBlockByNumber", err)
-		if err != nil {
-			if errors.IsErrUnsupportedTxType(err) {
-
-				if retries < MaxErigonRetries-1 {
-					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks.
-					blocksBack := InitialBlocksBack * (1 << uint(retries+1))
-					targetBlockNumber = big.NewInt(1).Sub(latestHeader.Number, big.NewInt(int64(blocksBack)))
-					logger.Sugar.Warnf("Retry %d: Transaction type error with Erigon, going back %d blocks total...",
-						retries+1, blocksBack)
-
-					// Add progressive delay to prevent API rate limiting.
-					time.Sleep(time.Duration(retries+1) * time.Second)
-					continue
-				}
-				logger.Sugar.Errorf("Failed after %d retries due to transaction type compatibility with Erigon", retries+1)
-				return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
-			}
-			// For non-transaction-type errors, fail immediately.
-			return nil, fmt.Errorf("failed to get block: %w", err)
-		}
-
-		// Success - log which block we're actually processing.
-		if retries > 0 {
-			logger.Sugar.Infof("Successfully retrieved block %s after %d retries (Erigon compatibility)",
-				targetBlockNumber.String(), retries)
-		}
-		break
-	}
-
-	return c.convertGethBlock(gethBlock), nil
 }
 
 // GetBlockByNumber fetches a block by number.
@@ -866,7 +802,34 @@ func (c *EthereumClient) countRPCError(ctx context.Context, method string, err e
 	if c.rpcErrors == nil || err == nil || stderrors.Is(err, ethereum.NotFound) || stderrors.Is(err, context.Canceled) {
 		return
 	}
-	c.rpcErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("method", method)))
+	c.rpcErrors.Add(ctx, 1, metric.WithAttributes(
+		semconv.RPCMethod(method),
+		attribute.String("error.type", rpcErrorType(err)),
+	))
+}
+
+const (
+	jsonRPCMethodNotFound = -32601
+)
+
+// rpcErrorType maps err to error.type value, so dashboards can separate method_not_found errors (e.g. a node without eth_getBlockReceipts).
+func rpcErrorType(err error) string {
+	if rpcErr, ok := stderrors.AsType[ethrpc.Error](err); ok {
+		if rpcErr.ErrorCode() == jsonRPCMethodNotFound {
+			return "method_not_found"
+		}
+		return "rpc_error"
+	}
+	if httpErr, ok := stderrors.AsType[ethrpc.HTTPError](err); ok {
+		if httpErr.StatusCode == http.StatusTooManyRequests {
+			return "rate_limited"
+		}
+		return "http_error"
+	}
+	if isContextError(err) {
+		return "timeout"
+	}
+	return "_OTHER"
 }
 
 // isContextError reports whether err was caused by context cancellation or
