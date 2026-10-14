@@ -317,6 +317,137 @@ func TestReorgProcessor_MultiBlockReorgConverges(t *testing.T) {
 	assert.GreaterOrEqual(t, calls[0].to, int64(101), "the purge must cover the orphan chain above the fork point")
 }
 
+// TestReorgProcessor_InterruptedRollbackResumesWithoutHole pins the
+// descending-height delete order: a two-orphan rollback interrupted after
+// its first deletion (the highest verified orphan, per the roller's
+// descending order) leaves the lowest orphan visible, so the resumed run's
+// walk-back descends onto the stored mismatch and finds the real fork point
+// instead of treating the emptied height as the lowest-stored boundary -
+// and both heights re-index with no permanent hole at fork+1.
+func TestReorgProcessor_InterruptedRollbackResumesWithoutHole(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	var fetch100 atomic.Int64
+	var fetch101 atomic.Int64
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			switch height {
+			case 100:
+				if fetch100.Add(1) == 1 {
+					return &servedBlock{height: 100, hash: orphanHash(100), parentHash: canonicalHash(99)}, nil
+				}
+			case 101:
+				if fetch101.Add(1) == 1 {
+					return &servedBlock{height: 101, hash: orphanHash(101), parentHash: orphanHash(100)}, nil
+				}
+			}
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
+	}
+
+	reorg := &mockReorgHandler{
+		storedHashes: map[int64]string{
+			99:  canonicalHash(99),
+			100: orphanHash(100),
+		},
+	}
+
+	// A successful store must keep the height visible in the handler's
+	// stored-hash map, the way a real store does.
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			num := blockNumOfResult(result)
+			hash := extractBlockHash(result.Groups)
+			reorg.mu.Lock()
+			reorg.storedHashes[num] = hash
+			reorg.mu.Unlock()
+			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
+		},
+	}
+
+	// The failing-once pass-through rollback: the first RollbackBlocks call
+	// emulates the roller interrupted after its first (highest, descending
+	// order) deletion - the top stored height in the verified range is
+	// soft-deleted (hidden) and then the rollback dies. Later calls pass
+	// through to the full purge emulation.
+	var interrupted atomic.Bool
+	reorg.rollbackFn = func(from, to int64) error {
+		if interrupted.CompareAndSwap(false, true) {
+			reorg.mu.Lock()
+			top := int64(-1)
+			for height := to; height >= from; height-- {
+				if _, stored := reorg.storedHashes[height]; stored {
+					top = height
+					break
+				}
+			}
+			if top >= 0 {
+				delete(reorg.storedHashes, top)
+			}
+			reorg.mu.Unlock()
+			return fmt.Errorf("rollback interrupted after deleting height %d", top)
+		}
+		return purgeStoredHashes(reorg, from, to)
+	}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), storer, reorg, 1, 0)
+
+	// Run 1: both orphans commit, canonical 102 opens the episode, the
+	// walk-back resolves the fork point at 99, and the rollback dies after
+	// deleting the highest verified orphan (101) - a fatal run error.
+	_, errCh := runProcessor(p, 100, nil)
+	select {
+	case err := <-errCh:
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rollback interrupted")
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the interrupted rollback")
+	}
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, int64(100), calls[0].from)
+	assert.GreaterOrEqual(t, calls[0].to, int64(101))
+
+	// Interrupted state: the lowest orphan (100, fork+1) stays visible, the
+	// highest (101) is hidden - exactly what the descending order promises.
+	reorg.mu.Lock()
+	assert.Equal(t, orphanHash(100), reorg.storedHashes[100], "the lowest orphan must stay visible for the resumed walk-back")
+	_, hidden := reorg.storedHashes[101]
+	assert.False(t, hidden, "the highest orphan must be the one deleted before the interruption")
+	reorg.mu.Unlock()
+
+	// Resumed run: restarts at the highest surviving stored height + 1; the
+	// seed check detects the mismatch against the still-stored orphan 100,
+	// the walk-back descends to the real fork point (99), the retried
+	// rollback re-rolls the remaining orphan, and both heights re-index.
+	rec := &commitRecorder{}
+	cancel, errCh2 := runProcessor(p, 101, rec.record)
+	defer cancel()
+
+	waitForCommits(t, rec, 6, errCh2)
+	cancel()
+	err := <-errCh2
+	assert.ErrorIs(t, err, context.Canceled)
+
+	got := rec.snapshot()
+	require.GreaterOrEqual(t, len(got), 6)
+	assert.Equal(t, []int64{100, 101, 102, 103, 104, 105}, got[:6],
+		"the resumed run must re-index from fork+1 with no permanent hole at the emptied seam")
+
+	require.Len(t, reorg.calls(), 2,
+		"the resumed run retries the rollback once before re-indexing")
+	assert.Equal(t, int64(100), reorg.calls()[1].from,
+		"the retried rollback must start at the real fork point + 1, not the emptied height + 2")
+
+	reorg.mu.Lock()
+	assert.Equal(t, canonicalHash(100), reorg.storedHashes[100], "fork+1 must be re-indexed with the canonical hash")
+	assert.Equal(t, canonicalHash(101), reorg.storedHashes[101], "fork+2 must be re-indexed with the canonical hash")
+	reorg.mu.Unlock()
+}
+
 // TestReorgProcessor_SeedCheckRestartSeam covers the resume-after-downtime
 // path: an orphan sits stored at startBlock-1 from a previous run, the first
 // fetched block's parentHash disagrees with the seed, and the episode's
