@@ -513,6 +513,45 @@ func TestStoreWithRetry_SignersTracked(t *testing.T) {
 	}
 }
 
+// TestStoreWithRetry_PartialStoreErrorFailsBlockWithoutSigner proves a
+// partially-stored batch — Store's distinct "previously stored" error wrapped
+// inside "partially indexed with N batch errors" — fails the block
+// truthfully: no Success, the error surfaces on the result, and no
+// fire-and-forget SignExisting goroutine ever starts (it could never complete
+// a block missing whole groups). Pure mocks: no DefraDB, no RPC server.
+func TestStoreWithRetry_PartialStoreErrorFailsBlockWithoutSigner(t *testing.T) {
+	t.Parallel()
+
+	signerStarted := make(chan struct{}, 8)
+
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			return nil, fmt.Errorf("block 5002 partially indexed with 1 batch errors (first: Ethereum__Mainnet__AccessListEntry batch: 0 of 5 documents were previously stored)")
+		},
+		signExistingFn: func(_ context.Context, _ chains.ConversionResult, _ string, _ int64) (string, error) {
+			select {
+			case signerStarted <- struct{}{}:
+			default:
+			}
+			return "mock-sig-id", nil
+		},
+	}
+
+	p := NewConcurrentBlockProcessor(nil, nil, storer, 1, 0)
+
+	result := p.storeWithRetry(context.Background(), 5002, chains.ConversionResult{})
+	require.NotNil(t, result)
+	assert.False(t, result.Success, "a partially-stored batch must fail the block, not report success")
+	require.Error(t, result.Error, "the partial-store error must surface on the block result")
+
+	select {
+	case <-signerStarted:
+		t.Fatal("partial-store error must not spawn a SignExisting goroutine")
+	case <-time.After(50 * time.Millisecond):
+	}
+	p.signWg.Wait()
+}
+
 // ---------------------------------------------------------------------------.
 // fetchAndProcessBlock — context cancel during conflict retry wait.
 // ---------------------------------------------------------------------------.

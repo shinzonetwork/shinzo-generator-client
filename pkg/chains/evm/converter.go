@@ -241,19 +241,52 @@ func (c *Converter) buildLogDocs(txs []*Transaction, receiptMap map[string]*Tran
 // It also returns a parallel slice of parent transaction hashes (one per doc)
 // used by the LinkStamper to resolve _transactionID links without requiring a
 // transactionHash field on the ALE schema.
+//
+// A transaction may legally repeat an access-list entry: EIP-2930 does not
+// require uniqueness and each repeat just costs gas again on-chain. Repeats
+// inside one tx carry the same address, block number, storage keys and parent
+// tx hash, so they produce content-identical documents, and content-addressed
+// docIDs can hold at most one document per unique content — emitting a repeat
+// is a statement the store cannot honour and it makes the whole batch's write
+// fail with "already exists". Each repeat is therefore dropped here so the
+// emitted set is exactly the store's writable document set. The RPC/fetch
+// layer keeps chain-data fidelity intact; this is the correct seam because
+// Transaction.AccessList is consumed nowhere else.
 func (c *Converter) buildALEDocs(txs []*Transaction, blockInt int64) ([]map[string]any, []string) {
 	var docs []map[string]any
 	var parentRefs []string
+	seen := make(map[string]struct{})
 	for _, tx := range txs {
 		if tx == nil {
 			continue
 		}
 		for i := range tx.AccessList {
-			docs = append(docs, c.buildALEData(&tx.AccessList[i], blockInt))
+			ale := &tx.AccessList[i]
+			key := aleDocKey(tx.Hash, ale)
+			if _, dup := seen[key]; dup {
+				logger.Sugar.Debugf("converter: block %d: dropping repeated access-list entry for %s in tx %s; its document is content-identical to one already emitted",
+					blockInt, ale.Address, tx.Hash)
+				continue
+			}
+			seen[key] = struct{}{}
+			docs = append(docs, c.buildALEData(ale, blockInt))
 			parentRefs = append(parentRefs, tx.Hash)
 		}
 	}
 	return docs, parentRefs
+}
+
+// aleDocKey builds the identity of an access-list entry document within one
+// Convert call: parent tx hash, address, and storage keys joined in chain
+// order. The tx hash is load-bearing — the same address and keys brought by
+// two different transactions resolve to different _transactionID links and
+// therefore different content-addressed docIDs, so both must be kept; repeats
+// across blocks never collide either, since the block number is part of the
+// document content. Storage-key order is preserved because document content
+// is order-sensitive, and the separators cannot occur in hex input so the
+// components stay unambiguous.
+func aleDocKey(txHash string, ale *AccessListEntry) string {
+	return txHash + "|" + ale.Address + "|" + strings.Join(ale.StorageKeys, ",")
 }
 
 // GetSchema implements chains.Converter. It delegates to the schema loader,
@@ -403,7 +436,7 @@ func (c *Converter) buildALEData(ale *AccessListEntry, blockNumber int64) map[st
 	return map[string]any{
 		AddressFieldName:               ale.Address,
 		constants.BlockNumberFieldName: blockNumber,
-		"storageKeys":                  ale.StorageKeys,
+		StorageKeysFieldName:           ale.StorageKeys,
 	}
 }
 

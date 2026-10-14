@@ -17,6 +17,7 @@ const TransactionHashFieldName = "transactionHash"
 // Payload field names, carried through from the Ethereum JSON-RPC shapes.
 const (
 	AddressFieldName           = "address"
+	StorageKeysFieldName       = "storageKeys"
 	TimestampFieldName         = "timestamp"
 	ParentHashFieldName        = "parentHash"
 	DifficultyFieldName        = "difficulty"
