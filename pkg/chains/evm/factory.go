@@ -18,10 +18,19 @@ func init() {
 			return NewFetcherFromConfig(cfg)
 		},
 		Converter: func(cfg *config.Config) (chains.Converter, error) {
-			return NewConverter(cfg), nil
+			// A nil *Converter returned as chains.Converter would not equal nil.
+			c, err := NewConverter(cfg)
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
 		},
 		Collections: func(cfg *config.Config) (chains.Collections, error) {
-			return NewCollectionNames(chainPrefixFromConfig(cfg)), nil
+			prefix, err := chainPrefixFromConfig(cfg)
+			if err != nil {
+				return nil, err
+			}
+			return NewCollectionNames(prefix), nil
 		},
 	})
 }

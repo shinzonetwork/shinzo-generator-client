@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -165,9 +166,17 @@ func testReceipt() *evm.TransactionReceipt {
 	return mockReceipt("0xabc1000000000000000000000000000000000000000000000000000000000001", "0x64")
 }
 
+// newTestConverter returns the EVM converter for Ethereum mainnet.
+func newTestConverter(t *testing.T) *evm.Converter {
+	t.Helper()
+	c, err := evm.NewConverter(&config.Config{Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet"}})
+	require.NoError(t, err)
+	return c
+}
+
 func buildSigGroups(t *testing.T, block *evm.Block, txs []*evm.Transaction, receipts []*evm.TransactionReceipt) chains.ConversionResult {
 	t.Helper()
-	result, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+	result, err := newTestConverter(t).Convert(context.Background(), &evm.BlockBundle{
 		Block:        block,
 		Transactions: txs,
 		Receipts:     receipts,

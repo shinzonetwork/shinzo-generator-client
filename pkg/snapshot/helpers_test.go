@@ -50,7 +50,9 @@ func TestMain(m *testing.M) {
 // newTestChainFromNode returns a chains.Converter for the given test node.
 func newTestChainFromNode(t *testing.T, _ *testutils.TestDefraDB) chains.Converter {
 	t.Helper()
-	return evm.NewConverter(nil)
+	c, err := evm.NewConverter(&config.Config{Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet"}})
+	require.NoError(t, err)
+	return c
 }
 
 func newTestSnapshotter(t *testing.T) (*Snapshotter, string) {
@@ -283,7 +285,7 @@ func insertTestBlocks(t *testing.T, td *testutils.TestDefraDB, startBlock, endBl
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+		result, _ := newTestChainFromNode(t, td).Convert(context.Background(), &evm.BlockBundle{
 			Block:        block,
 			Transactions: []*evm.Transaction{tx},
 			Receipts:     []*evm.TransactionReceipt{receipt},
@@ -311,7 +313,7 @@ func insertTestBlocksWithIdentity(t *testing.T, td *testutils.TestDefraDB, start
 		block := testBlock(hexNum)
 		tx := testTransaction(fmt.Sprintf("block%d_tx0", i), decNum)
 		receipt := testReceipt(fmt.Sprintf("block%d_tx0", i), hexNum)
-		result, _ := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+		result, _ := newTestChainFromNode(t, td).Convert(context.Background(), &evm.BlockBundle{
 			Block:        block,
 			Transactions: []*evm.Transaction{tx},
 			Receipts:     []*evm.TransactionReceipt{receipt},

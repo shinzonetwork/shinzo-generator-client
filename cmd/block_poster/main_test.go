@@ -9,6 +9,8 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,8 +139,8 @@ func TestVerifySnapshots(t *testing.T) {
 	})
 }
 
+// TestRun is not parallel: some cases clear environment variables, which t.Setenv requires.
 func TestRun(t *testing.T) {
-	t.Parallel()
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
 		err := run([]string{"verify"})
 		require.Error(t, err)
@@ -176,13 +178,18 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("valid config with embedded defra fails at StartIndexing", func(t *testing.T) {
+		clearEndpointEnv(t)
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
 		// Embedded=true means useExternalDefra=false, so StartIndexing(false) is called.
-		// StartDefraInstance will start a real DefraDB node in the temp dir.
-		// The test will fail at the Ethereum connection step (invalid geth URL).
+		// The RPC reports the configured chain ID, so startup reaches StartDefraInstance,
+		// which fails because the config sets no keyring secret.
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: ""
   embedded: true
@@ -191,7 +198,7 @@ defradb:
   store:
     path: "%s/defra"
 geth:
-  node_url: "http://127.0.0.1:1"
+  node_url: "%s"
   ws_url: ""
 indexer:
   start_height: 1
@@ -206,7 +213,7 @@ snapshot:
   enabled: false
 logger:
   development: true
-`, tmpDir)
+`, tmpDir, chainIDOnlyRPC(t))
 
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
@@ -214,15 +221,22 @@ logger:
 		err = run([]string{"-config", configPath})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
+		assert.Contains(t, err.Error(), "failed to start DefraDB instance")
 	})
 
 	t.Run("valid config with external defra fails at StartIndexing", func(t *testing.T) {
+		clearEndpointEnv(t)
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
 		// Embedded=false means useExternalDefra=true, so StartIndexing(true) is called.
-		// WaitForDefraDB will fail because the URL is unreachable.
+		// The RPC reports the configured chain ID, so startup reaches WaitForDefraDB,
+		// which fails because the DefraDB URL is unreachable.
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://127.0.0.1:1"
   embedded: false
@@ -231,7 +245,7 @@ defradb:
   store:
     path: "%s/defra"
 geth:
-  node_url: "http://127.0.0.1:1"
+  node_url: "%s"
   ws_url: ""
 indexer:
   start_height: 1
@@ -246,7 +260,7 @@ snapshot:
   enabled: false
 logger:
   development: true
-`, tmpDir)
+`, tmpDir, chainIDOnlyRPC(t))
 
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
@@ -254,14 +268,16 @@ logger:
 		err = run([]string{"-config", configPath})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
+		assert.Contains(t, err.Error(), "DefraDB failed to become ready")
 	})
 	t.Run("signal handling shuts down gracefully", func(t *testing.T) {
+		clearEndpointEnv(t)
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
 		// Start a TCP listener that accepts connections but never responds.
-		// This makes WaitForDefraDB's HTTP client hang indefinitely, giving
-		// the SIGTERM time to win the select race in run().
+		// The RPC and DefraDB both point at it, so startup blocks on its first
+		// request, giving the SIGTERM time to win the select race in run().
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
 		defer func() { _ = ln.Close() }()
@@ -276,6 +292,10 @@ logger:
 		}()
 
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://%s"
   embedded: false
@@ -284,7 +304,7 @@ defradb:
   store:
     path: "%s/defra"
 geth:
-  node_url: "http://127.0.0.1:1"
+  node_url: "http://%s"
   ws_url: ""
 indexer:
   start_height: 1
@@ -299,7 +319,7 @@ snapshot:
   enabled: false
 logger:
   development: true
-`, ln.Addr().String(), tmpDir)
+`, ln.Addr().String(), tmpDir, ln.Addr().String())
 
 		err = os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
@@ -321,6 +341,10 @@ logger:
 		// Write YAML that is valid YAML but produces an invalid config
 		// (start_height < 0 fails validation)
 		configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://localhost:9181"
   embedded: false
@@ -599,4 +623,36 @@ func TestMain_VerifyValidSnapshot(t *testing.T) {
 	// This covers the main() function's first statement (line 18: calling run())
 	// Since run() returns nil, the if-block is not entered.
 	main()
+}
+
+// clearEndpointEnv clears the environment variables that override the config's RPC and DefraDB
+// endpoints, so the test's config file decides where the generator connects.
+func clearEndpointEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"GETH_RPC_URL", "GETH_WS_URL", "GETH_API_KEY", "GETH_API_KEY_TYPE", "DEFRADB_URL", "DEFRADB_HOST", "DEFRADB_PORT"} {
+		t.Setenv(name, "")
+	}
+}
+
+// chainIDOnlyRPC starts a JSON-RPC server that reports chain ID 1 and fails every other method, so
+// a generator configured for chain 1 passes its chain ID check and fails at its next RPC request.
+func chainIDOnlyRPC(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		resp := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+		if req.Method == "eth_chainId" {
+			resp["result"] = "0x1"
+		} else {
+			resp["error"] = map[string]any{"code": -32601, "message": "method not found"}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }

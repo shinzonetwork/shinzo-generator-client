@@ -109,7 +109,7 @@ func mockReceipt(txHash string, blockNumber string) *evm.TransactionReceipt {
 // buildGroups is a test helper that converts raw EVM types into DocumentGroups.
 func buildGroups(t *testing.T, block *evm.Block, txs []*evm.Transaction, receipts []*evm.TransactionReceipt) chains.ConversionResult {
 	t.Helper()
-	result, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+	result, err := newTestConverter(t).Convert(context.Background(), &evm.BlockBundle{
 		Block:        block,
 		Transactions: txs,
 		Receipts:     receipts,
@@ -232,7 +232,7 @@ func TestStore_WithAccessList(t *testing.T) {
 
 func TestStore_NilBlock(t *testing.T) {
 	t.Parallel()
-	_, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+	_, err := newTestConverter(t).Convert(context.Background(), &evm.BlockBundle{
 		Block: nil,
 	})
 	require.Error(t, err)
@@ -241,7 +241,7 @@ func TestStore_NilBlock(t *testing.T) {
 func TestStore_InvalidBlockNumber(t *testing.T) {
 	t.Parallel()
 	block := mockBlock("invalid")
-	_, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+	_, err := newTestConverter(t).Convert(context.Background(), &evm.BlockBundle{
 		Block: block,
 	})
 	require.Error(t, err)
