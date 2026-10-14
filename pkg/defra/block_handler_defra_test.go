@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"maps"
 	"testing"
 
@@ -117,16 +116,6 @@ func buildGroups(t *testing.T, block *evm.Block, txs []*evm.Transaction, receipt
 	})
 	require.NoError(t, err)
 	return result
-}
-
-// extractCollection is a test helper that resolves a collection name by role,
-// panicking on failure (programmer error).
-func extractCollection(collections chains.Collections, role string) string {
-	name, err := collections.GetCollection(role)
-	if err != nil {
-		panic(fmt.Sprintf("programmer error: %v", err))
-	}
-	return name
 }
 
 // preStoreGroupDoc writes one document directly to a collection in its own
@@ -305,8 +294,8 @@ func TestStore_WithDocIDTracker(t *testing.T) {
 	require.Len(t, tracker.trackedBlocks, 1)
 	assert.Equal(t, int64(500), tracker.trackedBlocks[0])
 	assert.Equal(t, res.BlockID, tracker.trackedResults[0].BlockID)
-	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeTransaction)], 1)
-	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeLog)], 1)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[cols.Transaction], 1)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[cols.Log], 1)
 }
 
 func TestStore_NilTransaction(t *testing.T) {
@@ -390,8 +379,8 @@ func TestStore_BatchedMode_WithTracker(t *testing.T) {
 	require.Len(t, tracker.trackedBlocks, 1)
 	assert.Equal(t, int64(900), tracker.trackedBlocks[0])
 	assert.Equal(t, res.BlockID, tracker.trackedResults[0].BlockID)
-	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeTransaction)], 2)
-	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeLog)], 2)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[cols.Transaction], 2)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[cols.Log], 2)
 }
 
 func TestStore_BatchedMode_DuplicateBlock(t *testing.T) {
@@ -620,9 +609,9 @@ func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 	assert.Equal(t, int64(1800), tracker.trackedBlocks[0])
 	assert.Equal(t, res.BlockID, tracker.trackedResults[0].BlockID)
 	assert.NotEmpty(t, tracker.trackedResults[0].BlockSignatureID, "BlockSignatureID should be set in batched mode with identity")
-	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeTransaction)], 2)
-	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeLog)], 2)
-	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[extractCollection(cols, chains.TypeAccessListEntry)], 1)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[cols.Transaction], 2)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[cols.Log], 2)
+	assert.Len(t, tracker.trackedResults[0].OtherDocIDs[cols.AccessListEntry], 1)
 }
 
 func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
@@ -666,10 +655,9 @@ func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 
 	var docIDs []string
 	var collectionNames []string
-	for _, role := range []string{chains.TypeBlock, chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry} {
-		colName := extractCollection(cols, role)
+	for _, colName := range []string{cols.Block, cols.Transaction, cols.Log, cols.AccessListEntry} {
 		field := "blockNumber"
-		if role == chains.TypeBlock {
+		if colName == cols.Block {
 			field = "number"
 		}
 		ids, err := handler.queryCollectionDocIDs(ctx, colName, field, 1900, 1900)
@@ -1146,7 +1134,7 @@ func TestSignExisting_RefusesIncompleteBlock(t *testing.T) {
 	// First arrival fails to stamp the tx group; the fail-fast Store leaves
 	// only the block doc stored, with no signature.
 	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
-	txCol := extractCollection(evm.NewCollectionNames("Ethereum__Mainnet"), chains.TypeTransaction)
+	txCol := evm.NewCollectionNames("Ethereum__Mainnet").Transaction
 	corrupted := false
 	for i := range result.Groups {
 		if result.Groups[i].Collection == txCol {
@@ -1299,28 +1287,28 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 	}{
 		{
 			name:         "tx hash non-string",
-			role:         chains.TypeTransaction,
+			role:         cols.Transaction,
 			mutate:       func(doc map[string]any) { doc["hash"] = 12345 },
-			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
+			skippedRoles: []string{cols.Transaction, cols.Log, cols.AccessListEntry},
 		},
 		{
 			name:         "tx hash key deleted",
-			role:         chains.TypeTransaction,
+			role:         cols.Transaction,
 			mutate:       func(doc map[string]any) { delete(doc, "hash") },
-			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
+			skippedRoles: []string{cols.Transaction, cols.Log, cols.AccessListEntry},
 		},
 		{
 			name:         "tx hash empty",
-			role:         chains.TypeTransaction,
+			role:         cols.Transaction,
 			mutate:       func(doc map[string]any) { doc["hash"] = "" },
-			skippedRoles: []string{chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry},
+			skippedRoles: []string{cols.Transaction, cols.Log, cols.AccessListEntry},
 		},
 		{
 			name:         "log transactionHash non-string",
-			role:         chains.TypeLog,
+			role:         cols.Log,
 			mutate:       func(doc map[string]any) { doc["transactionHash"] = 42 },
-			skippedRoles: []string{chains.TypeLog, chains.TypeAccessListEntry},
-			writtenRoles: []string{chains.TypeTransaction},
+			skippedRoles: []string{cols.Log, cols.AccessListEntry},
+			writtenRoles: []string{cols.Transaction},
 		},
 	}
 
@@ -1356,7 +1344,7 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 
 			// The fixture tx carries an access-list entry so the fail-fast
 			// assertions below actually exercise the ALE group too.
-			aleCol := extractCollection(cols, chains.TypeAccessListEntry)
+			aleCol := cols.AccessListEntry
 			hasALE := false
 			for i := range result.Groups {
 				if result.Groups[i].Collection == aleCol {
@@ -1366,7 +1354,7 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 			require.True(t, hasALE, "fixture must produce an access-list-entry group")
 
 			// Corrupt the target doc so the stamper's validation fails.
-			targetCol := extractCollection(cols, tc.role)
+			targetCol := tc.role
 			corrupted := false
 			for i := range result.Groups {
 				if result.Groups[i].Collection == targetCol {
@@ -1384,23 +1372,21 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 			assert.NotEmpty(t, res.BlockID, "block doc is written before the stamping failure")
 			assert.Empty(t, res.BlockSignatureID, "stamp errors must suppress the block signature")
 
-			for _, role := range tc.skippedRoles {
-				skippedCol := extractCollection(cols, role)
+			for _, skippedCol := range tc.skippedRoles {
 				assert.NotContains(t, res.OtherDocIDs, skippedCol,
 					"the failing group and its dependents must not be written")
 
 				// Strongest proof that nothing was written: count the docs in
 				// the collection itself. Fail-fast must leave it empty.
 				field := "blockNumber"
-				if role == chains.TypeBlock {
+				if skippedCol == cols.Block {
 					field = "number"
 				}
 				ids, qErr := handler.queryCollectionDocIDs(ctx, skippedCol, field, 3500, 3500)
 				require.NoError(t, qErr)
 				assert.Empty(t, ids, "fail-fast must leave %s empty in the store", skippedCol)
 			}
-			for _, role := range tc.writtenRoles {
-				writtenCol := extractCollection(cols, role)
+			for _, writtenCol := range tc.writtenRoles {
 				assert.Contains(t, res.OtherDocIDs, writtenCol, "groups that stamp cleanly must still be written")
 			}
 
@@ -1450,10 +1436,9 @@ func TestStore_Rearrival_SignsOverStoredCIDs(t *testing.T) {
 
 	queryStoredDocIDs := func(ctx context.Context) ([]string, []string) {
 		var docIDs, collectionNames []string
-		for _, role := range []string{chains.TypeBlock, chains.TypeTransaction, chains.TypeLog, chains.TypeAccessListEntry} {
-			colName := extractCollection(cols, role)
+		for _, colName := range []string{cols.Block, cols.Transaction, cols.Log, cols.AccessListEntry} {
 			field := "blockNumber"
-			if role == chains.TypeBlock {
+			if colName == cols.Block {
 				field = "number"
 			}
 			ids, err := handler.queryCollectionDocIDs(ctx, colName, field, 3400, 3400)

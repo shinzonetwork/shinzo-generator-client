@@ -101,25 +101,6 @@ func (m *MockConverter) Collections() chains.Collections {
 	return c
 }
 
-// SignatureCollection records the call and delegates to SignatureCollectionFn.
-func (m *MockConverter) SignatureCollection() string {
-	m.mu.Lock()
-	m.SignatureCollectionCalls++
-	m.mu.Unlock()
-	if m.SignatureCollectionFn != nil {
-		return m.SignatureCollectionFn()
-	}
-	c, err := chains.NewCollections(nil)
-	if err != nil {
-		panic(fmt.Sprintf("MockConverter.SignatureCollection: chains.NewCollections failed: %v", err))
-	}
-	name, err := c.GetCollection(chains.TypeBlockSignature)
-	if err != nil {
-		panic(fmt.Sprintf("MockConverter.SignatureCollection: GetCollection failed: %v", err))
-	}
-	return name
-}
-
 // GetHighestStoredBlockNumber records the call and delegates to GetHighestStoredBlockNumberFn.
 func (m *MockConverter) GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
 	m.mu.Lock()

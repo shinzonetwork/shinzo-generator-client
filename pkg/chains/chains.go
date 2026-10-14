@@ -22,10 +22,6 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-// ErrUnknownCollection is returned by Collections.GetCollection when the given
-// role string does not map to a known collection.
-var ErrUnknownCollection = errors.New("unknown collection")
-
 // ErrChainFactoryNotRegistered is returned by NewFetcher, NewConverter, and
 // NewCollections when the configured chain adapter has no registered factories.
 var ErrChainFactoryNotRegistered = errors.New("chain factory not registered")
@@ -42,16 +38,6 @@ var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 // (benign no-op). Chain converters wrap it when a stored block-number query
 // cannot find any usable number.
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
-
-// Collection type constants used as arguments to GetCollection.
-const (
-	TypeBlock             = "block"
-	TypeBlockSignature    = "blockSignature"
-	TypeSnapshotSignature = "snapshotSignature"
-	TypeTransaction       = "transaction"
-	TypeAccessListEntry   = "accessListEntry"
-	TypeLog               = "log"
-)
 
 // DefaultAdapterName is the default name value to be used in ChainFactories.
 const DefaultAdapterName = "evm"
@@ -75,11 +61,21 @@ type Collections interface {
 	// Returns empty string if the type name does not match the default prefix.
 	CollectionFileForType(typeName string) string
 
-	// GetCollection returns the collection name for the given type name string
-	// (e.g. "block", "transaction", "log", "accessListEntry",
-	// "blockSignature", "snapshotSignature"). Returns ErrUnknownCollection
-	// when the type is not recognised.
-	GetCollection(typeName string) (string, error)
+	// BlockCollection returns the collection name that stores block documents
+	// (the chain prefix suffixed with "__Block").
+	BlockCollection() string
+
+	// BlockSignatureCollection returns the collection name used for block
+	// signatures (the chain prefix suffixed with "__BlockSignature") without
+	// requiring a ConversionResult. Used by pruner/snapshot to resolve the
+	// block signature collection and by the processor's storeWithRetry when
+	// calling SignExisting.
+	BlockSignatureCollection() string
+
+	// SnapshotSignatureCollection returns the collection name that stores
+	// snapshot signature documents (the chain prefix suffixed with
+	// "__SnapshotSignature").
+	SnapshotSignatureCollection() string
 }
 
 // ------ Phase 2 ------
@@ -132,7 +128,7 @@ type Converter interface {
 	GetCollections() []string
 
 	// Collections returns the Collections interface for collection-name
-	// resolution by role (reuses the Phase-1 interface).
+	// resolution
 	Collections() Collections
 
 	// GetHighestStoredBlockNumber returns the highest block number currently
@@ -146,13 +142,6 @@ type Converter interface {
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
 	GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
-
-	// SignatureCollection returns the collection name used for block
-	// signatures (e.g. "Ethereum__Mainnet__BlockSignature") without requiring
-	// a ConversionResult. Used by pruner/snapshot to resolve the block
-	// signature collection and by the processor's storeWithRetry when
-	// calling SignExisting.
-	SignatureCollection() string
 }
 
 // DocumentGroup is a batch of documents destined for a single collection.
