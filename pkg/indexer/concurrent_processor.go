@@ -63,9 +63,10 @@ const (
 )
 
 // errReorgDetected is the cancel cause recorded on the run-scoped context
-// when the episode procedure resolves a reorg. Nothing branches on it - the
-// rollbackPoint sentinel on the processor drives the restart - but it keeps
-// the cancellation reason inspectable.
+// when a run must end: either the episode procedure resolved a reorg or a
+// fatal run error was recorded. Nothing branches on the cause - the
+// rollbackPoint sentinel and fatalErr drive the restart and the returned
+// error - but it keeps the cancellation reason inspectable.
 var errReorgDetected = stderrors.New("reorg detected")
 
 // rollbackPoint marks a resolved reorg: the walk-back found the common
@@ -170,7 +171,7 @@ type ConcurrentBlockProcessor struct {
 	committedHashes   map[int64]string
 	rollbackPoint     *rollbackPoint
 	episode           *reorgEpisode
-	episodeErr        error
+	fatalErr          error
 	// heightRollbacks counts consecutive rollbacks per restart height; any
 	// successful commit resets it. Guarded by pendingMu.
 	heightRollbacks map[int64]int
@@ -218,7 +219,9 @@ func NewConcurrentBlockProcessor(
 // serves past it) back, waits for the new chain to confirm during the
 // episode procedure, walks back by hash to the fork point, and hands the
 // orphan range to the rollback below. Rollback failure, walk-back failure,
-// and rollback-loop guard trips are fatal.
+// rollback-loop guard trips, and a re-store refused because a soft-deleted
+// content-derived docID cannot be re-added are all fatal: the run stops
+// loudly instead of leaving silently un-indexable heights behind.
 func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	ctx context.Context,
 	startBlock int64,
@@ -244,8 +247,8 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 
 	for {
 		rb, err := p.processBlocksOnce(ctx, from, seed, onBlockProcessed)
-		if episodeErr := p.episodeFailure(); episodeErr != nil {
-			return episodeErr
+		if fatalErr := p.fatalFailure(); fatalErr != nil {
+			return fatalErr
 		}
 		if rb == nil {
 			// A nil rollbackPoint means the run was cancelled for a reason
@@ -291,13 +294,26 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	}
 }
 
-// episodeFailure returns the fatal error the episode procedure recorded, if
-// any. It is only meaningful after a run has fully drained (the collector
-// writes it before cancelling).
-func (p *ConcurrentBlockProcessor) episodeFailure() error {
+// fatalFailure returns the fatal error the run recorded, if any. It is only
+// meaningful after a run has fully drained (the collector writes it before
+// cancelling).
+func (p *ConcurrentBlockProcessor) fatalFailure() error {
 	p.pendingMu.Lock()
 	defer p.pendingMu.Unlock()
-	return p.episodeErr
+	return p.fatalErr
+}
+
+// failRun records a fatal run error (the first one wins) and cancels the run
+// context: dispatch exits on the cancellation, the collector drains without
+// committing, and ProcessBlocks returns the recorded error. The cancel cause
+// is only an exit sentinel - the reason travels in fatalErr.
+func (p *ConcurrentBlockProcessor) failRun(err error) {
+	p.pendingMu.Lock()
+	if p.fatalErr == nil {
+		p.fatalErr = err
+	}
+	p.pendingMu.Unlock()
+	p.runCancel(errReorgDetected)
 }
 
 // resolveSeed returns the hash the continuity check should expect as the
@@ -328,8 +344,8 @@ func (p *ConcurrentBlockProcessor) resolveSeed(ctx context.Context, startBlock i
 // processBlocksOnce runs one dispatch/collect lifecycle from startBlock. It
 // returns a rollbackPoint when the episode procedure resolved a reorg (the
 // run-cause error is then the reorg sentinel and may be ignored); with a nil
-// rollbackPoint the run ended by cancellation - an episode failure is
-// returned through the processor's episodeErr instead.
+// rollbackPoint the run ended by cancellation - a fatal run error is
+// returned through the processor's fatalErr instead.
 func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	ctx context.Context,
 	startBlock int64,
@@ -348,7 +364,7 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	p.committedHashes = make(map[int64]string)
 	p.rollbackPoint = nil
 	p.episode = nil
-	p.episodeErr = nil
+	p.fatalErr = nil
 	p.dispatchedUpTo = startBlock - 1
 	p.pending = make(map[int64]*BlockResult)
 	// A fresh result channel per run: shutdown closes the previous one, and
@@ -485,7 +501,9 @@ func (p *ConcurrentBlockProcessor) episodeActive() bool {
 // commitOrdered runs the ordered commit path for one popped result: the
 // parentHash continuity check must pass before anything is stored; a
 // detected mismatch opens the confirmation-wait episode instead. The store
-// and the stored-hash query run without holding pendingMu.
+// and the stored-hash query run without holding pendingMu. A refused re-store
+// of a soft-deleted content-derived docID stops the run fatally; any other
+// store failure is warned and skipped.
 func (p *ConcurrentBlockProcessor) commitOrdered(ctx context.Context, next *BlockResult, onBlockProcessed func(blockNum int64)) {
 	if !next.Success {
 		logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
@@ -505,6 +523,18 @@ func (p *ConcurrentBlockProcessor) commitOrdered(ctx context.Context, next *Bloc
 	item := *next
 	computed := p.storeWithRetry(ctx, item.BlockNum, item.Converted)
 	if computed.Error != nil {
+		// DefraDB refuses to re-create a document whose content-derived
+		// docID was soft-deleted (an A->B->A sequence re-fetches the
+		// byte-identical A content after the rollback deleted it). Skipping
+		// that refusal silently would leave the height permanently
+		// un-indexable: the deleted docs can never be re-added until the
+		// pruner hard-purges them, so the run stops loudly and the refusal
+		// surfaces as the indexing error instead.
+		if errors.IsErrDocumentDeleted(computed.Error) {
+			p.failRun(fmt.Errorf("block %d store refused: %w (a soft-deleted content-derived docID cannot be re-added; the deleted documents must be hard-purged by the pruner before this height can be re-indexed; indexing stopped)", //nolint:err113
+				item.BlockNum, computed.Error))
+			return
+		}
 		logger.Sugar.Warnf("Block %d failed: %v", item.BlockNum, computed.Error)
 		return
 	}
@@ -614,7 +644,7 @@ func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item 
 			// been deleted yet - re-anchor on the newest observation and
 			// keep waiting.
 			p.reanchorEpisodeLocked(ep, item)
-			fatal := p.episodeErr != nil
+			fatal := p.fatalErr != nil
 			p.pendingMu.Unlock()
 			if fatal {
 				p.runCancel(errReorgDetected)
@@ -642,7 +672,7 @@ func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item 
 func (p *ConcurrentBlockProcessor) reanchorEpisodeLocked(ep *reorgEpisode, item *BlockResult) {
 	if ep.rewalks >= maxRewalksPerEpisode {
 		p.episode = nil
-		p.episodeErr = fmt.Errorf("reorg detected at height %d: the confirmation wait re-anchored %d times; the RPC node keeps flip-flopping between chains",
+		p.fatalErr = fmt.Errorf("reorg detected at height %d: the confirmation wait re-anchored %d times; the RPC node keeps flip-flopping between chains",
 			ep.baseHeight, ep.rewalks) //nolint:err113
 		return
 	}
@@ -664,7 +694,7 @@ func (p *ConcurrentBlockProcessor) reanchorEpisodeLocked(ep *reorgEpisode, item 
 func (p *ConcurrentBlockProcessor) refillEpisodeGap(ctx context.Context, ep *reorgEpisode, item *BlockResult) (fresh *BlockResult, stop, fatal bool) {
 	if ep.gapRefills >= maxGapRefillsPerWait {
 		p.episode = nil
-		p.episodeErr = fmt.Errorf("reorg detected at height %d: the confirmation wait re-fetched %d unusable verification points",
+		p.fatalErr = fmt.Errorf("reorg detected at height %d: the confirmation wait re-fetched %d unusable verification points",
 			ep.baseHeight, ep.gapRefills) //nolint:err113
 		p.pendingMu.Unlock()
 		return nil, true, true
@@ -680,7 +710,7 @@ func (p *ConcurrentBlockProcessor) refillEpisodeGap(ctx context.Context, ep *reo
 		}
 		p.pendingMu.Lock()
 		p.episode = nil
-		p.episodeErr = fmt.Errorf("reorg detected at height %d: confirmation wait failed at %d: %w",
+		p.fatalErr = fmt.Errorf("reorg detected at height %d: confirmation wait failed at %d: %w",
 			baseHeight, target, refetched.Error) //nolint:err113
 		p.pendingMu.Unlock()
 		return nil, true, true
@@ -720,7 +750,7 @@ func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reor
 	p.pendingMu.Lock()
 	p.episode = nil
 	if err != nil {
-		p.episodeErr = fmt.Errorf("reorg detected at height %d: %w", ep.baseHeight, err) //nolint:err113
+		p.fatalErr = fmt.Errorf("reorg detected at height %d: %w", ep.baseHeight, err) //nolint:err113
 	} else {
 		p.rollbackPoint = &rollbackPoint{forkPoint: forkPoint, chainHashes: chainHashes}
 	}
