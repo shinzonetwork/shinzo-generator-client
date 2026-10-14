@@ -22,7 +22,10 @@ type rpcClient interface {
 	GetLatestBlockNumber(ctx context.Context) (*big.Int, error)
 	GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error)
 	GetBlockByHash(ctx context.Context, hash string) (*Block, error)
-	GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*TransactionReceipt, error)
+	// GetBlockReceipts fetches all receipts for a block in a single RPC
+	// call, selected by the block's content hash so the receipts always
+	// stay on the branch of the block the fetcher already holds.
+	GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error)
 	GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
 	GetFinalizedBlockNumber(ctx context.Context) (int64, error)
 	Close() error
@@ -115,7 +118,9 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 
 // FetchBlock implements chains.Fetcher. It retrieves the block at the given
 // height along with its transactions and receipts, returning them bundled in a
-// *BlockBundle (typed as any per the interface).
+// *BlockBundle (typed as any per the interface). The receipts are pinned to
+// the fetched block's own hash, so a reorg between the block fetch and the
+// receipt fetch cannot serve receipts from the new chain's block.
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
@@ -148,12 +153,15 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	return n.Int64(), nil
 }
 
-// FetchBlockByHash implements chains.Fetcher. It retrieves the block with the
-// given 0x-prefixed content hash together with its transactions and receipts,
-// returning the same *BlockBundle shape as FetchBlock — the reorg walk-back
-// type-asserts and reads the header fields. Not-found errors from the client
-// keep their message, so pkg/errors.IsErrNotFound continues to classify them
-// for the shared retry logic.
+// FetchBlockByHash implements chains.Fetcher. It retrieves the block with
+// the given 0x-prefixed content hash regardless of which branch it sits on,
+// and parses the height from the block header. The bundle shape matches
+// FetchBlock, with the receipts pinned to the same hash as the block itself,
+// so the bundle is branch-consistent for orphan blocks too (the reorg
+// walk-back still uses FetchBlockHeaderByHash, which needs no receipt call
+// and no conversion). Not-found errors from the client keep their message,
+// so pkg/errors.IsErrNotFound continues to classify them for the shared
+// retry logic.
 func (f *Fetcher) FetchBlockByHash(ctx context.Context, hash string) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlockByHash")
@@ -174,6 +182,33 @@ func (f *Fetcher) FetchBlockByHash(ctx context.Context, hash string) (any, error
 		Block:        block,
 		Transactions: transactions,
 		Receipts:     receipts,
+	}, nil
+}
+
+// FetchBlockHeaderByHash implements chains.Fetcher. It retrieves only the
+// header fields (height, content hash, parent hash) of the block with the
+// given 0x-prefixed content hash: the same GetBlockByHash RPC the bundle
+// path performs, without any transaction or receipt work, so the reorg
+// walk-back can follow parent hashes down a forked chain without the
+// by-number receipt fetch mixing branches. Not-found errors from the client
+// keep their message, so pkg/errors.IsErrNotFound continues to classify
+// them for the shared retry logic.
+func (f *Fetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chains.BlockHeader, error) {
+	if f.client == nil {
+		return chains.BlockHeader{}, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlockHeaderByHash")
+	}
+	block, err := f.client.GetBlockByHash(ctx, hash)
+	if err != nil {
+		return chains.BlockHeader{}, err
+	}
+	height, err := parseBlockNumberString(block.Number)
+	if err != nil {
+		return chains.BlockHeader{}, fmt.Errorf("block by hash %s: %w", hash, err)
+	}
+	return chains.BlockHeader{
+		Number:     height,
+		Hash:       block.Hash,
+		ParentHash: block.ParentHash,
 	}, nil
 }
 
@@ -217,21 +252,32 @@ func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error
 	return f.client.GetBlockByNumber(ctx, big.NewInt(blockNum))
 }
 
-// fetchTransactionsAndReceipts builds the transaction pointer slice and fetches
-// receipts, falling back to individual fetches when the batch call fails.
+// fetchTransactionsAndReceipts builds the transaction pointer slice and
+// fetches receipts, pinned to the block's own content hash so the receipts
+// always belong to the block the caller holds, whichever branch it sits on
+// (a by-number receipts call would race a reorg between the two reads).
+// The batch path is verified: every served receipt must carry the pinned
+// hash. Any failure, including a hash mismatch, degrades to the per-tx
+// fallback, which is tx-hash-pinned and equally branch-safe.
 func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt, error) {
 	transactions := make([]*Transaction, len(block.Transactions))
 	for i := range block.Transactions {
 		transactions[i] = &block.Transactions[i]
 	}
 
-	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, big.NewInt(blockNum))
-	if batchErr == nil {
+	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, block.Hash)
+	if batchErr == nil && receiptHashesMatch(batchReceipts, block.Hash) {
 		return transactions, batchReceipts, nil
+	}
+	if batchErr == nil {
+		// The receipts came back for a different block than the one the
+		// caller holds: treat the batch result as failed and fall back
+		// rather than bundling cross-branch content.
+		batchErr = fmt.Errorf("served receipts do not belong to block hash %s", block.Hash)
 	}
 
 	if ctx.Err() == nil {
-		logger.Sugar.Debugf("Block %d: eth_getBlockReceipts not available, falling back to individual fetches: %v", blockNum, batchErr)
+		logger.Sugar.Debugf("Block %d: pinned eth_getBlockReceipts not usable, falling back to individual fetches: %v", blockNum, batchErr)
 	}
 
 	receipts := make([]*TransactionReceipt, len(block.Transactions))
@@ -271,4 +317,16 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 	}
 
 	return transactions, receipts, nil
+}
+
+// receiptHashesMatch reports whether every receipt belongs to the pinned
+// block hash, case-insensitively. An empty receipt list always matches: a
+// receiptless block leaves nothing to verify.
+func receiptHashesMatch(receipts []*TransactionReceipt, blockHash string) bool {
+	for _, r := range receipts {
+		if r == nil || !strings.EqualFold(r.BlockHash, blockHash) {
+			return false
+		}
+	}
+	return true
 }

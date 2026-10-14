@@ -157,15 +157,15 @@ func storeResidueBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestD
 }
 
 type fakeRPCClient struct {
-	latestNum     *big.Int
-	latestErr     error
-	block         *Block
-	blockErr      error
-	batchReceipts []*TransactionReceipt
-	batchErr      error
-	txReceipt     *TransactionReceipt
-	txErr         error
-	closed        bool
+	latestNum      *big.Int
+	latestErr      error
+	block          *Block
+	blockErr       error
+	receiptsByHash map[string][]*TransactionReceipt
+	batchErr       error
+	txReceipt      *TransactionReceipt
+	txErr          error
+	closed         bool
 
 	blockByHash    *Block
 	blockByHashErr error
@@ -176,7 +176,7 @@ type fakeRPCClient struct {
 	finalizedFn  func(ctx context.Context) (int64, error)
 
 	blockFn     func(ctx context.Context, n *big.Int) (*Block, error)
-	batchFn     func(ctx context.Context, n *big.Int) ([]*TransactionReceipt, error)
+	batchFn     func(ctx context.Context, hash string) ([]*TransactionReceipt, error)
 	txReceiptFn func(ctx context.Context, hash string) (*TransactionReceipt, error)
 }
 
@@ -201,11 +201,15 @@ func (f *fakeRPCClient) GetBlockByHash(ctx context.Context, hash string) (*Block
 	return f.block, f.blockErr
 }
 
-func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, n *big.Int) ([]*TransactionReceipt, error) {
+func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
 	if f.batchFn != nil {
-		return f.batchFn(ctx, n)
+		return f.batchFn(ctx, blockHash)
 	}
-	return f.batchReceipts, f.batchErr
+	receipts, found := f.receiptsByHash[blockHash]
+	if !found {
+		return nil, f.batchErr
+	}
+	return receipts, f.batchErr
 }
 
 func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) (*TransactionReceipt, error) {

@@ -212,7 +212,7 @@ func TestNilClient_Guards(t *testing.T) {
 			return err
 		}},
 		{name: "GetBlockReceipts", call: func(c *EthereumClient) error {
-			_, err := c.GetBlockReceipts(context.Background(), big.NewInt(1))
+			_, err := c.GetBlockReceipts(context.Background(), "0xabc")
 			return err
 		}},
 	}
