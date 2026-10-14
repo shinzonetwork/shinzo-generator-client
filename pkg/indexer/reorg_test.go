@@ -448,6 +448,104 @@ func TestReorgProcessor_InterruptedRollbackResumesWithoutHole(t *testing.T) {
 	reorg.mu.Unlock()
 }
 
+// TestReorgProcessor_WalkBackDescendsPastStoreHole pins the walk-back's hole
+// handling: a failed store leaves height 101 empty between two stored orphans
+// (100 and 102), and the descent must not take that empty height as the
+// fork-point boundary. It descends past the hole to the stored common
+// ancestor at 99, so the rollback covers both orphans and the restart
+// re-indexes 100 upward, re-filling the hole at 101.
+func TestReorgProcessor_WalkBackDescendsPastStoreHole(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	var fetch100 atomic.Int64
+	var fetch101 atomic.Int64
+	var fetch102 atomic.Int64
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			switch height {
+			case 100:
+				if fetch100.Add(1) == 1 {
+					return &servedBlock{height: 100, hash: orphanHash(100), parentHash: canonicalHash(99)}, nil
+				}
+			case 101:
+				// The node serves the orphan chain at 101 consistently with
+				// the committed orphan 100, so a store failure - not a
+				// mismatch - is what leaves the height empty.
+				if fetch101.Add(1) == 1 {
+					return &servedBlock{height: 101, hash: orphanHash(101), parentHash: orphanHash(100)}, nil
+				}
+			case 102:
+				if fetch102.Add(1) == 1 {
+					return &servedBlock{height: 102, hash: orphanHash(102), parentHash: orphanHash(101)}, nil
+				}
+			}
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
+	}
+
+	// Stored state at the episode: canonical 99, orphan 100, the hole at 101
+	// (the store below dies transiently), and orphan 102 committed over the
+	// unfillable gap fallback.
+	reorg := &mockReorgHandler{
+		storedHashes: map[int64]string{
+			99:  canonicalHash(99),
+			100: orphanHash(100),
+		},
+	}
+	reorg.rollbackFn = func(from, to int64) error {
+		return purgeStoredHashes(reorg, from, to)
+	}
+
+	// A store that emulates a real one: successful stores keep the height
+	// visible in the handler's stored-hash map, and the first store at 101
+	// dies transiently so the height stays empty between the two orphans.
+	var store101 atomic.Int64
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			num := blockNumOfResult(result)
+			if num == 101 && store101.Add(1) == 1 {
+				return nil, fmt.Errorf("store exploded")
+			}
+			reorg.mu.Lock()
+			reorg.storedHashes[num] = extractBlockHash(result.Groups)
+			reorg.mu.Unlock()
+			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
+		},
+	}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), storer, reorg, 1, 0)
+
+	rec := &commitRecorder{}
+	cancel, errCh := runProcessor(p, 100, rec.record)
+	defer cancel()
+
+	// [orphan 100, orphan 102, then the restart re-commits 100, fills the
+	// hole at 101, and re-commits 102 canonically]
+	waitForCommits(t, rec, 8, errCh)
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled)
+
+	got := rec.snapshot()
+	require.GreaterOrEqual(t, len(got), 8)
+	assert.Equal(t, []int64{100, 102, 100, 101, 102, 103, 104, 105}, got[:8],
+		"the hole at 101 must be re-indexed after the walk-back descends past it")
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1, "the hole sits inside a single rollback episode")
+	assert.Equal(t, int64(100), calls[0].from,
+		"the walk-back must not take the empty height 101 as the fork point; the rollback restarts at the real fork+1")
+	assert.GreaterOrEqual(t, calls[0].to, int64(102), "the purge must cover the orphan above the hole")
+
+	reorg.mu.Lock()
+	assert.Equal(t, canonicalHash(100), reorg.storedHashes[100], "orphan 100 must roll back and re-index canonically")
+	assert.Equal(t, canonicalHash(101), reorg.storedHashes[101], "the failed-store hole must be re-filled")
+	assert.Equal(t, canonicalHash(102), reorg.storedHashes[102], "orphan 102 must roll back and re-index canonically")
+	reorg.mu.Unlock()
+}
+
 // TestReorgProcessor_SeedCheckRestartSeam covers the resume-after-downtime
 // path: an orphan sits stored at startBlock-1 from a previous run, the first
 // fetched block's parentHash disagrees with the seed, and the episode's

@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -175,6 +176,14 @@ type ConcurrentBlockProcessor struct {
 	heightRollbacks map[int64]int
 	dispatchedUpTo  int64
 	runCancel       context.CancelCauseFunc
+
+	// configuredStart is the lowest height any ProcessBlocks call started
+	// from: nothing is ever stored below it, so the reorg walk-back treats
+	// the first empty descended height under it as the verification boundary
+	// (empties above it may be failed-store holes and are descended past, so
+	// the restart above the resolved fork point re-fills them). MaxInt64
+	// until the first call pins the actual bound.
+	configuredStart int64
 }
 
 // NewConcurrentBlockProcessor creates a new concurrent processor. The
@@ -199,6 +208,7 @@ func NewConcurrentBlockProcessor(
 		blocksPerMinute: blocksPerMinute,
 		resultChan:      make(chan *BlockResult, workers*DefaultWorkersAhead),
 		pending:         make(map[int64]*BlockResult),
+		configuredStart: math.MaxInt64,
 	}
 }
 
@@ -215,6 +225,13 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	onBlockProcessed func(blockNum int64),
 ) error {
 	from := startBlock
+	// Pin the walk-back's lower bound: nothing is ever stored below the start
+	// height this processor was invoked with, so a descended empty height
+	// below it ends the walk-back instead of being descended as a hole. A
+	// re-invocation on the same processor can only lower the bound.
+	if startBlock < p.configuredStart {
+		p.configuredStart = startBlock
+	}
 	seed, err := p.resolveSeed(ctx, from)
 	if err != nil {
 		return err
@@ -918,14 +935,20 @@ func (p *ConcurrentBlockProcessor) fetchByHashWithRetry(ctx context.Context, has
 // new-chain hash (the descent's hash chain), which the rollback verification
 // consumes. The descent never stores: it fetches each ancestor by
 // hash (retry classification matches by-height fetches), converts it, and
-// follows the extracted parent hash. Bounds: never below the finalized
-// height (safe as the implementation-level fallback; when neither tag is
-// available the walk-back is bounded by the hard depth cap instead), and
-// never below the lowest stored block - the first descended height with
-// nothing stored marks the verification boundary, so the walk-back treats
-// that height as the fork point bound (everything stored above it is
-// unverifiable suspect content and gets rolled back). No common ancestor
-// within bounds is a fatal error.
+// follows the extracted parent hash. Empty descended heights do not stop the
+// walk-back: failed stores and interrupted rollbacks leave holes with stored
+// content above and below them, so the descent continues through the empties
+// to find the verifiable ancestor, and the restart above the fork point
+// re-fetches the range and re-fills those holes while it re-indexes. Bounds:
+// never below the finalized height (safe as the implementation-level
+// fallback; when neither tag is available the walk-back is bounded by the
+// hard depth cap instead, and reaching the finalized height without a
+// verified ancestor is fatal), and never below the configured start height -
+// nothing can be stored under it, so the first descended height with nothing
+// stored below the start of indexing marks the verification boundary: the
+// walk-back treats that height as the fork point bound (everything stored
+// above it is unverifiable suspect content and gets rolled back). No common
+// ancestor within bounds is a fatal error.
 func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHeight int64, startChainHash string) (int64, map[int64]string, error) {
 	if startHeight < 0 {
 		return 0, nil, fmt.Errorf("reorg walk-back: walked past genesis without a common ancestor") //nolint:err113
@@ -958,11 +981,14 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 				logger.Sugar.Infof("Reorg walk-back: common ancestor found at height %d (hash %s)", cur, curHash)
 				return cur, chainHashes, nil
 			}
-		} else if cur < startHeight {
-			// Nothing stored at a descended height: the store's verified
-			// content ended above, so a lower common ancestor can never be
-			// confirmed. Everything stored above is suspect and gets rolled
-			// back; restart from here re-fetches the chain's content.
+		} else if cur < p.configuredStart {
+			// Nothing stored at a descended height below the configured
+			// start: no content will ever exist lower, so no common ancestor
+			// can be confirmed below this height. Empties above it are holes
+			// (failed stores, interrupted rollbacks) and were descended past,
+			// so everything stored higher is suspect and gets rolled back;
+			// restarting above this height re-fetches the chain's content and
+			// re-fills the holes on the way.
 			logger.Sugar.Infof("Reorg walk-back: reached the lowest stored height at %d (hash %s)", cur, curHash)
 			return cur, chainHashes, nil
 		}
