@@ -22,7 +22,9 @@ type ReorgHandler interface {
 	// compared against the new chain's hash delivered via
 	// WithRollbackChainHashes, and only heights whose stored hash disagrees
 	// are deleted, with children collections first and the block document
-	// last. Deletions replicate to hosts; prune-queue entries are retained
+	// last, and heights processed in descending order so an interrupted
+	// rollback leaves the lowest orphan visible for the resumed walk-back.
+	// Deletions replicate to hosts; prune-queue entries are retained
 	// so the pruner can hard-purge the soft-deleted docs later.
 	RollbackBlocks(ctx context.Context, from, to int64) error
 
@@ -154,6 +156,15 @@ func (r *ReorgRoller) deleteOrder(cols []string) ([]string, error) {
 // the next run's seed check re-detects the mismatch and repeats the
 // rollback.
 //
+// Verified orphans are deleted in descending height order: an interrupted
+// multi-height rollback (crash or mid-range error) then leaves the LOWEST
+// orphan visible, so a resumed run's walk-back descends onto the stored
+// mismatch and finds the real fork point, re-rolling everything above it.
+// Deleting lowest-first would instead empty the fork-adjacent height
+// first, and the resumed walk-back would take that emptied height as its
+// lowest-stored boundary, silently skipping it and leaving a permanent
+// hole at the fork seam while the orphans above survive.
+//
 // Per verified orphan the docIDs are resolved via the converter's
 // chain-agnostic range query - whose default queries already exclude
 // soft-deleted documents, so a re-run over an already rolled-back height
@@ -177,7 +188,7 @@ func (r *ReorgRoller) RollbackBlocks(ctx context.Context, from, to int64) error 
 			from, to)
 	}
 
-	for height := from; height <= to; height++ {
+	for height := to; height >= from; height-- {
 		chainHash, verified := rollbackChainHashAt(ctx, height)
 		if !verified {
 			continue
