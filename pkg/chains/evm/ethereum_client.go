@@ -70,7 +70,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 	}
 
 	rpcErrors, meterErr := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm").Int64Counter("shinzo.generator.rpc.errors",
-		metric.WithDescription("Failed Ethereum JSON-RPC calls, by method. Not-yet-mined blocks are not counted."),
+		metric.WithDescription("Failed Ethereum JSON-RPC calls, by method and error.type. Not-yet-mined blocks are not counted."),
 		metric.WithUnit("{error}"),
 	)
 	if meterErr != nil {
@@ -707,7 +707,34 @@ func (c *EthereumClient) countRPCError(ctx context.Context, method string, err e
 	if c.rpcErrors == nil || err == nil || stderrors.Is(err, ethereum.NotFound) || stderrors.Is(err, context.Canceled) {
 		return
 	}
-	c.rpcErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("method", method)))
+	c.rpcErrors.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("method", method),
+		attribute.String("error.type", rpcErrorType(err)),
+	))
+}
+
+const (
+	jsonRPCMethodNotFound = -32601
+)
+
+// rpcErrorType maps err to error.type value, so dashboards can separate method_not_found errors (e.g. a node without eth_getBlockReceipts)
+func rpcErrorType(err error) string {
+	if rpcErr, ok := stderrors.AsType[ethrpc.Error](err); ok {
+		if rpcErr.ErrorCode() == jsonRPCMethodNotFound {
+			return "method_not_found"
+		}
+		return "rpc_error"
+	}
+	if httpErr, ok := stderrors.AsType[ethrpc.HTTPError](err); ok {
+		if httpErr.StatusCode == http.StatusTooManyRequests {
+			return "rate_limited"
+		}
+		return "http_error"
+	}
+	if isContextError(err) {
+		return "timeout"
+	}
+	return "_OTHER"
 }
 
 // isContextError reports whether err was caused by context cancellation or
