@@ -57,8 +57,9 @@ const (
 	maxGapRefillsPerWait = 64
 
 	// maxWalkBackDepth is the hard cap on the reorg walk-back depth when the
-	// chain cannot report a finalized height. With a finalized floor the
-	// walk-back is bounded by it instead.
+	// chain cannot report a finalized height. Finality is not a walk bound,
+	// so with a reported finalized height the descent continues below it and
+	// the cap does not apply.
 	maxWalkBackDepth = 64
 )
 
@@ -975,16 +976,23 @@ func (p *ConcurrentBlockProcessor) fetchHeaderByHashWithRetry(ctx context.Contex
 // walk-back: failed stores and interrupted rollbacks leave holes with stored
 // content above and below them, so the descent continues through the empties
 // to find the verifiable ancestor, and the restart above the fork point
-// re-fetches the range and re-fills those holes while it re-indexes. Bounds:
-// never below the finalized height (safe as the implementation-level
-// fallback; when neither tag is available the walk-back is bounded by the
-// hard depth cap instead, and reaching the finalized height without a
-// verified ancestor is fatal), and never below the configured start height -
-// nothing can be stored under it, so the first descended height with nothing
-// stored below the start of indexing marks the verification boundary: the
-// walk-back treats that height as the fork point bound (everything stored
-// above it is unverifiable suspect content and gets rolled back). No common
-// ancestor within bounds is a fatal error.
+// re-fetches the range and re-fills those holes while it re-indexes. The
+// walk-back descends below the finalized height: finality is not a walk
+// bound, and an indexer that was down across a pre-finality reorg restarts
+// with its whole stored range below current finality, while its true common
+// ancestor still sits below the floor, reachable, and safe to verify. Deletion
+// safety never relies on the floor either: the roller deletes only heights
+// whose stored hash disagrees with the verified new-chain hash, so walking
+// or rolling below finality never touches finalized content. The only bound
+// the floor controls is the fallback depth cap, which applies when the chain
+// cannot report a finalized height. Bounds: the common-ancestor match
+// anywhere on the descended chain (including below the finalized height),
+// the configured start height - nothing can be stored under it, so the first
+// descended height with nothing stored below the start of indexing marks the
+// verification boundary: the walk-back treats that height as the fork point
+// bound (everything stored above it is unverifiable suspect content and gets
+// rolled back) - genesis, and the depth cap when no finalized height is
+// available. No common ancestor within bounds is a fatal error.
 func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHeight int64, startChainHash string) (int64, map[int64]string, error) {
 	if startHeight < 0 {
 		return 0, nil, fmt.Errorf("reorg walk-back: walked past genesis without a common ancestor") //nolint:err113
@@ -1034,15 +1042,11 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 			return cur, chainHashes, nil
 		}
 
-		if floor >= 0 && cur <= floor {
-			return 0, nil, fmt.Errorf("reorg walk-back from height %d: no common ancestor at or above the finalized height %d",
-				startHeight, floor) //nolint:err113
-		}
 		if floor < 0 && depth >= maxWalkBackDepth {
 			// The cap is a fallback bound only: it applies when the chain
-			// cannot report a finalized height. With a finalized floor the
-			// check above bounds the descent instead, so a walk-back deeper
-			// than the cap still descends and may still verify an ancestor.
+			// cannot report a finalized height. Finality is not a walk bound,
+			// so the descent below a reported finalized height continues and
+			// may still verify a pre-finality ancestor.
 			return 0, nil, fmt.Errorf("reorg walk-back from height %d: exceeded the %d-level depth cap without a common ancestor (no finalized height available)",
 				startHeight, maxWalkBackDepth) //nolint:err113
 		}

@@ -13,11 +13,12 @@ package indexer
 //
 // The scenarios here double as the Phase 3 unit coverage for the episode
 // bounds: walk-back depth below the first mismatch (MultiBlockReorgConverges,
-// SeedCheckRestartSeam), the finalized-floor fatal, the confirmation wait
-// re-anchoring on a mid-wait chain flip without deleting anything, the
-// guard reset on intervening commits, and the gap fallback catching a
-// partially stored seam. The by-hash/finalized fetcher behavior itself is
-// covered in pkg/chains/evm.
+// SeedCheckRestartSeam), the finalized-floor descent scenarios (below the
+// floor for the whole stored range, crossing it mid-descent, and the genesis
+// extreme), the confirmation wait re-anchoring on a mid-wait chain flip
+// without deleting anything, the guard reset on intervening commits, and the
+// gap fallback catching a partially stored seam. The by-hash/finalized
+// fetcher behavior itself is covered in pkg/chains/evm.
 
 import (
 	"context"
@@ -835,8 +836,9 @@ func TestReorgProcessor_WalkBackPastCapWithFloorFindsAncestor(t *testing.T) {
 		},
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(0, 110)),
 		// No FetchFinalizedBlockNumberFn override: the MockFetcher default
-		// reports a finalized height (0), so the finalized floor - not the
-		// 64-level depth cap - bounds this walk-back.
+		// reports a finalized height (0). Finality is not a walk bound, and
+		// with a finalized height reported the depth cap does not apply -
+		// which is what lets this walk-back descend past it.
 	}
 
 	// The handler reports the ancestor's hash for EVERY height: above 34
@@ -991,12 +993,14 @@ func TestReorgProcessor_RestoreRefusalStopsRun(t *testing.T) {
 	assert.Equal(t, int64(100), calls[0].from)
 }
 
-// TestReorgProcessor_FinalizedFloorStopsWalkBack proves the walk-back's
-// finalized bound: the chain reports a finalized height, the stored hashes
-// disagree with the served chain all the way down to it, and the episode
-// fails fatally at the floor instead of rolling back anything at or below
-// the safety bound. Nothing is deleted on that path.
-func TestReorgProcessor_FinalizedFloorStopsWalkBack(t *testing.T) {
+// TestReorgProcessor_ExtremeForkWalkBackHitsGenesis proves finality is not
+// a walk bound: the chain reports a finalized height, a garbage-node mock
+// serves hashes no stored content can produce at any height, and the descent
+// therefore continues below the reported finalized height instead of
+// fatalling at it as a fork-point bound, ending at the genesis fatal. The
+// roller deletes only hash-verified mismatches, so a descent below finality
+// touches no finalized content. Nothing is deleted on that path.
+func TestReorgProcessor_ExtremeForkWalkBackHitsGenesis(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
@@ -1005,14 +1009,14 @@ func TestReorgProcessor_FinalizedFloorStopsWalkBack(t *testing.T) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(0, 110)),
-		// The chain reports finalized 98; the walk never descends past it.
+		// The chain reports finalized 98; the descent still walks past it.
 		FetchFinalizedBlockNumberFn: func(_ context.Context) (int64, error) {
 			return 98, nil
 		},
 	}
 
 	// A handler that serves a constant wrong hash for every height: no
-	// common ancestor can exist anywhere.
+	// common ancestor can exist anywhere, so the descent reaches genesis.
 	reorg := &mockReorgHandler{defaultHash: forkParentHash()}
 
 	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
@@ -1023,12 +1027,133 @@ func TestReorgProcessor_FinalizedFloorStopsWalkBack(t *testing.T) {
 	case err := <-errCh:
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "walk-back")
-		assert.Contains(t, err.Error(), "finalized height")
+		assert.Contains(t, err.Error(), "walked past genesis")
 	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for the finalized-floor fatal")
+		t.Fatal("timed out waiting for the genesis fatal")
 	}
 
-	assert.Empty(t, reorg.calls(), "no deletion may happen at or past the finalized height")
+	assert.Empty(t, reorg.calls(), "no deletion may happen on a descent that never found a verified ancestor")
+}
+
+// TestReorgProcessor_WalkBackDescendsBelowFinalizedFloor is dvncan's restart
+// crash-loop scenario: an indexer that was down across a pre-finality reorg
+// restarts with its whole stored range below current finality. Floor 105,
+// stored canonical 99 and orphans 100-102, restart at 103: the seed mismatch
+// opens the episode, and the walk-back descends below the floor to the
+// verified common ancestor at 99 instead of failing on iteration one; one
+// rollback from 100 and the indexing converges.
+func TestReorgProcessor_WalkBackDescendsBelowFinalizedFloor(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(90, 120)),
+		// Current finality sits above the whole stored range: 99-102 < 105.
+		FetchFinalizedBlockNumberFn: func(_ context.Context) (int64, error) {
+			return 105, nil
+		},
+	}
+
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{
+		99:  canonicalHash(99),
+		100: orphanHash(100),
+		101: orphanHash(101),
+		102: orphanHash(102),
+	}}
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
+		return purgeStoredHashes(reorg, from, to)
+	}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+
+	rec := &commitRecorder{}
+	cancel, errCh := runProcessor(p, 103, rec.record)
+	defer cancel()
+
+	// The walk-back lands on 99, the rollback restarts from 100, and the
+	// canonical chain re-stores the rolled-back range without friction.
+	waitForCommits(t, rec, 6, errCh)
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled)
+
+	// A few extra canonical commits may race the cancel: assert the prefix.
+	got := rec.snapshot()
+	require.GreaterOrEqual(t, len(got), 6)
+	assert.Equal(t, []int64{100, 101, 102, 103, 104, 105}, got[:6],
+		"the resumed run must re-store the pre-finality orphan range and continue past it")
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1, "descending below the finalized floor must resolve with one rollback")
+	assert.Equal(t, int64(100), calls[0].from,
+		"the fork point must sit at the canonical 99 below the floor, not at the floor")
+}
+
+// TestReorgProcessor_WalkBackCrossesFinalizedFloorMidDescent is the second
+// dvncan shape: the confirmation wait starts above the floor but the true
+// common ancestor sits below it. Floor 100, stored canonical 95 and orphans
+// 96-102, restart at 103: the descent crosses the floor mid-walk and
+// converges at the fork point 95 under it.
+func TestReorgProcessor_WalkBackCrossesFinalizedFloorMidDescent(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(90, 120)),
+		// The descent starts at 102 (above the floor 100) and crosses it on
+		// the way to the ancestor at 95.
+		FetchFinalizedBlockNumberFn: func(_ context.Context) (int64, error) {
+			return 100, nil
+		},
+	}
+
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{
+		95:  canonicalHash(95),
+		96:  orphanHash(96),
+		97:  orphanHash(97),
+		98:  orphanHash(98),
+		99:  orphanHash(99),
+		100: orphanHash(100),
+		101: orphanHash(101),
+		102: orphanHash(102),
+	}}
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
+		return purgeStoredHashes(reorg, from, to)
+	}
+
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+
+	rec := &commitRecorder{}
+	cancel, errCh := runProcessor(p, 103, rec.record)
+	defer cancel()
+
+	waitForCommits(t, rec, 6, errCh)
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled)
+
+	got := rec.snapshot()
+	require.GreaterOrEqual(t, len(got), 6)
+	assert.Equal(t, []int64{96, 97, 98, 99, 100, 101}, got[:6],
+		"the resumed run must re-store the full pre-finality orphan range from the fork below the floor")
+
+	// The pre-finality canonical 95 must never be rolled back.
+	assert.Equal(t, canonicalHash(95), func() string {
+		reorg.mu.Lock()
+		defer reorg.mu.Unlock()
+		return reorg.storedHashes[95]
+	}(), "the finalized content below the floor must stay untouched")
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1, "crossing the finalized floor mid-descent must resolve with one rollback")
+	assert.Equal(t, int64(96), calls[0].from,
+		"the fork point must sit at the canonical 95 under the floor, not at the floor")
 }
 
 // TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain covers the
