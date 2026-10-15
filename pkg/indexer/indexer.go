@@ -123,10 +123,33 @@ func (i *ChainIndexer) HasIndexedAtLeastOneBlock() bool {
 
 // GetDefraDBPort returns the port of the embedded DefraDB node, or -1 if using external DefraDB.
 func (i *ChainIndexer) GetDefraDBPort() int {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	if i.defraNode == nil {
 		return -1
 	}
 	return defra.GetPort(i.defraNode)
+}
+
+// observePeers reports OTel metrics of the number of unique connected peers.
+func (i *ChainIndexer) observePeers(ctx context.Context, o metric.Int64Observer) error {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
+	// P2P disabled or unavailable: report no value rather than 0.
+	if i.defraNode == nil || i.networkHandler == nil || !i.networkHandler.IsNetworkActive() {
+		return nil
+	}
+	addrs, err := i.defraNode.DB.ActivePeers(ctx)
+	if err != nil {
+		return nil //nolint:nilerr // no need to send err to OTEL
+	}
+	peers, _ := defradb.BootstrapIntoPeers(addrs)
+	unique := make(map[string]struct{}, len(peers))
+	for _, p := range peers {
+		unique[p.ID] = struct{}{}
+	}
+	o.Observe(int64(len(unique)))
+	return nil
 }
 
 // CreateIndexer creates a new ChainIndexer with the provided configuration.
@@ -166,26 +189,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	_, err = meter.Int64ObservableGauge("shinzo.p2p.peers",
 		metric.WithDescription("Unique peers connected to the embedded DefraDB node."),
 		metric.WithUnit("{peer}"),
-		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
-			i.mutex.RLock()
-			n, nh := i.defraNode, i.networkHandler
-			i.mutex.RUnlock()
-			// P2P disabled or unavailable: report no value rather than 0.
-			if n == nil || nh == nil || !nh.IsNetworkActive() {
-				return nil
-			}
-			addrs, err := n.DB.ActivePeers(ctx)
-			if err != nil {
-				return nil //nolint:nilerr // no need to send err to OTEL
-			}
-			peers, _ := defradb.BootstrapIntoPeers(addrs)
-			unique := make(map[string]struct{}, len(peers))
-			for _, p := range peers {
-				unique[p.ID] = struct{}{}
-			}
-			o.Observe(int64(len(unique)))
-			return nil
-		}),
+		metric.WithInt64Callback(i.observePeers),
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -329,8 +333,10 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		if err != nil {
 			return ctx, fmt.Errorf("failed to start DefraDB instance: %w", err)
 		}
+		i.mutex.Lock()
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler
+		i.mutex.Unlock()
 
 		if err := waitForDefraDBFn(ctx, defraNode.APIURL); err != nil {
 			return ctx, err
@@ -746,18 +752,23 @@ func (i *ChainIndexer) teardownSubsystems() {
 		i.fetcher = nil
 	}
 
+	// Detach the node and network handler before closing them, so metric callbacks
+	// wont access stopped instances.
+	i.mutex.Lock()
+	networkHandler, defraNode := i.networkHandler, i.defraNode
+	i.networkHandler, i.defraNode = nil, nil
+	i.mutex.Unlock()
+
 	// Stop P2P network handler before closing the node
-	if i.networkHandler != nil {
+	if networkHandler != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultRetryDelay)
 		defer cancel()
-		_ = i.networkHandler.StopNetwork(&ctx)
-		i.networkHandler = nil
+		_ = networkHandler.StopNetwork(&ctx)
 	}
 
 	// Close embedded DefraDB node if it exists
-	if i.defraNode != nil {
-		_ = i.defraNode.Close(context.Background())
-		i.defraNode = nil
+	if defraNode != nil {
+		_ = defraNode.Close(context.Background())
 	}
 }
 
