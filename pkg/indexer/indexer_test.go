@@ -706,9 +706,9 @@ func TestTrackBlock(t *testing.T) {
 				return &defra.BlockCreationResult{
 					BlockID: fakeDocID(1),
 					OtherDocIDs: map[string][]string{
-						evm.CollectionTransaction:     {fakeDocID(2), fakeDocID(3)},
-						evm.CollectionLog:             {fakeDocID(4)},
-						evm.CollectionAccessListEntry: {fakeDocID(5)},
+						evm.DefaultCollectionTransaction:     {fakeDocID(2), fakeDocID(3)},
+						evm.DefaultCollectionLog:             {fakeDocID(4)},
+						evm.DefaultCollectionAccessListEntry: {fakeDocID(5)},
 					},
 					BlockSignatureID: fakeDocID(6),
 				}
@@ -722,7 +722,7 @@ func TestTrackBlock(t *testing.T) {
 				return &defra.BlockCreationResult{
 					BlockID: fakeDocID(int(blockNum)),
 					OtherDocIDs: map[string][]string{
-						evm.CollectionTransaction: {fakeDocID(int(blockNum) + 1000)},
+						evm.DefaultCollectionTransaction: {fakeDocID(int(blockNum) + 1000)},
 					},
 				}
 			},
@@ -745,18 +745,18 @@ func TestTrackBlock(t *testing.T) {
 				return &defra.BlockCreationResult{
 					BlockID: fakeDocID(1),
 					OtherDocIDs: map[string][]string{
-						evm.CollectionTransaction:     {fakeDocID(2)},
-						evm.CollectionLog:             {fakeDocID(3)},
-						evm.CollectionAccessListEntry: {fakeDocID(4)},
+						evm.DefaultCollectionTransaction:     {fakeDocID(2)},
+						evm.DefaultCollectionLog:             {fakeDocID(3)},
+						evm.DefaultCollectionAccessListEntry: {fakeDocID(4)},
 					},
 					BlockSignatureID: fakeDocID(5),
 				}
 			},
 			wantQueueLen: 1,
 			wantCollections: map[string]bool{
-				evm.CollectionTransaction:     true,
-				evm.CollectionLog:             true,
-				evm.CollectionAccessListEntry: true,
+				evm.DefaultCollectionTransaction:     true,
+				evm.DefaultCollectionLog:             true,
+				evm.DefaultCollectionAccessListEntry: true,
 			},
 		},
 		{
@@ -766,9 +766,9 @@ func TestTrackBlock(t *testing.T) {
 				return &defra.BlockCreationResult{
 					BlockID: fakeDocID(100),
 					OtherDocIDs: map[string][]string{
-						evm.CollectionTransaction:     {fakeDocID(101), fakeDocID(102)},
-						evm.CollectionLog:             {fakeDocID(103), fakeDocID(104), fakeDocID(105)},
-						evm.CollectionAccessListEntry: {fakeDocID(106)},
+						evm.DefaultCollectionTransaction:     {fakeDocID(101), fakeDocID(102)},
+						evm.DefaultCollectionLog:             {fakeDocID(103), fakeDocID(104), fakeDocID(105)},
+						evm.DefaultCollectionAccessListEntry: {fakeDocID(106)},
 					},
 					BlockSignatureID: fakeDocID(107),
 				}
@@ -800,9 +800,9 @@ func TestTrackBlock(t *testing.T) {
 
 	// Verify the EVM collection name constants the tracker wires.
 	t.Run("EVM collection name constants", func(t *testing.T) {
-		assert.Contains(t, evm.CollectionTransaction, "Transaction")
-		assert.Contains(t, evm.CollectionLog, "Log")
-		assert.Contains(t, evm.CollectionAccessListEntry, "AccessListEntry")
+		assert.Contains(t, evm.DefaultCollectionTransaction, "Transaction")
+		assert.Contains(t, evm.DefaultCollectionLog, "Log")
+		assert.Contains(t, evm.DefaultCollectionAccessListEntry, "AccessListEntry")
 	})
 }
 

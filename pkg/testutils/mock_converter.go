@@ -34,7 +34,6 @@ type MockConverter struct {
 	GetSchemaFn                   func() (string, error)
 	GetCollectionsFn              func() []string
 	CollectionsFn                 func() chains.Collections
-	SignatureCollectionFn         func() string
 	GetHighestStoredBlockNumberFn func(ctx context.Context, n *node.Node) (int64, error)
 	GetLowestStoredBlockNumberFn  func(ctx context.Context, n *node.Node) (int64, error)
 	GetDocIDsByBlockRangeFn       func(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
@@ -44,7 +43,6 @@ type MockConverter struct {
 	GetSchemaCalls                   int
 	GetCollectionsCalls              int
 	CollectionsCalls                 int
-	SignatureCollectionCalls         int
 	GetHighestStoredBlockNumberCalls int
 	GetLowestStoredBlockNumberCalls  int
 	GetDocIDsByBlockRangeCalls       []BlockRange
@@ -99,25 +97,6 @@ func (m *MockConverter) Collections() chains.Collections {
 		panic(fmt.Sprintf("MockConverter.Collections: chains.NewCollections failed: %v", err))
 	}
 	return c
-}
-
-// SignatureCollection records the call and delegates to SignatureCollectionFn.
-func (m *MockConverter) SignatureCollection() string {
-	m.mu.Lock()
-	m.SignatureCollectionCalls++
-	m.mu.Unlock()
-	if m.SignatureCollectionFn != nil {
-		return m.SignatureCollectionFn()
-	}
-	c, err := chains.NewCollections(nil)
-	if err != nil {
-		panic(fmt.Sprintf("MockConverter.SignatureCollection: chains.NewCollections failed: %v", err))
-	}
-	name, err := c.GetCollection(chains.TypeBlockSignature)
-	if err != nil {
-		panic(fmt.Sprintf("MockConverter.SignatureCollection: GetCollection failed: %v", err))
-	}
-	return name
 }
 
 // GetHighestStoredBlockNumber records the call and delegates to GetHighestStoredBlockNumberFn.

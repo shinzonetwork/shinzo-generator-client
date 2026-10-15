@@ -39,7 +39,6 @@ func TestNewPruner(t *testing.T) {
 			CollectionsFn: func() chains.Collections {
 				return evm.NewCollectionNames("Test")
 			},
-			SignatureCollectionFn: func() string { return "Test__BlockSignature" },
 		}
 		p := NewPruner(cfg, nil, mock)
 		require.NotNil(t, p)

@@ -170,7 +170,7 @@ func waitForAnyBlock(timeout time.Duration) bool {
 							var result map[string]any
 							if json.Unmarshal(body, &result) == nil {
 								if data, ok := result["data"].(map[string]any); ok {
-									if block, ok := data[evm.CollectionBlock].(map[string]any); ok {
+									if block, ok := data[evm.DefaultCollectionBlock].(map[string]any); ok {
 										if count, ok := block["_count"].(float64); ok && count > 0 {
 											logger.Test(fmt.Sprintf("✅ Found %v blocks indexed at %s", count, testURL))
 											liveDefraURL = testURL
@@ -219,7 +219,7 @@ func hasLiveBlocks() bool {
 		return false
 	}
 
-	blocks, ok := data[evm.CollectionBlock].([]any)
+	blocks, ok := data[evm.DefaultCollectionBlock].([]any)
 	return ok && len(blocks) > 0
 }
 
@@ -270,7 +270,7 @@ func TestLiveGetLatestBlocks(t *testing.T) {
 		t.Fatal("No data in response")
 	}
 
-	blocks, ok := data[evm.CollectionBlock].([]any)
+	blocks, ok := data[evm.DefaultCollectionBlock].([]any)
 	if !ok || len(blocks) == 0 {
 		t.Fatal("No blocks returned from live query")
 	}
@@ -318,7 +318,7 @@ func TestLiveGetTransactions(t *testing.T) {
 		t.Fatal("No data in transaction response")
 	}
 
-	transactions, ok := data[evm.CollectionTransaction].([]any)
+	transactions, ok := data[evm.DefaultCollectionTransaction].([]any)
 	if !ok {
 		logger.Test("No transactions found in live data (this may be normal if blocks have no transactions)")
 		return
@@ -370,7 +370,7 @@ func TestLiveBlockTransactionRelationship(t *testing.T) {
 		t.Fatal("No data in block-transaction response")
 	}
 
-	blocks, ok := data[evm.CollectionBlock].([]any)
+	blocks, ok := data[evm.DefaultCollectionBlock].([]any)
 	if !ok || len(blocks) == 0 {
 		t.Fatal("No blocks returned from live block-transaction query")
 	}
@@ -453,7 +453,7 @@ func getLiveBlockCount() int {
 		return 0
 	}
 
-	blocks, ok := data[evm.CollectionBlock].([]any)
+	blocks, ok := data[evm.DefaultCollectionBlock].([]any)
 	if !ok {
 		return 0
 	}
