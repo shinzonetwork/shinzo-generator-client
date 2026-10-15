@@ -75,8 +75,8 @@ var errReorgDetected = stderrors.New("reorg detected")
 // height dispatched when the run drained; heights above the last stored
 // block hold nothing to delete, so it acts as an upper bound. chainHashes
 // carries the verified new-chain hash per height for the walked segment -
-// it travels to the rollback handler through the rollback context
-// (defra.WithRollbackChainHashes) so the roller deletes only heights whose
+// it travels to the rollback handler as the explicit chainHashes
+// parameter so the roller deletes only heights whose
 // stored hash disagrees with the new chain.
 type rollbackPoint struct {
 	forkPoint int64
@@ -277,11 +277,10 @@ func (p *ConcurrentBlockProcessor) ProcessBlocks(
 
 		logger.Sugar.Warnf("Rolling back orphan blocks [%d, %d] after reorg detection; restarting from %d",
 			restart, rb.oldTip, restart)
-		// The verified new-chain hashes ride the rollback context: the
-		// handler signature is a stable two-integer contract, and the
-		// wrappers around it forward the context untouched, so the roller
-		// can still delete strictly by height and hash.
-		if err := p.reorgHandler.RollbackBlocks(defra.WithRollbackChainHashes(ctx, rb.chainHashes), restart, rb.oldTip); err != nil {
+		// The verified new-chain hashes go in as an explicit parameter: the
+		// roller deletes strictly by height and hash, so the rollback fails
+		// safe whenever a height carries no verified hash.
+		if err := p.reorgHandler.RollbackBlocks(ctx, restart, rb.oldTip, rb.chainHashes); err != nil {
 			return fmt.Errorf("rollback blocks [%d, %d]: %w (partial rollback followed by re-indexing would leave duplicate heights; indexing stopped)",
 				restart, rb.oldTip, err) //nolint:err113
 		}

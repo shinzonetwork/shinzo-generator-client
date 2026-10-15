@@ -315,9 +315,9 @@ type watchedReorgHandler struct {
 // contract the processor consumes.
 var _ defra.ReorgHandler = (*watchedReorgHandler)(nil)
 
-func (w *watchedReorgHandler) RollbackBlocks(ctx context.Context, from, to int64) error {
+func (w *watchedReorgHandler) RollbackBlocks(ctx context.Context, from, to int64, chainHashes map[int64]string) error {
 	before := w.snapshotHashes(ctx, from, to)
-	err := w.inner.RollbackBlocks(ctx, from, to)
+	err := w.inner.RollbackBlocks(ctx, from, to, chainHashes)
 	after := w.snapshotHashes(ctx, from, to)
 	w.mu.Lock()
 	w.calls = append(w.calls, rollbackCall{from: from, to: to})

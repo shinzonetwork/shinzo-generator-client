@@ -88,8 +88,8 @@ func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 		require.Contains(t, pre, colName, "collection %s must hold docs for the full range before rollback", colName)
 	}
 
-	rollbackCtx := rollbackCtxWithOrphan(ctx, 2101)
-	require.NoError(t, roller.RollbackBlocks(rollbackCtx, 2101, 2101))
+	rollbackHashes := rollbackChainHashes(2101)
+	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101, rollbackHashes))
 
 	assertCollectionEmptyForRange(ctx, t, handler, blockCol, constants.NumberFieldName, 2101, 2101)
 	assertCollectionEmptyForRange(ctx, t, handler, txCol, constants.BlockNumberFieldName, 2101, 2101)
@@ -127,7 +127,7 @@ func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 		assert.Contains(t, reindexed, colName, "the re-indexed block must be queryable in %s", colName)
 	}
 
-	require.NoError(t, roller.RollbackBlocks(rollbackCtx, 2101, 2101),
+	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101, rollbackHashes),
 		"the rollback is repeatable: re-running it over the re-indexed height soft-deletes again without error")
 
 	assertCollectionEmptyForRange(ctx, t, handler, blockCol, constants.NumberFieldName, 2101, 2101)
@@ -162,7 +162,7 @@ func TestReorgRoller_GetStoredBlockHash(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, missing, "a height with no stored block reports an empty hash")
 
-	require.NoError(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 1000), 1000, 1000))
+	require.NoError(t, roller.RollbackBlocks(ctx, 1000, 1000, rollbackChainHashes(1000)))
 
 	purged, err := roller.GetStoredBlockHash(ctx, 1000)
 	require.NoError(t, err)
@@ -181,16 +181,17 @@ func TestNewReorgRoller_RejectsNilArgs(t *testing.T) {
 	require.Error(t, err)
 }
 
-// rollbackCtxWithOrphan marks every given height as a verified orphan in
-// the rollback context: the new chain carries a hash no stored content can
-// produce, so the verify-by-hash contract deletes exactly those heights
-// (the direct roller tests provide the verification the processor would).
-func rollbackCtxWithOrphan(ctx context.Context, heights ...int64) context.Context {
+// rollbackChainHashes marks every given height as a verified orphan in the
+// map the RollbackBlocks call passes: the new chain carries a hash no stored
+// content can produce, so the verify-by-hash contract deletes exactly those
+// heights (the direct roller tests provide the verification the processor
+// would).
+func rollbackChainHashes(heights ...int64) map[int64]string {
 	chainHashes := make(map[int64]string, len(heights))
 	for _, h := range heights {
 		chainHashes[h] = deterministicHash(fmt.Sprintf("rollback-orphan-%d", h))
 	}
-	return WithRollbackChainHashes(ctx, chainHashes)
+	return chainHashes
 }
 
 // queueRollbackTracker mirrors the indexer's queue wiring for tests: TrackBlock
@@ -240,7 +241,7 @@ func TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused(t *testing.
 	_, err = handler.Store(ctx, groups)
 	require.NoError(t, err)
 
-	require.NoError(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 2101), 2101, 2101))
+	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101, rollbackChainHashes(2101)))
 
 	// Re-store the byte-identical content: the docIDs were content-derived
 	// and are now soft-deleted, so DefraDB refuses the re-creation instead
@@ -290,7 +291,7 @@ func TestReorgRoller_RollbackBlocks_RetainsQueueEntries(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, queue.Len(), "the stored orphan must be tracked in the prune queue")
 
-	require.NoError(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 2101), 2101, 2101))
+	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101, rollbackChainHashes(2101)))
 
 	// The docs are now soft-deleted (invisible to queries) and their queue
 	// entries must be retained: the pruner later hard-purges via exactly
@@ -340,7 +341,7 @@ func TestReorgRoller_GetStoredBlockHash_MultiRowErrors(t *testing.T) {
 	assert.Contains(t, hashErr.Error(), "share the height")
 	assert.Empty(t, stored, "no row may be guessed when the store state is inconsistent")
 
-	require.Error(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 2101), 2101, 2101),
+	require.Error(t, roller.RollbackBlocks(ctx, 2101, 2101, rollbackChainHashes(2101)),
 		"the rollback must stop loudly on the inconsistent store")
 
 	after, err := converter.GetDocIDsByBlockRange(ctx, td.Node, 2101, 2101)
@@ -390,7 +391,7 @@ func TestReorgRoller_QueueRetainedOrphansAreHardPurgeable(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, queue.Len(), "the stored orphan must be tracked in the prune queue")
 
-	require.NoError(t, roller.RollbackBlocks(rollbackCtxWithOrphan(ctx, 2101), 2101, 2101))
+	require.NoError(t, roller.RollbackBlocks(ctx, 2101, 2101, rollbackChainHashes(2101)))
 
 	// Precondition: the orphan is soft-deleted - hidden and re-add refused.
 	_, err = handler.Store(ctx, groups)

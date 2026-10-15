@@ -232,7 +232,7 @@ func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 	// callbacks captured at the first rollback call are final for run 1:
 	// none of them may sit past the recorded rollback point.
 	var committedAtRollback []int64
-	reorg.rollbackFn = func(_, _ int64) error {
+	reorg.rollbackFn = func(_, _ int64, _ map[int64]string) error {
 		committedAtRollback = rec.snapshot()
 		return nil
 	}
@@ -306,7 +306,7 @@ func TestReorgProcessor_MultiBlockReorgConverges(t *testing.T) {
 			100: orphanHash(100),
 		},
 	}
-	reorg.rollbackFn = func(from, to int64) error {
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
 		return purgeStoredHashes(reorg, from, to)
 	}
 
@@ -389,7 +389,7 @@ func TestReorgProcessor_InterruptedRollbackResumesWithoutHole(t *testing.T) {
 	// soft-deleted (hidden) and then the rollback dies. Later calls pass
 	// through to the full purge emulation.
 	var interrupted atomic.Bool
-	reorg.rollbackFn = func(from, to int64) error {
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
 		if interrupted.CompareAndSwap(false, true) {
 			reorg.mu.Lock()
 			top := int64(-1)
@@ -511,7 +511,7 @@ func TestReorgProcessor_WalkBackDescendsPastStoreHole(t *testing.T) {
 			100: orphanHash(100),
 		},
 	}
-	reorg.rollbackFn = func(from, to int64) error {
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
 		return purgeStoredHashes(reorg, from, to)
 	}
 
@@ -582,7 +582,7 @@ func TestReorgProcessor_SeedCheckRestartSeam(t *testing.T) {
 	}
 
 	reorg := &mockReorgHandler{storedHashes: map[int64]string{100: orphanHash(100)}}
-	reorg.rollbackFn = func(from, to int64) error {
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
 		return purgeStoredHashes(reorg, from, to)
 	}
 
@@ -645,7 +645,7 @@ func TestReorgProcessor_GapFallbackDetectsStalePredecessor(t *testing.T) {
 			100: orphanHash(100),
 		},
 	}
-	reorg.rollbackFn = func(from, to int64) error {
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
 		return purgeStoredHashes(reorg, from, to)
 	}
 
@@ -909,7 +909,7 @@ func TestReorgProcessor_RollbackFailureIsFatal(t *testing.T) {
 	}
 
 	reorg := &mockReorgHandler{storedHashes: map[int64]string{99: canonicalHash(99)}}
-	reorg.rollbackFn = func(_, _ int64) error {
+	reorg.rollbackFn = func(_, _ int64, _ map[int64]string) error {
 		return fmt.Errorf("rollback boom")
 	}
 
@@ -970,7 +970,7 @@ func TestReorgProcessor_RestoreRefusalStopsRun(t *testing.T) {
 		99:  canonicalHash(99),
 		100: canonicalHash(100),
 	}}
-	reorg.rollbackFn = func(from, to int64) error {
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
 		return purgeStoredHashes(reorg, from, to)
 	}
 
@@ -1107,7 +1107,7 @@ func TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain(t *testing.T) {
 	// The handler carries the pre-reorg stored state; the rollback purges
 	// like a real soft-delete would.
 	reorg := &mockReorgHandler{storedHashes: map[int64]string{100: canonicalHash(100)}}
-	reorg.rollbackFn = func(from, to int64) error {
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
 		return purgeStoredHashes(reorg, from, to)
 	}
 
@@ -1238,7 +1238,7 @@ func TestReorgProcessor_GapFallbackCatchesPartialStore(t *testing.T) {
 			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
 		},
 	}
-	reorg.rollbackFn = func(from, to int64) error {
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
 		return purgeStoredHashes(reorg, from, to)
 	}
 

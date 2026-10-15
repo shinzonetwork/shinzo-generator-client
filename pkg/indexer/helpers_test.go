@@ -164,20 +164,20 @@ type mockReorgHandler struct {
 	storedHashes  map[int64]string
 	defaultHash   string
 	rollbackCalls []rollbackCall
-	rollbackFn    func(from, to int64) error
+	rollbackFn    func(from, to int64, chainHashes map[int64]string) error
 }
 
 type rollbackCall struct {
 	from, to int64
 }
 
-func (m *mockReorgHandler) RollbackBlocks(_ context.Context, from, to int64) error {
+func (m *mockReorgHandler) RollbackBlocks(_ context.Context, from, to int64, chainHashes map[int64]string) error {
 	m.mu.Lock()
 	m.rollbackCalls = append(m.rollbackCalls, rollbackCall{from: from, to: to})
 	fn := m.rollbackFn
 	m.mu.Unlock()
 	if fn != nil {
-		return fn(from, to)
+		return fn(from, to, chainHashes)
 	}
 	return nil
 }

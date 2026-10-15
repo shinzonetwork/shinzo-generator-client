@@ -17,47 +17,21 @@ import (
 type ReorgHandler interface {
 	// RollbackBlocks soft-deletes the verified orphan documents for the
 	// height range [from, to]: per height, the stored block hash is
-	// compared against the new chain's hash delivered via
-	// WithRollbackChainHashes, and only heights whose stored hash disagrees
+	// compared against the caller-verified new chain's hash, keyed by
+	// height in chainHashes, and only heights whose stored hash disagrees
 	// are deleted, with children collections first and the block document
 	// last, and heights processed in descending order so an interrupted
 	// rollback leaves the lowest orphan visible for the resumed walk-back.
+	// ChainHashes heights the map does not cover (or covers with an empty
+	// hash) stay untouched, because nothing may be deleted without a
+	// hash-verified proof that it is an orphan.
 	// Deletions replicate to hosts; prune-queue entries are retained
 	// so the pruner can hard-purge the soft-deleted docs later.
-	RollbackBlocks(ctx context.Context, from, to int64) error
+	RollbackBlocks(ctx context.Context, from, to int64, chainHashes map[int64]string) error
 
 	// GetStoredBlockHash returns the stored block hash at a height; ""
 	// when none stored.
 	GetStoredBlockHash(ctx context.Context, blockNumber int64) (string, error)
-}
-
-// rollbackChainHashesKey keys the context value WithRollbackChainHashes
-// attaches. It lives in this package so the processor and the roller agree
-// on the transport inside ReorgHandler's stable two-argument signature: the
-// pass-through handlers the processor is wired with forward the context
-// untouched, so the verified hashes reach the roller through every wrapper.
-type rollbackChainHashesKey struct{}
-
-// WithRollbackChainHashes returns a context that carries the verified
-// new-chain block hashes for the pending rollback, keyed by height. The
-// roller deletes only heights whose stored hash disagrees with the map;
-// heights it does not cover (or covers with an empty hash) stay untouched,
-// because nothing may be deleted without a hash-verified proof that it is
-// an orphan.
-func WithRollbackChainHashes(ctx context.Context, chainHashes map[int64]string) context.Context {
-	return context.WithValue(ctx, rollbackChainHashesKey{}, chainHashes)
-}
-
-// rollbackChainHashAt reads the verified new-chain hash for a height from
-// the rollback context. ok is false when the height carries no verified
-// hash, which leaves the height untouched by the rollback.
-func rollbackChainHashAt(ctx context.Context, blockNumber int64) (string, bool) {
-	chainHashes, _ := ctx.Value(rollbackChainHashesKey{}).(map[int64]string)
-	if len(chainHashes) == 0 {
-		return "", false
-	}
-	chainHash, ok := chainHashes[blockNumber]
-	return chainHash, ok && chainHash != ""
 }
 
 // ReorgRoller implements ReorgHandler against an embedded DefraDB node.
@@ -133,7 +107,7 @@ func (r *ReorgRoller) deleteOrder(cols []string) []string {
 
 // RollbackBlocks implements ReorgHandler. It verifies every height in
 // [from, to] against the new chain's hash, delivered by the caller through
-// WithRollbackChainHashes, and soft-deletes only the proven orphans: a
+// the chainHashes parameter, and soft-deletes only the proven orphans: a
 // height is deleted exactly when a stored block hash exists at it and
 // disagrees with the verified new-chain hash. Heights without a verified
 // chain hash - above the processor's confirmed segment, say - and heights
@@ -167,15 +141,15 @@ func (r *ReorgRoller) deleteOrder(cols []string) []string {
 // The prune-queue entries of deleted docs are intentionally retained: the
 // pruner is the only mechanism that hard-purges the soft-deleted docIDs
 // locally.
-func (r *ReorgRoller) RollbackBlocks(ctx context.Context, from, to int64) error {
-	chainHashes, ok := ctx.Value(rollbackChainHashesKey{}).(map[int64]string)
-	if from <= to && (!ok || len(chainHashes) == 0) {
+func (r *ReorgRoller) RollbackBlocks(ctx context.Context, from, to int64, chainHashes map[int64]string) error {
+	if from <= to && len(chainHashes) == 0 {
 		logger.Sugar.Warnf("Rollback [%d, %d]: no verified new-chain hashes provided; no height can be verified or deleted",
 			from, to)
 	}
 
 	for height := to; height >= from; height-- {
-		chainHash, verified := rollbackChainHashAt(ctx, height)
+		chainHash, verified := chainHashes[height]
+		verified = verified && chainHash != ""
 		if !verified {
 			continue
 		}
