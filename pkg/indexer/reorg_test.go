@@ -86,18 +86,6 @@ func canonicalHashIndex(lo, hi int64) map[string]*servedBlock {
 	return index
 }
 
-// byHashLookup turns a hash-keyed block index into a FetchBlockByHash
-// function; an unknown hash surfaces as a not-found error so the walk-back's
-// retry classification applies.
-func byHashLookup(blocks map[string]*servedBlock) func(context.Context, string) (any, error) {
-	return func(_ context.Context, hash string) (any, error) {
-		if b, ok := blocks[strings.ToLower(hash)]; ok {
-			return b, nil
-		}
-		return nil, fmt.Errorf("block not found")
-	}
-}
-
 // headerLookup adapts a hash-keyed block index into a FetchBlockHeaderByHash
 // function consumed by the walk-back descent, which reads only the header
 // fields; an unknown hash surfaces as a not-found error so the descent's
@@ -222,7 +210,6 @@ func TestReorgProcessor_RollbackAndResume(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
 	}
 
@@ -296,7 +283,6 @@ func TestReorgProcessor_MultiBlockReorgConverges(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
 	}
 
@@ -359,7 +345,6 @@ func TestReorgProcessor_InterruptedRollbackResumesWithoutHole(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
 	}
 
@@ -498,7 +483,6 @@ func TestReorgProcessor_WalkBackDescendsPastStoreHole(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 115)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
 	}
 
@@ -577,7 +561,6 @@ func TestReorgProcessor_SeedCheckRestartSeam(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
@@ -623,7 +606,6 @@ func TestReorgProcessor_GapFallbackDetectsStalePredecessor(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
@@ -750,7 +732,6 @@ func TestReorgProcessor_GuardSameHeightRollbacks(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(byHash),
 		FetchBlockHeaderFn: headerLookup(byHash),
 	}
 
@@ -812,7 +793,6 @@ func TestReorgProcessor_WalkBackCapFailsWithoutCommonAncestor(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(0, 110)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(0, 110)),
 		// Disable the finalized floor so the hard depth cap is the only
 		// bound this test exercises.
@@ -853,7 +833,6 @@ func TestReorgProcessor_WalkBackPastCapWithFloorFindsAncestor(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(0, 110)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(0, 110)),
 		// No FetchFinalizedBlockNumberFn override: the MockFetcher default
 		// reports a finalized height (0), so the finalized floor - not the
@@ -904,7 +883,6 @@ func TestReorgProcessor_RollbackFailureIsFatal(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
@@ -958,7 +936,6 @@ func TestReorgProcessor_RestoreRefusalStopsRun(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 
@@ -1027,7 +1004,6 @@ func TestReorgProcessor_FinalizedFloorStopsWalkBack(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(0, 110)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(0, 110)),
 		// The chain reports finalized 98; the walk never descends past it.
 		FetchFinalizedBlockNumberFn: func(_ context.Context) (int64, error) {
@@ -1100,7 +1076,6 @@ func TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(chainBByHash),
 		FetchBlockHeaderFn: headerLookup(chainBByHash),
 	}
 
@@ -1157,7 +1132,6 @@ func TestReorgProcessor_GuardResetsOnProgress(t *testing.T) {
 			}
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(byHash),
 		FetchBlockHeaderFn: headerLookup(byHash),
 	}
 
@@ -1216,7 +1190,6 @@ func TestReorgProcessor_GapFallbackCatchesPartialStore(t *testing.T) {
 		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
 			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
 		},
-		FetchBlockByHashFn: byHashLookup(canonicalHashIndex(95, 110)),
 		FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 110)),
 	}
 

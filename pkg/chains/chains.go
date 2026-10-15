@@ -136,18 +136,6 @@ type Fetcher interface {
 	// an EVM block bundle); callers type-assert or pass it to a Converter.
 	FetchBlock(ctx context.Context, height int64) (any, error)
 
-	// FetchBlockByHash retrieves the raw block data for the block with the
-	// given content hash, regardless of which branch of the chain it sits
-	// on. The hash format is chain-specific (e.g. a 0x-prefixed hex hash
-	// for EVM). The concrete return type matches FetchBlock, with the
-	// receipts pinned to the same hash as the block itself, so the bundle
-	// is branch-consistent for orphan blocks too (the reorg walk-back still
-	// uses FetchBlockHeaderByHash, which needs no receipt call and no
-	// conversion). A hash the node does not know must surface as a
-	// not-found error recognized by pkg/errors.IsErrNotFound, so retry
-	// semantics match by-height fetches.
-	FetchBlockByHash(ctx context.Context, hash string) (any, error)
-
 	// FetchBlockHeaderByHash retrieves only the header fields (height,
 	// content hash, parent hash) of the block with the given content hash,
 	// regardless of which branch of the chain it sits on. It performs no
@@ -156,7 +144,7 @@ type Fetcher interface {
 	// data, and without the by-number receipt fetch mixing branches on
 	// orphan blocks. A hash the node does not know must surface as a
 	// not-found error recognized by pkg/errors.IsErrNotFound, matching
-	// FetchBlockByHash retry semantics.
+	// by-height fetch retry semantics.
 	FetchBlockHeaderByHash(ctx context.Context, hash string) (BlockHeader, error)
 
 	// FetchHighestBlockNumber returns the latest block number known to the

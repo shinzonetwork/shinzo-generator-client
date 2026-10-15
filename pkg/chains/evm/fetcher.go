@@ -153,38 +153,6 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	return n.Int64(), nil
 }
 
-// FetchBlockByHash implements chains.Fetcher. It retrieves the block with
-// the given 0x-prefixed content hash regardless of which branch it sits on,
-// and parses the height from the block header. The bundle shape matches
-// FetchBlock, with the receipts pinned to the same hash as the block itself,
-// so the bundle is branch-consistent for orphan blocks too (the reorg
-// walk-back still uses FetchBlockHeaderByHash, which needs no receipt call
-// and no conversion). Not-found errors from the client keep their message,
-// so pkg/errors.IsErrNotFound continues to classify them for the shared
-// retry logic.
-func (f *Fetcher) FetchBlockByHash(ctx context.Context, hash string) (any, error) {
-	if f.client == nil {
-		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlockByHash")
-	}
-	block, err := f.client.GetBlockByHash(ctx, hash)
-	if err != nil {
-		return nil, err
-	}
-	height, err := parseBlockNumberString(block.Number)
-	if err != nil {
-		return nil, fmt.Errorf("block by hash %s: %w", hash, err)
-	}
-	transactions, receipts, err := f.fetchTransactionsAndReceipts(ctx, block, height)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch receipts for block by hash %s: %w", hash, err)
-	}
-	return &BlockBundle{
-		Block:        block,
-		Transactions: transactions,
-		Receipts:     receipts,
-	}, nil
-}
-
 // FetchBlockHeaderByHash implements chains.Fetcher. It retrieves only the
 // header fields (height, content hash, parent hash) of the block with the
 // given 0x-prefixed content hash: the same GetBlockByHash RPC the bundle
