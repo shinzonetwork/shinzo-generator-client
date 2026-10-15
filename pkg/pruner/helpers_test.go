@@ -51,10 +51,6 @@ func (tc *testChain) GetSchema() (string, error) {
 	return testSchema, nil
 }
 
-func (tc *testChain) SignatureCollection() string {
-	return "Test__BlockSignature"
-}
-
 func (tc *testChain) GetLowestStoredBlockNumber(ctx context.Context, _ *node.Node) (int64, error) {
 	// Mirrors the evm converter's contract: the `_geq: 0` filter excludes
 	// numberless rows (purge residue) so they cannot fill the limit-1 window.
@@ -122,8 +118,8 @@ func (tc *testChain) GetCollections() []string {
 	return []string{testBlockColName, testTxColName}
 }
 
-// Collections returns a StubCollections with the "Test" prefix so the pruner
-// can resolve collection names via the chains.Collections interface.
+// Collections returns EVM collection names with the "Test" prefix so the
+// pruner can resolve collection names via the chains.Collections interface.
 func (tc *testChain) Collections() chains.Collections {
 	return evm.NewCollectionNames("Test")
 }
@@ -178,11 +174,10 @@ func newTestChain(n *node.Node) *testChain {
 	return &testChain{node: n}
 }
 
-// newTestPruner creates a Pruner wired to a testChain and overrides the
-// resolved block-collection name. testChain.Collections() returns
-// StubCollections("Test") whose block name is "Test__Block", but the test
-// schema uses "TestBlock" — so we override the field directly (accessible
-// because tests are in package pruner).
+// newTestPruner creates a Pruner wired to a testChain. testChain.Collections()
+// returns EVM collection names with the "Test" prefix, yielding block names
+// like "Test__Block", but the test schema uses "TestBlock", so we override
+// the field directly (accessible because tests are in package pruner).
 // Returns the testChain as well for tests that need direct chain queries.
 func newTestPruner(cfg *config.PrunerConfig, n *node.Node) (*Pruner, *testChain) {
 	tc := newTestChain(n)

@@ -65,11 +65,8 @@ type Collections interface {
 	// (the chain prefix suffixed with "__Block").
 	BlockCollection() string
 
-	// BlockSignatureCollection returns the collection name used for block
-	// signatures (the chain prefix suffixed with "__BlockSignature") without
-	// requiring a ConversionResult. Used by pruner/snapshot to resolve the
-	// block signature collection and by the processor's storeWithRetry when
-	// calling SignExisting.
+	// BlockSignatureCollection returns the collection name that stores block
+	// signature documents (the chain prefix suffixed with "__BlockSignature").
 	BlockSignatureCollection() string
 
 	// SnapshotSignatureCollection returns the collection name that stores
@@ -128,7 +125,7 @@ type Converter interface {
 	GetCollections() []string
 
 	// Collections returns the Collections interface for collection-name
-	// resolution
+	// resolution.
 	Collections() Collections
 
 	// GetHighestStoredBlockNumber returns the highest block number currently

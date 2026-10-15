@@ -34,7 +34,6 @@ type MockConverter struct {
 	GetSchemaFn                   func() (string, error)
 	GetCollectionsFn              func() []string
 	CollectionsFn                 func() chains.Collections
-	SignatureCollectionFn         func() string
 	GetHighestStoredBlockNumberFn func(ctx context.Context, n *node.Node) (int64, error)
 	GetLowestStoredBlockNumberFn  func(ctx context.Context, n *node.Node) (int64, error)
 	GetDocIDsByBlockRangeFn       func(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
@@ -44,7 +43,6 @@ type MockConverter struct {
 	GetSchemaCalls                   int
 	GetCollectionsCalls              int
 	CollectionsCalls                 int
-	SignatureCollectionCalls         int
 	GetHighestStoredBlockNumberCalls int
 	GetLowestStoredBlockNumberCalls  int
 	GetDocIDsByBlockRangeCalls       []BlockRange

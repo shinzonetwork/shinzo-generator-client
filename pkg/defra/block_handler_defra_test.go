@@ -1279,36 +1279,36 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 
 	tests := []struct {
-		name         string
-		targetCol    string
-		mutate       func(doc map[string]any)
-		skippedCols  []string
-		writtenCols  []string
+		name        string
+		targetCol   string
+		mutate      func(doc map[string]any)
+		skippedCols []string
+		writtenCols []string
 	}{
 		{
-			name:         "tx hash non-string",
-			targetCol:    cols.Transaction,
-			mutate:       func(doc map[string]any) { doc["hash"] = 12345 },
-			skippedCols:  []string{cols.Transaction, cols.Log, cols.AccessListEntry},
+			name:        "tx hash non-string",
+			targetCol:   cols.Transaction,
+			mutate:      func(doc map[string]any) { doc["hash"] = 12345 },
+			skippedCols: []string{cols.Transaction, cols.Log, cols.AccessListEntry},
 		},
 		{
-			name:         "tx hash key deleted",
-			targetCol:    cols.Transaction,
-			mutate:       func(doc map[string]any) { delete(doc, "hash") },
-			skippedCols:  []string{cols.Transaction, cols.Log, cols.AccessListEntry},
+			name:        "tx hash key deleted",
+			targetCol:   cols.Transaction,
+			mutate:      func(doc map[string]any) { delete(doc, "hash") },
+			skippedCols: []string{cols.Transaction, cols.Log, cols.AccessListEntry},
 		},
 		{
-			name:         "tx hash empty",
-			targetCol:    cols.Transaction,
-			mutate:       func(doc map[string]any) { doc["hash"] = "" },
-			skippedCols:  []string{cols.Transaction, cols.Log, cols.AccessListEntry},
+			name:        "tx hash empty",
+			targetCol:   cols.Transaction,
+			mutate:      func(doc map[string]any) { doc["hash"] = "" },
+			skippedCols: []string{cols.Transaction, cols.Log, cols.AccessListEntry},
 		},
 		{
-			name:         "log transactionHash non-string",
-			targetCol:    cols.Log,
-			mutate:       func(doc map[string]any) { doc["transactionHash"] = 42 },
-			skippedCols:  []string{cols.Log, cols.AccessListEntry},
-			writtenCols:  []string{cols.Transaction},
+			name:        "log transactionHash non-string",
+			targetCol:   cols.Log,
+			mutate:      func(doc map[string]any) { doc["transactionHash"] = 42 },
+			skippedCols: []string{cols.Log, cols.AccessListEntry},
+			writtenCols: []string{cols.Transaction},
 		},
 	}
 

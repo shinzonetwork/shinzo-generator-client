@@ -976,12 +976,11 @@ func TestCheckAndSnapshot_UsesChainBlockRange(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNew_ResolvesSignatureCollectionsViaSuffixMatch(t *testing.T) {
+func TestNew_ResolvesSignatureCollectionsFromCollections(t *testing.T) {
 	mc := &testutils.MockConverter{
 		CollectionsFn: func() chains.Collections {
 			return evm.NewCollectionNames("CustomChain__Testnet")
 		},
-		SignatureCollectionFn: func() string { return "CustomChain__Testnet__BlockSignature" },
 	}
 
 	s := New(&config.SnapshotConfig{Dir: t.TempDir()}, nil, mc)
