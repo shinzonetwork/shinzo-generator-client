@@ -467,8 +467,7 @@ func (h *realDefraReorgHarness) storedHashAt(ctx context.Context, t *testing.T, 
 // rows' hash and blockHash fields.
 func (h *realDefraReorgHarness) txRowsAt(ctx context.Context, t *testing.T, height int64) []map[string]any {
 	t.Helper()
-	txCol, err := h.converter.Collections().GetCollection(chains.TypeTransaction)
-	require.NoError(t, err)
+	txCol := h.converter.Collections().Prefix() + "__Transaction"
 	query := fmt.Sprintf("query { %s(filter: {%s: {_eq: %d}}) { %s %s } }",
 		txCol, constants.BlockNumberFieldName, height, constants.HashFieldName, constants.BlockHashFieldName)
 	result := h.td.Node.DB.ExecRequest(ctx, query)
@@ -630,10 +629,8 @@ func TestReorgRealDefraDB_OneBlockReorg(t *testing.T) {
 	// pruner can hard-purge the doc later.
 	orphanBlockID := h.tracker.firstTrackedBlockID(200)
 	require.NotEmpty(t, orphanBlockID, "the orphan must have been stored and tracked during run 1")
-	blockCol, err := h.converter.Collections().GetCollection(chains.TypeBlock)
-	require.NoError(t, err)
-	sigCol, err := h.converter.Collections().GetCollection(chains.TypeBlockSignature)
-	require.NoError(t, err)
+	blockCol := h.converter.Collections().BlockCollection()
+	sigCol := h.converter.Collections().BlockSignatureCollection()
 	drained := h.queue.Drain(0, blockCol, sigCol)
 	require.NotNil(t, drained)
 	require.Contains(t, drained.DocIDsByCollection[blockCol], orphanBlockID,
@@ -699,10 +696,8 @@ func TestReorgRealDefraDB_TwoBlockReorg(t *testing.T) {
 	require.NotEmpty(t, orphanBlockID200, "orphan 200 must have been stored and tracked during run 1")
 	orphanBlockID201 := h.tracker.firstTrackedBlockID(201)
 	require.NotEmpty(t, orphanBlockID201, "orphan 201 must have been stored and tracked during run 1")
-	blockCol, err := h.converter.Collections().GetCollection(chains.TypeBlock)
-	require.NoError(t, err)
-	sigCol, err := h.converter.Collections().GetCollection(chains.TypeBlockSignature)
-	require.NoError(t, err)
+	blockCol := h.converter.Collections().BlockCollection()
+	sigCol := h.converter.Collections().BlockSignatureCollection()
 	drained := h.queue.Drain(0, blockCol, sigCol)
 	require.NotNil(t, drained)
 	require.Contains(t, drained.DocIDsByCollection[blockCol], orphanBlockID200,

@@ -11,8 +11,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
-
-	stderrors "errors"
 )
 
 // ReorgHandler is the rollback primitive used when the chain reorgs.
@@ -101,38 +99,26 @@ func NewReorgRoller(defraNode *node.Node, converter chains.Converter) (*ReorgRol
 
 // deleteOrder orders the collections to delete for one height so the
 // crash-recovery invariant holds: the block document goes last, and the
-// children go before it in the approved order (transaction, log,
-// access-list entry, signature), with any other collection cleared
+// children go before it in reverse of the chain's registered collection
+// order (dependents first), with any other collection cleared
 // alphabetically in between. Block-last keeps the dangerous direction safe
 // and detectable: a rollback dying midway leaves the orphan's block doc
 // visible, so the next run's seed check re-detects the mismatch and
 // repeats the rollback (defect 8; alphabetical ordering never achieves
-// this because BlockSignature sorts after Block).
-func (r *ReorgRoller) deleteOrder(cols []string) ([]string, error) {
+// this because BlockSignature sorts after Block, while the reverse
+// registered order places the block-signature collection before the
+// block).
+func (r *ReorgRoller) deleteOrder(cols []string) []string {
 	ordered := make([]string, 0, len(cols))
+	known := r.converter.Collections().AllCollections()
+	blockCol := r.converter.Collections().BlockCollection()
 
-	for _, role := range []string{
-		chains.TypeTransaction,
-		chains.TypeLog,
-		chains.TypeAccessListEntry,
-		chains.TypeBlockSignature,
-	} {
-		name, err := r.converter.Collections().GetCollection(role)
-		if err != nil {
-			if stderrors.Is(err, chains.ErrUnknownCollection) {
-				continue
-			}
-			return nil, fmt.Errorf("resolve collection %q: %w", role, err) //nolint:err113
-		}
-		if slices.Contains(cols, name) {
-			ordered = append(ordered, name)
+	for _, k := range slices.Backward(known) {
+		if k != blockCol && slices.Contains(cols, k) {
+			ordered = append(ordered, k)
 		}
 	}
 
-	blockCol, err := r.converter.Collections().GetCollection(chains.TypeBlock)
-	if err != nil {
-		return nil, fmt.Errorf("resolve block collection: %w", err) //nolint:err113
-	}
 	for _, col := range cols {
 		if col == blockCol || slices.Contains(ordered, col) {
 			continue
@@ -142,7 +128,7 @@ func (r *ReorgRoller) deleteOrder(cols []string) ([]string, error) {
 	if slices.Contains(cols, blockCol) {
 		ordered = append(ordered, blockCol)
 	}
-	return ordered, nil
+	return ordered
 }
 
 // RollbackBlocks implements ReorgHandler. It verifies every height in
@@ -215,10 +201,7 @@ func (r *ReorgRoller) RollbackBlocks(ctx context.Context, from, to int64) error 
 			cols = append(cols, col)
 		}
 		sort.Strings(cols)
-		ordered, err := r.deleteOrder(cols)
-		if err != nil {
-			return fmt.Errorf("rollback blocks [%d, %d]: %w", from, to, err) //nolint:err113
-		}
+		ordered := r.deleteOrder(cols)
 
 		for _, colName := range ordered {
 			if err := r.softDeleteCollectionDocs(ctx, colName, docIDsByCollection[colName]); err != nil {
@@ -270,10 +253,7 @@ func (r *ReorgRoller) softDeleteCollectionDocs(ctx context.Context, colName stri
 // instead of guessing a row: a wrong guess can false-rollback a good block,
 // and stopping indexing loudly is the safe response.
 func (r *ReorgRoller) GetStoredBlockHash(ctx context.Context, blockNumber int64) (string, error) {
-	blockCol, err := r.converter.Collections().GetCollection(chains.TypeBlock)
-	if err != nil {
-		return "", fmt.Errorf("resolve block collection: %w", err) //nolint:err113
-	}
+	blockCol := r.converter.Collections().BlockCollection()
 
 	query := fmt.Sprintf(
 		`query { %s(filter: {%s: {_eq: %d}}) { %s %s } }`,

@@ -11,7 +11,6 @@ import (
 
 	client "github.com/sourcenetwork/defradb/client"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
@@ -56,11 +55,11 @@ func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 	require.NoError(t, err)
 
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	blockCol := extractCollection(cols, chains.TypeBlock)
-	txCol := extractCollection(cols, chains.TypeTransaction)
-	logCol := extractCollection(cols, chains.TypeLog)
-	aleCol := extractCollection(cols, chains.TypeAccessListEntry)
-	sigCol := extractCollection(cols, chains.TypeBlockSignature)
+	blockCol := cols.Block
+	txCol := cols.Transaction
+	logCol := cols.Log
+	aleCol := cols.AccessListEntry
+	sigCol := cols.BlockSignature
 
 	ctx := ctxWithIdentity(t)
 
@@ -224,9 +223,9 @@ func TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused(t *testing.
 	require.NoError(t, err)
 
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	blockCol := extractCollection(cols, chains.TypeBlock)
-	txCol := extractCollection(cols, chains.TypeTransaction)
-	sigCol := extractCollection(cols, chains.TypeBlockSignature)
+	blockCol := cols.Block
+	txCol := cols.Transaction
+	sigCol := cols.BlockSignature
 
 	ctx := ctxWithIdentity(t)
 
@@ -317,8 +316,7 @@ func TestReorgRoller_GetStoredBlockHash_MultiRowErrors(t *testing.T) {
 	roller, err := NewReorgRoller(td.Node, converter)
 	require.NoError(t, err)
 
-	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	blockCol := extractCollection(cols, chains.TypeBlock)
+	blockCol := evm.NewCollectionNames("Ethereum__Mainnet").Block
 
 	ctx := ctxWithIdentity(t)
 
@@ -371,10 +369,10 @@ func TestReorgRoller_QueueRetainedOrphansAreHardPurgeable(t *testing.T) {
 	require.NoError(t, err)
 
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	blockCol := extractCollection(cols, chains.TypeBlock)
-	txCol := extractCollection(cols, chains.TypeTransaction)
-	logCol := extractCollection(cols, chains.TypeLog)
-	sigCol := extractCollection(cols, chains.TypeBlockSignature)
+	blockCol := cols.Block
+	txCol := cols.Transaction
+	logCol := cols.Log
+	sigCol := cols.BlockSignature
 
 	queue := pruner.NewIndexerQueue()
 	tracker := &queueRollbackTracker{queue: queue}
