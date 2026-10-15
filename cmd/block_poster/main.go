@@ -13,6 +13,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 )
 
@@ -44,6 +45,8 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+
+	logger.Init(cfg.Logger.Development)
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

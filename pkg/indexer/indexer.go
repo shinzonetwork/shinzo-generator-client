@@ -238,9 +238,6 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 		// Add any "big peers" here to speed up peer discovery.
 	}...)
 
-	if logger.Sugar == nil {
-		logger.Init(cfg.Logger.Development)
-	}
 	logger.Sugar.Infof("Starting Shinzo Network Generator %s", Version)
 
 	// Init runs against a stop-cancellable context: initDefra, Connect and
