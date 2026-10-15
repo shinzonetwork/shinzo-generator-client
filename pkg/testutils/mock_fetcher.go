@@ -12,10 +12,6 @@ import (
 // FetchBlockFn override is configured.
 var ErrMockFetchBlockFnNotSet = errors.New("mock: FetchBlockFn not set")
 
-// ErrMockFetchBlockByHashFnNotSet is returned by MockFetcher.FetchBlockByHash
-// when no FetchBlockByHashFn override is configured.
-var ErrMockFetchBlockByHashFnNotSet = errors.New("mock: FetchBlockByHashFn not set")
-
 // ErrMockFetchBlockHeaderFnNotSet is returned by
 // MockFetcher.FetchBlockHeaderByHash when no FetchBlockHeaderFn override is
 // configured.
@@ -32,7 +28,6 @@ type MockFetcher struct {
 	// Optional overrides. When nil the method returns its zero value.
 	ConnectFn                   func(ctx context.Context) error
 	FetchBlockFn                func(ctx context.Context, height int64) (any, error)
-	FetchBlockByHashFn          func(ctx context.Context, hash string) (any, error)
 	FetchBlockHeaderFn          func(ctx context.Context, hash string) (chains.BlockHeader, error)
 	FetchHighestBlockNumberFn   func(ctx context.Context) (int64, error)
 	FetchFinalizedBlockNumberFn func(ctx context.Context) (int64, error)
@@ -41,7 +36,6 @@ type MockFetcher struct {
 	// Call recording.
 	ConnectCalls                   int
 	FetchBlockCalls                []int64
-	FetchBlockByHashCalls          []string
 	FetchBlockHeaderCalls          []string
 	FetchHighestBlockNumberCalls   int
 	FetchFinalizedBlockNumberCalls int
@@ -71,17 +65,6 @@ func (m *MockFetcher) FetchBlock(ctx context.Context, height int64) (any, error)
 		return m.FetchBlockFn(ctx, height)
 	}
 	return nil, ErrMockFetchBlockFnNotSet
-}
-
-// FetchBlockByHash records the hash and delegates to FetchBlockByHashFn.
-func (m *MockFetcher) FetchBlockByHash(ctx context.Context, hash string) (any, error) {
-	m.mu.Lock()
-	m.FetchBlockByHashCalls = append(m.FetchBlockByHashCalls, hash)
-	m.mu.Unlock()
-	if m.FetchBlockByHashFn != nil {
-		return m.FetchBlockByHashFn(ctx, hash)
-	}
-	return nil, ErrMockFetchBlockByHashFnNotSet
 }
 
 // FetchBlockHeaderByHash records the hash and delegates to FetchBlockHeaderFn.
