@@ -13,7 +13,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -292,7 +291,7 @@ func aleDocKey(txHash string, ale *AccessListEntry) string {
 // GetSchema implements chains.Converter. It delegates to the schema loader,
 // which concatenates embedded .graphql files and swaps the chain prefix.
 func (c *Converter) GetSchema() (string, error) {
-	return schema.GetSchemaForChain(c.collections)
+	return c.collections.MergedSDL()
 }
 
 // GetCollections implements chains.Converter.

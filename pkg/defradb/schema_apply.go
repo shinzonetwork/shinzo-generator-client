@@ -139,24 +139,19 @@ func applyWithBackend(ctx context.Context, backend SchemaApplyBackend, collectio
 // from manual partial pre-seeding; normal operation always hits the monolithic
 // path first or the full-restart fallback where all types already exist.
 func applyPerFileWithBackend(ctx context.Context, backend SchemaApplyBackend, collections chains.Collections) error {
-	files, err := schema.ListCollectionFiles(collections)
+	files, err := collections.CollectionFiles()
 	if err != nil {
 		return fmt.Errorf("failed to list collection files: %w", err)
 	}
 
 	for _, file := range files {
-		sdl, err := schema.LoadCollectionSDLForChain(collections, file)
-		if err != nil {
-			return fmt.Errorf("failed to load collection file %s: %w", file, err)
-		}
-
-		err = backend.ApplySchema(ctx, sdl)
+		err = backend.ApplySchema(ctx, file.SDL)
 		if err != nil {
 			if strings.Contains(err.Error(), indexerErrors.ErrStrCollectionAlreadyExists) {
-				logger.Sugar.Infof("Collection from %s already exists, skipping", file)
+				logger.Sugar.Infof("Collection from %s already exists, skipping", file.File)
 				continue
 			}
-			return fmt.Errorf("failed to apply collection schema %s: %w", file, err)
+			return fmt.Errorf("failed to apply collection schema %s: %w", file.File, err)
 		}
 	}
 
