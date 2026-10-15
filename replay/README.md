@@ -1,4 +1,4 @@
-# Benchmarking — BSC Tip-Indexing Acceptance
+# Replay Testing — BSC Tip-Indexing Acceptance
 
 Answers the question **"can we index BSC blocks at the tip"** with a hard,
 repeatable verdict: capture real blocks once, replay them through the
@@ -10,8 +10,8 @@ BSC mainnet since the Fermi hardfork, Jan 2026).
 capture (one-time, needs a real endpoint)          acceptance (make bsc-acceptance-test)
 ┌─────────────┐  eth_getBlockByNumber + receipts   ┌──────────────────────────────────┐
 │             │ ─────────────────────────────────► │ fixture JSON                     │
-│ cmd/        │                                    │ benchmarking/testdata/           │
-│ fetch_blocks │                                   │ (gitignored, per-machine)        │
+│ cmd/        │                                    │ replay/testdata/                 │
+│ fetch_blocks│                                    │ (gitignored, per-machine)        │
 └─────────────┘                                    └──────────────┬───────────────────┘
                                                                   │ verbatim responses
                                                                   ▼
@@ -41,8 +41,8 @@ export GETH_API_KEY_TYPE=x-api-key               # optional header name
 make build                              # produces ./bin/fetch_blocks (loads .env itself)
 ./bin/fetch_blocks --chain bsc --network mainnet --from 126050700 --to 126050850
 
-make bsc-bench-fetch                    # same, via go run (100 blocks ending at the current tip)
-make bsc-bench-fetch FROM=1000 TO=1099  # explicit range
+make bsc-replay-fetch                    # same, via go run (100 blocks ending at the current tip)
+make bsc-replay-fetch FROM=1000 TO=1099  # explicit range
 go run ./cmd/fetch_blocks --out my_fixture.json  # custom path
 go run ./cmd/fetch_blocks --chain arbitrum --network mainnet  # any EVM-compatible chain
 ```
@@ -67,7 +67,7 @@ Semantics:
 - **Interrupt-aware**: SIGINT/SIGTERM saves what was captured so far as a
   partial fixture (`capture_partial: true` in the meta).
 - Saves atomically (temp file + rename).
-- Fixtures land in the shared `benchmarking/testdata/` directory named
+- Fixtures land in the shared `replay/testdata/` directory named
   `<chain>_blocks_<from>_<to>.json` (`bsc_blocks_4901_5000.json`), so fixtures
   for other chains coexist side by side. The name is derived from the
   fixture's final range at save time, so an interrupted capture is saved as
@@ -84,7 +84,7 @@ make bsc-acceptance-test
 - Build tag `acceptance`: excluded from `go test ./...` and CI, like the live
   suites.
 - Fixture resolution: `BSC_REPLAY_FIXTURE` env wins; otherwise the newest
-  `benchmarking/testdata/bsc_blocks_*.json` is used. **Missing fixture →
+  `replay/testdata/bsc_blocks_*.json` is used. **Missing fixture →
   the test skips** with regeneration instructions.
 - `BSC_REPLAY_MAX_BLOCKS=50` caps the sample for slow hosts.
 - `BSC_TARGET_BLOCK_TIME=750ms` overrides the target block interval (e.g. for
@@ -131,7 +131,7 @@ delete and snapshot IO lands in the measurements the way production
 background load does. The per-cycle prune size is the one pruner knob the
 harness does not override: whatever the shipped yaml sets, the bench runs
 with it, so raising it there concentrates the same deletes into fewer,
-heavier cycles and moves this benchmark's average and tail. Their outcome
+heavier cycles and moves this replay's average and tail. Their outcome
 prints below the report box, one line per service, and the block-count
 assertion is pruning-aware (expected rows = processed − pruned).
 
