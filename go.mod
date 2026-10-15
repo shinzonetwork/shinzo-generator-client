@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/TBD54566975/ssi-sdk v0.0.4-alpha
-	github.com/ethereum/go-ethereum v1.17.7
+	github.com/ethereum/go-ethereum v1.17.8
 	github.com/gorilla/websocket v1.5.3
 	github.com/holiman/uint256 v1.3.2
 	github.com/ipfs/go-cid v0.6.2
@@ -292,7 +292,7 @@ require (
 	github.com/petermattis/goid v0.0.0-20260113132338-7c7de50cc741 // indirect
 	github.com/philippgille/chromem-go v0.7.0 // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
-	github.com/pion/dtls/v3 v3.1.4 // indirect
+	github.com/pion/dtls/v3 v3.1.5 // indirect
 	github.com/pion/ice/v4 v4.0.10 // indirect
 	github.com/pion/interceptor v0.1.41 // indirect
 	github.com/pion/logging v0.2.4 // indirect
@@ -303,9 +303,9 @@ require (
 	github.com/pion/sctp v1.8.39 // indirect
 	github.com/pion/sdp/v3 v3.0.18 // indirect
 	github.com/pion/srtp/v3 v3.0.8 // indirect
-	github.com/pion/stun/v3 v3.1.5 // indirect
+	github.com/pion/stun/v3 v3.1.7 // indirect
 	github.com/pion/transport/v3 v3.0.8 // indirect
-	github.com/pion/transport/v4 v4.0.2 // indirect
+	github.com/pion/transport/v4 v4.1.0 // indirect
 	github.com/pion/turn/v4 v4.1.1 // indirect
 	github.com/pion/webrtc/v4 v4.1.4 // indirect
 	github.com/piprate/json-gold v0.7.0 // indirect
