@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 const (
@@ -70,7 +71,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 	}
 
 	rpcErrors, meterErr := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm").Int64Counter("shinzo.generator.rpc.errors",
-		metric.WithDescription("Failed Ethereum JSON-RPC calls, by method and error.type. Not-yet-mined blocks are not counted."),
+		metric.WithDescription("Failed Ethereum JSON-RPC calls, by rpc.method and error.type. Not-yet-mined blocks are not counted."),
 		metric.WithUnit("{error}"),
 	)
 	if meterErr != nil {
@@ -708,7 +709,7 @@ func (c *EthereumClient) countRPCError(ctx context.Context, method string, err e
 		return
 	}
 	c.rpcErrors.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("method", method),
+		semconv.RPCMethod(method),
 		attribute.String("error.type", rpcErrorType(err)),
 	))
 }

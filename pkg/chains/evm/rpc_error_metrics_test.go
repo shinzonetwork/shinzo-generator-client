@@ -87,7 +87,7 @@ func TestCountRPCError_MethodNotFound(t *testing.T) {
 	dp := sum.DataPoints[0]
 	assert.Equal(t, int64(1), dp.Value)
 	assert.Equal(t, attribute.NewSet(
-		attribute.String("method", "eth_getBlockReceipts"),
+		attribute.String("rpc.method", "eth_getBlockReceipts"),
 		attribute.String("error.type", "method_not_found"),
 	), dp.Attributes)
 }
