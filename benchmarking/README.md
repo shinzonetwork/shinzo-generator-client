@@ -64,7 +64,10 @@ Semantics:
 - Saves atomically (temp file + rename).
 - Fixtures land in the shared `benchmarking/testdata/` directory named
   `<chain>_blocks_<from>_<to>.json` (`bsc_blocks_4901_5000.json`), so fixtures
-  for other chains coexist side by side.
+  for other chains coexist side by side. The name is derived from the
+  fixture's final range at save time, so an interrupted capture is saved as
+  `<chain>_blocks_<from>_<last-captured>_partial.json`: it never promises
+  blocks the file does not contain.
 - Endpoint URLs and API keys are **never written** into the fixture.
 
 ## 2. Run the acceptance suite

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -134,6 +135,25 @@ func TestFixturePrefix(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "bsc_blocks_", fixturePrefix("BSC"))
 	assert.Equal(t, "arbitrum_blocks_", fixturePrefix("Arbitrum"))
+}
+
+func TestFixtureOutPath(t *testing.T) {
+	t.Parallel()
+	opts := &captureOptions{chain: "BSC"}
+	fx := &replayFixture{Meta: fixtureMeta{From: 100, To: 200}}
+
+	// The default name is built at save time from the fixture's final
+	// range, so an interrupted capture's name matches its content.
+	assert.Equal(t, filepath.Join(defaultOutDir, "bsc_blocks_100_200"+fixtureExt), fixtureOutPath(opts, fx))
+
+	// Partial captures carry a _partial suffix: the acceptance suite picks
+	// fixtures by mtime, so the name must not claim a complete range.
+	fx.Meta.CapturePartial = true
+	assert.Equal(t, filepath.Join(defaultOutDir, "bsc_blocks_100_200_partial"+fixtureExt), fixtureOutPath(opts, fx))
+
+	// An explicit --out is used verbatim: the caller chose the name.
+	fx.Meta.CapturePartial = false
+	assert.Equal(t, "custom/dir/fixture.json", fixtureOutPath(&captureOptions{out: "custom/dir/fixture.json"}, fx))
 }
 
 func TestSanitizeLogLabel(t *testing.T) {
@@ -364,6 +384,9 @@ func (s *receiptTestServer) handler(t *testing.T) http.Handler {
 // twoTxBlock is a captured eth_getBlockByNumber result with two transactions.
 const twoTxBlock = `{"number":"0x1","transactions":[{"hash":"0xaa"},{"hash":"0xbb"}]}`
 
+// zeroTxBlock is a captured eth_getBlockByNumber result with no transactions.
+const zeroTxBlock = `{"number":"0x1","transactions":[]}`
+
 func TestCaptureReceipts(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -440,4 +463,76 @@ func TestCaptureReceiptsEmptyBlock(t *testing.T) {
 	assert.JSONEq(t, `[]`, string(receipts))
 	assert.Equal(t, 1, s.batchQueried)
 	assert.Empty(t, s.perTxQueried)
+}
+
+// captureTestServer dispatches on the JSON-RPC method with one-block answers,
+// enough for captureRange tests over single-block windows.
+func captureTestServer(t *testing.T, block string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Helper()
+		var req struct {
+			Method string `json:"method"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "eth_getBlockByNumber":
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":%s}`, block)
+		case "eth_getBlockReceipts":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[]}`))
+		default:
+			t.Errorf("unexpected RPC method %s", req.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestCaptureRangeNamesCompleteFixture(t *testing.T) {
+	// Not parallel: t.Chdir redirects the whole process's working directory,
+	// so the default output directory resolves inside this test's temp dir.
+	t.Chdir(t.TempDir())
+
+	server := captureTestServer(t, zeroTxBlock)
+	opts := &captureOptions{chain: defaultChain, network: defaultNetwork, delay: time.Millisecond}
+	require.NoError(t, captureRange(context.Background(), testEnv(server), opts, 1, 1))
+
+	// A complete capture keeps the plain range name — no _partial suffix.
+	data, err := os.ReadFile(filepath.Join(defaultOutDir, "bsc_blocks_1_1"+fixtureExt))
+	require.NoError(t, err)
+	var saved replayFixture
+	require.NoError(t, json.Unmarshal(data, &saved))
+	assert.False(t, saved.Meta.CapturePartial)
+	assert.Equal(t, 1, saved.Meta.BlockCount)
+}
+
+func TestCaptureRangeInterruptSavesPartialFixture(t *testing.T) {
+	// Not parallel: t.Chdir redirects the whole process's working directory.
+	t.Chdir(t.TempDir())
+
+	// A pre-cancelled context interrupts capture before the first request;
+	// the partial fixture must still be saved, named after the blocks
+	// actually captured.
+	server := captureTestServer(t, zeroTxBlock)
+	server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	opts := &captureOptions{chain: defaultChain, network: defaultNetwork, delay: time.Millisecond}
+	require.NoError(t, captureRange(ctx, testEnv(server), opts, 10, 12))
+
+	out := filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt)
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	var saved replayFixture
+	require.NoError(t, json.Unmarshal(data, &saved))
+	assert.True(t, saved.Meta.CapturePartial)
+	assert.Equal(t, uint64(10), saved.Meta.To, "To is the last captured block, not the requested range end")
+	assert.Equal(t, 0, saved.Meta.BlockCount)
 }

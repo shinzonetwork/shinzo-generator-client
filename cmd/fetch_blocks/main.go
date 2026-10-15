@@ -210,10 +210,6 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	if opts.out == "" {
-		opts.out = filepath.Join(defaultOutDir,
-			fmt.Sprintf("%s%d_%d%s", fixturePrefix(opts.chain), resolvedFrom, resolvedTo, fixtureExt))
-	}
 	//nolint:gosec // G706 false positive: the tainted labels are CR/LF-stripped
 	// by sanitizeLogLabel, and the endpoint is reduced to scheme://host, but
 	// this gosec build does not apply the rule's documented sanitizers
@@ -292,6 +288,24 @@ func resolveRange(from, to, tip uint64) (uint64, uint64, error) {
 	return from, to, nil
 }
 
+// fixtureOutPath derives the output path at save time instead of capture
+// time: an interrupt rewrites the fixture's To to the last captured block,
+// so a name built from the requested range would promise blocks the file
+// does not contain, and the acceptance suite picks fixtures by mtime,
+// replaying whatever the name claims. An explicit --out is used verbatim
+// (the caller chose it); the default name uses the final range and marks
+// partial captures with a _partial suffix.
+func fixtureOutPath(opts *captureOptions, fx *replayFixture) string {
+	if opts.out != "" {
+		return opts.out
+	}
+	name := fmt.Sprintf("%s%d_%d%s", fixturePrefix(opts.chain), fx.Meta.From, fx.Meta.To, fixtureExt)
+	if fx.Meta.CapturePartial {
+		name = strings.TrimSuffix(name, fixtureExt) + "_partial" + fixtureExt
+	}
+	return filepath.Join(defaultOutDir, name)
+}
+
 // captureRange walks the block range, fills the fixture and saves it. An
 // interrupt (SIGINT/SIGTERM) stops capture and saves whatever was collected
 // so far as a partial fixture instead of losing the work.
@@ -319,8 +333,13 @@ func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, 
 		fx.Blocks = append(fx.Blocks, *fb)
 		log.Printf("captured block %d (%d/%d, %s receipts)", num, num-from+1, to-from+1, fb.ReceiptMode)
 
-		if err := sleepCtx(ctx, opts.delay); err != nil {
-			interrupted = true
+		// The pause paces the next request, so it must not run after the
+		// final block: an interrupt landing in that last sleep would mark
+		// a complete capture as partial.
+		if num != to {
+			if err := sleepCtx(ctx, opts.delay); err != nil {
+				interrupted = true
+			}
 		}
 	}
 
@@ -335,10 +354,11 @@ func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, 
 	}
 	fx.Meta.BlockCount = len(fx.Blocks)
 
-	if err := saveFixture(fx, opts.out); err != nil {
+	out := fixtureOutPath(opts, fx)
+	if err := saveFixture(fx, out); err != nil {
 		return fmt.Errorf("save fixture: %w", err)
 	}
-	log.Printf("saved %d blocks to %s", len(fx.Blocks), opts.out)
+	log.Printf("saved %d blocks to %s", len(fx.Blocks), out)
 	return nil
 }
 
