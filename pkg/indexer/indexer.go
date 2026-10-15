@@ -131,12 +131,43 @@ func (i *ChainIndexer) GetDefraDBPort() int {
 	return defra.GetPort(i.defraNode)
 }
 
+// gaugeState returns the started flag, committed height and chain head.
+func (i *ChainIndexer) gaugeState() (started bool, height, head int64) {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
+	return i.isStarted, i.currentBlock, i.chainHead.Load()
+}
+
+// observeHeight reports OTel metrics of the highest block committed in order.
+func (i *ChainIndexer) observeHeight(_ context.Context, o metric.Int64Observer) error {
+	if started, height, _ := i.gaugeState(); started && height > 0 {
+		o.Observe(height)
+	}
+	return nil
+}
+
+// observeChainHead reports OTel metrics of the latest block number seen on the RPC node.
+func (i *ChainIndexer) observeChainHead(_ context.Context, o metric.Int64Observer) error {
+	if started, _, head := i.gaugeState(); started && head > 0 {
+		o.Observe(head)
+	}
+	return nil
+}
+
+// observeLag reports OTel metrics of the blocks between the chain head and the committed height.
+func (i *ChainIndexer) observeLag(_ context.Context, o metric.Int64Observer) error {
+	if started, height, head := i.gaugeState(); started && height > 0 && head > 0 {
+		o.Observe(max(head-height, 0))
+	}
+	return nil
+}
+
 // observePeers reports OTel metrics of the number of unique connected peers.
 func (i *ChainIndexer) observePeers(ctx context.Context, o metric.Int64Observer) error {
 	i.mutex.RLock()
 	defer i.mutex.RUnlock()
-	// P2P disabled or unavailable: report no value rather than 0.
-	if i.defraNode == nil || i.networkHandler == nil || !i.networkHandler.IsNetworkActive() {
+	// Not indexing, or P2P disabled or unavailable: report no value rather than 0.
+	if !i.isStarted || i.defraNode == nil || i.networkHandler == nil || !i.networkHandler.IsNetworkActive() {
 		return nil
 	}
 	addrs, err := i.defraNode.DB.ActivePeers(ctx)
@@ -175,13 +206,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	_, err := meter.Int64ObservableGauge("shinzo.generator.block.height",
 		metric.WithDescription("Highest block committed in order."),
 		metric.WithUnit("{block}"),
-		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
-			// 0 means no blocks committed yet.
-			if h := i.GetCurrentBlock(); h > 0 {
-				o.Observe(h)
-			}
-			return nil
-		}),
+		metric.WithInt64Callback(i.observeHeight),
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -197,12 +222,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	_, err = meter.Int64ObservableGauge("shinzo.generator.chain.head",
 		metric.WithDescription("Latest block number reported by the RPC node."),
 		metric.WithUnit("{block}"),
-		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
-			if head := i.chainHead.Load(); head > 0 {
-				o.Observe(head)
-			}
-			return nil
-		}),
+		metric.WithInt64Callback(i.observeChainHead),
 	)
 	if err != nil {
 		otel.Handle(err)
@@ -210,13 +230,7 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	_, err = meter.Int64ObservableGauge("shinzo.generator.block.lag",
 		metric.WithDescription("Blocks between the chain head and the committed height."),
 		metric.WithUnit("{block}"),
-		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
-			head, height := i.chainHead.Load(), i.GetCurrentBlock()
-			if head > 0 && height > 0 {
-				o.Observe(max(head-height, 0))
-			}
-			return nil
-		}),
+		metric.WithInt64Callback(i.observeLag),
 	)
 	if err != nil {
 		otel.Handle(err)
