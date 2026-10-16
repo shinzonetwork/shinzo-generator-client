@@ -15,24 +15,24 @@ func TestRedactEndpoint(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "key embedded in path (drpc)",
-			endpoint: "https://lb.drpc.live/ethereum/s3cr3t-key",
-			expected: "https://lb.drpc.live",
+			name:     "key embedded in path",
+			endpoint: "https://example.com/ethereum/s3cr3t-key",
+			expected: "https://example.com",
 		},
 		{
-			name:     "key embedded in path (infura)",
-			endpoint: "https://mainnet.infura.io/v3/s3cr3t",
-			expected: "https://mainnet.infura.io",
+			name:     "key embedded in nested path",
+			endpoint: "https://example.org/v3/s3cr3t",
+			expected: "https://example.org",
 		},
 		{
-			name:     "key embedded in path (alchemy)",
-			endpoint: "https://eth-mainnet.g.alchemy.com/v2/KEY",
-			expected: "https://eth-mainnet.g.alchemy.com",
+			name:     "key embedded in path on subdomain",
+			endpoint: "https://node.example.net/v2/KEY",
+			expected: "https://node.example.net",
 		},
 		{
 			name:     "userinfo credentials dropped",
-			endpoint: "https://user:pass@mainnet.infura.io/v3/s3cr3t",
-			expected: "https://mainnet.infura.io",
+			endpoint: "https://user:pass@example.org/v3/s3cr3t",
+			expected: "https://example.org",
 		},
 		{
 			name:     "key in query dropped",
@@ -50,6 +50,11 @@ func TestRedactEndpoint(t *testing.T) {
 			expected: "ws://geth:8546",
 		},
 		{
+			name:     "custom port preserved alongside path key",
+			endpoint: "https://example.com:8545/v3/s3cr3t",
+			expected: "https://example.com:8545",
+		},
+		{
 			name:     "empty endpoint hidden",
 			endpoint: "",
 			expected: "(endpoint hidden)",
@@ -61,7 +66,7 @@ func TestRedactEndpoint(t *testing.T) {
 		},
 		{
 			name:     "scheme-less endpoint hidden",
-			endpoint: "lb.drpc.live/ethereum/s3cr3t-key",
+			endpoint: "example.com/ethereum/s3cr3t-key",
 			expected: "(endpoint hidden)",
 		},
 		{
