@@ -390,8 +390,9 @@ func (c *EthereumClient) fetchAndConvertBlock(ctx context.Context, blockNumber *
 
 // fetchRawBlockByNumber fetches the raw eth_getBlockByNumber response with
 // full transaction objects, bypassing ethclient's typed decoder so unknown
-// transaction envelopes cannot fail the fetch. A JSON null result maps to
-// ethereum.NotFound, mirroring ethclient's behaviour for missing blocks.
+// transaction envelopes cannot fail the fetch. An empty result or a JSON
+// null maps to ethereum.NotFound, mirroring ethclient's behaviour for
+// missing blocks.
 func (c *EthereumClient) fetchRawBlockByNumber(ctx context.Context, blockNumber *big.Int) (json.RawMessage, error) {
 	client := c.getPreferredClient()
 	if client == nil {
@@ -408,11 +409,10 @@ func (c *EthereumClient) fetchRawBlockByNumber(ctx context.Context, blockNumber 
 		return nil, err
 	}
 
-	var head *ethtypes.Header
-	if err := json.Unmarshal(raw, &head); err != nil {
-		return nil, err
-	}
-	if head == nil {
+	// An empty result or a JSON null both mean the block does not exist,
+	// matching ethclient's missing-block behaviour without paying for a
+	// header decode here: convertRawBlock parses the full header anyway.
+	if len(raw) == 0 || string(raw) == "null" {
 		return nil, ethereum.NotFound
 	}
 	return raw, nil
@@ -482,21 +482,14 @@ func (c *EthereumClient) convertRawBlock(rawBlock json.RawMessage) (*Block, erro
 	}
 
 	rawTxs := meta.Transactions
-	if len(rawTxs) < len(txs) {
-		logger.Sugar.Warnf("Raw block %s: adapter decoded %d transactions but the response carries %d raw tx objects; missing raw txs are passed as nil",
+	if len(rawTxs) != len(txs) {
+		return nil, fmt.Errorf("raw block %s: adapter decoded %d transactions but the response carries %d raw tx objects",
 			block.Hash, len(txs), len(rawTxs))
-		padded := make([]json.RawMessage, len(txs))
-		copy(padded, rawTxs)
-		rawTxs = padded
 	}
 
 	blockNumber := head.Number.Uint64()
 	for i, tx := range txs {
-		var rawTx json.RawMessage
-		if i < len(rawTxs) {
-			rawTx = rawTxs[i]
-		}
-		block.Transactions = append(block.Transactions, *c.convertTransactionWithRaw(tx, rawTx, block.Hash, blockNumber, i))
+		block.Transactions = append(block.Transactions, *c.convertTransactionWithRaw(tx, rawTxs[i], block.Hash, blockNumber, i))
 	}
 
 	return block, nil
