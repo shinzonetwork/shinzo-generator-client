@@ -280,6 +280,15 @@ func NewConcurrentBlockProcessor(
 // rollback-loop guard trips, and a re-store refused because a soft-deleted
 // content-derived docID cannot be re-added are all fatal: the run stops
 // loudly instead of leaving silently un-indexable heights behind.
+//
+// The onBlockProcessed callback contract: it fires exactly once per
+// successfully committed height, in strict height order, always on one
+// goroutine (the result collector). Heights rolled back during the run fire
+// no second callback until the restart re-commits them. It runs outside the
+// processor's internal lock, so it may take its own locks, but it must not
+// call ProcessBlocks (or otherwise start a run) re-entrantly, and it must
+// return promptly: it serializes the ordered apply, so a slow callback
+// throttles indexing.
 func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	ctx context.Context,
 	startBlock int64,
@@ -930,11 +939,13 @@ func (p *ConcurrentBlockProcessor) openStaleEpisode(ctx context.Context, complet
 // The caller runs it when the completion applies (in height order via the
 // reorder buffer); completions applying during a parked episode wait are
 // genuine intervening progress - a pre-mismatch store landing on the
-// checked new chain - so the guard reset applies to them too.
+// checked new chain - so the guard reset applies to them too. The callback
+// fires after pendingMu is released: it belongs to the ordered apply's
+// sequence (applyCommit runs only on the single collector goroutine, so
+// ordering and serialization are unchanged), and a callback can no longer
+// re-enter a pendingMu path and self-deadlock.
 func (p *ConcurrentBlockProcessor) applyCommit(item *BlockResult, computed *BlockResult, onBlockProcessed func(blockNum int64)) {
 	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-
 	if computed.BlockID != "" {
 		logger.Sugar.Infof("Committed block %d (ID: %s)", item.BlockNum, computed.BlockID)
 	} else {
@@ -948,6 +959,8 @@ func (p *ConcurrentBlockProcessor) applyCommit(item *BlockResult, computed *Bloc
 	}
 	p.episodeRollbacks.Store(0)
 	p.heightRollbacks = make(map[int64]int)
+	p.pendingMu.Unlock()
+
 	if onBlockProcessed != nil {
 		onBlockProcessed(item.BlockNum)
 	}
