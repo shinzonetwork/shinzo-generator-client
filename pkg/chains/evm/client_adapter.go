@@ -37,9 +37,10 @@ type ClientAdapter interface {
 }
 
 // defaultClientAdapter reproduces today's Ethereum and BSC behaviour
-// exactly: no raw block fetch, standard envelope decoding only, sender
-// recovery via GetFromAddress with the zero address fallback, and no
-// yParity indexing. It is stateless, so a single shared instance is safe.
+// exactly: no raw block fetch, sender recovery via GetFromAddress with
+// the zero address fallback, and no yParity indexing. Transaction
+// decoding happens solely on the client's typed path. It is stateless,
+// so a single shared instance is safe.
 type defaultClientAdapter struct{}
 
 // defaultAdapter is the singleton every unregistered chain name resolves to.
@@ -49,28 +50,12 @@ func (defaultClientAdapter) NeedsRawBlock() bool {
 	return false
 }
 
-// DecodeTransactions decodes standard transaction envelopes from the raw
-// block's transactions array. Non-standard envelopes fail with the
-// go-ethereum unsupported-tx-type error, which never matters in practice:
-// the default adapter also reports NeedsRawBlock false, so this method is
-// never reached through the client's block path.
-func (defaultClientAdapter) DecodeTransactions(rawBlock json.RawMessage) ([]*ethtypes.Transaction, error) {
-	var view struct {
-		Transactions []json.RawMessage `json:"transactions"`
-	}
-	if err := json.Unmarshal(rawBlock, &view); err != nil {
-		return nil, err
-	}
-
-	txs := make([]*ethtypes.Transaction, 0, len(view.Transactions))
-	for _, rawTx := range view.Transactions {
-		tx := new(ethtypes.Transaction)
-		if err := json.Unmarshal(rawTx, tx); err != nil {
-			return nil, err
-		}
-		txs = append(txs, tx)
-	}
-	return txs, nil
+// DecodeTransactions returns empty because this adapter is never reached
+// through the client's block path: NeedsRawBlock reports false, so the
+// client decodes blocks on its typed ethclient path instead, and an empty
+// return is the honest result for a method with no caller on this adapter.
+func (defaultClientAdapter) DecodeTransactions(_ json.RawMessage) ([]*ethtypes.Transaction, error) {
+	return nil, nil //nolint:nilnil // unreachable stub: the client never fetches raw blocks for this adapter
 }
 
 func (defaultClientAdapter) ResolveFrom(_ *ethtypes.Transaction, _ json.RawMessage) (string, bool) {
