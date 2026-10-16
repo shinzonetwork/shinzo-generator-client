@@ -111,6 +111,44 @@ func TestNewFetcherFromConfig(t *testing.T) {
 	}
 }
 
+func TestNewFetcherFromConfig_ChainName(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig()
+	cfg.Chain.Name = "Ethereum"
+	f, err := NewFetcherFromConfig(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "Ethereum", f.chainName)
+
+	cfg.Chain.Name = "Arbitrum"
+	f, err = NewFetcherFromConfig(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "Arbitrum", f.chainName)
+}
+
+// TestFetcher_Connect_InstallsDefaultAdapter proves the Connect seam
+// resolves the ClientAdapter by chain name. Only the default adapter is
+// registered today, so every current name must resolve to it.
+func TestFetcher_Connect_InstallsDefaultAdapter(t *testing.T) {
+	t.Parallel()
+	server := simpleRPCServer()
+	defer server.Close()
+
+	for _, name := range []string{"", "Ethereum", "BSC", "UnknownChain"} {
+		cfg := testConfig()
+		cfg.Chain.Name = name
+		cfg.Geth.NodeURL = server.URL
+		f, err := NewFetcherFromConfig(cfg)
+		require.NoError(t, err)
+
+		require.NoError(t, f.Connect(t.Context()))
+		ec, ok := f.client.(*EthereumClient)
+		require.True(t, ok, "Connect must build an *EthereumClient")
+		assert.Equal(t, defaultAdapter, ec.getAdapter(), "chain %q must resolve to the default adapter", name)
+		require.NoError(t, f.Close())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Connect
 // ---------------------------------------------------------------------------
