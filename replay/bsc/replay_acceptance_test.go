@@ -196,7 +196,7 @@ func TestBSCReplayAcceptance(t *testing.T) {
 
 	var wallEnd time.Time
 	wallStart := time.Now()
-	err = processor.ProcessBlocks(runCtx, first, func(blockNum int64) {
+	err = processor.ProcessBlocks(runCtx, first, func(blockNum int64, _ time.Duration) {
 		done := commitCount.Add(1)
 		lastCommit.Store(time.Now().UnixNano())
 		if done%25 == 0 {
