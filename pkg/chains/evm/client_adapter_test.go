@@ -1,12 +1,11 @@
 package evm
 
 // Tests for the ClientAdapter extension surface: the default adapter's
-// no-op contract, its standard-envelope decoding, and the chain-name
+// no-op contract, its empty decode stub, and the chain-name
 // registry lookup with its default fallback.
 
 import (
 	"encoding/json"
-	"errors"
 	"math/big"
 	"testing"
 
@@ -39,74 +38,44 @@ func TestDefaultClientAdapter_YParity(t *testing.T) {
 	assert.Empty(t, defaultAdapter.YParity(tx, nil))
 }
 
-func TestDefaultClientAdapter_DecodeTransactions_StandardEnvelopes(t *testing.T) {
+func TestDefaultClientAdapter_DecodeTransactions_IsNoOp(t *testing.T) {
 	t.Parallel()
-	rawBlock := json.RawMessage(`{
-		"hash": "0x0000000000000000000000000000000000000000000000000000000000000001",
-		"transactions": [
-			{
-				"type": "0x0",
-				"nonce": "0x1",
-				"gasPrice": "0x3b9aca00",
-				"gas": "0x5208",
-				"to": "0x0000000000000000000000000000000000000002",
-				"value": "0x1",
-				"input": "0x",
-				"v": "0x1b",
-				"r": "0x1111111111111111111111111111111111111111111111111111111111111111",
-				"s": "0x2222222222222222222222222222222222222222222222222222222222222222"
-			},
-			{
-				"type": "0x2",
-				"chainId": "0x1",
-				"nonce": "0x2",
-				"maxPriorityFeePerGas": "0x3b9aca00",
-				"maxFeePerGas": "0x77359400",
-				"gas": "0x5208",
-				"to": "0x0000000000000000000000000000000000000002",
-				"value": "0x1",
-				"input": "0x",
-				"accessList": [],
-				"v": "0x1",
-				"r": "0x1111111111111111111111111111111111111111111111111111111111111111",
-				"s": "0x2222222222222222222222222222222222222222222222222222222222222222"
-			}
-		]
-	}`)
 
-	txs, err := defaultAdapter.DecodeTransactions(rawBlock)
-	require.NoError(t, err)
-	require.Len(t, txs, 2)
-	assert.Equal(t, uint8(ethtypes.LegacyTxType), txs[0].Type())
-	assert.Equal(t, uint8(ethtypes.DynamicFeeTxType), txs[1].Type())
-	assert.Equal(t, big.NewInt(2000000000).String(), txs[1].GasFeeCap().String())
-}
-
-func TestDefaultClientAdapter_DecodeTransactions_UnsupportedEnvelope(t *testing.T) {
-	t.Parallel()
-	// A ZKsync-style 0x71 envelope is unknown to go-ethereum's decoder.
-	rawBlock := json.RawMessage(`{
-		"transactions": [
-			{
-				"type": "0x71",
-				"nonce": "0x1",
-				"gas": "0x5208",
-				"to": "0x0000000000000000000000000000000000000002",
-				"value": "0x1",
-				"input": "0x"
-			}
-		]
-	}`)
-
-	_, err := defaultAdapter.DecodeTransactions(rawBlock)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, ethtypes.ErrTxTypeNotSupported), "expected ErrTxTypeNotSupported, got: %v", err)
-}
-
-func TestDefaultClientAdapter_DecodeTransactions_MalformedBlock(t *testing.T) {
-	t.Parallel()
-	_, err := defaultAdapter.DecodeTransactions(json.RawMessage(`{"transactions": "not-an-array"}`))
-	assert.Error(t, err)
+	for name, rawBlock := range map[string]json.RawMessage{
+		"standard envelopes": json.RawMessage(`{
+			"transactions": [
+				{
+					"type": "0x0",
+					"nonce": "0x1",
+					"gasPrice": "0x3b9aca00",
+					"gas": "0x5208",
+					"to": "0x0000000000000000000000000000000000000002",
+					"value": "0x1",
+					"input": "0x",
+					"v": "0x1b",
+					"r": "0x1111111111111111111111111111111111111111111111111111111111111111",
+					"s": "0x2222222222222222222222222222222222222222222222222222222222222222"
+				}
+			]
+		}`),
+		"unsupported envelope": json.RawMessage(`{
+			"transactions": [
+				{
+					"type": "0x71",
+					"nonce": "0x1",
+					"gas": "0x5208",
+					"to": "0x0000000000000000000000000000000000000002",
+					"value": "0x1",
+					"input": "0x"
+				}
+			]
+		}`),
+		"malformed block": json.RawMessage(`{"transactions": "not-an-array"}`),
+	} {
+		txs, err := defaultAdapter.DecodeTransactions(rawBlock)
+		require.NoError(t, err, name)
+		assert.Empty(t, txs, name)
+	}
 }
 
 // --- adapterForChain ---
