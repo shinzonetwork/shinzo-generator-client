@@ -5,10 +5,12 @@ package benchmarking
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -49,13 +52,20 @@ const (
 
 // TestBSCReplayAcceptance answers "can we index BSC blocks at the tip": it
 // replays a captured fixture through a mock JSON-RPC node into the full
-// production pipeline (Fetcher → Converter → BlockHandler.Store) and asserts
-// the average per-block processing time stays within the chain's block
-// interval.
+// production pipeline and drives it with the real production orchestration —
+// the indexer's ConcurrentBlockProcessor, with the worker count the shipped
+// config carries. Output is Fetcher → Converter → BlockHandler.Store under
+// the processor's worker pool, retry classification, and in-order commit.
 //
-// The harness deliberately bypasses blocks_per_minute pacing — it measures
-// raw pipeline capacity against the chain's BPS, so the processor's rate
-// limiter must not soak up the measurement.
+// The verdict is a throughput gate: the effective per-block interval (wall
+// clock from first dispatch to the last block's in-order commit, divided by
+// the block count) must stay within the chain's block interval — the same
+// question as "do blocks pile up forever", which concurrency answers
+// differently than per-block latency does.
+//
+// blocks_per_minute pacing stays deliberately bypassed (0 disables the
+// processor's rate limiter) — this measures raw pipeline capacity against
+// the chain's BPS, so the rate limiter must not soak up the measurement.
 func TestBSCReplayAcceptance(t *testing.T) {
 	fixturePath := resolveFixturePath(t)
 	if fixturePath == "" {
@@ -123,27 +133,92 @@ func TestBSCReplayAcceptance(t *testing.T) {
 	// in the samples the way production background load does.
 	services := startReplayServices(t, cfg, td.Node, converter, handler, ctx)
 
-	timings := make(blockTimings, 0, len(blocks))
-	for i, fb := range blocks {
-		num, err := parseHexUint(fb.Number)
-		require.NoError(t, err, "fixture block %d has an unparseable number", i)
+	// The worker count comes from the shipped yaml (concurrent_blocks), the
+	// same field production reads: the scrub above keeps any stray
+	// INDEXER_* env override from changing the measured configuration.
+	workers := cfg.Indexer.ConcurrentBlocks
+	require.Greater(t, workers, 0, "config must enable at least one concurrent worker")
 
-		start := time.Now()
-		bundle, err := fetcher.FetchBlock(ctx, int64(num))
-		require.NoError(t, err, "replay fetch failed for block %d: the fixture must contain every block of the captured range", num)
+	timings := newReplayTimings()
+	processor := indexer.NewConcurrentBlockProcessor(
+		&timedFetcher{inner: fetcher, timings: timings},
+		&timedConverter{inner: converter, timings: timings},
+		&timedStorer{inner: handler, timings: timings},
+		workers,
+		0, // pacing off: blocks_per_minute's rate limiter must not soak up the measurement
+	)
 
-		result, err := converter.Convert(ctx, bundle)
-		require.NoError(t, err, "convert failed for block %d", num)
+	// The dispatcher runs to infinity; the run ends when the last fixture
+	// block commits in order — at that point every fixture block is stored,
+	// so the ctx cancel is the expected termination, not a failure. The
+	// wall clock stops at that same commit: ProcessBlocks' return additionally
+	// waits out the in-flight beyond-tip fetch retries (≤ a few seconds),
+	// which are not part of the measurement.
+	first, last := int64(numbers[0]), int64(numbers[len(numbers)-1])
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
 
-		_, err = handler.Store(ctx, result)
-		require.NoError(t, err, "store failed for block %d", num)
-
-		elapsed := time.Since(start)
-		timings = append(timings, elapsed)
-		if (i+1)%25 == 0 { //nolint:mnd
-			logger.Testf("replayed %d/%d blocks (last: %s)", i+1, len(blocks), elapsed)
+	// The dispatcher's only cancel path is the last block's commit. A block
+	// that fails inside the processor (fetch/convert/store error) is logged
+	// as a warning instead of committed, so nextToCommit never advances and
+	// the run would hang to the go-test timeout. The watchdog keeps that
+	// honest: no commit for 30s while blocks remain → cancel, and the
+	// missing timing sample then names the stuck block.
+	const (
+		stallLimit      = 30 * time.Second
+		stallCheckEvery = 5 * time.Second
+	)
+	var (
+		lastCommit   atomic.Int64
+		commitCount  atomic.Int64
+		watchdogStop = make(chan struct{})
+	)
+	defer close(watchdogStop)
+	lastCommit.Store(time.Now().UnixNano())
+	go func() {
+		tick := time.NewTicker(stallCheckEvery)
+		defer tick.Stop()
+		for {
+			select {
+			case <-watchdogStop:
+				return
+			case <-tick.C:
+				if commitCount.Load() >= int64(len(blocks)) {
+					continue // all committed; the last-block cancel is winding the run down
+				}
+				if time.Since(time.Unix(0, lastCommit.Load())) > stallLimit {
+					logger.Testf("no commit for %s with %d/%d blocks committed - cancelling the stalled replay", stallLimit, commitCount.Load(), len(blocks))
+					cancelRun()
+				}
+			}
 		}
+	}()
+
+	var wallEnd time.Time
+	wallStart := time.Now()
+	err = processor.ProcessBlocks(runCtx, first, func(blockNum int64) {
+		done := commitCount.Add(1)
+		lastCommit.Store(time.Now().UnixNano())
+		if done%25 == 0 {
+			logger.Testf("committed %d/%d blocks (last: %d)", done, len(blocks), blockNum)
+		}
+		if blockNum == last {
+			wallEnd = time.Now()
+			cancelRun()
+		}
+	})
+	if !errors.Is(err, context.Canceled) {
+		require.NoError(t, err, "replay processor terminated unexpectedly")
 	}
+	wall := wallEnd.Sub(wallStart)
+
+	timingsList, err := timings.snapshotOrdered(first, last)
+	require.NoError(t, err, "every replayed block must have a timing sample - a missing sample means a block never stored (blocked by a failed fetch/convert/store or the stall watchdog)")
+	require.Len(t, timingsList, len(blocks),
+		"sample count must equal the fixture block count - a missing sample means a block failed inside the processor")
+
+	phaseAvg, err := timings.phaseAverages(first, last)
+	require.NoError(t, err, "every replayed block must have complete phase records - fetch success precedes convert, convert precedes any store, so a total sample implies all three")
 
 	// Stop the services before the report and assertions: the pruner must
 	// not race the final count queries, and the snapshotter's stats are
@@ -151,9 +226,9 @@ func TestBSCReplayAcceptance(t *testing.T) {
 	// becomes a no-op after this.
 	services.stop()
 
-	reportResults(t, fx, blocks, numbers, timings, target)
+	reportResults(t, fx, blocks, numbers, timingsList, phaseAvg, workers, wall, target)
 	logServiceStats(t, services)
-	assertVerdict(t, fx, timings, target)
+	assertVerdict(t, fx, len(blocks), wall, workers, target)
 	assertCorrectness(t, td, ctx, cols, numbers, len(blocks), services.prunedBlocks())
 }
 
@@ -239,11 +314,17 @@ func parsePositiveInt(raw string) (int, error) {
 
 // reportResults prints the timing report line by line in the replay
 // report's format. Every content line is space-padded to the banner width so
-// the report forms a clean block; lines longer than the width get no padding
-// (never truncated).
-func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbers []uint64, timings blockTimings, target time.Duration) {
+// the two sections align; lines longer than the width get no padding (never
+// truncated). The report splits in two: the throughput section (concurrency,
+// total time, effective per-block interval) backs the acceptance verdict,
+// while the sequential block processing stats are the per-block contended
+// fetch→store latencies — reported as evidence, not gated. The phase line
+// decomposes the average into fetch / convert / store; the store share is
+// the throughput ceiling if stores are ever serialized.
+func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbers []uint64, timings blockTimings, phaseAvg replayPhases, workers int, wall time.Duration, target time.Duration) {
 	t.Helper()
 	avg := timings.avg()
+	effective := wall / time.Duration(len(blocks))
 
 	const width = 100
 
@@ -252,35 +333,56 @@ func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbe
 		logger.Test(line + strings.Repeat(" ", max(width-len(line), 0)))
 	}
 
-	// Banners match the content width exactly.
+	// Top and bottom banners close the report; the underscore divider
+	// separates the throughput section from the per-block stats. All three
+	// match the content width exactly.
 	logger.Test(strings.Repeat("=", width))
 	pad("Blocks Replayed: %d - %d   (%d blocks)", fx.Meta.From, fx.Meta.To, len(blocks))
-	pad("Target:  %s", target)
-	pad("Average:  %s", avg)
-	pad("Headroom:    %.1f%%", timings.headroomPct(target))
-	pad("Min: %s || p50: %s || p95: %s || Max: %s",
+	pad("Concurrent Blocks: %d", workers)
+	pad("Total Time:  %s", wall)
+	pad("Target Throughput:  %s / block", target)
+	pad("Effective Throughput:  %s / block", effective)
+	pad("Headroom:    %.1f%%", headroomPct(target, effective))
+	pad("Network Latency Budget: %s / block", target-effective)
+
+	logger.Test(strings.Repeat("_", width))
+	pad("Sequential Block Processing Stats:")
+	pad(" -  Average Block Time:  %s", avg)
+	pad(" -  Min: %s || p50: %s || p95: %s || Max: %s",
 		timings.min(), timings.percentile(50), timings.percentile(95), timings.max())
-	logger.Test("Outliers:")
+	pad(" -  Average Phase Times:  fetch %s || convert %s || store %s", phaseAvg.fetch, phaseAvg.convert, phaseAvg.store)
+	pad(" - Outliers:")
 	for _, line := range timings.outlierLines(numbers, avg) {
-		pad("- %s", line)
+		pad("    - %s", line)
 	}
 	logger.Test(strings.Repeat("=", width))
 }
 
-// assertVerdict is the hard acceptance assertion: the average per-block
-// processing time must stay within the chain's block interval, or the chain
-// outruns the indexer and blocks pile up forever.
-func assertVerdict(t *testing.T, fx *replayFixture, timings blockTimings, target time.Duration) {
+// headroomPct returns how much headroom the measured effective interval
+// leaves below the target, as a percentage of the target (negative when the
+// target is missed).
+func headroomPct(target, effective time.Duration) float64 {
+	return float64(target-effective) / float64(target) * 100
+}
+
+// assertVerdict is the hard acceptance assertion: the effective per-block
+// interval — wall clock from first dispatch to the last in-order commit,
+// divided by the block count — must stay within the chain's block interval,
+// or the chain outruns the indexer and blocks pile up forever. Per-block
+// latency is not gated: contention inflates individual latencies even when
+// the concurrent pipeline comfortably keeps up.
+func assertVerdict(t *testing.T, fx *replayFixture, blockCount int, wall time.Duration, workers int, target time.Duration) {
 	t.Helper()
-	avg := timings.avg()
-	require.LessOrEqual(t, avg, target,
-		"acceptance FAILED: average block processing time %s exceeds the %s block interval (fixture blocks %d..%d) - the pipeline cannot keep up with BSC at the tip",
-		avg, target, fx.Meta.From, fx.Meta.To)
+	effective := wall / time.Duration(blockCount)
+	require.LessOrEqual(t, effective, target,
+		"acceptance FAILED: effective per-block interval %s exceeds the %s block interval at %d workers (fixture blocks %d..%d) - the concurrent pipeline cannot keep up with BSC at the tip",
+		effective, target, workers, fx.Meta.From, fx.Meta.To)
 }
 
 // assertCorrectness is the "can index" half of the verdict: every processed
-// block must be present in DefraDB unless the pruner removed it, and
-// signature docs must exist for the stored range.
+// block must be present in DefraDB unless the pruner removed it, every stored
+// block must carry a BlockSignature (a signed block is a complete block), and
+// the pruner's deletions are accounted for on both counts.
 func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Context, cols chains.Collections, numbers []uint64, processed int, pruned int64) {
 	t.Helper()
 
@@ -300,8 +402,16 @@ func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Cont
 	sigCount, err := graphqlCountInRange(ctx, td.Node, mustSignatureCollection(t, cols),
 		constants.BlockNumberFieldName, first, last, processed+1)
 	require.NoError(t, err)
-	assert.Greater(t, sigCount, 0,
-		"no BlockSignature docs were written for the stored range")
+	// The pruner deletes a block's signature together with its docs (the
+	// queue tracks it per block), so stored − pruned is the expected count,
+	// same arithmetic as the block rows. A shortfall names the real damage,
+	// not a counting error: a block whose store landed partially and that
+	// was committed through the already-exists path without a signature
+	// counts toward zero here. This is the assertion that catches lost
+	// blocks under concurrent write contention.
+	assert.Equal(t, expected, sigCount,
+		"every stored block must carry a BlockSignature (expected %d = %d stored - %d pruned) - a shortfall means a block was committed with a partial store or its signature could not be created",
+		expected, processed, pruned)
 	logger.Testf("✓ correctness: %d blocks stored, %d block signatures (expected %d blocks after pruning %d)",
 		blockCount, sigCount, expected, pruned)
 }

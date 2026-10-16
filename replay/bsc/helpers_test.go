@@ -21,6 +21,8 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -540,12 +542,6 @@ func (bt blockTimings) percentile(p int) time.Duration {
 	return sorted[idx]
 }
 
-// headroomPct returns how much faster the average is than the target, as a
-// percentage of the target (negative when the target is missed).
-func (bt blockTimings) headroomPct(target time.Duration) float64 {
-	return float64(target-bt.avg()) / float64(target) * 100
-}
-
 // outlierLines lists blocks whose processing time exceeded twice the
 // average, formatted as "block no - time - deviation from average" for the
 // report's outlier list.
@@ -559,6 +555,256 @@ func (bt blockTimings) outlierLines(numbers []uint64, avg time.Duration) []strin
 		}
 	}
 	return lines
+}
+
+// replayPhases holds one block's per-phase durations: the fetch call, the
+// convert call, and the total time spent in store attempts.
+type replayPhases struct {
+	fetch   time.Duration
+	convert time.Duration
+	store   time.Duration
+}
+
+// replayTimings collects per-block fetch→store durations and their
+// fetch/convert/store phase breakdown in the concurrent replay.
+// The ConcurrentBlockProcessor exposes no per-block timing hook, so
+// the wrappers around its Fetcher, Converter, and BlockStorer interfaces
+// feed this collector: the fetcher stamps each block's start, the converter
+// and storer record their phase durations, and the storer closes the total
+// window. Completion order differs from block order under concurrency, so
+// samples are keyed by block number and emit in ascending order — the
+// fixture range is contiguous (capture invariant, capSample keeps a
+// prefix), which keeps the slice index-aligned with the parsed block
+// numbers for the outlier list.
+type replayTimings struct {
+	mu      sync.Mutex
+	starts  map[int64]time.Time
+	samples map[int64]time.Duration
+	phases  map[int64]replayPhases
+}
+
+// newReplayTimings creates an empty collector.
+func newReplayTimings() *replayTimings {
+	return &replayTimings{
+		starts:  make(map[int64]time.Time),
+		samples: make(map[int64]time.Duration),
+		phases:  make(map[int64]replayPhases),
+	}
+}
+
+// startFetch records a block's fetch start; retried fetches overwrite the
+// stamp so only a completed fetch→store pair yields a sample.
+func (rt *replayTimings) startFetch(blockNum int64) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.starts[blockNum] = time.Now()
+}
+
+// endStore closes a block's window at store completion.
+func (rt *replayTimings) endStore(blockNum int64, stored bool) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if !stored {
+		return
+	}
+	start, ok := rt.starts[blockNum]
+	if !ok {
+		return
+	}
+	rt.samples[blockNum] = time.Since(start)
+	delete(rt.starts, blockNum)
+}
+
+// recordFetch stamps a block's fetch duration; retried fetches overwrite the
+// stamp, matching the cycle-start overwrite so only a completed
+// fetch→store pair yields a sample.
+func (rt *replayTimings) recordFetch(blockNum int64, elapsed time.Duration) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	p := rt.phases[blockNum]
+	p.fetch = elapsed
+	rt.phases[blockNum] = p
+}
+
+// recordConvert stamps a block's convert duration. Converts are single
+// attempts, so the stamp is written once per block.
+func (rt *replayTimings) recordConvert(blockNum int64, elapsed time.Duration) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	p := rt.phases[blockNum]
+	p.convert = elapsed
+	rt.phases[blockNum] = p
+}
+
+// recordStore adds one store attempt's duration to a block's store phase.
+// Every attempt accumulates — success, already-exists, or failure — so the
+// store phase is the total time the block spent storing under contention
+// (processor-level retries re-enter Store, and the batch-retry conflict
+// sleeps live inside it).
+func (rt *replayTimings) recordStore(blockNum int64, elapsed time.Duration) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	p := rt.phases[blockNum]
+	p.store += elapsed
+	rt.phases[blockNum] = p
+}
+
+// snapshotOrdered returns the collected samples as a blockTimings slice in
+// ascending block-number order, requiring every block in the inclusive range
+// to have produced one.
+func (rt *replayTimings) snapshotOrdered(first, last int64) (blockTimings, error) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for num := first; num <= last; num++ {
+		if _, ok := rt.samples[num]; !ok {
+			return nil, fmt.Errorf("block %d has no timing sample (never stored)", num)
+		}
+	}
+	out := make(blockTimings, 0, last-first+1)
+	for num := first; num <= last; num++ {
+		out = append(out, rt.samples[num])
+	}
+	return out, nil
+}
+
+// phaseAverages returns the per-phase averages over the inclusive block
+// range, under the same completeness contract as snapshotOrdered: a block
+// missing from the range is named, never silently skipped. Sound because a
+// total sample exists iff all three phase records do — a fetch success
+// precedes its convert, a convert precedes any store of that block.
+func (rt *replayTimings) phaseAverages(first, last int64) (replayPhases, error) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	var total replayPhases
+	for num := first; num <= last; num++ {
+		p, ok := rt.phases[num]
+		if !ok {
+			return replayPhases{}, fmt.Errorf("block %d has no phase records (never fetched, converted, or stored)", num)
+		}
+		total.fetch += p.fetch
+		total.convert += p.convert
+		total.store += p.store
+	}
+	count := time.Duration(last - first + 1)
+	return replayPhases{
+		fetch:   total.fetch / count,
+		convert: total.convert / count,
+		store:   total.store / count,
+	}, nil
+}
+
+// timedFetcher wraps a chains.Fetcher, stamping each block's start into a
+// replayTimings collector before passing through. It exists for the same
+// reason replayQueueTracker does: the timing is not exposed by the
+// orchestration layer, so the harness instruments the interfaces it owns.
+type timedFetcher struct {
+	inner   chains.Fetcher
+	timings *replayTimings
+}
+
+func (f *timedFetcher) Connect(ctx context.Context) error { return f.inner.Connect(ctx) }
+
+func (f *timedFetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
+	f.timings.startFetch(height)
+	start := time.Now()
+	res, err := f.inner.FetchBlock(ctx, height)
+	if err == nil {
+		f.timings.recordFetch(height, time.Since(start))
+	}
+	return res, err
+}
+
+func (f *timedFetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
+	return f.inner.FetchHighestBlockNumber(ctx)
+}
+
+func (f *timedFetcher) Close() error { return f.inner.Close() }
+
+// timedConverter wraps a chains.Converter, recording each block's convert
+// duration into a replayTimings collector. Only Convert is measured — the
+// replay loop's other converter traffic (SignatureCollection inside
+// storeWithRetry, pruner/snapshot progress queries) is either processor
+// internals or background services, so everything else passes through
+// untouched.
+type timedConverter struct {
+	inner   chains.Converter
+	timings *replayTimings
+}
+
+func (c *timedConverter) Convert(ctx context.Context, rawBlock any) (chains.ConversionResult, error) {
+	start := time.Now()
+	res, err := c.inner.Convert(ctx, rawBlock)
+	if err == nil {
+		c.timings.recordConvert(extractReplayBlockNum(res), time.Since(start))
+	}
+	return res, err
+}
+
+func (c *timedConverter) GetSchema() (string, error) { return c.inner.GetSchema() }
+
+func (c *timedConverter) GetCollections() []string { return c.inner.GetCollections() }
+
+func (c *timedConverter) Collections() chains.Collections { return c.inner.Collections() }
+
+func (c *timedConverter) GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
+	return c.inner.GetHighestStoredBlockNumber(ctx, n)
+}
+
+func (c *timedConverter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
+	return c.inner.GetLowestStoredBlockNumber(ctx, n)
+}
+
+func (c *timedConverter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
+	return c.inner.GetDocIDsByBlockRange(ctx, n, from, to)
+}
+
+func (c *timedConverter) SignatureCollection() string { return c.inner.SignatureCollection() }
+
+// timedStorer wraps the processor's BlockStorer, closing each block's timing
+// window when its store lands. The processor's own extractBlockHash finds
+// the block group by its BlockHashField; the number is recovered the same
+// way via the group's BlockNumField ("number" on block groups per the
+// converter). An already-exists outcome closes the window too: the processor
+// commits a block through that path (it fires the detached SignExisting and
+// reports success), so the sample spans every store attempt the block took.
+// Only a store the processor also failed leaves the window open — the
+// sample-count check then names the block, so silence cannot hide a lost one.
+//
+// The store phase accumulates on every attempt — success, already-exists, or
+// failure — so it sums the total time the block spent storing under
+// contention: processor-level TransactionConflict retries re-enter Store,
+// and the batch-retry conflict sleeps (50/100/150ms) live inside it.
+// SignExisting stays passthrough: it is processor-detached and tiny.
+type timedStorer struct {
+	inner   indexer.BlockStorer
+	timings *replayTimings
+}
+
+func (s *timedStorer) Store(ctx context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+	start := time.Now()
+	res, err := s.inner.Store(ctx, result)
+	s.timings.recordStore(extractReplayBlockNum(result), time.Since(start))
+	s.timings.endStore(extractReplayBlockNum(result), err == nil || errors.IsErrAlreadyExists(err))
+	return res, err
+}
+
+func (s *timedStorer) SignExisting(ctx context.Context, result chains.ConversionResult, blockHash string, blockNumber int64) (string, error) {
+	return s.inner.SignExisting(ctx, result, blockHash, blockNumber)
+}
+
+// extractReplayBlockNum recovers a ConversionResult's block number the way
+// the processor recovers the block hash: the block group is the one with a
+// BlockHashField, and its first doc carries the number under BlockNumField.
+func extractReplayBlockNum(result chains.ConversionResult) int64 {
+	for _, g := range result.Groups {
+		if g.BlockHashField == "" || len(g.Docs) == 0 {
+			continue
+		}
+		if num, ok := g.Docs[0][g.BlockNumField].(int64); ok {
+			return num
+		}
+	}
+	return 0
 }
 
 // replayQueueTracker adapts pruner's IndexerQueue to the BlockHandler's
