@@ -279,6 +279,11 @@ func TestParallelStores_StaleEpisodeSuppressesBatchedSuccessors(t *testing.T) {
 	storer := &batchHeadFailStorer{reorg: reorg, failAt: 100}
 	rec := &commitRecorder{}
 	p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), storer, reorg, 3, 0)
+	// batched records whether the two successors were actually parked in the
+	// reorder buffer before the failure: without it a deadline miss would
+	// silently degrade the test into the single-item batch the old test
+	// already covers, and it would pass without exercising the fix.
+	var batched atomic.Bool
 	storer.beforeFail = func() {
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {
@@ -286,6 +291,7 @@ func TestParallelStores_StaleEpisodeSuppressesBatchedSuccessors(t *testing.T) {
 			n := len(p.reorderCompletions)
 			p.pendingMu.Unlock()
 			if n >= 2 {
+				batched.Store(true)
 				return
 			}
 			time.Sleep(time.Millisecond)
@@ -297,6 +303,7 @@ func TestParallelStores_StaleEpisodeSuppressesBatchedSuccessors(t *testing.T) {
 	waitForCommits(t, rec, 4, errCh)
 	cancel()
 	assert.ErrorIs(t, <-errCh, context.Canceled)
+	require.True(t, batched.Load(), "the failed store must be applied as the head of a multi-item batch")
 
 	got := rec.snapshot()
 	assert.Equal(t, []int64{100, 101, 102, 103}, got[:4],

@@ -127,21 +127,25 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// --- GetBlockByHash with mock server ---
+// --- GetHeaderByHash with mock server ---
 
-func TestGetBlockByHash_Success(t *testing.T) {
+func TestGetHeaderByHash_Success(t *testing.T) {
 	t.Parallel()
 	servedHashCh := make(chan string, 1)
+	servedFullTxCh := make(chan bool, 1)
 	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByHash:
 			var rawParams []json.RawMessage
-			if err := json.Unmarshal(params, &rawParams); err != nil || len(rawParams) == 0 {
+			if err := json.Unmarshal(params, &rawParams); err != nil || len(rawParams) < 2 {
 				return nil, fmt.Errorf("bad params")
 			}
 			var requested string
 			_ = json.Unmarshal(rawParams[0], &requested)
 			servedHashCh <- requested
+			var fullTx bool
+			_ = json.Unmarshal(rawParams[1], &fullTx)
+			servedFullTxCh <- fullTx
 			return fullBlockResponse(testBlockNumberHex, nil), nil
 		default:
 			return "0x1", nil
@@ -154,14 +158,15 @@ func TestGetBlockByHash_Success(t *testing.T) {
 	defer func() { _ = client.Close() }()
 
 	testHash := fakeHash("by-hash")
-	block, err := client.GetBlockByHash(context.Background(), testHash)
+	header, err := client.GetHeaderByHash(context.Background(), testHash)
 	require.NoError(t, err)
-	require.NotNil(t, block)
-	assert.Equal(t, strconv.Itoa(testBlockNumber), block.Number)
+	require.NotNil(t, header)
+	assert.Equal(t, int64(testBlockNumber), header.Number.Int64())
 	assert.Equal(t, strings.ToLower(testHash), <-servedHashCh)
+	assert.False(t, <-servedFullTxCh, "the header fetch must not request transaction bodies")
 }
 
-func TestGetBlockByHash_NotFoundIsClassified(t *testing.T) {
+func TestGetHeaderByHash_NotFoundIsClassified(t *testing.T) {
 	t.Parallel()
 	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
@@ -177,14 +182,14 @@ func TestGetBlockByHash_NotFoundIsClassified(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
-	_, err = client.GetBlockByHash(context.Background(), fakeHash("missing"))
+	_, err = client.GetHeaderByHash(context.Background(), fakeHash("missing"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get block by hash")
+	assert.Contains(t, err.Error(), "failed to get header by hash")
 	assert.True(t, errors.IsErrNotFound(err),
 		"the by-hash not-found error must keep its message so IsErrNotFound classifies it for the shared retry logic")
 }
 
-func TestGetBlockByHash_InvalidHash(t *testing.T) {
+func TestGetHeaderByHash_InvalidHash(t *testing.T) {
 	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
@@ -197,7 +202,7 @@ func TestGetBlockByHash_InvalidHash(t *testing.T) {
 		"", "0xdeadbeef", strings.TrimPrefix(fakeHash("no-prefix"), "0x"),
 		fakeHash("too-long") + "ab",
 	} {
-		_, err = client.GetBlockByHash(context.Background(), hash)
+		_, err = client.GetHeaderByHash(context.Background(), hash)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "block hash")
 		assert.False(t, errors.IsErrNotFound(err),
