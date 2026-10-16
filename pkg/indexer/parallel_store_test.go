@@ -323,6 +323,36 @@ func TestParallelStores_DrainBeforeWalkBack(t *testing.T) {
 		"the walk-back and the rollback must have run without in-flight stores")
 }
 
+// TestParallelStores_CallbackOutsideProcessorLock pins the callback contract:
+// onBlockProcessed fires after pendingMu is released, so a callback that
+// re-enters a read path taking pendingMu (fatalFailure) cannot self-deadlock
+// the collector.
+func TestParallelStores_CallbackOutsideProcessorLock(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	rec := &commitRecorder{}
+	reorg := &mockReorgHandler{}
+	p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+
+	// fatalDuringRun is written only by the collector goroutine (the callback
+	// fires there) and read after the run returned, so the errCh send
+	// provides the ordering.
+	var fatalDuringRun error
+	cancel, errCh := runProcessor(p, 100, func(blockNum int64) {
+		rec.record(blockNum)
+		fatalDuringRun = p.fatalFailure()
+	})
+	defer cancel()
+
+	waitForCommits(t, rec, 3, errCh)
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.NoError(t, fatalDuringRun, "the callback's re-entrant state read must not see a fatal error")
+	assert.Empty(t, reorg.calls())
+}
+
 // TestParallelStores_RefusalThroughPoolFailsRun pins the refusal's fatal
 // classification on the async failure path: a deleted-docID refusal
 // surfaced by a pool worker stops the run with that refusal as the indexing
