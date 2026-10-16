@@ -226,7 +226,9 @@ func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error
 // (a by-number receipts call would race a reorg between the two reads).
 // The batch path is verified: every served receipt must carry the pinned
 // hash. Any failure, including a hash mismatch, degrades to the per-tx
-// fallback, which is tx-hash-pinned and equally branch-safe.
+// fallback. eth_getTransactionReceipt resolves to the tx's canonical
+// inclusion, so each fallback receipt is verified against the pinned hash
+// too, and a mismatch fails the fetch instead of bundling cross-branch data.
 func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt, error) {
 	transactions := make([]*Transaction, len(block.Transactions))
 	for i := range block.Transactions {
@@ -266,6 +268,14 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 			if err != nil {
 				if ctx.Err() == nil && logger.Sugar != nil {
 					logger.Sugar.Warnf("Failed to fetch receipt for tx %s: %v", txHash, err)
+				}
+				return
+			}
+			if receipt == nil || !strings.EqualFold(receipt.BlockHash, block.Hash) {
+				// The node resolved the tx to another block: ours is no longer
+				// canonical. Leave the slot nil so the fetch fails and retries.
+				if ctx.Err() == nil && logger.Sugar != nil {
+					logger.Sugar.Warnf("Receipt for tx %s does not belong to block %s; the block is no longer canonical", txHash, block.Hash)
 				}
 				return
 			}

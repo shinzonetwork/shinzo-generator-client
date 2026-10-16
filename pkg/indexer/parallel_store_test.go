@@ -229,6 +229,80 @@ func TestParallelStores_StaleOrphanAtFailedStoreOpensEpisode(t *testing.T) {
 	reorg.mu.Unlock()
 }
 
+// batchHeadFailStorer fails one height's store only after beforeFail has
+// observed two successors parked in the reorder buffer, so the failed
+// completion is applied as the head of a multi-item batch instead of the
+// single-item batch a one-worker pool produces.
+type batchHeadFailStorer struct {
+	reorg      *mockReorgHandler
+	failAt     int64
+	beforeFail func()
+	failed     atomic.Bool
+}
+
+func (s *batchHeadFailStorer) Store(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+	num := blockNumOfResult(result)
+	if num == s.failAt && !s.failed.Load() {
+		s.beforeFail()
+		s.failed.Store(true)
+		return nil, fmt.Errorf("store exploded")
+	}
+	s.reorg.mu.Lock()
+	s.reorg.storedHashes[num] = extractBlockHash(result.Groups)
+	s.reorg.mu.Unlock()
+	return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
+}
+
+func (s *batchHeadFailStorer) SignExisting(_ context.Context, _ chains.ConversionResult, _ string, _ int64) (string, error) {
+	return "mock-sig-id", nil
+}
+
+// TestParallelStores_StaleEpisodeSuppressesBatchedSuccessors pins the
+// batched-apply suppression: a stale-pinned episode opened by the batch head
+// (a failed store at 100 with 101/102 already parked in the reorder buffer)
+// finalizes mid-batch, and the rest of the batch sits in the rollback range
+// it just handed back, so no callback may fire for those heights before the
+// restart re-commits them in order.
+func TestParallelStores_StaleEpisodeSuppressesBatchedSuccessors(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	// The stale orphan at 100 is pre-existing stored state (a previous run)
+	// the failing store never overwrote; canonical 99 sits below it.
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{
+		99:  canonicalHash(99),
+		100: orphanHash(100),
+	}}
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
+		return purgeStoredHashes(reorg, from, to)
+	}
+	storer := &batchHeadFailStorer{reorg: reorg, failAt: 100}
+	rec := &commitRecorder{}
+	p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), storer, reorg, 3, 0)
+	storer.beforeFail = func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			p.pendingMu.Lock()
+			n := len(p.reorderCompletions)
+			p.pendingMu.Unlock()
+			if n >= 2 {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	cancel, errCh := runProcessor(p, 100, rec.record)
+	defer cancel()
+	waitForCommits(t, rec, 4, errCh)
+	cancel()
+	assert.ErrorIs(t, <-errCh, context.Canceled)
+
+	got := rec.snapshot()
+	assert.Equal(t, []int64{100, 101, 102, 103}, got[:4],
+		"no callback may fire for a height in the stale episode's rollback range before the restart re-commits it")
+}
+
 // TestParallelStores_HoleWarnsAndRunContinues covers the hole side of the
 // failure handler: a generic store failure at 100 with nothing stored there
 // warns the hole and the run keeps indexing past it - no episode, no

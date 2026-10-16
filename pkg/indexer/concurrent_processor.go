@@ -591,6 +591,11 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 	// permanently unready while nothing waits, so no empty send can fire.
 	var dispatched *BlockResult
 
+	// done lets the cancellation case fire once: a nil channel receive
+	// blocks forever, so afterwards the select blocks on the channels until
+	// shutdown closes them instead of busy-spinning on an always-ready case.
+	done := ctx.Done()
+
 	for {
 		if dispatched == nil {
 			next, ok := p.popPending(ctx)
@@ -641,8 +646,9 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 		case storeSender <- dispatched:
 			p.storeInFlight.Add(1)
 			dispatched = nil
-		case <-ctx.Done():
+		case <-done:
 			dispatched = nil
+			done = nil // fire once; afterwards block on the channels until shutdown closes them
 		}
 		if resultsClosed && completionsClosed {
 			return
@@ -789,7 +795,13 @@ func (p *ConcurrentBlockProcessor) applyCompletion(ctx context.Context, completi
 	p.pendingMu.Unlock()
 
 	for _, c := range batch {
-		p.applyOneCompletion(ctx, c, onBlockProcessed, suppress)
+		// A stale-pinned episode can finalize inside an earlier iteration
+		// of this loop; the rest of the batch then sits in the range it is
+		// about to roll back, so it must not commit or fire callbacks.
+		p.pendingMu.Lock()
+		ended := p.rollbackPoint != nil || p.fatalErr != nil
+		p.pendingMu.Unlock()
+		p.applyOneCompletion(ctx, c, onBlockProcessed, suppress || ended)
 	}
 }
 
@@ -824,7 +836,15 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 		if completion.stale != nil {
 			p.pendingMu.Lock()
 			ep := p.episode
+			ended := p.rollbackPoint != nil || p.fatalErr != nil
 			p.pendingMu.Unlock()
+			if ended {
+				// An earlier batch item or the drain before it already
+				// resolved an episode or failed the run: this height sits in
+				// the resolved rollback range, so the restart re-indexes it
+				// and no second episode may open on top.
+				return
+			}
 			if ep == nil {
 				p.openStaleEpisode(ctx, completion, onBlockProcessed)
 				return

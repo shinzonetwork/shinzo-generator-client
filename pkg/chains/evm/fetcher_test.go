@@ -328,6 +328,30 @@ func TestFetcher_FetchBlock_ReceiptHashMismatchFallsBack(t *testing.T) {
 		"receipts belonging to another block must not land in the bundle; the tx-pinned fallback serves them instead")
 }
 
+func TestFetcher_FetchBlock_FallbackRejectsReceiptsFromAnotherBlock(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	blockNum := int64(12345)
+	block := fakeBlockWithTxs(blockNum, fakeTx(txHash))
+
+	// Our block was orphaned and the tx re-included: both the pinned batch
+	// and the by-tx-hash lookup serve the canonical block's receipt.
+	canonical := fakeReceipt(txHash, blockNum)
+	canonical.BlockHash = fakeHash("canonical-block")
+	client := &fakeRPCClient{
+		block:          block,
+		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {canonical}},
+		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+			return canonical, nil
+		},
+	}
+	f := NewFetcher(client, 8)
+
+	_, err := f.FetchBlock(context.Background(), blockNum)
+	require.Error(t, err, "receipts from another block must fail the fetch, not be bundled")
+}
+
 // ---------------------------------------------------------------------------
 // FetchBlock: block not found (no retry, error passed through unwrapped)
 // ---------------------------------------------------------------------------

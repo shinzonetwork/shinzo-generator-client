@@ -193,14 +193,16 @@ func (r *ReorgRoller) RollbackBlocks(ctx context.Context, from, to int64, chainH
 // failing on an already-deleted document.
 func (r *ReorgRoller) softDeleteCollectionDocs(ctx context.Context, colName string, docIDs []string) error {
 	const chunkSize = 100
+	if len(docIDs) == 0 {
+		return nil
+	}
+	col, err := r.defraNode.DB.GetCollectionByName(ctx, colName)
+	if err != nil {
+		return fmt.Errorf("get collection %s: %w", colName, err) //nolint:err113
+	}
 
 	for chunkStart := 0; chunkStart < len(docIDs); chunkStart += chunkSize {
 		chunk := docIDs[chunkStart:min(chunkStart+chunkSize, len(docIDs))]
-
-		col, err := r.defraNode.DB.GetCollectionByName(ctx, colName)
-		if err != nil {
-			return fmt.Errorf("get collection %s: %w", colName, err) //nolint:err113
-		}
 
 		conditions := make([]any, len(chunk))
 		for i, id := range chunk {
