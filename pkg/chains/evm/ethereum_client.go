@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"math/big"
@@ -13,7 +14,9 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -47,6 +50,7 @@ var (
 type EthereumClient struct {
 	httpClient   *ethclient.Client
 	wsClient     *ethclient.Client
+	adapter      ClientAdapter
 	nodeURL      string
 	wsURL        string
 	apiKey       string
@@ -54,18 +58,29 @@ type EthereumClient struct {
 }
 
 // NewEthereumClient creates a new JSON-RPC Ethereum client with HTTP and
-// WebSocket support. The provided context governs the dial phase and is NOT
-// retained by the returned client (dial-only per go-ethereum's rpc.Dial
-// contract); its cancellation or expiry before or while connecting fails the
-// constructor — a partially connected client is never returned. When
-// dialTimeout is positive, it bounds the WebSocket dial phase exclusively,
-// freshly derived from the caller's context (go-ethereum's HTTP dial is lazy
-// and performs no handshake at construction, so no separate budget is
-// needed); a WS-phase timeout with the caller's context alive and HTTP
-// connected degrades to HTTP-only mode instead of failing. A non-positive
-// dialTimeout leaves the WebSocket dial unbounded — the caller's context
-// solely governs.
+// WebSocket support, using the default ClientAdapter (the Ethereum/BSC
+// behaviour). See NewEthereumClientForChain for the full dial contract.
 func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHeader string, dialTimeout time.Duration) (*EthereumClient, error) {
+	return NewEthereumClientForChain(ctx, httpNodeURL, wsURL, apiKey, apiKeyHeader, dialTimeout, "")
+}
+
+// NewEthereumClientForChain creates a new JSON-RPC Ethereum client whose
+// chain-specific behaviour comes from the ClientAdapter resolved by
+// adapterForChain(chainName); unknown or empty names fall back to the
+// default adapter, which reproduces the Ethereum and BSC behaviour exactly.
+//
+// The provided context governs the dial phase and is NOT retained by the
+// returned client (dial-only per go-ethereum's rpc.Dial contract); its
+// cancellation or expiry before or while connecting fails the constructor,
+// so a partially connected client is never returned. When dialTimeout is
+// positive, it bounds the WebSocket dial phase exclusively, freshly derived
+// from the caller's context (go-ethereum's HTTP dial is lazy and performs
+// no handshake at construction, so no separate budget is needed); a
+// WS-phase timeout with the caller's context alive and HTTP connected
+// degrades to HTTP-only mode instead of failing. A non-positive dialTimeout
+// leaves the WebSocket dial unbounded, with the caller's context solely
+// governing.
+func NewEthereumClientForChain(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHeader string, dialTimeout time.Duration, chainName string) (*EthereumClient, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
 			fmt.Errorf("dial context cancelled before connecting: %w", err))
@@ -76,6 +91,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 		wsURL:        wsURL,
 		apiKey:       apiKey,
 		apiKeyHeader: apiKeyHeader,
+		adapter:      adapterForChain(chainName),
 	}
 
 	// Normalize header name from env (e.g., "x-goog-api-key", "x-api-key")
@@ -296,11 +312,11 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 	logger.Sugar.Infof("Latest block: %s, targeting block: %s (%d blocks behind for Erigon compatibility)",
 		latestHeader.Number.String(), targetBlockNumber.String(), InitialBlocksBack)
 
-	var gethBlock *ethtypes.Block
+	var block *Block
 
 	// Try progressively older blocks if transaction type errors occur.
 	for retries := range MaxErigonRetries {
-		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
+		block, err = c.fetchAndConvertBlock(ctx, targetBlockNumber)
 		if err != nil {
 			if errors.IsErrUnsupportedTxType(err) {
 
@@ -330,7 +346,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 		break
 	}
 
-	return c.convertGethBlock(gethBlock), nil
+	return block, nil
 }
 
 // GetBlockByNumber fetches a block by number.
@@ -340,12 +356,150 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 		return nil, errNoClientAvailable
 	}
 
-	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
+	block, err := c.fetchAndConvertBlock(ctx, blockNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
 	}
 
+	return block, nil
+}
+
+// fetchAndConvertBlock fetches and converts a block through the adapter:
+// the raw eth_getBlockByNumber response plus adapter decoding when the
+// adapter declares NeedsRawBlock, today's ethclient typed decode otherwise.
+// Errors are returned unwrapped so callers keep their existing wrapping.
+func (c *EthereumClient) fetchAndConvertBlock(ctx context.Context, blockNumber *big.Int) (*Block, error) {
+	if c.getAdapter().NeedsRawBlock() {
+		rawBlock, err := c.fetchRawBlockByNumber(ctx, blockNumber)
+		if err != nil {
+			return nil, err
+		}
+		return c.convertRawBlock(rawBlock)
+	}
+
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, errNoClientAvailable
+	}
+	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
+	if err != nil {
+		return nil, err
+	}
 	return c.convertGethBlock(gethBlock), nil
+}
+
+// fetchRawBlockByNumber fetches the raw eth_getBlockByNumber response with
+// full transaction objects, bypassing ethclient's typed decoder so unknown
+// transaction envelopes cannot fail the fetch. A JSON null result maps to
+// ethereum.NotFound, mirroring ethclient's behaviour for missing blocks.
+func (c *EthereumClient) fetchRawBlockByNumber(ctx context.Context, blockNumber *big.Int) (json.RawMessage, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, errNoClientAvailable
+	}
+
+	blockNumArg := "latest"
+	if blockNumber != nil {
+		blockNumArg = hexutil.EncodeBig(blockNumber)
+	}
+
+	var raw json.RawMessage
+	if err := client.Client().CallContext(ctx, &raw, "eth_getBlockByNumber", blockNumArg, true); err != nil {
+		return nil, err
+	}
+
+	var head *ethtypes.Header
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return nil, err
+	}
+	if head == nil {
+		return nil, ethereum.NotFound
+	}
+	return raw, nil
+}
+
+// rawBlockMeta carries the RPC-provided values no go-ethereum type can
+// recompute faithfully once chain-unique header fields are dropped by the
+// tolerant header decode: the block hash, size, total difficulty, uncle
+// hashes, and the raw transaction objects kept alongside their decoded form.
+type rawBlockMeta struct {
+	Hash            *common.Hash      `json:"hash"`
+	Size            *hexutil.Uint64   `json:"size"`
+	TotalDifficulty *hexutil.Big      `json:"totalDifficulty"`
+	Uncles          []common.Hash     `json:"uncles"`
+	Transactions    []json.RawMessage `json:"transactions"`
+}
+
+// convertRawBlock converts a raw eth_getBlockByNumber response into our
+// Block type. The header is decoded tolerantly (chain-unique fields are
+// ignored), the block hash, size, total difficulty and uncle hashes come
+// from the RPC response instead of being recomputed, and transactions come
+// from the adapter's DecodeTransactions with each raw tx object kept
+// alongside its decoded form for the adapter hooks.
+func (c *EthereumClient) convertRawBlock(rawBlock json.RawMessage) (*Block, error) {
+	var head *ethtypes.Header
+	if err := json.Unmarshal(rawBlock, &head); err != nil {
+		return nil, fmt.Errorf("failed to decode raw block header: %w", err)
+	}
+	if head == nil {
+		return nil, ethereum.NotFound
+	}
+	if head.Number == nil {
+		return nil, fmt.Errorf("raw block header has no number")
+	}
+
+	var meta rawBlockMeta
+	if err := json.Unmarshal(rawBlock, &meta); err != nil {
+		return nil, fmt.Errorf("failed to decode raw block metadata: %w", err)
+	}
+
+	txs, err := c.getAdapter().DecodeTransactions(rawBlock)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode raw block transactions: %w", err)
+	}
+
+	// The skeleton block reuses convertGethBlock's exact field formatting
+	// for header-derived values; values the tolerant header decode cannot
+	// recompute faithfully are overridden from the RPC response below.
+	skeleton := ethtypes.NewBlockWithHeader(head)
+	block := c.convertGethBlock(skeleton)
+
+	if meta.Hash != nil {
+		block.Hash = meta.Hash.Hex()
+	}
+	if meta.Size != nil {
+		block.Size = fmt.Sprintf("%d", uint64(*meta.Size))
+	}
+	if meta.TotalDifficulty != nil {
+		block.TotalDifficulty = (*big.Int)(meta.TotalDifficulty).String()
+	}
+	if len(meta.Uncles) > 0 {
+		uncles := make([]string, len(meta.Uncles))
+		for i, uncle := range meta.Uncles {
+			uncles[i] = uncle.Hex()
+		}
+		block.Uncles = uncles
+	}
+
+	rawTxs := meta.Transactions
+	if len(rawTxs) < len(txs) {
+		logger.Sugar.Warnf("Raw block %s: adapter decoded %d transactions but the response carries %d raw tx objects; missing raw txs are passed as nil",
+			block.Hash, len(txs), len(rawTxs))
+		padded := make([]json.RawMessage, len(txs))
+		copy(padded, rawTxs)
+		rawTxs = padded
+	}
+
+	blockNumber := head.Number.Uint64()
+	for i, tx := range txs {
+		var rawTx json.RawMessage
+		if i < len(rawTxs) {
+			rawTx = rawTxs[i]
+		}
+		block.Transactions = append(block.Transactions, *c.convertTransactionWithRaw(tx, rawTx, block.Hash, blockNumber, i))
+	}
+
+	return block, nil
 }
 
 // GetNetworkID returns the network ID.
@@ -512,20 +666,34 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *Block {
 	}
 }
 
-// convertTransaction safely converts a single transaction.
+// convertTransaction safely converts a single transaction from a typed
+// block, where no raw tx JSON exists.
 func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock *ethtypes.Block, index int) *Transaction {
-	// Get transaction details with error handling.
-	fromAddr, fromErr := GetFromAddress(tx)
+	return c.convertTransactionWithRaw(tx, nil, gethBlock.Hash().Hex(), gethBlock.NumberU64(), index)
+}
+
+// convertTransactionWithRaw is the shared transaction conversion core.
+// rawTx carries the raw JSON tx object when the block came from the raw
+// fetch path (nil on the typed path), letting the adapter override the
+// sender via ResolveFrom and populate YParity.
+func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, rawTx json.RawMessage, blockHash string, blockNumber uint64, index int) *Transaction {
+	// The adapter's explicit sender wins; otherwise recover the sender via
+	// GetFromAddress with the zero address fallback.
 	var fromAddrStr string
-	switch {
-	case fromErr != nil:
-		// For unsigned transactions or other errors, use zero address.
-		logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), fromErr)
-		fromAddrStr = ZeroAddress
-	case fromAddr != nil:
-		fromAddrStr = fromAddr.Hex()
-	default:
-		fromAddrStr = ZeroAddress
+	if from, ok := c.getAdapter().ResolveFrom(tx, rawTx); ok {
+		fromAddrStr = from
+	} else {
+		fromAddr, fromErr := GetFromAddress(tx)
+		switch {
+		case fromErr != nil:
+			// For unsigned transactions or other errors, use zero address.
+			logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), fromErr)
+			fromAddrStr = ZeroAddress
+		case fromAddr != nil:
+			fromAddrStr = fromAddr.Hex()
+		default:
+			fromAddrStr = ZeroAddress
+		}
 	}
 	toAddr := getToAddress(tx)
 
@@ -563,26 +731,27 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 	}
 
 	localTx := Transaction{
-		Hash:                 tx.Hash().Hex(),                          // string
-		BlockHash:            gethBlock.Hash().Hex(),                   // string
-		BlockNumber:          fmt.Sprintf("%d", gethBlock.NumberU64()), // string
-		From:                 fromAddrStr,                              // string
-		To:                   toAddr,                                   // string
-		Value:                tx.Value().String(),                      // string
-		Gas:                  fmt.Sprintf("%d", tx.Gas()),              // string
-		GasPrice:             gasPrice.String(),                        // string
-		MaxFeePerGas:         getMaxFeePerGas(tx),                      // string
-		MaxPriorityFeePerGas: getMaxPriorityFeePerGas(tx),              // string
-		Input:                "0x" + common.Bytes2Hex(tx.Data()),       // string
-		Nonce:                fmt.Sprintf("%d", tx.Nonce()),            // string
-		TransactionIndex:     index,                                    // int
-		Type:                 fmt.Sprintf("%d", tx.Type()),             // string
-		ChainID:              getChainID(tx),                           // string
-		AccessList:           accessList,                               // []accessListEntry
-		V:                    v.String(),                               // string
-		R:                    r.String(),                               // string
-		S:                    s.String(),                               // string
-		Status:               true,                                     // Default to true, will be updated from receipt.
+		Hash:                 tx.Hash().Hex(),
+		BlockHash:            blockHash,
+		BlockNumber:          fmt.Sprintf("%d", blockNumber),
+		From:                 fromAddrStr,
+		To:                   toAddr,
+		Value:                tx.Value().String(),
+		Gas:                  fmt.Sprintf("%d", tx.Gas()),
+		GasPrice:             gasPrice.String(),
+		MaxFeePerGas:         getMaxFeePerGas(tx),
+		MaxPriorityFeePerGas: getMaxPriorityFeePerGas(tx),
+		Input:                "0x" + common.Bytes2Hex(tx.Data()),
+		Nonce:                fmt.Sprintf("%d", tx.Nonce()),
+		TransactionIndex:     index,
+		Type:                 fmt.Sprintf("%d", tx.Type()),
+		ChainID:              getChainID(tx),
+		AccessList:           accessList,
+		V:                    v.String(),
+		R:                    r.String(),
+		S:                    s.String(),
+		YParity:              c.getAdapter().YParity(tx, rawTx),
+		Status:               true, // Default to true, will be updated from receipt.
 	}
 
 	return &localTx
@@ -673,6 +842,16 @@ func (c *EthereumClient) Close() error {
 		c.wsClient.Close()
 	}
 	return nil
+}
+
+// getAdapter returns the client's ClientAdapter, falling back to the
+// default adapter when unset so zero-value clients keep the Ethereum/BSC
+// behaviour instead of panicking on a nil interface.
+func (c *EthereumClient) getAdapter() ClientAdapter {
+	if c.adapter == nil {
+		return defaultAdapter
+	}
+	return c.adapter
 }
 
 // getPreferredClient returns WebSocket client if available, otherwise HTTP client.
