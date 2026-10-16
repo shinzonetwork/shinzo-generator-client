@@ -32,6 +32,19 @@ Further instructions, as well as hardware recommendations, can be found at [docs
 > [!TIP]
 > See [BUILD.md](./BUILD.md) for build-from-source instructions.
 
+## Metrics
+
+Metrics are off by default. To export them over OTLP (e.g. to Grafana Cloud), add to `.env`:
+
+```shell
+OTEL_METRICS_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-<region>.grafana.net/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20<base64 of instanceID:token>
+OTEL_RESOURCE_ATTRIBUTES=service.instance.id=<unique-node-id>
+```
+
+If metrics are enabled but misconfigured (e.g. a malformed `OTEL_RESOURCE_ATTRIBUTES` entry or an unknown exporter), the generator refuses to start.
+
 ## Deployment
 
 See the [Shinzo documentation site](https://docs.shinzo.network/generator/overview) for production deployment instructions.

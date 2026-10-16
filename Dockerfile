@@ -85,7 +85,7 @@ RUN set -ex && \
     -ldflags="-w -s -X github.com/shinzonetwork/shinzo-generator-client/pkg/indexer.Version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.gitCommit=${VCS_REF}" \
     ${BUILD_TAGS:+-tags="${BUILD_TAGS}"} \
     -o bin/block_poster \
-    cmd/block_poster/main.go && \
+    ./cmd/block_poster && \
     echo "Build completed, checking binary:" && \
     ls -la bin/ && \
     echo "Binary created successfully"

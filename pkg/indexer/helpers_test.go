@@ -29,6 +29,8 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 const (
@@ -615,5 +617,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	logger.InitConsoleOnly(true)
+	// Metrics are disabled in tests; tests that check metrics use their own provider.
+	otel.SetMeterProvider(noop.NewMeterProvider())
 	os.Exit(m.Run())
 }

@@ -13,20 +13,18 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 const (
-	// InitialBlocksBack is the number of blocks behind chain tip to start fetching.
-	// This avoids transaction type compatibility issues with Erigon nodes.
-	InitialBlocksBack = 100
-
-	// MaxErigonRetries is the maximum number of retries for Erigon compatibility issues.
-	MaxErigonRetries = 8
-
 	// ZeroAddress is the Ethereum zero address used as fallback for unsigned transactions.
 	ZeroAddress = "0x0000000000000000000000000000000000000000"
 )
@@ -51,6 +49,7 @@ type EthereumClient struct {
 	wsURL        string
 	apiKey       string
 	apiKeyHeader string
+	rpcErrors    metric.Int64Counter
 }
 
 // NewEthereumClient creates a new JSON-RPC Ethereum client with HTTP and
@@ -71,11 +70,20 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 			fmt.Errorf("dial context cancelled before connecting: %w", err))
 	}
 
+	rpcErrors, meterErr := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm").Int64Counter("shinzo.generator.rpc.errors",
+		metric.WithDescription("Failed Ethereum JSON-RPC calls, by rpc.method and error.type. Not-yet-mined blocks are not counted."),
+		metric.WithUnit("{error}"),
+	)
+	if meterErr != nil {
+		otel.Handle(meterErr)
+	}
+
 	client := &EthereumClient{
 		nodeURL:      httpNodeURL,
 		wsURL:        wsURL,
 		apiKey:       apiKey,
 		apiKeyHeader: apiKeyHeader,
+		rpcErrors:    rpcErrors,
 	}
 
 	// Normalize header name from env (e.g., "x-goog-api-key", "x-api-key")
@@ -277,62 +285,6 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// GetLatestBlock fetches the latest block.
-func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
-	client := c.getPreferredClient()
-	if client == nil {
-		return nil, errNoClientAvailable
-	}
-
-	// Get the latest block number first.
-	latestHeader, err := client.HeaderByNumber(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
-	}
-
-	// For GCP Erigon nodes, start with blocks that are significantly behind.
-	// to avoid transaction type compatibility issues.
-	targetBlockNumber := big.NewInt(1).Sub(latestHeader.Number, big.NewInt(InitialBlocksBack))
-	logger.Sugar.Infof("Latest block: %s, targeting block: %s (%d blocks behind for Erigon compatibility)",
-		latestHeader.Number.String(), targetBlockNumber.String(), InitialBlocksBack)
-
-	var gethBlock *ethtypes.Block
-
-	// Try progressively older blocks if transaction type errors occur.
-	for retries := range MaxErigonRetries {
-		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
-		if err != nil {
-			if errors.IsErrUnsupportedTxType(err) {
-
-				if retries < MaxErigonRetries-1 {
-					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks.
-					blocksBack := InitialBlocksBack * (1 << uint(retries+1))
-					targetBlockNumber = big.NewInt(1).Sub(latestHeader.Number, big.NewInt(int64(blocksBack)))
-					logger.Sugar.Warnf("Retry %d: Transaction type error with Erigon, going back %d blocks total...",
-						retries+1, blocksBack)
-
-					// Add progressive delay to prevent API rate limiting.
-					time.Sleep(time.Duration(retries+1) * time.Second)
-					continue
-				}
-				logger.Sugar.Errorf("Failed after %d retries due to transaction type compatibility with Erigon", retries+1)
-				return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
-			}
-			// For non-transaction-type errors, fail immediately.
-			return nil, fmt.Errorf("failed to get block: %w", err)
-		}
-
-		// Success - log which block we're actually processing.
-		if retries > 0 {
-			logger.Sugar.Infof("Successfully retrieved block %s after %d retries (Erigon compatibility)",
-				targetBlockNumber.String(), retries)
-		}
-		break
-	}
-
-	return c.convertGethBlock(gethBlock), nil
-}
-
 // GetBlockByNumber fetches a block by number.
 func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error) {
 	client := c.getPreferredClient()
@@ -341,6 +293,7 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	}
 
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
 	}
@@ -355,7 +308,9 @@ func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 		return nil, errNoClientAvailable
 	}
 
-	return client.NetworkID(ctx)
+	id, err := client.NetworkID(ctx)
+	c.countRPCError(ctx, "net_version", err)
+	return id, err
 }
 
 // GetLatestBlockNumber returns just the latest block number (not the offset block).
@@ -366,6 +321,7 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 	}
 
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest header: %w", err)
 	}
@@ -382,6 +338,7 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 
 	hash := common.HexToHash(txHash)
 	receipt, err := client.TransactionReceipt(ctx, hash)
+	c.countRPCError(ctx, "eth_getTransactionReceipt", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
@@ -395,6 +352,7 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.
 		return nil, errNoClientAvailable
 	}
 	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
+	c.countRPCError(ctx, "eth_getBlockReceipts", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
 	}
@@ -742,6 +700,42 @@ func createWebSocketWithHeaders(ctx context.Context, wsURL, apiKey, apiKeyHeader
 
 	logger.Sugar.Infof("WebSocket connection established successfully with %s header", headerName)
 	return ethclient.NewClient(rpcClient), nil
+}
+
+// countRPCError counts a failed RPC call. Not-yet-mined blocks and canceled
+// calls are expected outcomes, not failures.
+func (c *EthereumClient) countRPCError(ctx context.Context, method string, err error) {
+	if c.rpcErrors == nil || err == nil || stderrors.Is(err, ethereum.NotFound) || stderrors.Is(err, context.Canceled) {
+		return
+	}
+	c.rpcErrors.Add(ctx, 1, metric.WithAttributes(
+		semconv.RPCMethod(method),
+		attribute.String("error.type", rpcErrorType(err)),
+	))
+}
+
+const (
+	jsonRPCMethodNotFound = -32601
+)
+
+// rpcErrorType maps err to error.type value, so dashboards can separate method_not_found errors (e.g. a node without eth_getBlockReceipts).
+func rpcErrorType(err error) string {
+	if rpcErr, ok := stderrors.AsType[ethrpc.Error](err); ok {
+		if rpcErr.ErrorCode() == jsonRPCMethodNotFound {
+			return "method_not_found"
+		}
+		return "rpc_error"
+	}
+	if httpErr, ok := stderrors.AsType[ethrpc.HTTPError](err); ok {
+		if httpErr.StatusCode == http.StatusTooManyRequests {
+			return "rate_limited"
+		}
+		return "http_error"
+	}
+	if isContextError(err) {
+		return "timeout"
+	}
+	return "_OTHER"
 }
 
 // isContextError reports whether err was caused by context cancellation or

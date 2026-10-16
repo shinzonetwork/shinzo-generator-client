@@ -4,8 +4,10 @@ package indexer
 // indexer state/lifecycle transitions exercised through them (table-driven).
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 // ---------------------------------------------------------------------------.
@@ -549,4 +552,44 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 	assert.False(t, indexer.shouldIndex, "indexer should not be indexing")
 	assert.Nil(t, indexer.fetcher, "fetcher should be torn down exactly once, without a data race")
 	assert.Nil(t, indexer.defraNode, "defraNode should be torn down exactly once, without a data race")
+}
+
+// TestStopIndexing_ConcurrentNodeReaders runs teardown while readers that run
+// on other goroutines (metrics collection, health server) access the node, so
+// -race catches unsynchronized access to defraNode/networkHandler.
+func TestStopIndexing_ConcurrentNodeReaders(t *testing.T) {
+	tests := []struct {
+		name string
+		read func(ix *ChainIndexer)
+	}{
+		{name: "peers gauge", read: func(ix *ChainIndexer) { _ = ix.observePeers(context.Background(), noop.Int64Observer{}) }},
+		{name: "peer info", read: func(ix *ChainIndexer) { _, _ = ix.GetPeerInfo() }},
+		{name: "defra port", read: func(ix *ChainIndexer) { _ = ix.GetDefraDBPort() }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			td := testutils.SetupTestDefraDB(t)
+			ix := &ChainIndexer{defraNode: td.Node, cfg: &config.Config{}}
+
+			stop := make(chan struct{})
+			var wg sync.WaitGroup
+			wg.Go(func() {
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+						tt.read(ix)
+					}
+				}
+			})
+
+			ix.StopIndexing()
+			close(stop)
+			wg.Wait()
+
+			assert.Nil(t, ix.defraNode)
+		})
+	}
 }

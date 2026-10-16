@@ -10,6 +10,9 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -30,6 +33,12 @@ const (
 	// RPCErrorRetryBaseDelay is the base delay for retrying RPC errors.
 	RPCErrorRetryBaseDelay = 500 * time.Millisecond
 )
+
+type processorMetrics struct {
+	blocks           metric.Int64Counter
+	storeDuration    metric.Float64Histogram
+	success, failure metric.MeasurementOption
+}
 
 // BlockResult holds the result of processing a block.
 type BlockResult struct {
@@ -59,6 +68,7 @@ type ConcurrentBlockProcessor struct {
 	pendingMu       sync.Mutex
 	pending         map[int64]*BlockResult
 	nextToCommit    int64
+	metrics         processorMetrics
 }
 
 // NewConcurrentBlockProcessor creates a new concurrent processor.
@@ -69,6 +79,23 @@ func NewConcurrentBlockProcessor(
 	workers int,
 	blocksPerMinute int,
 ) *ConcurrentBlockProcessor {
+	meter := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/indexer")
+	blocks, err := meter.Int64Counter("shinzo.generator.blocks",
+		metric.WithDescription("Blocks leaving the ordered commit queue, by result."),
+		metric.WithUnit("{block}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	storeDuration, err := meter.Float64Histogram("shinzo.generator.store.duration",
+		metric.WithDescription("Duration of one block store attempt, by result."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1, 2.5, 5, 10), //nolint:mnd
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+
 	return &ConcurrentBlockProcessor{
 		fetcher:         fetcher,
 		converter:       converter,
@@ -77,6 +104,12 @@ func NewConcurrentBlockProcessor(
 		blocksPerMinute: blocksPerMinute,
 		resultChan:      make(chan *BlockResult, workers*DefaultWorkersAhead),
 		pending:         make(map[int64]*BlockResult),
+		metrics: processorMetrics{
+			blocks:        blocks,
+			storeDuration: storeDuration,
+			success:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
+			failure:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
+		},
 	}
 }
 
@@ -121,14 +154,14 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 
 	var collectWg sync.WaitGroup
 	collectWg.Go(func() {
-		p.collectResults(onBlockProcessed)
+		p.collectResults(ctx, onBlockProcessed)
 	})
 
 	return workChan, &wg, &collectWg
 }
 
 // collectResults reads from resultChan and commits blocks in order.
-func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockProcessed func(blockNum int64)) {
 	for result := range p.resultChan {
 		p.pendingMu.Lock()
 		p.pending[result.BlockNum] = result
@@ -141,6 +174,7 @@ func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum
 			delete(p.pending, p.nextToCommit)
 
 			if next.Success {
+				p.metrics.blocks.Add(ctx, 1, p.metrics.success)
 				if next.BlockID != "" {
 					logger.Sugar.Infof("Committed block %d (ID: %s)", next.BlockNum, next.BlockID)
 				} else {
@@ -150,6 +184,7 @@ func (p *ConcurrentBlockProcessor) collectResults(onBlockProcessed func(blockNum
 					onBlockProcessed(next.BlockNum)
 				}
 			} else {
+				p.metrics.blocks.Add(ctx, 1, p.metrics.failure)
 				logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
 			}
 			p.nextToCommit++
@@ -278,7 +313,13 @@ func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum 
 			return &BlockResult{BlockNum: blockNum, Error: ctx.Err()}
 		}
 
+		start := time.Now()
 		res, err := p.blockHandler.Store(ctx, result)
+		outcome := p.metrics.success
+		if err != nil {
+			outcome = p.metrics.failure
+		}
+		p.metrics.storeDuration.Record(ctx, time.Since(start).Seconds(), outcome)
 		if err == nil {
 			return &BlockResult{BlockNum: blockNum, BlockID: res.BlockID, Success: true}
 		}
