@@ -12,6 +12,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -87,7 +88,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 		var err error
 
 		if apiKey != "" {
-			logger.Sugar.Infof("Creating HTTP client with API key authentication for %s", httpNodeURL)
+			logger.Sugar.Infof("Creating HTTP client with API key authentication for %s", utils.RedactEndpoint(httpNodeURL))
 			// Create RPC client with custom headers for API key authentication using modern approach
 			var rpcClient *ethrpc.Client
 			rpcClient, err = ethrpc.DialOptions(ctx, httpNodeURL, ethrpc.WithHTTPClient(&http.Client{
@@ -132,7 +133,8 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 	// Ensure at least one client is available
 	if client.httpClient == nil && client.wsClient == nil {
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
-			fmt.Errorf("no valid connections established - both HTTP (%s) and WebSocket (%s) failed", httpNodeURL, wsURL))
+			fmt.Errorf("no valid connections established - both HTTP (%s) and WebSocket (%s) failed",
+				utils.RedactEndpoint(httpNodeURL), utils.RedactEndpoint(wsURL)))
 	}
 
 	return client, nil
@@ -147,7 +149,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 // connected under a live caller context degrades to HTTP-only mode, and
 // otherwise the failure propagates.
 func (c *EthereumClient) connectWebSocket(ctx context.Context, wsURL, apiKey, headerName string, dialTimeout time.Duration) error {
-	logger.Sugar.Infof("Attempting WebSocket connection to %s", wsURL)
+	logger.Sugar.Infof("Attempting WebSocket connection to %s", utils.RedactEndpoint(wsURL))
 
 	wsCtx := ctx
 	if dialTimeout > 0 {
@@ -257,7 +259,7 @@ type apiKeyTransport struct {
 }
 
 func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, req.URL.String())
+	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, utils.RedactEndpoint(req.URL.String()))
 	headerName := t.apiKeyHeader
 	logger.Sugar.Debugf("Setting %s header: %s", headerName, maskAPIKey(t.apiKey, t.apiKey))
 	req.Header.Set(headerName, t.apiKey)
