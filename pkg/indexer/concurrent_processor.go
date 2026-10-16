@@ -106,6 +106,13 @@ type reorgSignal struct {
 // successor to confirm the new chain, re-anchors on every further
 // disagreement (bounded by maxRewalksPerEpisode), and then hands the
 // fork-point search to the walk-back.
+//
+// Stores run on the bounded pool, so an episode can also open
+// asynchronously (stalePinned): a pool store failed at a height whose
+// stored hash was verified stale by the failure handler. That episode
+// finalizes immediately - the stale evidence is already two-sided - and
+// the walk-back descends from the stale height instead of waiting for a
+// popped in-order successor.
 type reorgEpisode struct {
 	// baseHeight is the first parked height: the mismatching block itself.
 	baseHeight int64
@@ -120,6 +127,35 @@ type reorgEpisode struct {
 	// gapRefills counts unusable-verification re-fetches performed during
 	// this confirmation wait.
 	gapRefills int
+
+	// stalePinned marks an episode opened asynchronously by the pool-side
+	// failure handler: a store failure was verified against the stored hash
+	// at the failed height and disagrees with the verified fetched hash.
+	stalePinned bool
+	// staleTopHeight is the highest height verified stale for this episode
+	// (updated while completions drain during the finalize): the walk-back
+	// descends from it because every lower stale height must be visited,
+	// and descent above it would match the landed canonical stores before
+	// reaching the orphan.
+	staleTopHeight int64
+	// staleTopHash is the verified new-chain hash at staleTopHeight, taken
+	// from the failed store's fetched content; the descent verifies against
+	// the stored record from here.
+	staleTopHash string
+}
+
+// storeCompletion reports one pool-side store outcome back to the collector.
+type storeCompletion struct {
+	// item echoes the fetched (checked) item the store consumed; its
+	// BlockNum, Hash, and ParentHash drive the ordered apply and the
+	// commit bookkeeping.
+	item *BlockResult
+	// computed is the storeWithRetry outcome for the same height.
+	computed *BlockResult
+	// stale is the pool-side stale-orphan verification of a failed store:
+	// non-nil only when the stored hash at the failed height was queried,
+	// and it disagrees with the failed item's verified fetched hash.
+	stale *reorgSignal
 }
 
 // BlockResult holds the result of processing a block.
@@ -130,8 +166,9 @@ type BlockResult struct {
 	ParentHash string
 	Success    bool
 	Error      error
-	// Converted carries the conversion result the ordered commit path
-	// stores - but only after the parentHash continuity check passed.
+	// Converted carries the conversion result the bounded store pool stores
+	// - but only after the parentHash continuity check passed on the
+	// collector's pop flow.
 	Converted chains.ConversionResult
 }
 
@@ -157,6 +194,16 @@ type ConcurrentBlockProcessor struct {
 	pending         map[int64]*BlockResult
 	nextToCommit    int64
 
+	// bounded store pool: the collector never calls Store. Fetch/convert
+	// workers hand checked results to storeChan, pool goroutines run
+	// storeWithRetry, and completions flow back on completionChan for the
+	// collector's ordered apply. The pool size caps store concurrency at
+	// p.workers; all three channels live one run, so a rollback restart
+	// builds a fresh pool.
+	storeChan      chan *BlockResult
+	completionChan chan storeCompletion
+	storeInFlight  atomic.Int64
+
 	// episodeRollbacks increments per executed rollback in the current
 	// episode sequence - consecutive rollbacks without an intervening
 	// successful commit, since every commit resets it - and backs the
@@ -164,20 +211,29 @@ type ConcurrentBlockProcessor struct {
 	episodeRollbacks atomic.Int64
 
 	// Run-scoped continuity state for the parentHash check, guarded by
-	// pendingMu and reset by processBlocksOnce at each run start.
-	runStartBlock     int64
-	seedHash          string
-	lastCommittedNum  int64
-	lastCommittedHash string
-	committedHashes   map[int64]string
-	rollbackPoint     *rollbackPoint
-	episode           *reorgEpisode
-	fatalErr          error
+	// pendingMu and reset by processBlocksOnce at each run start. The check
+	// runs on FETCHED hashes in pop order, so lastCheckedNum/lastCheckedHash
+	// always describe the last popped item (the seed for the run's first
+	// item) and never depend on store outcomes.
+	runStartBlock   int64
+	seedHash        string
+	lastCheckedNum  int64
+	lastCheckedHash string
+	committedHashes map[int64]string
+	rollbackPoint   *rollbackPoint
+	episode         *reorgEpisode
+	fatalErr        error
 	// heightRollbacks counts consecutive rollbacks per restart height; any
 	// successful commit resets it. Guarded by pendingMu.
 	heightRollbacks map[int64]int
 	dispatchedUpTo  int64
 	runCancel       context.CancelCauseFunc
+
+	// completions apply in height order through this cursor and reorder
+	// buffer: pool stores finish out of order, so the collector holds
+	// completions until the apply cursor reaches their height.
+	applyCursor        int64
+	reorderCompletions map[int64]storeCompletion
 
 	// configuredStart is the lowest height any ProcessBlocks call started
 	// from: nothing is ever stored below it, so the reorg walk-back treats
@@ -214,12 +270,13 @@ func NewConcurrentBlockProcessor(
 	}
 }
 
-// ProcessBlocks dispatches blocks to workers and commits results in order.
-// Nothing is stored before the parentHash continuity check passes: the
-// ordered commit path holds a detected mismatch (and everything the chain
-// serves past it) back, waits for the new chain to confirm during the
-// episode procedure, walks back by hash to the fork point, and hands the
-// orphan range to the rollback below. Rollback failure, walk-back failure,
+// ProcessBlocks dispatches blocks to fetch/convert workers, checks results
+// in pop order, and stores the checked blocks through a bounded pool. Nothing
+// is stored before the parentHash continuity check passes: the checked item
+// that carries a detected mismatch (and everything the chain serves past it)
+// is held back, waits for the new chain to confirm during the episode
+// procedure, walks back by hash to the fork point, and hands the orphan
+// range to the rollback below. Rollback failure, walk-back failure,
 // rollback-loop guard trips, and a re-store refused because a soft-deleted
 // content-derived docID cannot be re-added are all fatal: the run stops
 // loudly instead of leaving silently un-indexable heights behind.
@@ -359,29 +416,48 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	p.nextToCommit = startBlock
 	p.runStartBlock = startBlock
 	p.seedHash = seedHash
-	p.lastCommittedNum = 0
-	p.lastCommittedHash = ""
+	// The check chain is seeded with the run's seed hash: the first popped
+	// item's parent check compares against it (an empty seed skips).
+	p.lastCheckedNum = startBlock - 1
+	p.lastCheckedHash = seedHash
+	p.applyCursor = startBlock
 	p.committedHashes = make(map[int64]string)
+	p.reorderCompletions = make(map[int64]storeCompletion)
 	p.rollbackPoint = nil
 	p.episode = nil
 	p.fatalErr = nil
 	p.dispatchedUpTo = startBlock - 1
 	p.pending = make(map[int64]*BlockResult)
-	// A fresh result channel per run: shutdown closes the previous one, and
-	// a rollback restart runs processBlocksOnce again.
+	// Fresh channels (and a fresh pool) per run: shutdown closes the previous
+	// ones, and a rollback restart runs processBlocksOnce again.
 	p.resultChan = make(chan *BlockResult, p.workers*DefaultWorkersAhead)
+	p.storeChan = make(chan *BlockResult, p.workers*DefaultWorkersAhead)
+	// The completion buffer must hold every store the pool can finish before
+	// the collector applies it, so a pool worker's send never blocks even
+	// while the collector is mid-pop-flow: outstanding completions are all
+	// queued dispatches plus one per pool worker.
+	p.completionChan = make(chan storeCompletion, p.workers*(DefaultWorkersAhead+1))
+	p.storeInFlight.Store(0)
 	p.runCancel = runCancel
 	p.pendingMu.Unlock()
 
-	workChan, wg, collectWg := p.startWorkers(runCtx, onBlockProcessed)
+	workChan, wg, storeWg, collectWg := p.startWorkers(runCtx, onBlockProcessed)
 
 	shutdown := func() {
 		close(workChan)
 		wg.Wait()
-		// Sign goroutines are spawned by the collector since the store moved
-		// into the commit path, so they must be drained only after the
-		// collector has exited (they would otherwise race signWg).
+		// No results are produced any more; tell the collector. Cancellation
+		// always precedes this point (shutdown only runs after the dispatch
+		// loop exits), and the collector's store dispatches select on
+		// cancellation, so no send can follow close(resultChan) and closing
+		// the store channel cannot race a send.
 		close(p.resultChan)
+		close(p.storeChan)
+		storeWg.Wait()
+		// Pool workers drain the store channel before exiting, so completions
+		// stop being sent once storeWg is settled; closing the completion
+		// channel then lets the collector drain the tail and exit.
+		close(p.completionChan)
 		collectWg.Wait()
 		p.signWg.Wait()
 	}
@@ -400,9 +476,10 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	return rb, err
 }
 
-// startWorkers launches fetch/convert workers (the store moved into the
-// ordered commit path) and the result-collection goroutine.
-func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProcessed func(blockNum int64)) (chan int64, *sync.WaitGroup, *sync.WaitGroup) {
+// startWorkers launches fetch/convert workers, the bounded store pool (the
+// only callers of Store), and the result-collection goroutine that also
+// consumes pool completions.
+func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProcessed func(blockNum int64)) (chan int64, *sync.WaitGroup, *sync.WaitGroup, *sync.WaitGroup) {
 	workChan := make(chan int64, p.workers*DefaultWorkersAhead)
 
 	var wg sync.WaitGroup
@@ -419,52 +496,197 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 		})
 	}
 
+	var storeWg sync.WaitGroup
+	for range p.workers {
+		storeWg.Go(func() {
+			for item := range p.storeChan {
+				p.runStoreTask(ctx, item)
+			}
+		})
+	}
+
 	var collectWg sync.WaitGroup
 	collectWg.Go(func() {
 		p.collectResults(ctx, onBlockProcessed)
 	})
 
-	return workChan, &wg, &collectWg
+	return workChan, &wg, &storeWg, &collectWg
 }
 
-// collectResults reads from resultChan and commits blocks in order. Nothing
-// is stored before the parentHash continuity check passes for the block: a
-// matching block is stored on the commit path; a mismatching block is held
-// back and the confirmation wait starts (the episode procedure). After a
-// rollback point is recorded, or the run is cancelled for any other reason,
-// remaining results are drained without committing so workers never block.
-func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockProcessed func(blockNum int64)) {
-	for result := range p.resultChan {
-		p.pendingMu.Lock()
-		p.pending[result.BlockNum] = result
-		p.pendingMu.Unlock()
+// runStoreTask is the pool worker path for one checked item: run
+// storeWithRetry, run the failure handler's stale-orphan verification on a
+// failure (so the walk-back sees a quiescent DB state later), and report the
+// completion back to the collector's ordered apply. It runs only on pool
+// goroutines - the collector never stores.
+func (p *ConcurrentBlockProcessor) runStoreTask(ctx context.Context, item *BlockResult) {
+	computed := p.storeWithRetry(ctx, item.BlockNum, item.Converted)
+	completion := storeCompletion{item: item, computed: computed}
+	if computed.Error != nil && !errors.IsErrDocumentDeleted(computed.Error) && p.reorgHandler != nil {
+		completion.stale = p.detectStaleOrphan(ctx, item)
+	}
+	p.completionChan <- completion
+	p.storeInFlight.Add(-1)
+}
 
-		p.drainPending(ctx, onBlockProcessed)
+// detectStaleOrphan is the pool-side failure handler: for a store that
+// failed at height H it queries the stored hash at H and compares it
+// against the failed item's verified fetched hash. A disagreement re-opens
+// the old stale-orphan detection - the stored orphan is now itself the
+// mismatching height (rollbackFrom H), so the walk-back descends from H
+// once the in-flight stores drain. An empty height warns the hole (the
+// walk-back descends past it and the restart above the fork re-fills it);
+// matching content, an unusable queried hash, or a query failure leaves the
+// height unverifiable with a warning. The queried height is stable: H's
+// store definitively failed, and no other in-flight store writes H.
+func (p *ConcurrentBlockProcessor) detectStaleOrphan(ctx context.Context, item *BlockResult) *reorgSignal {
+	if item.Hash == "" {
+		logger.Sugar.Warnf("Block %d: store failed and the fetched hash was unusable; the height stays unverifiable", item.BlockNum)
+		return nil
+	}
+	stored, err := p.reorgHandler.GetStoredBlockHash(ctx, item.BlockNum)
+	if err != nil {
+		logger.Sugar.Warnf("Block %d: stored-hash query failed for the failure handler at %d (%v); the height stays unverifiable",
+			item.BlockNum, item.BlockNum, err)
+		return nil
+	}
+	if stored == "" {
+		logger.Sugar.Warnf("Block %d: store failed leaving nothing stored; height %d is a hole the restart will re-fill", item.BlockNum, item.BlockNum)
+		return nil
+	}
+	if stored == item.Hash {
+		logger.Sugar.Warnf("Block %d: store failed but the matching content is already stored; height %d keeps its content (the next run finds it idempotent)", item.BlockNum, item.BlockNum)
+		return nil
+	}
+	return &reorgSignal{
+		rollbackFrom: item.BlockNum,
+		orphanHash:   stored,
+		chainHash:    item.Hash,
 	}
 }
 
-// drainPending commits as many ordered pending results as are available.
-// Only the collector pops p.pending[p.nextToCommit] and advances it
-// (dispatch merely reads the field), so each popped result can pass through
-// a pop → slow work → apply sequence without holding pendingMu across the
-// slow parts (store, stored-hash queries, walk-back, gap re-fill).
-func (p *ConcurrentBlockProcessor) drainPending(ctx context.Context, onBlockProcessed func(blockNum int64)) {
+// collectResults runs the single collector loop: one popped result through
+// the ordered check per turn, one result arrival or one pool store
+// completion per select, and a checked item waiting for pool capacity
+// inside the select itself - so completions keep draining even when the
+// pool is backed up (a long check pass can never make the collector stop
+// consuming them) and even while an episode parks results. It returns once
+// both sources have closed (shutdown).
+func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockProcessed func(blockNum int64)) {
+	resultsClosed := false
+	completionsClosed := false
+
+	// dispatched holds one checked item waiting for pool capacity. It is
+	// given away by the select's store-send case, so the collector consumes
+	// completions and results while the pool is busy instead of blocking on
+	// the send outside the select. The nil-value channel keeps the send case
+	// permanently unready while nothing waits, so no empty send can fire.
+	var dispatched *BlockResult
+
 	for {
-		next, ok := p.popPending(ctx)
-		if !ok {
+		if dispatched == nil {
+			next, ok := p.popPending(ctx)
+			if ok && next != nil {
+				if p.episodeActive() {
+					// Confirmation wait: the popped item is held back (never
+					// stored) and resolved by the episode rules.
+					p.resolveEpisodeItem(ctx, next, onBlockProcessed)
+				} else {
+					dispatched = p.checkedForDispatch(ctx, next)
+				}
+			}
+		}
+
+		// Once the run is leaving this shape (episode open, rollback point
+		// recorded, or cancellation since the check) a waiting dispatch is
+		// abandoned: the hold-back covers it too, and the restart re-indexes
+		// the height. No in-flight registration happened before the send, so
+		// the abandonment is counter-neutral.
+		if dispatched != nil {
+			p.pendingMu.Lock()
+			held := p.episode != nil || p.rollbackPoint != nil
+			p.pendingMu.Unlock()
+			if held || ctx.Err() != nil {
+				dispatched = nil
+			}
+		}
+
+		var storeSender chan *BlockResult
+		if dispatched != nil {
+			storeSender = p.storeChan
+		}
+		select {
+		case result, ok := <-p.resultChan:
+			if !ok {
+				resultsClosed = true
+			} else {
+				p.pendingMu.Lock()
+				p.pending[result.BlockNum] = result
+				p.pendingMu.Unlock()
+			}
+		case completion, ok := <-p.completionChan:
+			if !ok {
+				completionsClosed = true
+			} else {
+				p.applyCompletion(ctx, completion, onBlockProcessed, false)
+			}
+		case storeSender <- dispatched:
+			p.storeInFlight.Add(1)
+			dispatched = nil
+		case <-ctx.Done():
+			dispatched = nil
+		}
+		if resultsClosed && completionsClosed {
 			return
 		}
-		if next == nil {
-			continue
-		}
-		if p.episodeActive() {
-			// Confirmation wait: the popped item is held back (never
-			// stored) and resolved by the episode rules in resolveEpisodeItem.
-			p.resolveEpisodeItem(ctx, next)
-			continue
-		}
-		p.commitOrdered(ctx, next, onBlockProcessed)
 	}
+}
+
+// checkedForDispatch runs one popped result through the ordered check and,
+// when the checks passed, hands it back as the item to dispatch to the
+// store pool. A nil return means the item resolved inside the call: a
+// failed fetch/convert (hole), or a detected mismatch that opened the
+// confirmation-wait episode instead of storing.
+func (p *ConcurrentBlockProcessor) checkedForDispatch(ctx context.Context, next *BlockResult) *BlockResult {
+	// A failed fetch/convert result is never stored (the old hole path):
+	// warn, mark the check chain unusable for this height, and let the
+	// next usable pop adopt the gap verification for the hole.
+	if !next.Success {
+		logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
+		p.pendingMu.Lock()
+		p.lastCheckedNum = next.BlockNum
+		p.lastCheckedHash = ""
+		p.pendingMu.Unlock()
+		return nil
+	}
+
+	if signal, mismatch := p.pendingContinuitySignal(next); mismatch {
+		p.startReorgEpisode(signal, next)
+		return nil
+	}
+
+	if signal, mismatch := p.poppedGapSignal(ctx, next); mismatch {
+		p.startReorgEpisode(signal, next)
+		return nil
+	}
+
+	// The check passed: mark the check chain with this item's fetched hash.
+	p.pendingMu.Lock()
+	p.lastCheckedNum = next.BlockNum
+	p.lastCheckedHash = next.Hash
+	p.pendingMu.Unlock()
+	return next
+}
+
+// pendingContinuitySignal applies the pure parentHash detection rules to a
+// successful result N, in the collector's pop order: against the previous
+// popped item's fetched hash (the check predecessor) and, at the run seam,
+// against the run's seed hash. The check consumes only fetched hashes -
+// which are the same value the block carries into the store - so store
+// outcomes never gate the check.
+func (p *ConcurrentBlockProcessor) pendingContinuitySignal(next *BlockResult) (reorgSignal, bool) {
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	return continuitySignal(p.runStartBlock, p.seedHash, p.lastCheckedNum, p.lastCheckedHash, next)
 }
 
 // popPending pops the next ordered pending result and advances nextToCommit.
@@ -498,59 +720,22 @@ func (p *ConcurrentBlockProcessor) episodeActive() bool {
 	return p.episode != nil
 }
 
-// commitOrdered runs the ordered commit path for one popped result: the
-// parentHash continuity check must pass before anything is stored; a
-// detected mismatch opens the confirmation-wait episode instead. The store
-// and the stored-hash query run without holding pendingMu. A refused re-store
-// of a soft-deleted content-derived docID stops the run fatally; any other
-// store failure is warned and skipped.
-func (p *ConcurrentBlockProcessor) commitOrdered(ctx context.Context, next *BlockResult, onBlockProcessed func(blockNum int64)) {
-	if !next.Success {
-		logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
-		return
-	}
-
-	if signal, mismatch := continuitySignal(p.runStartBlock, p.seedHash, p.lastCommittedNum, p.lastCommittedHash, next); mismatch {
-		p.startReorgEpisode(signal, next)
-		return
-	}
-
-	if signal, mismatch := p.gapSignal(ctx, next); mismatch {
-		p.startReorgEpisode(signal, next)
-		return
-	}
-
-	item := *next
-	computed := p.storeWithRetry(ctx, item.BlockNum, item.Converted)
-	if computed.Error != nil {
-		// DefraDB refuses to re-create a document whose content-derived
-		// docID was soft-deleted (an A->B->A sequence re-fetches the
-		// byte-identical A content after the rollback deleted it). Skipping
-		// that refusal silently would leave the height permanently
-		// un-indexable: the deleted docs can never be re-added until the
-		// pruner hard-purges them, so the run stops loudly and the refusal
-		// surfaces as the indexing error instead.
-		if errors.IsErrDocumentDeleted(computed.Error) {
-			p.failRun(fmt.Errorf("block %d store refused: %w (a soft-deleted content-derived docID cannot be re-added; the deleted documents must be hard-purged by the pruner before this height can be re-indexed; indexing stopped)", //nolint:err113
-				item.BlockNum, computed.Error))
-			return
-		}
-		logger.Sugar.Warnf("Block %d failed: %v", item.BlockNum, computed.Error)
-		return
-	}
-	p.applyCommit(&item, computed, onBlockProcessed)
-}
-
-// gapSignal resolves the gap-fallback rule for a result whose predecessor
-// was not committed in this run (escaped by a failed block or a fresh
-// restart beyond the seed): the stored hash at N-1 is compared against the
-// result's parentHash. The stored-hash query runs without pendingMu; a
-// query failure leaves the height unverifiable (warn logged), an empty
-// stored or parent hash skips.
-func (p *ConcurrentBlockProcessor) gapSignal(ctx context.Context, next *BlockResult) (reorgSignal, bool) {
+// poppedGapSignal adopts the old gap-fallback rule for the one in-run hole
+// shape the check predecessor cannot cover: the previous popped item was
+// unusable (a failed fetch/convert left no hash to chain from). The stored
+// hash at N-1 is compared against N's parentHash; a disagreement opens the
+// episode, empties above the seed skip silently (the walk-back descends past
+// them, and a failed store's hole is re-filled by the restart). The check
+// cursor cannot have been escaped: every popped item's predecessor was
+// popped, so this query fires only at the usable pop right after an unusable
+// one. The stored-hash query runs without pendingMu; a query failure leaves
+// the height unverifiable (warn logged), an empty stored or parent hash
+// skips.
+func (p *ConcurrentBlockProcessor) poppedGapSignal(ctx context.Context, next *BlockResult) (reorgSignal, bool) {
 	p.pendingMu.Lock()
 	needGap := next.ParentHash != "" && p.reorgHandler != nil &&
-		next.BlockNum != p.runStartBlock && p.lastCommittedNum != next.BlockNum-1
+		next.BlockNum != p.runStartBlock &&
+		p.lastCheckedNum == next.BlockNum-1 && p.lastCheckedHash == ""
 	p.pendingMu.Unlock()
 	if !needGap {
 		return reorgSignal{}, false
@@ -569,11 +754,183 @@ func (p *ConcurrentBlockProcessor) gapSignal(ctx context.Context, next *BlockRes
 	return gapFallbackSignal(stored, next)
 }
 
-// applyCommit applies a successful store to the ordered continuity state and
-// fires the completion callback: commit bookkeeping, history trim, and the
-// guard reset that ends a consecutive-rollback sequence on progress. The
-// caller runs it after the store completed; nothing mutates the continuity
-// state between pop and apply.
+// applyCompletion routes one completion through the apply-cursor reorder
+// buffer: completions apply strictly in height order so onBlockProcessed
+// fires in pop order no matter which pool store finished first. Out-of-order
+// completions wait in the reorder buffer until the cursor reaches them.
+func (p *ConcurrentBlockProcessor) applyCompletion(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64), suppress bool) {
+	p.pendingMu.Lock()
+	height := completion.item.BlockNum
+	if height != p.applyCursor {
+		p.reorderCompletions[height] = completion
+		p.pendingMu.Unlock()
+		return
+	}
+	batch := []storeCompletion{completion}
+	p.applyCursor++
+	for {
+		next, ok := p.reorderCompletions[p.applyCursor]
+		if !ok {
+			break
+		}
+		delete(p.reorderCompletions, p.applyCursor)
+		batch = append(batch, next)
+		p.applyCursor++
+	}
+	p.pendingMu.Unlock()
+
+	for _, c := range batch {
+		p.applyOneCompletion(ctx, c, onBlockProcessed, suppress)
+	}
+}
+
+// applyOneCompletion applies one ordered completion. Failed stores keep the
+// old failure rules: the deleted-docID refusal stops the run fatally, any
+// other failure is a hole - and a pool-verified stale orphan at the failed
+// height opens the stale-pinned episode, which finalizes (drain + walk-back)
+// without waiting for an in-order successor because the stored-versus-fetched
+// disagreement is already two-sided evidence. Suppressed applies (during a
+// stale-pinned drain) consume the completion but book-, callback-, and
+// guard-write nothing: their heights sit in the rollback range the episode
+// is about to hand back, so the restart re-commits them and fires the
+// callbacks in height order.
+func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64), suppress bool) {
+	item := completion.item
+	computed := completion.computed
+	if computed.Error != nil {
+		// DefraDB refuses to re-create a document whose content-derived
+		// docID was soft-deleted (an A->B->A sequence re-fetches the
+		// byte-identical A content after the rollback deleted it). Skipping
+		// that refusal silently would leave the height permanently
+		// un-indexable: the deleted docs can never be re-added until the
+		// pruner hard-purges them, so the run stops loudly and the refusal
+		// surfaces as the indexing error instead. The async failure path
+		// preserves the fatal classification.
+		if errors.IsErrDocumentDeleted(computed.Error) {
+			p.failRun(fmt.Errorf("block %d store refused: %w (a soft-deleted content-derived docID cannot be re-added; the deleted documents must be hard-purged by the pruner before this height can be re-indexed; indexing stopped)", //nolint:err113
+				item.BlockNum, computed.Error))
+			return
+		}
+		logger.Sugar.Warnf("Block %d failed: %v", item.BlockNum, computed.Error)
+		if completion.stale != nil {
+			p.pendingMu.Lock()
+			ep := p.episode
+			p.pendingMu.Unlock()
+			if ep == nil {
+				p.openStaleEpisode(ctx, completion, onBlockProcessed)
+				return
+			}
+			if ep.stalePinned && completion.item.BlockNum > ep.staleTopHeight {
+				// A drained failure's stale verification raises the
+				// walk-back anchor: the descent must start above every
+				// verified stale height so all of them are visited.
+				p.pendingMu.Lock()
+				ep.staleTopHeight = completion.item.BlockNum
+				ep.staleTopHash = completion.item.Hash
+				p.pendingMu.Unlock()
+			}
+			// Any other active episode's walk-back already descends through
+			// every height between the fork and its base: a lower stale
+			// verify needs no opener.
+		}
+		return
+	}
+
+	if suppress {
+		// A stale-pinned drain consumed this completion: the store landed on
+		// the checked new chain, but its height sits in the rollback range
+		// the episode is about to hand back, so no callback or commit
+		// bookkeeping may fire for it in this run.
+		return
+	}
+	p.applyCommit(item, computed, onBlockProcessed)
+}
+
+// drainInFlightStores waits for zero in-flight stores and applies every
+// completion the pool has reported before returning. In-flight == 0 implies
+// every dispatched store has sent its completion, so draining the channel to
+// empty resolves the whole reorder buffer. Suppression applies when the
+// caller is finalizing a stale-pinned episode: those completions come from
+// stores dispatched before the hold-back opened, they land (they cannot be
+// recalled) but must not apply callbacks or commit bookkeeping inside the
+// run that is about to roll their heights back. A drained failure's own
+// stale verification joins the episode's stale walk-back anchor. A pop-time
+// episode's drain applies fully: its in-flight stores were dispatched before
+// the mismatch height, so their completions are ordinary pre-mismatch
+// commits and fire the callback in height order.
+func (p *ConcurrentBlockProcessor) drainInFlightStores(ctx context.Context, ep *reorgEpisode, onBlockProcessed func(blockNum int64)) {
+	suppress := ep.stalePinned
+
+	// Wait for the pool to finish everything it accepted, consuming reported
+	// completions while waiting. An in-flight store always sends its
+	// completion before its in-flight count drops, so a send is guaranteed
+	// while the counter is positive and this loop terminates at zero.
+	for {
+		select {
+		case completion, ok := <-p.completionChan:
+			if !ok {
+				return
+			}
+			p.applyCompletion(ctx, completion, onBlockProcessed, suppress)
+			continue
+		default:
+		}
+		if p.storeInFlight.Load() == 0 {
+			break
+		}
+		completion, ok := <-p.completionChan
+		if !ok {
+			return
+		}
+		p.applyCompletion(ctx, completion, onBlockProcessed, suppress)
+	}
+	// All stores are done: every remaining reported completion is queued in
+	// the buffer; drain it to empty so the reorder buffer resolves.
+	for {
+		select {
+		case completion, ok := <-p.completionChan:
+			if !ok {
+				return
+			}
+			p.applyCompletion(ctx, completion, onBlockProcessed, suppress)
+			continue
+		default:
+			return
+		}
+	}
+}
+
+// openStaleEpisode opens the stale-pinned episode for one pool-verified
+// stale orphan and finalizes it immediately: the failure handler already
+// verified the stored hash against the failed item's fetched hash, so the
+// walk-back descent from the stale height is the confirmation. The drain
+// inside finalize continues collecting further stale verifications before
+// the descent starts.
+func (p *ConcurrentBlockProcessor) openStaleEpisode(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64)) {
+	item := completion.item
+	logger.Sugar.Warnf(
+		"Reorg detected: stored block %d (hash %s) disagrees with chain-side block %d (hash %s); holding from height %d",
+		item.BlockNum, completion.stale.orphanHash, item.BlockNum, item.Hash, item.BlockNum+1,
+	)
+
+	p.pendingMu.Lock()
+	p.episode = &reorgEpisode{
+		stalePinned:    true,
+		baseHeight:     item.BlockNum,
+		staleTopHeight: item.BlockNum,
+		staleTopHash:   item.Hash,
+	}
+	p.pendingMu.Unlock()
+	p.finalizeEpisode(ctx, p.episode, nil, onBlockProcessed)
+}
+
+// applyCommit applies a successful pool store to the ordered commit state
+// and fires the completion callback: commit bookkeeping, history trim, and
+// the guard reset that ends a consecutive-rollback sequence on progress.
+// The caller runs it when the completion applies (in height order via the
+// reorder buffer); completions applying during a parked episode wait are
+// genuine intervening progress - a pre-mismatch store landing on the
+// checked new chain - so the guard reset applies to them too.
 func (p *ConcurrentBlockProcessor) applyCommit(item *BlockResult, computed *BlockResult, onBlockProcessed func(blockNum int64)) {
 	p.pendingMu.Lock()
 	defer p.pendingMu.Unlock()
@@ -583,8 +940,6 @@ func (p *ConcurrentBlockProcessor) applyCommit(item *BlockResult, computed *Bloc
 	} else {
 		logger.Sugar.Infof("Committed block %d", item.BlockNum)
 	}
-	p.lastCommittedNum = item.BlockNum
-	p.lastCommittedHash = item.Hash
 	p.committedHashes[item.BlockNum] = item.Hash
 	for height := range p.committedHashes {
 		if height < p.nextToCommit-2 {
@@ -622,7 +977,7 @@ func (p *ConcurrentBlockProcessor) startReorgEpisode(signal reorgSignal, parked 
 // it on the newest chain, and an unusable item (worker failure or a result
 // without usable hashes) is re-fetched by height so the wait can continue
 // past the gap. Nothing here is ever stored.
-func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item *BlockResult) {
+func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item *BlockResult, onBlockProcessed func(blockNum int64)) {
 	for {
 		p.pendingMu.Lock()
 		ep := p.episode
@@ -633,9 +988,9 @@ func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item 
 
 		if item.Success && item.Hash != "" && item.ParentHash != "" &&
 			item.ParentHash == ep.lastParkedHash {
-			confirmed := item.Hash
+			confirmed := *item
 			p.pendingMu.Unlock()
-			p.finalizeEpisode(ctx, ep, confirmed)
+			p.finalizeEpisode(ctx, ep, &confirmed, onBlockProcessed)
 			return
 		}
 
@@ -719,17 +1074,44 @@ func (p *ConcurrentBlockProcessor) refillEpisodeGap(ctx context.Context, ep *reo
 }
 
 // finalizeEpisode runs the walk-back for a confirmed episode and records the
-// rollback point the outer ProcessBlocks loop acts on. The verified
-// new-chain hashes (the walk-back descent, the parked mismatch and the
-// confirming successor) travel inside the rollback point, so the rollback
-// handler can delete strictly by height and hash. A walk-back failure
-// is fatal unless the run context is already cancelled (user shutdown:
-// nothing was stored or deleted, so the episode can simply be abandoned -
-// the next run's seed and gap checks re-detect the mismatch).
-func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reorgEpisode, confirmedHash string) {
-	logger.Sugar.Infof("Reorg episode confirmed: walking back the new chain from height %d (hash %s)",
-		ep.baseHeight-1, ep.baseParentHash)
-	forkPoint, chainHashes, err := p.resolveForkPoint(ctx, ep.baseHeight-1, ep.baseParentHash)
+// rollback point the outer ProcessBlocks loop acts on. In-flight stores and
+// their completions settle BEFORE the walk-back: the stored-hash queries
+// need a quiescent DB, and a store landing after its height was rolled back
+// would race the soft-delete. The verified new-chain hashes (the walk-back
+// descent, the parked mismatch and the confirming successor - none of which
+// the descent saw) travel inside the rollback point, so the rollback handler
+// can delete strictly by height and hash. A walk-back failure is fatal
+// unless the run context is already cancelled (user shutdown: the episode is
+// simply abandoned - the next run's seed and gap checks re-detect the
+// mismatch).
+func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reorgEpisode, confirmed *BlockResult, onBlockProcessed func(blockNum int64)) {
+	p.drainInFlightStores(ctx, ep, onBlockProcessed)
+
+	if ctx.Err() != nil {
+		logger.Sugar.Warnf("Reorg episode abandoned during shutdown: %v", ctx.Err())
+		p.pendingMu.Lock()
+		p.episode = nil
+		p.pendingMu.Unlock()
+		return
+	}
+
+	var (
+		forkPoint   int64
+		chainHashes map[int64]string
+		err         error
+	)
+	if ep.stalePinned {
+		// The verified stale orphan anchors the descent at the failed
+		// height with the verified fetched hash: a descent above it would
+		// match the landed pre-mismatch stores and never reach the orphan,
+		// and every lower stale height is visited on the way down, verified
+		// against the stored record, and covered by the rollback map.
+		forkPoint, chainHashes, err = p.resolveForkPoint(ctx, ep.staleTopHeight, ep.staleTopHash)
+	} else {
+		logger.Sugar.Infof("Reorg episode confirmed: walking back the new chain from height %d (hash %s)",
+			ep.baseHeight-1, ep.baseParentHash)
+		forkPoint, chainHashes, err = p.resolveForkPoint(ctx, ep.baseHeight-1, ep.baseParentHash)
+	}
 
 	if err != nil && ctx.Err() != nil {
 		logger.Sugar.Warnf("Reorg episode abandoned during shutdown: %v", err)
@@ -739,19 +1121,18 @@ func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reor
 		return
 	}
 
-	if err == nil {
-		// The confirmation wait verified the parked mismatch height and the
-		// chained successor above it; the walk-back itself never saw
-		// that segment.
-		chainHashes[ep.baseHeight] = ep.lastParkedHash
-		chainHashes[ep.baseHeight+1] = confirmedHash
-	}
-
 	p.pendingMu.Lock()
 	p.episode = nil
 	if err != nil {
 		p.fatalErr = fmt.Errorf("reorg detected at height %d: %w", ep.baseHeight, err) //nolint:err113
 	} else {
+		if !ep.stalePinned {
+			// The confirmation wait verified the parked mismatch height and
+			// the chained successor above it; the walk-back itself never saw
+			// that segment.
+			chainHashes[ep.baseHeight] = ep.lastParkedHash
+			chainHashes[confirmed.BlockNum] = confirmed.Hash
+		}
 		p.rollbackPoint = &rollbackPoint{forkPoint: forkPoint, chainHashes: chainHashes}
 	}
 	p.pendingMu.Unlock()
@@ -759,12 +1140,15 @@ func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reor
 }
 
 // continuitySignal applies the pure parentHash detection rules to a
-// successful result N, in spec order: the seed check at the run's first
-// block (restart seam) and the contiguous-predecessor check. The gap
-// fallback - when the predecessor was not committed in this run, the stored
-// hash at N-1 is compared against N's parentHash - needs a stored-hash
-// query and is resolved separately by gapFallbackSignal.
-func continuitySignal(runStartBlock int64, seedHash string, lastCommittedNum int64, lastCommittedHash string, next *BlockResult) (reorgSignal, bool) {
+// successful result N in pop order: the seed check at the run's first block
+// (restart seam) and the continuation check against the previous popped
+// item's fetched hash. The check predecessor travels in lastCheckedNum /
+// lastCheckedHash - the seed for the run's first item, the previous pop's
+// hash afterwards - so the comparison never consults store outcomes. The
+// gap fallback for an unusable checked predecessor - the stored hash at N-1
+// compared against N's parentHash - needs a stored-hash query and is
+// resolved separately by poppedGapSignal.
+func continuitySignal(runStartBlock int64, seedHash string, lastCheckedNum int64, lastCheckedHash string, next *BlockResult) (reorgSignal, bool) {
 	n := next.BlockNum
 
 	if n == runStartBlock && seedHash != "" &&
@@ -776,11 +1160,11 @@ func continuitySignal(runStartBlock int64, seedHash string, lastCommittedNum int
 		}, true
 	}
 
-	if lastCommittedNum == n-1 && lastCommittedHash != "" &&
-		next.ParentHash != "" && next.ParentHash != lastCommittedHash {
+	if lastCheckedNum == n-1 && lastCheckedHash != "" &&
+		next.ParentHash != "" && next.ParentHash != lastCheckedHash {
 		return reorgSignal{
 			rollbackFrom: n - 1,
-			orphanHash:   lastCommittedHash,
+			orphanHash:   lastCheckedHash,
 			chainHash:    next.ParentHash,
 		}, true
 	}
@@ -829,6 +1213,9 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 		}
 
 		p.pendingMu.Lock()
+		// The dispatch throttle anchors on the check cursor: dispatched
+		// fetches may not run more than DefaultWorkersAhead*workers heights
+		// ahead of the checked frontier.
 		tooFarAhead := nextBlock-p.nextToCommit >= int64(p.workers*DefaultWorkersAhead)
 		p.pendingMu.Unlock()
 
@@ -857,10 +1244,10 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 }
 
 // fetchAndConvertBlock fetches and converts one block - the full worker
-// path since the store moved into the ordered commit path. The block hash
-// and parent hash are extracted from the conversion result: the parent hash
-// feeds the continuity check, and the conversion result itself is stored by
-// the commit path only after that check passed.
+// path since the store moved into the bounded pool. The block hash and
+// parent hash are extracted from the conversion result: the parent hash
+// feeds the continuity check, and the conversion result itself is handed to
+// the store pool only after that check passed.
 func (p *ConcurrentBlockProcessor) fetchAndConvertBlock(ctx context.Context, blockNum int64) *BlockResult {
 	raw, err := p.fetchBlockWithRetry(ctx, blockNum)
 	if err != nil {
@@ -877,9 +1264,9 @@ func (p *ConcurrentBlockProcessor) fetchAndConvertBlock(ctx context.Context, blo
 		Hash:       extractBlockHash(converted.Groups),
 		ParentHash: extractBlockParentHash(converted.Groups),
 		Converted:  converted,
-		// Success marks a fetch+convert pass: the ordered commit path and
-		// the episode's confirmation rules treat the content as verified
-		// input, not as a completed store.
+		// Success marks a fetch+convert pass: the ordered check, the store
+		// pool and the episode's confirmation rules treat the content as
+		// verified input, not as a completed store.
 		Success: true,
 	}
 }
@@ -1064,7 +1451,7 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 }
 
 // storeWithRetry persists a ConversionResult via the block handler from the
-// ordered commit path. Transaction conflicts are retried up to MaxRPCRetries
+// bounded store pool. Transaction conflicts are retried up to MaxRPCRetries
 // times with transactionConflictRetryBaseDelay backoff; ErrAlreadyExists is
 // the routine idempotent path - a fire-and-forget SignExisting goroutine and
 // success - since content-derived dockeys can only collide on byte-identical
