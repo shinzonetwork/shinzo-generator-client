@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -21,7 +22,9 @@ import (
 type rpcClient interface {
 	GetLatestBlockNumber(ctx context.Context) (*big.Int, error)
 	GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error)
-	GetBlockByHash(ctx context.Context, hash string) (*Block, error)
+	// GetHeaderByHash fetches only the header of the by-hash block (no
+	// transaction bodies requested or decoded) for the walk-back descent.
+	GetHeaderByHash(ctx context.Context, hash string) (*ethtypes.Header, error)
 	// GetBlockReceipts fetches all receipts for a block in a single RPC
 	// call, selected by the block's content hash so the receipts always
 	// stay on the branch of the block the fetcher already holds.
@@ -155,28 +158,27 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 
 // FetchBlockHeaderByHash implements chains.Fetcher. It retrieves only the
 // header fields (height, content hash, parent hash) of the block with the
-// given 0x-prefixed content hash: the same GetBlockByHash RPC the bundle
-// path performs, without any transaction or receipt work, so the reorg
-// walk-back can follow parent hashes down a forked chain without the
-// by-number receipt fetch mixing branches. Not-found errors from the client
-// keep their message, so pkg/errors.IsErrNotFound continues to classify
-// them for the shared retry logic.
+// given 0x-prefixed content hash through a header-only by-hash RPC: no
+// transaction bodies are requested or decoded, so the reorg walk-back pays
+// one header per descent step instead of a full block download and cannot
+// trip the typed transaction decoder on chains with custom transaction
+// types. The returned hash echoes the requested hash: a locally recomputed
+// header.Hash() can differ from the node's hash on chains with extra header
+// fields. Not-found errors from the client keep their message, so
+// pkg/errors.IsErrNotFound continues to classify them for the shared retry
+// logic.
 func (f *Fetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chains.BlockHeader, error) {
 	if f.client == nil {
 		return chains.BlockHeader{}, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlockHeaderByHash")
 	}
-	block, err := f.client.GetBlockByHash(ctx, hash)
+	header, err := f.client.GetHeaderByHash(ctx, hash)
 	if err != nil {
 		return chains.BlockHeader{}, err
 	}
-	height, err := parseBlockNumberString(block.Number)
-	if err != nil {
-		return chains.BlockHeader{}, fmt.Errorf("block by hash %s: %w", hash, err)
-	}
 	return chains.BlockHeader{
-		Number:     height,
-		Hash:       block.Hash,
-		ParentHash: block.ParentHash,
+		Number:     header.Number.Int64(),
+		Hash:       hash, // the hash we asked for; a recomputed header.Hash() can differ on chains with extra header fields
+		ParentHash: header.ParentHash.Hex(),
 	}, nil
 }
 
@@ -188,19 +190,6 @@ func (f *Fetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) 
 		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchFinalizedBlockNumber")
 	}
 	return f.client.GetFinalizedBlockNumber(ctx)
-}
-
-// parseBlockNumberString parses a block-number string in its decimal form
-// (EthereumClient conversion) or its 0x-hex form (raw fixtures and mock
-// clients), so by-hash bundling works for both.
-func parseBlockNumberString(s string) (int64, error) {
-	if after, ok := strings.CutPrefix(s, "0x"); ok {
-		// strconv.ParseInt only honors the 0x prefix with base 0, and base 0
-		// would also read leading-zero decimals as octal, so the prefix is
-		// stripped explicitly, matching the helpers in pkg/indexer.
-		return strconv.ParseInt(after, 16, 64)
-	}
-	return strconv.ParseInt(s, 10, 64)
 }
 
 // Close implements chains.Fetcher. It closes the underlying RPC client.

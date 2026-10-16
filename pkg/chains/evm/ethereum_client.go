@@ -356,13 +356,17 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	return c.convertGethBlock(gethBlock), nil
 }
 
-// GetBlockByHash fetches a full block by its content hash, regardless of
-// which branch of the chain it sits on. The hash must be a 0x-prefixed, 32
-// byte hex hash. Not-found is surfaced with its message preserved (ethclient
-// reports the node's "block not found" or the empty-response sentinel, both
-// keeping "not found" in the message) so pkg/errors.IsErrNotFound classifies
-// it and the caller's retry logic matches by-number fetches.
-func (c *EthereumClient) GetBlockByHash(ctx context.Context, hash string) (*Block, error) {
+// GetHeaderByHash fetches only the header of the block with the given
+// 0x-prefixed content hash; no transactions are fetched or decoded, so the
+// walk-back descent pays one header per step instead of a full block
+// download, and chains whose transactions use custom types (OP/Base 0x7e,
+// Arbitrum 100-106, ZKsync 0x71) cannot fail the typed transaction decoder
+// on the walk-back path. Not-found surfaces with its message preserved
+// (ethclient reports the node's "block not found" or the ethereum.NotFound
+// sentinel, both reading "not found") so pkg/errors.IsErrNotFound classifies
+// it and the caller's retry logic matches by-number fetches; a malformed
+// hash fails normalizeBlockHash as a caller bug, not a not-found.
+func (c *EthereumClient) GetHeaderByHash(ctx context.Context, hash string) (*ethtypes.Header, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, errNoClientAvailable
@@ -373,12 +377,12 @@ func (c *EthereumClient) GetBlockByHash(ctx context.Context, hash string) (*Bloc
 		return nil, err
 	}
 
-	gethBlock, err := client.BlockByHash(ctx, blockHash)
+	header, err := client.HeaderByHash(ctx, blockHash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block by hash %s: %w", hash, err)
+		return nil, fmt.Errorf("failed to get header by hash %s: %w", hash, err)
 	}
 
-	return c.convertGethBlock(gethBlock), nil
+	return header, nil
 }
 
 // normalizeBlockHash validates a 0x-prefixed 32-byte block-hash string.

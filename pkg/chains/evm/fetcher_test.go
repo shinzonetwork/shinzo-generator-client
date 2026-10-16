@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -707,13 +710,11 @@ func TestFetcher_Close_NilClient(t *testing.T) {
 func TestFetcher_FetchBlockHeaderByHash(t *testing.T) {
 	t.Parallel()
 
-	block := fakeBlock(50)
-	block.ParentHash = fakeHash("walkback-parent")
-
 	var batchReceiptCalls int
 	var individualReceiptCalls int
+	parentHash := common.HexToHash(fakeHash("walkback-parent"))
 	client := &fakeRPCClient{
-		blockByHash: block,
+		headerByHash: &ethtypes.Header{Number: big.NewInt(50), ParentHash: parentHash},
 		batchFn: func(_ context.Context, _ string) ([]*TransactionReceipt, error) {
 			batchReceiptCalls++
 			return nil, fmt.Errorf("batch receipts unavailable")
@@ -727,7 +728,7 @@ func TestFetcher_FetchBlockHeaderByHash(t *testing.T) {
 
 	header, err := f.FetchBlockHeaderByHash(context.Background(), fakeHash("walkback"))
 	require.NoError(t, err)
-	assert.Equal(t, chains.BlockHeader{Number: 50, Hash: block.Hash, ParentHash: block.ParentHash}, header,
+	assert.Equal(t, chains.BlockHeader{Number: 50, Hash: fakeHash("walkback"), ParentHash: parentHash.Hex()}, header,
 		"the header fetch must carry only the height, content hash, and parent hash")
 	assert.Zero(t, batchReceiptCalls,
 		"the header fetch must not call eth_getBlockReceipts: by-number receipts belong to the canonical branch and mix into an orphan descent")
@@ -738,7 +739,7 @@ func TestFetcher_FetchBlockHeaderByHash(t *testing.T) {
 func TestFetcher_FetchBlockHeaderByHash_NotFoundIsClassified(t *testing.T) {
 	t.Parallel()
 
-	client := &fakeRPCClient{blockByHashErr: fmt.Errorf("block not found")}
+	client := &fakeRPCClient{headerByHashErr: fmt.Errorf("block not found")}
 	f := NewFetcher(client, 4)
 
 	_, err := f.FetchBlockHeaderByHash(context.Background(), fakeHash("missing"))
@@ -761,12 +762,6 @@ func TestFetcher_FetchBlockHeaderByHash_ErrorCases(t *testing.T) {
 			client:     nil,
 			hash:       fakeHash("unreachable"),
 			wantErrSub: "not connected",
-		},
-		{
-			name:       "InvalidNumberInBlock",
-			client:     &fakeRPCClient{blockByHash: &Block{Hash: fakeHash("corrupt"), Number: "garbage"}},
-			hash:       fakeHash("corrupt"),
-			wantErrSub: "block by hash",
 		},
 	}
 
@@ -837,35 +832,6 @@ func TestFetcher_FetchFinalizedBlockNumber(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantHeight, height)
-		})
-	}
-}
-
-func TestFetcher_ParseBlockNumberString(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		input   string
-		want    int64
-		wantErr bool
-	}{
-		{name: "Decimal", input: "200", want: 200},
-		{name: "Hex", input: "0xc8", want: 200},
-		{name: "HexZero", input: "0x0", want: 0},
-		{name: "Garbage", input: "garbage", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := parseBlockNumberString(tt.input)
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
 		})
 	}
 }

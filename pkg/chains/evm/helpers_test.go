@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/websocket"
 	"github.com/sourcenetwork/defradb/client"
@@ -167,9 +168,9 @@ type fakeRPCClient struct {
 	txErr          error
 	closed         bool
 
-	blockByHash    *Block
-	blockByHashErr error
-	blockByHashFn  func(ctx context.Context, hash string) (*Block, error)
+	headerByHash    *ethtypes.Header
+	headerByHashErr error
+	headerByHashFn  func(ctx context.Context, hash string) (*ethtypes.Header, error)
 
 	finalizedNum int64
 	finalizedErr error
@@ -191,14 +192,11 @@ func (f *fakeRPCClient) GetBlockByNumber(ctx context.Context, n *big.Int) (*Bloc
 	return f.block, f.blockErr
 }
 
-func (f *fakeRPCClient) GetBlockByHash(ctx context.Context, hash string) (*Block, error) {
-	if f.blockByHashFn != nil {
-		return f.blockByHashFn(ctx, hash)
+func (f *fakeRPCClient) GetHeaderByHash(ctx context.Context, hash string) (*ethtypes.Header, error) {
+	if f.headerByHashFn != nil {
+		return f.headerByHashFn(ctx, hash)
 	}
-	if f.blockByHash != nil || f.blockByHashErr != nil {
-		return f.blockByHash, f.blockByHashErr
-	}
-	return f.block, f.blockErr
+	return f.headerByHash, f.headerByHashErr
 }
 
 func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
