@@ -6,6 +6,7 @@ package indexer
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -200,9 +201,12 @@ func TestStopIndexingVariants(t *testing.T) {
 				td := testutils.SetupTestDefraDB(t)
 
 				// Create fetcher, converter, and block handler wired to a mock RPC server.
-				rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+				rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 					switch method {
 					case ethGetBlockByNumber:
+						if requested, ok := requestedBlockNumber(params); ok {
+							return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+						}
 						return fullBlockResponse("0x1", nil), nil
 					case ethGetBlockReceipts:
 						return []any{}, nil
@@ -363,6 +367,9 @@ func TestStopIndexing_DuringStart_WaitsForStart(t *testing.T) {
 					return fullBlockResponse("0x100", nil), nil
 				}
 			}
+			if requested, ok := requestedBlockNumber(params); ok {
+				return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+			}
 			return fullBlockResponse("0x100", nil), nil
 		case ethBlockNumber:
 			return "0x100", nil
@@ -452,9 +459,12 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
+			if requested, ok := requestedBlockNumber(params); ok {
+				return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+			}
 			return fullBlockResponse("0x100", nil), nil
 		case ethBlockNumber:
 			return "0x100", nil

@@ -94,6 +94,9 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 								return nil, fmt.Errorf("rpc connection refused")
 							}
 						}
+						if requested, ok := requestedBlockNumber(params); ok {
+							return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+						}
 						return fullBlockResponse("0x100", nil), nil
 					case ethBlockNumber:
 						return nil, fmt.Errorf("rpc connection refused")
@@ -158,12 +161,12 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 
 // ---------------------------------------------------------------------------.
 // Prune-queue startup notes (indexer.go).
-// When cfg.Pruner.Enabled, resolveStartHeight loads prune_queue.gob and
-// resumes or gap-skips from its highest entry — the "resume from queue"
-// subtest pre-creates that file to exercise this. The queue is always
-// created when the pruner is enabled, so there is no "queue not yet
-// created" branch to test; initServices later loads the same file again
-// when binding the queue to the pruner and the block tracker.
+// resolveStartHeight resumes from the DB only (GetHighestStoredBlockNumber);
+// prune_queue.gob is never consulted for resume, so its highest entry cannot
+// push the start height above the real DB tip. The queue is purely a
+// prune-tracking structure: initServices later loads the same file when
+// binding the queue to the pruner and the block tracker, and its entries
+// intentionally retain rolled-back orphan heights for the local purge.
 // ---------------------------------------------------------------------------.
 
 // ---------------------------------------------------------------------------.
@@ -371,14 +374,18 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 			preClear: true,
 		},
 		{
-			// Pre-created prune queue with entries up to 90010 vs chain tip
-			// 100000: gap = 9990 > startBuffer=10 → gap detection skip-ahead
-			// (lines 219-221, 243-252, 246-250).
-			name: "resume from queue",
+			// Prune-queue entries must not drive resume: the queue file
+			// pre-creates entries at 200000..200010, above the chain tip
+			// 100000. Before the DB-only resume rule, HighestBlockNumber won
+			// and pushed the start height above the tip (200011); resume is
+			// now derived from the DB, which is empty here, so the default
+			// tip-buffer path applies (100000 - startBuffer 10 = 99990).
+			// The queue stays wired for prune-tracking only.
+			name: "prune queue entries do not drive resume",
 			fileSetup: func(t *testing.T, tmpDir string) {
-				// Pre-create a prune queue file with entries so LoadFromFile returns loaded > 0.
+				// Pre-create a prune queue file with entries above the chain tip.
 				queue := pruner.NewIndexerQueue()
-				for i := int64(90000); i <= 90010; i++ {
+				for i := int64(200000); i <= 200010; i++ {
 					_ = queue.TrackBlockDocIDs(i, fakeDocID(int(i)), map[string][]string{
 						evm.DefaultCollectionTransaction: {fakeDocID(int(i) + 10000)},
 					}, fakeDocID(int(i)+20000))
@@ -410,9 +417,12 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				waitForBlockCondition(t, nil, errCh, func() bool { return count.Load() >= 2 }, "timed out waiting for blocks")
 			},
 			assertMid: func(t *testing.T, ix *ChainIndexer) {
-				// Should have skipped ahead — start height should be around 99990.
-				assert.True(t, ix.cfg.Indexer.StartHeight >= 99980,
-					"should have skipped ahead due to gap, got start height %d", ix.cfg.Indexer.StartHeight)
+				// Start height must come from the default tip-buffer path, not
+				// from the queue's highest entry (which sits above the tip).
+				assert.Equal(t, 99990, ix.cfg.Indexer.StartHeight,
+					"queue entries above the chain tip must not push the start height above the tip")
+				// The queue is still loaded by initServices and wired for prune-tracking.
+				assert.NotNil(t, ix.docIDTracker, "queue must stay wired for prune-tracking")
 			},
 			preClear: true,
 		},
@@ -510,8 +520,10 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 			preClear: true,
 		},
 		{
-			// Corrupted prune_queue.gob triggers a warning but not a crash
-			// (covers line 217-218).
+			// Corrupted prune_queue.gob triggers a warning but not a crash.
+			// Resume no longer reads the queue (resolveStartHeight is
+			// DB-only); the corrupt file is hit by initServices' prune-tracking
+			// load, which tolerates the failure so StartIndexing continues.
 			name: "prune queue load error tolerated",
 			fileSetup: func(t *testing.T, tmpDir string) {
 				// Create a corrupted prune queue file.
@@ -653,11 +665,14 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t)
 
 	var blockCount atomic.Int64
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
 			n := blockCount.Add(1)
 			num := fmt.Sprintf("0x%x", 5000+n)
+			if requested, ok := requestedBlockNumber(params); ok {
+				num = fmt.Sprintf("0x%x", requested)
+			}
 			return fullBlockResponse(num, nil), nil
 		case ethGetBlockReceipts:
 			return []any{}, nil
@@ -699,11 +714,10 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// StartIndexing — GetHighestBlockNumber succeeds with pre-populated DB,
-// (covers lines 229-231).
+// StartIndexing — GetHighestStoredBlockNumber succeeds with pre-populated DB.
 // Strategy: Run one indexer to populate a block, stop it, then create a new,
 // indexer pointing to the same DB directory. The second run should find the,
-// existing block via GetHighestBlockNumber.
+// existing block via GetHighestStoredBlockNumber and resume above it.
 // ---------------------------------------------------------------------------.
 
 func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
@@ -733,6 +747,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 			default:
 			}
 			num := fmt.Sprintf("0x%x", 99990+count)
+			if requested, ok := requestedBlockNumber(params); ok {
+				num = fmt.Sprintf("0x%x", requested)
+			}
 			return fullBlockResponse(num, nil), nil
 		case ethBlockNumber:
 			return "0x186a0", nil
@@ -761,7 +778,9 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      10,
 		},
-		// Pruner disabled — so GetHighestBlockNumber path at line 226 is used.
+		// Resume is always derived from the DB in resolveStartHeight
+		// (GetHighestStoredBlockNumber); the pruner being disabled only
+		// means no prune queue is wired for tracking.
 		Logger: config.LoggerConfig{Development: true},
 	}
 
@@ -874,9 +893,12 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 	}
 	logger.InitConsoleOnly(true)
 
-	validRPCHandler := func(method string, _ json.RawMessage) (any, error) {
+	validRPCHandler := func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
+			if requested, ok := requestedBlockNumber(params); ok {
+				return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+			}
 			return fullBlockResponse("0x100", nil), nil
 		case ethBlockNumber:
 			return "0x100", nil

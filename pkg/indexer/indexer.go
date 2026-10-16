@@ -88,8 +88,9 @@ type ChainIndexer struct {
 	defraNode                 *node.Node              // Embedded DefraDB node (nil if using external)
 	networkHandler            *defradb.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
-	pruner                    *pruner.Pruner        // Document pruner for removing old blocks.
-	snapshotter               *snapshot.Snapshotter // Snapshot exporter for archiving blocks.
+	pruner                    *pruner.Pruner              // Document pruner for removing old blocks.
+	snapshotter               *snapshot.Snapshotter       // Snapshot exporter for archiving blocks.
+	docIDTracker              defra.DocIDTrackerInterface // Prune-queue tracker; set only when the pruner is enabled, and used by the block handler to track stored docIDs (queue entries are intentionally retained across rollbacks so the pruner can purge the soft-deleted docs).
 	currentBlock              int64
 	lastProcessedTime         time.Time
 	indexingCancel            context.CancelCauseFunc // Cancel for the indexing loop; nil unless concurrent indexing is running.
@@ -283,30 +284,22 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 }
 
 // resolveStartHeight determines the block number to start indexing from.
+// Resume is always derived from the DB: the highest visible block comes from
+// GetHighestStoredBlockNumber, and soft-deleted orphans are invisible to
+// queries, so the DB's highest block sits at the fork point and resume lands
+// just above it. The prune queue is purely a prune-tracking structure and is
+// never consulted here; it intentionally retains rolled-back orphan heights
+// for the pruner's later local purge, so its highest entry would push resume
+// above the real DB tip.
 func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
-	var pruneQueue *pruner.IndexerQueue
 
-	if cfg.Pruner.Enabled {
-		pruneQueue = pruner.NewIndexerQueue()
-		queueFilePath := filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")
-		loaded, err := pruneQueue.LoadFromFile(queueFilePath)
-		if err != nil {
-			logger.Sugar.Warnf("Failed to load prune queue from disk: %v", err)
-		} else if loaded > 0 {
-			logger.Sugar.Infof("Restored %d entries from prune queue file", loaded)
-		}
-		highestExisting = pruneQueue.HighestBlockNumber()
-	}
-
-	if highestExisting == 0 {
-		nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraNode)
-		if err != nil {
-			logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
-		} else {
-			highestExisting = nBlock
-		}
+	nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraNode)
+	if err != nil {
+		logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
+	} else {
+		highestExisting = nBlock
 	}
 
 	latestBlock, err := i.fetcher.FetchHighestBlockNumber(ctx)
@@ -372,10 +365,11 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) err
 			logger.Sugar.Infof("Restored %d entries from prune queue file", restored)
 		}
 		i.pruner.SetQueue(pruneQueue)
-		i.blockHandler.SetDocIDTracker(&indexerQueueTracker{
+		i.docIDTracker = &indexerQueueTracker{
 			queue:       pruneQueue,
 			collections: i.converter.Collections(),
-		})
+		}
+		i.blockHandler.SetDocIDTracker(i.docIDTracker)
 		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 		if err := i.pruner.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start pruner: %v", err)
@@ -475,15 +469,21 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		return nil
 	}
 
+	roller, err := defra.NewReorgRoller(i.defraNode, i.converter)
+	if err != nil {
+		return fmt.Errorf("create reorg roller: %w", err)
+	}
+
 	processor := NewConcurrentBlockProcessor(
 		i.fetcher,
 		i.converter,
 		i.blockHandler,
+		roller,
 		cfg.Indexer.ConcurrentBlocks,
 		cfg.Indexer.BlocksPerMinute,
 	)
 
-	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
+	err = processor.ProcessBlocks(ctx, startBlock, func(blockNum int64) {
 		i.updateBlockInfo(blockNum)
 		i.mutex.Lock()
 		i.hasIndexedAtLeastOneBlock = true
