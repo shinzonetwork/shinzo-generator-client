@@ -183,7 +183,14 @@ func zksyncStyleTx() map[string]any {
 // list consistency checks and fails precisely on the unknown tx type, and
 // the size and total difficulty are set for RPC-provided-value assertions.
 func rawZksyncBlockResponse() map[string]any {
-	block := fullBlockResponse(testBlockNumberHex, []any{zksyncStyleTx()})
+	return rawZksyncBlockResponseWithTxs([]any{zksyncStyleTx()})
+}
+
+// rawZksyncBlockResponseWithTxs builds the same block fixture with a
+// caller-provided transactions array, letting conversion tests exercise
+// adapter response shapes the single-tx fixture cannot express.
+func rawZksyncBlockResponseWithTxs(txs []any) map[string]any {
+	block := fullBlockResponse(testBlockNumberHex, txs)
 	block[constants.HashFieldName] = rawBlockHash
 	block[TransactionsRootFieldName] = "0x1111111111111111111111111111111111111111111111111111111111111111"
 	block["size"] = "0x1a4"
@@ -312,34 +319,46 @@ func TestGetBlockByNumber_RawPath_DecodeErrorPropagates(t *testing.T) {
 
 func TestConvertRawBlock_RawTxCountMismatch(t *testing.T) {
 	t.Parallel()
-	// The adapter decoded two transactions while the raw response carries
-	// one raw tx object: the missing raw tx is passed as nil, so the second
-	// tx falls back to the existing sender behaviour (zero address for an
-	// unsigned tx) instead of failing.
-	raw, err := json.Marshal(rawZksyncBlockResponse())
-	require.NoError(t, err)
 
-	key, signedFrom := defaultTestKey()
-	signedTx, err := ethtypes.SignNewTx(key, ethtypes.NewEIP155Signer(big.NewInt(1)), &ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(20000000000),
-		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
-		Value:    big.NewInt(1000),
+	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
+
+	t.Run("adapter decoded more txs than the response carries", func(t *testing.T) {
+		t.Parallel()
+		// Two decoded transactions against one raw tx object is a broken
+		// adapter contract, so the block fails instead of nil-padding the
+		// missing raw txs.
+		raw, err := json.Marshal(rawZksyncBlockResponse())
+		require.NoError(t, err)
+
+		client := &EthereumClient{adapter: fakeTxAdapter{
+			needsRaw: true,
+			txs:      []*ethtypes.Transaction{tx, tx},
+		}}
+
+		block, err := client.convertRawBlock(raw)
+		require.Error(t, err)
+		assert.Nil(t, block)
+		assert.Contains(t, err.Error(), "adapter decoded 2 transactions but the response carries 1 raw tx objects")
 	})
-	require.NoError(t, err)
-	unsignedTx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), nil)
 
-	client := &EthereumClient{adapter: fakeTxAdapter{
-		needsRaw: true,
-		txs:      []*ethtypes.Transaction{signedTx, unsignedTx},
-	}}
+	t.Run("adapter decoded fewer txs than the response carries", func(t *testing.T) {
+		t.Parallel()
+		// One decoded transaction against two raw tx objects must fail too:
+		// index pairing would silently store each later tx's neighbour's
+		// from and yParity.
+		raw, err := json.Marshal(rawZksyncBlockResponseWithTxs([]any{zksyncStyleTx(), zksyncStyleTx()}))
+		require.NoError(t, err)
 
-	block, err := client.convertRawBlock(raw)
-	require.NoError(t, err)
-	require.Len(t, block.Transactions, 2)
-	assert.Equal(t, signedFrom.Hex(), block.Transactions[0].From)
-	assert.Equal(t, ZeroAddress, block.Transactions[1].From)
+		client := &EthereumClient{adapter: fakeTxAdapter{
+			needsRaw: true,
+			txs:      []*ethtypes.Transaction{tx},
+		}}
+
+		block, err := client.convertRawBlock(raw)
+		require.Error(t, err)
+		assert.Nil(t, block)
+		assert.Contains(t, err.Error(), "adapter decoded 1 transactions but the response carries 2 raw tx objects")
+	})
 }
 
 // --- default adapter equivalence ---
