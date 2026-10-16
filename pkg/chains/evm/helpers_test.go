@@ -100,7 +100,7 @@ func fakeReceipt(txHash string, blockNum int64) *TransactionReceipt {
 	return &TransactionReceipt{
 		TransactionHash:   txHash,
 		TransactionIndex:  "0x0",
-		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
+		BlockHash:         fakeHash("block-" + big.NewInt(blockNum).String()),
 		BlockNumber:       "0x" + big.NewInt(blockNum).Text(16),
 		From:              "0x0000000000000000000000000000000000000001",
 		To:                "0x0000000000000000000000000000000000000002",
