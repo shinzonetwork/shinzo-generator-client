@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
+.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -107,6 +107,12 @@ lint:
 	@golangci-lint run ./...
 	@echo "📏 Checking file sizes..."
 	@./scripts/check_loc.sh
+	@echo "🪦 Checking for dead code..."
+	@./scripts/deadcode-check.sh
+
+# Standalone dead-code check (also runs as part of make lint).
+deadcode-check:
+	@./scripts/deadcode-check.sh
 
 lint-fix:
 	@echo "🔧 Running golangci-lint with auto-fix..."
@@ -161,6 +167,7 @@ help:
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
 	@echo "  lint-fix           - Run golangci-lint with auto-fix"
+	@echo "  deadcode-check     - Fail on functions no binary or test can reach"
 	@echo "  fmt                - Format code with gofmt and goimports"
 	@echo ""
 	@echo "🔗 Connectivity Testing:"
