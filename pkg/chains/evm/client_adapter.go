@@ -15,13 +15,13 @@ type ClientAdapter interface {
 	// ethclient typed decode (Ethereum, BSC, Linea, Monad, Polygon).
 	NeedsRawBlock() bool
 
-	// DecodeTransactions turns non-standard envelopes (Arbitrum 100-106,
-	// OP/Base 0x7e, ZKsync 0x71) into go-ethereum transactions, mapped
-	// onto the closest standard envelope so the existing gas-price
-	// switch keeps working (ZKsync 0x71 -> maxFee-style).
-	// Implementations must return one transaction per raw tx object of
-	// the raw block's transactions array, in order.
-	DecodeTransactions(rawBlock json.RawMessage) ([]*ethtypes.Transaction, error)
+	// DecodeTransactions turns the raw tx objects of the block (standard
+	// envelopes decoded directly, non-standard envelopes such as Arbitrum
+	// 100-106, OP/Base 0x7e and ZKsync 0x71 mapped onto the closest
+	// standard envelope so the existing gas-price switch keeps working)
+	// into go-ethereum transactions. Implementations must return one
+	// transaction per element of rawTxs, in order.
+	DecodeTransactions(rawTxs []json.RawMessage) ([]*ethtypes.Transaction, error)
 
 	// ResolveFrom overrides the sender for one tx; ok=false keeps the
 	// current behavior (GetFromAddress recovery, ZeroAddress fallback).
@@ -54,7 +54,7 @@ func (defaultClientAdapter) NeedsRawBlock() bool {
 // through the client's block path: NeedsRawBlock reports false, so the
 // client decodes blocks on its typed ethclient path instead, and an empty
 // return is the honest result for a method with no caller on this adapter.
-func (defaultClientAdapter) DecodeTransactions(_ json.RawMessage) ([]*ethtypes.Transaction, error) {
+func (defaultClientAdapter) DecodeTransactions(_ []json.RawMessage) ([]*ethtypes.Transaction, error) {
 	return nil, nil //nolint:nilnil // unreachable stub: the client never fetches raw blocks for this adapter
 }
 

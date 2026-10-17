@@ -39,16 +39,9 @@ type stubRawAdapter struct{}
 
 func (stubRawAdapter) NeedsRawBlock() bool { return true }
 
-func (stubRawAdapter) DecodeTransactions(rawBlock json.RawMessage) ([]*ethtypes.Transaction, error) {
-	var view struct {
-		Transactions []json.RawMessage `json:"transactions"`
-	}
-	if err := json.Unmarshal(rawBlock, &view); err != nil {
-		return nil, err
-	}
-
-	txs := make([]*ethtypes.Transaction, 0, len(view.Transactions))
-	for _, rawTx := range view.Transactions {
+func (stubRawAdapter) DecodeTransactions(rawTxs []json.RawMessage) ([]*ethtypes.Transaction, error) {
+	txs := make([]*ethtypes.Transaction, 0, len(rawTxs))
+	for _, rawTx := range rawTxs {
 		var probe struct {
 			Type string `json:"type"`
 		}
@@ -146,7 +139,7 @@ type fakeTxAdapter struct {
 
 func (f fakeTxAdapter) NeedsRawBlock() bool { return f.needsRaw }
 
-func (f fakeTxAdapter) DecodeTransactions(_ json.RawMessage) ([]*ethtypes.Transaction, error) {
+func (f fakeTxAdapter) DecodeTransactions(_ []json.RawMessage) ([]*ethtypes.Transaction, error) {
 	return f.txs, f.decodeErr
 }
 

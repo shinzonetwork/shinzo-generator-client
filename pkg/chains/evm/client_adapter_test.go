@@ -41,38 +41,30 @@ func TestDefaultClientAdapter_YParity(t *testing.T) {
 func TestDefaultClientAdapter_DecodeTransactions_IsNoOp(t *testing.T) {
 	t.Parallel()
 
-	for name, rawBlock := range map[string]json.RawMessage{
-		"standard envelopes": json.RawMessage(`{
-			"transactions": [
-				{
-					"type": "0x0",
-					"nonce": "0x1",
-					"gasPrice": "0x3b9aca00",
-					"gas": "0x5208",
-					"to": "0x0000000000000000000000000000000000000002",
-					"value": "0x1",
-					"input": "0x",
-					"v": "0x1b",
-					"r": "0x1111111111111111111111111111111111111111111111111111111111111111",
-					"s": "0x2222222222222222222222222222222222222222222222222222222222222222"
-				}
-			]
-		}`),
-		"unsupported envelope": json.RawMessage(`{
-			"transactions": [
-				{
-					"type": "0x71",
-					"nonce": "0x1",
-					"gas": "0x5208",
-					"to": "0x0000000000000000000000000000000000000002",
-					"value": "0x1",
-					"input": "0x"
-				}
-			]
-		}`),
-		"malformed block": json.RawMessage(`{"transactions": "not-an-array"}`),
+	for name, rawTxs := range map[string][]json.RawMessage{
+		"standard envelopes": {json.RawMessage(`{
+			"type": "0x0",
+			"nonce": "0x1",
+			"gasPrice": "0x3b9aca00",
+			"gas": "0x5208",
+			"to": "0x0000000000000000000000000000000000000002",
+			"value": "0x1",
+			"input": "0x",
+			"v": "0x1b",
+			"r": "0x1111111111111111111111111111111111111111111111111111111111111111",
+			"s": "0x2222222222222222222222222222222222222222222222222222222222222222"
+		}`)},
+		"unsupported envelope": {json.RawMessage(`{
+			"type": "0x71",
+			"nonce": "0x1",
+			"gas": "0x5208",
+			"to": "0x0000000000000000000000000000000000000002",
+			"value": "0x1",
+			"input": "0x"
+		}`)},
+		"malformed raw tx": {json.RawMessage(`not-an-object`)},
 	} {
-		txs, err := defaultAdapter.DecodeTransactions(rawBlock)
+		txs, err := defaultAdapter.DecodeTransactions(rawTxs)
 		require.NoError(t, err, name)
 		assert.Empty(t, txs, name)
 	}
