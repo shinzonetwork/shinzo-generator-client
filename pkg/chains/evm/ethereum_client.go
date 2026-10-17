@@ -453,7 +453,7 @@ func (c *EthereumClient) convertRawBlock(rawBlock json.RawMessage) (*Block, erro
 		return nil, fmt.Errorf("failed to decode raw block metadata: %w", err)
 	}
 
-	txs, err := c.getAdapter().DecodeTransactions(rawBlock)
+	txs, err := c.getAdapter().DecodeTransactions(meta.Transactions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode raw block transactions: %w", err)
 	}
