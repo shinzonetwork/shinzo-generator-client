@@ -367,7 +367,6 @@ func TestLoadBSCConfig(t *testing.T) {
 	assert.Equal(t, "BSC__Mainnet__Block", blockCol)
 
 	sigCol := collections.BlockSignatureCollection()
-	require.NoError(t, err)
 	assert.Equal(t, "BSC__Mainnet__BlockSignature", sigCol)
 }
 

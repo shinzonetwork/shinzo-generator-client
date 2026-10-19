@@ -159,6 +159,7 @@ bsc-bench-fetch:
 # BSC_* env vars), and unlike `go clean -testcache` it leaves the rest of the
 # project's test results cached.
 bsc-acceptance-test:
+	go vet -tags=acceptance ./...
 	go test -tags=acceptance ./benchmarking/bsc -run TestBSCReplayAcceptance -count=1 -v -timeout 30m
 
 lint:

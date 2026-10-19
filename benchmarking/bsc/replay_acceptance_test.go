@@ -39,8 +39,14 @@ const (
 	fixtureDir = "../testdata"
 
 	// fixtureGlob matches this chain's captures so the newest fixture wins
-	// when no explicit path is given.
+	// when no explicit path is given. It also matches partial captures on
+	// purpose; resolveFixturePath filters them out of the auto-pick below.
 	fixtureGlob = "bsc_blocks_*.json"
+
+	// partialFixtureSuffix marks an interrupted capture's file name (the
+	// capture tool appends it at save time, after the block range). The
+	// auto-pick skips these; only an explicit BSC_REPLAY_FIXTURE replays one.
+	partialFixtureSuffix = "_partial.json"
 
 	// badgerVlogSizeShift is log2 of one mebibyte: the config field is in MB,
 	// SetBadgerFileSize wants bytes.
@@ -59,7 +65,7 @@ const (
 func TestBSCReplayAcceptance(t *testing.T) {
 	fixturePath := resolveFixturePath(t)
 	if fixturePath == "" {
-		t.Skipf("no replay fixture found: run 'make bsc-bench-fetch' (needs GETH_RPC_URL) to capture one into %s, or point BSC_REPLAY_FIXTURE at an existing fixture", fixtureDir)
+		t.Skipf("no complete replay fixture found: run 'make bsc-bench-fetch' (needs GETH_RPC_URL) to capture one into %s, or point BSC_REPLAY_FIXTURE at an existing fixture (partial captures are skipped by auto-pick and must be passed explicitly)", fixtureDir)
 	}
 
 	fx := loadReplayFixture(t, fixturePath)
@@ -158,7 +164,10 @@ func TestBSCReplayAcceptance(t *testing.T) {
 }
 
 // resolveFixturePath picks the fixture to replay: BSC_REPLAY_FIXTURE wins,
-// otherwise the newest capture in testdata is used. Empty means none found.
+// otherwise the newest complete capture in testdata is used. Interrupted
+// captures are never auto-picked: their range is whatever happened to be
+// captured when the tool stopped, so replaying the "newest" partial would
+// silently measure less than the requested range. Empty means none found.
 func resolveFixturePath(t *testing.T) string {
 	t.Helper()
 	if explicit := os.Getenv("BSC_REPLAY_FIXTURE"); explicit != "" {
@@ -169,15 +178,30 @@ func resolveFixturePath(t *testing.T) string {
 	}
 
 	matches, err := filepath.Glob(filepath.Join(fixtureDir, fixtureGlob))
-	if err != nil || len(matches) == 0 {
+	if err != nil {
+		return ""
+	}
+
+	// Drop partial captures from the auto-pick: the _partial suffix is the
+	// capture tool's marker for an interrupted run, and only an explicit
+	// BSC_REPLAY_FIXTURE may replay one.
+	var complete []string
+	for _, match := range matches {
+		if strings.HasSuffix(match, partialFixtureSuffix) {
+			logger.Testf("skipping partial capture %s (pass it via BSC_REPLAY_FIXTURE to replay it)", match)
+			continue
+		}
+		complete = append(complete, match)
+	}
+	if len(complete) == 0 {
 		return ""
 	}
 
 	// Newest capture wins; the filename embeds the block range, not the
 	// capture time, so modtime is the only reliable ordering.
-	newest := matches[0]
+	newest := complete[0]
 	var newestMod time.Time
-	for _, match := range matches {
+	for _, match := range complete {
 		info, err := os.Stat(match)
 		if err != nil {
 			continue
@@ -309,15 +333,11 @@ func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Cont
 // mustBlockCollection resolves the chain's block collection name.
 func mustBlockCollection(t *testing.T, cols chains.Collections) string {
 	t.Helper()
-	name, err := cols.GetCollection(chains.TypeBlock)
-	require.NoError(t, err)
-	return name
+	return cols.BlockCollection()
 }
 
 // mustSignatureCollection resolves the chain's block-signature collection name.
 func mustSignatureCollection(t *testing.T, cols chains.Collections) string {
 	t.Helper()
-	name, err := cols.GetCollection(chains.TypeBlockSignature)
-	require.NoError(t, err)
-	return name
+	return cols.BlockSignatureCollection()
 }

@@ -79,8 +79,10 @@ make bsc-acceptance-test
 - Build tag `acceptance`: excluded from `go test ./...` and CI, like the live
   suites.
 - Fixture resolution: `BSC_REPLAY_FIXTURE` env wins; otherwise the newest
-  `benchmarking/testdata/bsc_blocks_*.json` is used. **Missing fixture →
-  the test skips** with regeneration instructions.
+  complete `benchmarking/testdata/bsc_blocks_*.json` is used. Partial captures
+  (`*_partial.json`, from an interrupted run) are never auto-picked: replay
+  one by passing it via `BSC_REPLAY_FIXTURE`. **Missing fixture → the test
+  skips** with regeneration instructions.
 - `BSC_REPLAY_MAX_BLOCKS=50` caps the sample for slow hosts.
 - `BSC_TARGET_BLOCK_TIME=750ms` overrides the target block interval (e.g. for
   a Maxwell-era fixture); the default is `450ms`.
