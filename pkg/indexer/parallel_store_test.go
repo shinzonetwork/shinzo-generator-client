@@ -616,3 +616,31 @@ func TestParallelStores_FetchHoleSkipsApplyCursor(t *testing.T) {
 		})
 	}
 }
+
+// TestParallelStores_CancelDispatchStress hammers the dispatch lifetime
+// around cancellation: pre-fix, a registration taken after the pool send
+// raced the worker's completion drop (an instantly reported store outruns
+// the collector's next instruction), and a close-side channel teardown
+// raced the collector's dispatch send. Thirty short runs cancel right
+// while the pool is busy, so the race detector exercises both windows.
+func TestParallelStores_CancelDispatchStress(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	for i := range 30 {
+		p := NewConcurrentBlockProcessor(
+			canonicalOnlyFetcher(99, 104),
+			chainConverter(),
+			&mockBlockStorer{},
+			&mockReorgHandler{},
+			4, 0,
+		)
+
+		rec := &commitRecorder{}
+		cancel, errCh := runProcessor(p, 100, rec.record)
+
+		waitForCommits(t, rec, 2, errCh)
+		cancel()
+		assert.ErrorIs(t, <-errCh, context.Canceled, "iteration %d", i)
+	}
+}
