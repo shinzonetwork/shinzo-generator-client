@@ -290,6 +290,17 @@ func (s *soakStorer) heightInFlight(height int64) bool {
 	return s.inFlight[height] > 0
 }
 
+// anyInFlight reports whether any store call is currently running. A store
+// that already returned cannot write anymore, so call-level tracking is the
+// precise signal for the rollback invariant (no writes inside or after a
+// rollback range); an item still queued for the pool cannot reach the store
+// during an episode drain because the drain waits for its completion first.
+func (s *soakStorer) anyInFlight() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.inFlight) > 0
+}
+
 // drainFailures zeroes the remaining transient failures before the settle
 // phase: chaos-phase holes re-fill on re-invocation, but a fresh failure
 // inside the settle run would starve the convergence predicate.
@@ -531,7 +542,7 @@ func runSoakSeed(t *testing.T, seed int64) {
 	watcher := &soakWatcher{ReorgHandler: reorg}
 	watcher.heightInFlight = storer.heightInFlight
 	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), storer, watcher, plan.workers, 0)
-	watcher.anyInFlight = func() bool { return p.storeInFlight.Load() > 0 }
+	watcher.anyInFlight = storer.anyInFlight
 
 	var outcomes []soakRunOutcome
 	cancelCommits := int64(2 + rng.IntN(12))

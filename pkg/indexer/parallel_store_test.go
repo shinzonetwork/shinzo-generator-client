@@ -169,7 +169,7 @@ func TestParallelStores_OverlapWithOrderedCallbacks(t *testing.T) {
 
 	waitForCommits(t, rec, 4, errCh)
 	cancel()
-	<-errCh
+	assert.ErrorIs(t, <-errCh, context.Canceled)
 
 	assert.GreaterOrEqual(t, storeCalls.Load(), int64(2), "the pool stored the checked blocks")
 	got := rec.snapshot()
@@ -465,4 +465,154 @@ func TestParallelStores_RefusalThroughPoolFailsRun(t *testing.T) {
 
 	assert.Empty(t, rec.snapshot(), "the refused height must not commit or skip")
 	assert.Empty(t, reorg.calls())
+}
+
+// TestParallelStores_DrainWaitsForInFlightReports pins the drain handshake:
+// a pool worker drops its in-flight registration only after its completion
+// send, so a finalization resuming from the wait state cannot miss a report.
+// The stale-pinned episode opens while the store at 101 is still parked
+// inside the pool; the finalization resumes only after that completion
+// landed, applies it suppressed, and only then runs the walk-back and the
+// rollback.
+func TestParallelStores_DrainWaitsForInFlightReports(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	// The stale orphan at 100 is pre-existing stored state (a previous run)
+	// the failing store never overwrote; canonical 99 sits below it.
+	reorg := &mockReorgHandler{storedHashes: map[int64]string{
+		99:  canonicalHash(99),
+		100: orphanHash(100),
+	}}
+	reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
+		return purgeStoredHashes(reorg, from, to)
+	}
+	storer := &parkedStorer{
+		reorg:        reorg,
+		failHeights:  map[int64]int64{100: 1},
+		storeBlocked: 101,
+		released:     make(chan struct{}),
+		releasedC:    make(chan struct{}),
+	}
+	watcher := newInFlightWatcher(reorg, func() int64 { return storer.inFlight.Load() })
+
+	rec := &commitRecorder{}
+	p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), storer, watcher, 1, 0)
+
+	cancel, errCh := runProcessor(p, 100, rec.record)
+	defer cancel()
+
+	// The failed store at 100 opens the stale-pinned episode; the parked
+	// store at 101 holds the finalization until it is released.
+	deadline := time.After(2 * time.Second)
+	for {
+		p.pendingMu.Lock()
+		open := p.episode != nil
+		p.pendingMu.Unlock()
+		if open {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for the stale episode to open")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	assert.Empty(t, reorg.calls(), "no rollback may run while a store is parked inside the pool")
+	assert.Equal(t, int64(0), watcher.violations.Load(),
+		"no stored-hash query or rollback may run while the pool is busy")
+
+	close(storer.released)
+	waitParkedReleased(t, storer)
+
+	// The restart re-commits the rollback range canonically.
+	waitForCommits(t, rec, 4, errCh)
+	cancel()
+	err := <-errCh
+	assert.ErrorIs(t, err, context.Canceled)
+
+	got := rec.snapshot()
+	require.GreaterOrEqual(t, len(got), 4)
+	assert.Equal(t, []int64{100, 101, 102, 103}, got[:4],
+		"the drain must apply the parked report (suppressed) before the walk-back, and the restart re-commits the range in order")
+
+	calls := reorg.calls()
+	require.Len(t, calls, 1, "one stale orphan is exactly one rollback episode")
+	assert.Equal(t, int64(100), calls[0].from)
+	assert.Equal(t, int64(0), watcher.violations.Load(),
+		"the walk-back and the rollback must have run without in-flight stores")
+}
+
+// TestParallelStores_FetchHoleSkipsApplyCursor pins the hole-aware apply
+// cursor: a failed fetch or convert is never dispatched to the pool, so no
+// completion ever reports the height, and the ordered apply must skip it
+// instead of stranding there. Callbacks continue above the hole in order,
+// the run keeps indexing, and no episode opens for an unstored hole.
+func TestParallelStores_FetchHoleSkipsApplyCursor(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	cases := []struct {
+		name       string
+		start      int64
+		holes      map[int64]bool
+		wantPrefix []int64
+	}{
+		{
+			name:       "MidRunHole",
+			start:      100,
+			holes:      map[int64]bool{101: true},
+			wantPrefix: []int64{100, 102, 103, 104},
+		},
+		{
+			name:       "StartHeightHole",
+			start:      100,
+			holes:      map[int64]bool{100: true},
+			wantPrefix: []int64{101, 102, 103, 104},
+		},
+		{
+			name:       "ConsecutiveHoles",
+			start:      100,
+			holes:      map[int64]bool{101: true, 102: true},
+			wantPrefix: []int64{100, 103, 104},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
+			hole := tc.holes
+			fetcher := &testutils.MockFetcher{
+				FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+					// A persistent non-not-found error exhausts the fetch
+					// retries and leaves the height unstored.
+					if hole[height] {
+						return nil, fmt.Errorf("internal RPC error")
+					}
+					return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+				},
+				FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
+			}
+
+			rec := &commitRecorder{}
+			reorg := &mockReorgHandler{}
+			p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+
+			cancel, errCh := runProcessor(p, tc.start, rec.record)
+			defer cancel()
+
+			// Reaching the wantPrefix is the regression signal: a stranded
+			// apply cursor never fires the callbacks above the hole and the
+			// helper fails on its deadline.
+			waitForCommits(t, rec, len(tc.wantPrefix), errCh)
+			cancel()
+			assert.ErrorIs(t, <-errCh, context.Canceled)
+
+			got := rec.snapshot()
+			require.GreaterOrEqual(t, len(got), len(tc.wantPrefix))
+			assert.Equal(t, tc.wantPrefix, got[:len(tc.wantPrefix)],
+				"the ordered apply skips the fetch-failed heights; callbacks continue in order above them")
+			assert.Empty(t, reorg.calls(), "an unstored hole opens no episode")
+		})
+	}
 }

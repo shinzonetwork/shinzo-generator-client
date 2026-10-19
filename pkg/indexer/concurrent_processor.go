@@ -202,7 +202,15 @@ type ConcurrentBlockProcessor struct {
 	// builds a fresh pool.
 	storeChan      chan *BlockResult
 	completionChan chan storeCompletion
-	storeInFlight  atomic.Int64
+	// inFlightWg counts stores dispatched to the pool: the collector Adds
+	// when its send lands, and a pool worker Dones only after its
+	// completion send, so Wait returning implies every outstanding
+	// completion already sits in the buffer (the ordering the drain
+	// relies on). Add and Wait both run on the single collector
+	// goroutine, so the Add-while-Waiting hazard cannot occur, and the
+	// group needs no per-run reset: shutdown settles the pool (every
+	// dispatched item Done'd) before the next run can start.
+	inFlightWg sync.WaitGroup
 
 	// episodeRollbacks increments per executed rollback in the current
 	// episode sequence - consecutive rollbacks without an intervening
@@ -231,9 +239,13 @@ type ConcurrentBlockProcessor struct {
 
 	// completions apply in height order through this cursor and reorder
 	// buffer: pool stores finish out of order, so the collector holds
-	// completions until the apply cursor reaches their height.
+	// completions until the apply cursor reaches their height. Heights
+	// that failed fetch or convert are never dispatched to the pool, so
+	// they can never produce a completion; applyHoles records them so the
+	// cursor skips them instead of stranding on one forever.
 	applyCursor        int64
 	reorderCompletions map[int64]storeCompletion
+	applyHoles         map[int64]struct{}
 
 	// configuredStart is the lowest height any ProcessBlocks call started
 	// from: nothing is ever stored below it, so the reorg walk-back treats
@@ -283,10 +295,13 @@ func NewConcurrentBlockProcessor(
 //
 // The onBlockProcessed callback contract: it fires exactly once per
 // successfully committed height, in strict height order, always on one
-// goroutine (the result collector). Heights rolled back during the run fire
-// no second callback until the restart re-commits them. It runs outside the
-// processor's internal lock, so it may take its own locks, but it must not
-// call ProcessBlocks (or otherwise start a run) re-entrantly, and it must
+// goroutine (the result collector). Heights whose fetch or convert failed
+// are never stored, so they fire no callback in the run that failed them; a
+// later run that re-fills them fires it then, and the order stays strict with
+// a gap exactly at the unstored height. Heights rolled back during the run
+// fire no second callback until the restart re-commits them. It runs outside
+// the processor's internal lock, so it may take its own locks, but it must
+// not call ProcessBlocks (or otherwise start a run) re-entrantly, and it must
 // return promptly: it serializes the ordered apply, so a slow callback
 // throttles indexing.
 func (p *ConcurrentBlockProcessor) ProcessBlocks(
@@ -432,6 +447,7 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	p.applyCursor = startBlock
 	p.committedHashes = make(map[int64]string)
 	p.reorderCompletions = make(map[int64]storeCompletion)
+	p.applyHoles = make(map[int64]struct{})
 	p.rollbackPoint = nil
 	p.episode = nil
 	p.fatalErr = nil
@@ -443,10 +459,10 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	p.storeChan = make(chan *BlockResult, p.workers*DefaultWorkersAhead)
 	// The completion buffer must hold every store the pool can finish before
 	// the collector applies it, so a pool worker's send never blocks even
-	// while the collector is mid-pop-flow: outstanding completions are all
-	// queued dispatches plus one per pool worker.
+	// while the collector is mid-pop-flow or waiting inside the drain's
+	// inFlightWg.Wait (which consumes nothing): outstanding completions are
+	// all queued dispatches plus one per pool worker.
 	p.completionChan = make(chan storeCompletion, p.workers*(DefaultWorkersAhead+1))
-	p.storeInFlight.Store(0)
 	p.runCancel = runCancel
 	p.pendingMu.Unlock()
 
@@ -533,8 +549,12 @@ func (p *ConcurrentBlockProcessor) runStoreTask(ctx context.Context, item *Block
 	if computed.Error != nil && !errors.IsErrDocumentDeleted(computed.Error) && p.reorgHandler != nil {
 		completion.stale = p.detectStaleOrphan(ctx, item)
 	}
+	// The completion send precedes the in-flight drop: a drain waiting on
+	// the group therefore resumes only after this completion already sits
+	// in the buffer, so no report can be lost between the counter and the
+	// channel.
 	p.completionChan <- completion
-	p.storeInFlight.Add(-1)
+	p.inFlightWg.Done()
 }
 
 // detectStaleOrphan is the pool-side failure handler: for a store that
@@ -644,7 +664,7 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 				p.applyCompletion(ctx, completion, onBlockProcessed, false)
 			}
 		case storeSender <- dispatched:
-			p.storeInFlight.Add(1)
+			p.inFlightWg.Add(1)
 			dispatched = nil
 		case <-done:
 			dispatched = nil
@@ -664,12 +684,18 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 func (p *ConcurrentBlockProcessor) checkedForDispatch(ctx context.Context, next *BlockResult) *BlockResult {
 	// A failed fetch/convert result is never stored (the old hole path):
 	// warn, mark the check chain unusable for this height, and let the
-	// next usable pop adopt the gap verification for the hole.
+	// next usable pop adopt the gap verification for the hole. The height
+	// can never produce a store completion, so the apply cursor must be
+	// able to skip it: record the hole for the ordered collect. Dispatch
+	// continues above the hole (the pop cursor already moved past it at
+	// pop time and the throttle keys off it), so the next completion to
+	// arrive pulls the cursor past the hole and drains parked successors.
 	if !next.Success {
 		logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
 		p.pendingMu.Lock()
 		p.lastCheckedNum = next.BlockNum
 		p.lastCheckedHash = ""
+		p.applyHoles[next.BlockNum] = struct{}{}
 		p.pendingMu.Unlock()
 		return nil
 	}
@@ -769,35 +795,55 @@ func (p *ConcurrentBlockProcessor) poppedGapSignal(ctx context.Context, next *Bl
 	return gapFallbackSignal(stored, next)
 }
 
-// applyCompletion routes one completion through the apply-cursor reorder
-// buffer: completions apply strictly in height order so onBlockProcessed
-// fires in pop order no matter which pool store finished first. Out-of-order
-// completions wait in the reorder buffer until the cursor reaches them.
+// applyCompletion parks one pool completion in the reorder buffer and
+// applies every completion the cursor can now reach: strictly in height
+// order so onBlockProcessed fires in pop order no matter which pool store
+// finished first. Parking first keeps a single cursor-advance path, so the
+// batch is identical for a completion that lands at the cursor and one that
+// completes a parked prefix, and recorded hole heights (failed fetch or
+// convert, unstored) are skipped by the same pass.
 func (p *ConcurrentBlockProcessor) applyCompletion(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64), suppress bool) {
 	p.pendingMu.Lock()
-	height := completion.item.BlockNum
-	if height != p.applyCursor {
-		p.reorderCompletions[height] = completion
-		p.pendingMu.Unlock()
-		return
-	}
-	batch := []storeCompletion{completion}
-	p.applyCursor++
+	p.reorderCompletions[completion.item.BlockNum] = completion
+	batch := p.collectReadyCompletionsLocked()
+	p.pendingMu.Unlock()
+
+	p.applyBatch(ctx, batch, onBlockProcessed, suppress)
+}
+
+// collectReadyCompletionsLocked gathers the ordered batch the apply cursor
+// can reach: each recorded hole at the cursor advances it without a
+// completion, and each parked completion at the cursor applies next. Two
+// invariants keep this pass total: a hole records only at heights the cursor
+// sits at or below (the cursor can pass a height only through its completion
+// or its recorded hole, and a fetch-failed height has neither), and a hole
+// height never carries a parked completion (completions come only from
+// dispatched items and the hole height was never dispatched in this run).
+// The caller holds pendingMu.
+func (p *ConcurrentBlockProcessor) collectReadyCompletionsLocked() []storeCompletion {
+	var batch []storeCompletion
 	for {
+		if _, hole := p.applyHoles[p.applyCursor]; hole {
+			delete(p.applyHoles, p.applyCursor)
+			p.applyCursor++
+			continue
+		}
 		next, ok := p.reorderCompletions[p.applyCursor]
 		if !ok {
-			break
+			return batch
 		}
 		delete(p.reorderCompletions, p.applyCursor)
 		batch = append(batch, next)
 		p.applyCursor++
 	}
-	p.pendingMu.Unlock()
+}
 
+// applyBatch applies the ordered batch: an episode or fatal error recorded
+// by an earlier iteration (a stale-pinned episode finalizing mid-batch) puts
+// the rest of the batch inside the range about to be rolled back, so it must
+// not commit or fire callbacks.
+func (p *ConcurrentBlockProcessor) applyBatch(ctx context.Context, batch []storeCompletion, onBlockProcessed func(blockNum int64), suppress bool) {
 	for _, c := range batch {
-		// A stale-pinned episode can finalize inside an earlier iteration
-		// of this loop; the rest of the batch then sits in the range it is
-		// about to roll back, so it must not commit or fire callbacks.
 		p.pendingMu.Lock()
 		ended := p.rollbackPoint != nil || p.fatalErr != nil
 		p.pendingMu.Unlock()
@@ -875,11 +921,13 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 	p.applyCommit(item, computed, onBlockProcessed)
 }
 
-// drainInFlightStores waits for zero in-flight stores and applies every
-// completion the pool has reported before returning. In-flight == 0 implies
-// every dispatched store has sent its completion, so draining the channel to
-// empty resolves the whole reorder buffer. Suppression applies when the
-// caller is finalizing a stale-pinned episode: those completions come from
+// drainInFlightStores waits for every store the pool accepted (the in-flight
+// group drops only after each worker's completion send, so Wait returning
+// implies every outstanding completion already landed in the buffer) and then
+// drains the channel to empty, resolving the whole reorder buffer before the
+// walk-back starts. Nothing can arrive after the wait: the collector is the
+// only store dispatcher and it is inside this drain. Suppression applies when
+// the caller is finalizing a stale-pinned episode: those completions come from
 // stores dispatched before the hold-back opened, they land (they cannot be
 // recalled) but must not apply callbacks or commit bookkeeping inside the
 // run that is about to roll their heights back. A drained failure's own
@@ -890,10 +938,18 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 func (p *ConcurrentBlockProcessor) drainInFlightStores(ctx context.Context, ep *reorgEpisode, onBlockProcessed func(blockNum int64)) {
 	suppress := ep.stalePinned
 
-	// Wait for the pool to finish everything it accepted, consuming reported
-	// completions while waiting. An in-flight store always sends its
-	// completion before its in-flight count drops, so a send is guaranteed
-	// while the counter is positive and this loop terminates at zero.
+	// Every pool worker drops its in-flight registration only after its
+	// completion send, so Wait returning implies every outstanding
+	// completion already sits in the buffer. The buffer is sized to hold
+	// every outstanding completion, so worker sends never block while the
+	// collector waits here. Wait always terminates: every dispatch is
+	// paired with exactly one Done, even under cancellation (a cancelled
+	// store still reports an error completion).
+	p.inFlightWg.Wait()
+
+	// Nothing new can arrive: the collector is the only store dispatcher
+	// and it is inside this drain. Consume what landed, in cursor order,
+	// until the channel is empty or shutdown closed it.
 	for {
 		select {
 		case completion, ok := <-p.completionChan:
@@ -901,28 +957,6 @@ func (p *ConcurrentBlockProcessor) drainInFlightStores(ctx context.Context, ep *
 				return
 			}
 			p.applyCompletion(ctx, completion, onBlockProcessed, suppress)
-			continue
-		default:
-		}
-		if p.storeInFlight.Load() == 0 {
-			break
-		}
-		completion, ok := <-p.completionChan
-		if !ok {
-			return
-		}
-		p.applyCompletion(ctx, completion, onBlockProcessed, suppress)
-	}
-	// All stores are done: every remaining reported completion is queued in
-	// the buffer; drain it to empty so the reorder buffer resolves.
-	for {
-		select {
-		case completion, ok := <-p.completionChan:
-			if !ok {
-				return
-			}
-			p.applyCompletion(ctx, completion, onBlockProcessed, suppress)
-			continue
 		default:
 			return
 		}

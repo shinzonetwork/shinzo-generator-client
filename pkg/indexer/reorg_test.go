@@ -699,7 +699,7 @@ func TestReorgProcessor_GapNoFalseReorg(t *testing.T) {
 
 	waitForCommits(t, rec, 2, errCh)
 	cancel()
-	<-errCh
+	assert.ErrorIs(t, <-errCh, context.Canceled)
 
 	got := rec.snapshot()
 	require.GreaterOrEqual(t, len(got), 2)
