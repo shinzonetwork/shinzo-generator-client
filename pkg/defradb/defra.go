@@ -3,6 +3,7 @@ package defradb
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +63,16 @@ const (
 	// NodeIdentityKeyName is the keyring entry name for the node's libp2p identity private key.
 	NodeIdentityKeyName string = "node-identity-key"
 
+	// keyringDirName is the directory holding the file keyring. It sits beside
+	// the store directory so wiping or restoring the store cannot take the node
+	// identity with it. The same name was the in-store location used before the
+	// move, which the startup migration reads.
+	keyringDirName string = "keys"
+
+	// plaintextIdentityFileName is the legacy plaintext key file older releases
+	// kept in the store path before the keyring existed.
+	plaintextIdentityFileName string = "defra_identity.key"
+
 	defaultP2PMaxRetries = 5
 	// libp2p resource manager defaults. Left unset, libp2p autoscales its limits from the memory
 	// the process can see, which inside a container is the host machine's rather than the cgroup
@@ -88,23 +99,33 @@ const (
 // 3. Reconstructing the same identity from stored private key bytes on subsequent runs
 // 4. Ensuring the same cryptographic identity is used across application restarts
 //
-// Current Status: FULLY FUNCTIONAL
-// - Private keys are properly extracted and stored in keyring
-// - Identities are reconstructed from keyring, maintaining consistency
-// - Keys are encrypted using PBES2_HS512_A256KW algorithm
-// - Comprehensive error handling and logging
+// The keyring lives in a keys directory beside the store directory, not inside
+// it, so wiping or restoring the store cannot take the node identity with it.
+// Older layouts are migrated on first open, before any identity is generated,
+// so an upgraded node always keeps its existing identity:
+//   - A keyring at {storePath}/keys, the previous in-store location, is copied
+//     to the sibling keys directory.
+//   - A plaintext defra_identity.key in the store path is imported into the
+//     keyring.
+//
+// Both migrations copy and leave the source in place as an operator-visible
+// backup. A new identity is generated only when neither source holds one.
 //
 // Security Features:
-// - Keys stored in encrypted keyring (default: {storePath}/keys/)
+// - Keys stored in encrypted keyring (keys directory beside the store path)
 // - Encryption key derived from KeyringSecret
 // - Proper error handling for corrupted or missing keys
 // - Requires DEFRA_KEYRING_SECRET environment variable or config
 
-// OpenKeyring opens the file-based keyring at {Store.Path}/keys using
-// KeyringSecret as the encryption secret. Returns an error if cfg is nil or
-// KeyringSecret is empty; callers that want a "no keyring → fall back" flow
-// should detect that error at their own call site rather than relying on a
-// silent nil return.
+// OpenKeyring opens the file-based keyring in the keys directory beside the
+// store path using KeyringSecret as the encryption secret. Returns an error if
+// cfg is nil or KeyringSecret is empty; callers that want a "no keyring → fall
+// back" flow should detect that error at their own call site rather than
+// relying on a silent nil return.
+//
+// Opening the keyring runs the one-time migrations first (in-store keyring
+// copy, plaintext identity import), so every consumer sees the migrated state
+// and the load-or-generate decision never runs while an old identity exists.
 func OpenKeyring(cfg *config.Config) (keyring.Keyring, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config cannot be nil")
@@ -113,20 +134,173 @@ func OpenKeyring(cfg *config.Config) (keyring.Keyring, error) {
 		return nil, fmt.Errorf("KeyringSecret is required for keyring-based key management")
 	}
 
-	// Use file-based keyring (default for DefraDB)
-	// Keyring path defaults to "keys" directory in store path, or "keys" in current dir
-	keyringPath := filepath.Join(cfg.DefraDB.Store.Path, "keys")
-	if cfg.DefraDB.Store.Path == "" {
-		keyringPath = "keys"
+	if logger.Sugar == nil {
+		logger.Init(cfg.Logger.Development)
 	}
+
+	keyringPath := keyringPathFor(cfg.DefraDB.Store.Path)
 
 	// Ensure directory exists
 	if err := os.MkdirAll(keyringPath, 0o750); err != nil { //nolint:mnd
 		return nil, fmt.Errorf("failed to create keyring directory: %w", err)
 	}
 
-	secret := []byte(cfg.DefraDB.KeyringSecret)
-	return keyring.OpenFileKeyring(keyringPath, secret)
+	if err := migrateKeyringDir(cfg.DefraDB.Store.Path, keyringPath); err != nil {
+		return nil, fmt.Errorf("failed to migrate keyring: %w", err)
+	}
+
+	kr, err := keyring.OpenFileKeyring(keyringPath, []byte(cfg.DefraDB.KeyringSecret))
+	if err != nil {
+		return nil, fmt.Errorf("failed to open keyring: %w", err)
+	}
+
+	if err := importPlaintextIdentity(kr, cfg.DefraDB.Store.Path); err != nil {
+		return nil, fmt.Errorf("failed to import legacy plaintext identity: %w", err)
+	}
+
+	return kr, nil
+}
+
+// keyringPathFor resolves the keyring to a keys directory beside the store
+// directory so restoring or wiping the store cannot take the node identity
+// with it. An empty store path keeps the current-directory "keys" fallback.
+func keyringPathFor(storePath string) string {
+	if storePath == "" {
+		return keyringDirName
+	}
+	return filepath.Join(filepath.Dir(storePath), keyringDirName)
+}
+
+// migrateKeyringDir copies a keyring found at {storePath}/keys, the location
+// used before the keyring moved beside the store, into the sibling keyring
+// directory. It only copies when the destination has no node-identity-key, so
+// a key already at the new location is never overwritten and existing
+// destination entries are never clobbered. The legacy directory is left
+// untouched as an operator-visible backup.
+func migrateKeyringDir(storePath, keyringPath string) error {
+	if storePath == "" {
+		return nil
+	}
+	legacyPath := filepath.Join(storePath, keyringDirName)
+	if filepath.Clean(legacyPath) == filepath.Clean(keyringPath) {
+		return nil
+	}
+
+	legacyKeyFile := filepath.Join(legacyPath, NodeIdentityKeyName)
+	if _, err := os.Stat(legacyKeyFile); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to inspect legacy keyring: %w", err)
+		}
+		return nil
+	}
+	newKeyFile := filepath.Join(keyringPath, NodeIdentityKeyName)
+	if _, err := os.Stat(newKeyFile); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to inspect keyring: %w", err)
+	}
+
+	entries, err := os.ReadDir(legacyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read legacy keyring directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		dst := filepath.Join(keyringPath, entry.Name())
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to inspect keyring entry: %w", err)
+		}
+		if err := copyKeyringFile(filepath.Join(legacyPath, entry.Name()), dst); err != nil {
+			return fmt.Errorf("failed to copy keyring entry %s: %w", entry.Name(), err)
+		}
+	}
+
+	logger.Sugar.Infof("Migrated node identity keyring from %s to %s", legacyPath, keyringPath)
+	return nil
+}
+
+// copyKeyringFile copies a single keyring file, preserving its permissions.
+func copyKeyringFile(src, dst string) error {
+	data, err := os.ReadFile(src) //nolint:gosec // src comes from os.ReadDir on the local legacy keyring directory, never from user input
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, info.Mode().Perm()) //nolint:gosec // dst is the sibling keyring directory opened for the same migration purpose
+}
+
+// importPlaintextIdentity imports the legacy plaintext defra_identity.key from
+// the store path into the keyring when the keyring holds no node-identity-key.
+// Releases before the keyring stored the identity as a hex file in the store
+// path; importing it here keeps those nodes on their existing identity instead
+// of generating a new one. The file stays in place as an operator-visible
+// backup. An unparsable file is logged and skipped rather than failing startup:
+// a key that cannot be decoded holds no recoverable identity, and blocking
+// startup over it would leave the node down while the keyring can still hold a
+// valid identity from another source.
+func importPlaintextIdentity(kr keyring.Keyring, storePath string) error {
+	if storePath == "" {
+		return nil
+	}
+	keyPath := filepath.Join(storePath, plaintextIdentityFileName)
+	if _, err := os.Stat(keyPath); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to inspect legacy key file: %w", err)
+		}
+		return nil
+	}
+
+	if _, err := kr.Get(NodeIdentityKeyName); err == nil {
+		return nil
+	} else if !errors.Is(err, keyring.ErrNotFound) {
+		return fmt.Errorf("failed to inspect keyring: %w", err)
+	}
+
+	nodeIdentity, err := fullIdentityFromHexFile(keyPath)
+	if err != nil {
+		logger.Sugar.Warnf("Ignoring unreadable legacy identity file %s: %v", keyPath, err)
+		return nil
+	}
+
+	if err := saveNodeIdentityToKeyring(kr, nodeIdentity); err != nil {
+		return err
+	}
+
+	logger.Sugar.Infof("Imported legacy plaintext identity from %s into the keyring", keyPath)
+	return nil
+}
+
+// fullIdentityFromHexFile reads a hex-encoded secp256k1 private key file and
+// rebuilds the FullIdentity, matching the legacy defra_identity.key format.
+func fullIdentityFromHexFile(keyPath string) (identity.FullIdentity, error) {
+	keyHex, err := os.ReadFile(filepath.Clean(keyPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read key file at %s: %w", keyPath, err)
+	}
+
+	keyBytes, err := hex.DecodeString(strings.TrimSpace(string(keyHex)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key hex: %w", err)
+	}
+
+	privateKey, err := crypto.PrivateKeyFromBytes(crypto.KeyTypeSecp256k1, keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reconstruct private key: %w", err)
+	}
+
+	fullIdentity, err := identity.FromPrivateKey(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reconstruct identity from private key: %w", err)
+	}
+
+	return fullIdentity, nil
 }
 
 // getOrCreateNodeIdentity retrieves an existing node identity from keyring or creates a new one.
@@ -519,7 +693,7 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	return defraNode, networkHandler, nil
 }
 
-// StartDefraInstanceWithTestConfig is a simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test.
+// StartDefraInstanceWithTestConfig is a simple wrapper on StartDefraInstance that changes the configured defra store path to a temp directory for the test. The store is nested inside the temp directory so the keyring sits beside the store, not inside it, and separate nodes started from the same test never share a keyring.
 func StartDefraInstanceWithTestConfig(t *testing.T, cfg *config.Config, schemaApplier SchemaApplier, collectionsOfInterest ...string) (*node.Node, error) {
 	ipAddress, err := utils.GetLANIP()
 	if err != nil {
@@ -530,7 +704,7 @@ func StartDefraInstanceWithTestConfig(t *testing.T, cfg *config.Config, schemaAp
 	if cfg == nil {
 		cfg = NewDefaultConfig()
 	}
-	cfg.DefraDB.Store.Path = t.TempDir()
+	cfg.DefraDB.Store.Path = filepath.Join(t.TempDir(), "store")
 	cfg.DefraDB.URL = defraURL
 	cfg.DefraDB.P2P.ListenAddr = listenAddress
 	cfg.DefraDB.KeyringSecret = testKeyringSecret
