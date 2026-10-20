@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/stretchr/testify/assert"
@@ -153,4 +154,12 @@ func TestRun_ChainAndNetworkRequired(t *testing.T) {
 			assert.Empty(t, buf.String())
 		})
 	}
+}
+
+func TestRun_InvalidChainName(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	err := run([]string{"build_schema", "--chain", "Arbitrum One", "--network", "Mainnet"}, &buf)
+	require.ErrorIs(t, err, config.ErrInvalidChainName)
+	assert.Empty(t, buf.String())
 }
