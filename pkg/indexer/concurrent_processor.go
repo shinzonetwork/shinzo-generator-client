@@ -462,11 +462,12 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	// ones, and a rollback restart runs processBlocksOnce again.
 	p.resultChan = make(chan *BlockResult, p.workers*DefaultWorkersAhead)
 	p.storeChan = make(chan *BlockResult, p.workers*DefaultWorkersAhead)
-	// The completion buffer must hold every store the pool can finish before
-	// the collector applies it, so a pool worker's send never blocks even
-	// while the collector is mid-pop-flow or waiting inside the drain's
-	// inFlightWg.Wait (which consumes nothing): outstanding completions are
-	// all queued dispatches plus one per pool worker.
+	// The completion buffer keeps a pool worker's completion send
+	// non-blocking through the collector's brief stretches without a
+	// receive (the synchronous pop-flow work between selects): outstanding
+	// completions are all queued dispatches plus one per pool worker. It
+	// does not carry the drain's termination - the drain consumes while it
+	// waits, so a full buffer can never hold a worker's Done hostage.
 	p.completionChan = make(chan storeCompletion, p.workers*(DefaultWorkersAhead+1))
 	p.runCancel = runCancel
 	p.pendingMu.Unlock()
@@ -964,10 +965,10 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 	p.applyCommit(item, computed, onBlockProcessed)
 }
 
-// drainInFlightStores waits for every store the pool accepted (each in-flight
-// registration leaves the group only after its worker's completion send, or
-// was dropped at abandonment before the drain), and then drains the channel to empty, resolving the whole reorder buffer before the
-// walk-back starts. Nothing can arrive after the wait: the collector is the
+// drainInFlightStores waits for every store the pool accepted - still
+// consuming completions while it waits, then draining the channel to empty -
+// resolving the whole reorder buffer before the walk-back starts. Nothing
+// can arrive after the wait: the collector is the
 // only store dispatcher and it is inside this drain. Suppression applies when
 // the caller is finalizing a stale-pinned episode: those completions come from
 // stores dispatched before the hold-back opened, they land (they cannot be
@@ -983,16 +984,43 @@ func (p *ConcurrentBlockProcessor) drainInFlightStores(ctx context.Context, ep *
 	// Registrations are taken when an item starts waiting for the pool, and
 	// dropped either by the worker (after its completion send) or by the
 	// collector (at abandonment). This drain runs only on the collector, so
-	// at Wait entry no waiting-but-unsent dispatch can still be registered:
+	// at wait entry no waiting-but-unsent dispatch can still be registered:
 	// the completion-case peek drops it before a stale episode opens, the
 	// pop-time episode opens before any dispatch is created, and the abandon
-	// check handles hold-back and cancellation. Wait returning therefore
-	// implies every pool-queued or store-running item has reported, and its
-	// completion already sits in the buffer, which is sized to hold every
-	// outstanding completion. Wait always terminates: every registration is
-	// paired with exactly one Done, even under cancellation (a cancelled
-	// store still reports an error completion).
-	p.inFlightWg.Wait()
+	// check handles hold-back and cancellation.
+	//
+	// The wait cannot lean on the completion buffer alone: the collector's
+	// select hands the pool further stores while earlier reports stay
+	// buffered (the send case can win without a receive), so completions
+	// already buffered plus completions still outstanding can exceed the
+	// buffer at wait entry, and a worker whose send blocks there would never
+	// reach its Done. The drain therefore consumes while it waits: every
+	// worker send finds a receiver, the send always precedes the Done, so
+	// every registration drops and the group settles under any buffer state,
+	// including cancellation, whose fast-failed stores still report error
+	// completions into this loop.
+	groupSettled := make(chan struct{})
+	go func() {
+		p.inFlightWg.Wait()
+		close(groupSettled)
+	}()
+
+waiting:
+	for {
+		select {
+		case <-groupSettled:
+			break waiting
+		case completion, ok := <-p.completionChan:
+			if !ok {
+				// Shutdown closed the channel: the close follows
+				// storeWg.Wait, so the group is settling too; the tail
+				// drain below sees the closed channel and returns.
+				<-groupSettled
+				break waiting
+			}
+			p.applyCompletion(ctx, completion, onBlockProcessed, suppress)
+		}
+	}
 
 	// Nothing new can arrive: the collector is the only store dispatcher
 	// and it is inside this drain. Consume what landed, in cursor order,

@@ -13,6 +13,8 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -642,5 +644,79 @@ func TestParallelStores_CancelDispatchStress(t *testing.T) {
 		waitForCommits(t, rec, 2, errCh)
 		cancel()
 		assert.ErrorIs(t, <-errCh, context.Canceled, "iteration %d", i)
+	}
+}
+
+// TestParallelStores_DrainConsumesWhileWaiting hammers the drain's wait
+// state: the ordered apply sleeps on every callback, so the completion
+// buffer saturates while the pool stays busy - completions sit buffered
+// while further stores are handed to workers, and a stale-triggered
+// finalization can enter its wait with completions already buffered plus
+// completions still outstanding above the buffer size. A drain that stopped
+// consuming there would let a worker's completion send block forever,
+// holding its registration: the wait, the rollback, and shutdown would
+// wedge, and cancellation would not unblock them. The drain consumes while
+// it waits, so every send finds a receiver and the run must converge and
+// unwind inside the deadline; a timeout dumps all goroutines to make a
+// wedge self-documenting.
+func TestParallelStores_DrainConsumesWhileWaiting(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	for i := range 10 {
+		// The stale orphan at 105 is pre-existing stored state (a previous
+		// run) the failing store never overwrote. The walk-back descends
+		// from the stale height and stops at the first matching stored hash,
+		// so 104 is the common ancestor, the rollback covers [105, tip], and
+		// the restart continues from 105.
+		reorg := &mockReorgHandler{storedHashes: map[int64]string{
+			105: orphanHash(105),
+		}}
+		reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
+			return purgeStoredHashes(reorg, from, to)
+		}
+		storer := &parkedStorer{reorg: reorg, failHeights: map[int64]int64{105: 1}}
+		rec := &commitRecorder{}
+		p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), storer, reorg, 4, 0)
+
+		// The slow callback is the wedge generator: it starves the
+		// collector's completion receives relative to the pool's sends, so
+		// the wait is entered with the buffer near full and the pool
+		// saturated.
+		sleep := time.Duration(2+i%4) * time.Millisecond
+		cancel, errCh := runProcessor(p, 100, func(blockNum int64) {
+			rec.record(blockNum)
+			time.Sleep(sleep)
+		})
+
+		deadline := time.After(10 * time.Second)
+		for len(rec.snapshot()) < 9 {
+			select {
+			case <-deadline:
+				if err := pprof.Lookup("goroutine").WriteTo(os.Stderr, 2); err != nil {
+					t.Logf("iteration %d: goroutine dump failed: %v", i, err)
+				}
+				t.Fatalf("iteration %d: the drain wedged at %d commits", i, len(rec.snapshot()))
+			case err := <-errCh:
+				t.Fatalf("iteration %d: ProcessBlocks exited early: %v", i, err)
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+		cancel()
+		assert.ErrorIs(t, <-errCh, context.Canceled, "iteration %d", i)
+
+		got := rec.snapshot()
+		require.GreaterOrEqual(t, len(got), 9, "iteration %d", i)
+		assert.Equal(t, []int64{100, 101, 102, 103, 104, 105, 106, 107, 108}, got[:9],
+			"iteration %d: the ordered apply must commit through the stale episode and the restart must continue from the common ancestor in order", i)
+
+		calls := reorg.calls()
+		require.Len(t, calls, 1, "iteration %d: one stale orphan is exactly one rollback episode", i)
+		assert.Equal(t, int64(105), calls[0].from, "iteration %d", i)
+
+		reorg.mu.Lock()
+		assert.Equal(t, canonicalHash(105), reorg.storedHashes[105],
+			"iteration %d: the stale orphan must be rolled back and re-indexed canonically", i)
+		reorg.mu.Unlock()
 	}
 }
