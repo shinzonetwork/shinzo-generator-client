@@ -92,7 +92,7 @@ pruner:
   interval_seconds: 30      # How often to check and prune
   prune_history: true       # Walk DAG chains to delete historical block versions (2-3x slower)
 snapshot:
-  enabled: true             # Snapshot ranges before the pruner deletes them
+  enabled: false            # Off for now; deeper history will go to separate storage (see snapshot.dir) (env: SNAPSHOT_ENABLED)
   dir: "./.defra-shinzohub/snapshots" # Directory to store snapshot files
   blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
   interval_seconds: 30 
