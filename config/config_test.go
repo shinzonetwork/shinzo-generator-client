@@ -574,6 +574,40 @@ func TestChainID_EnvOverride(t *testing.T) {
 	}
 }
 
+func TestApplyCosmosHostDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{}
+	cfg.Cosmos.Host = " testnet.shinzo.network "
+	applyCosmosHostDefaults(cfg)
+	assert.Equal(t, "http://testnet.shinzo.network:8545", cfg.Geth.NodeURL)
+	assert.Empty(t, cfg.Geth.WsURL, "WebSocket stays optional")
+	assert.Equal(t, "http://testnet.shinzo.network:26657", cfg.Cosmos.RPCURL)
+	assert.Equal(t, "http://testnet.shinzo.network:1317", cfg.Cosmos.LCDURL)
+
+	explicit := &Config{}
+	explicit.Cosmos.Host = "testnet.shinzo.network"
+	explicit.Geth.NodeURL = "http://10.0.0.1:8545"
+	explicit.Cosmos.LCDURL = "http://10.0.0.1:1317"
+	applyCosmosHostDefaults(explicit)
+	assert.Equal(t, "http://10.0.0.1:8545", explicit.Geth.NodeURL, "explicit URLs win")
+	assert.Equal(t, "http://10.0.0.1:1317", explicit.Cosmos.LCDURL, "explicit URLs win")
+	assert.Equal(t, "http://testnet.shinzo.network:26657", explicit.Cosmos.RPCURL)
+
+	none := &Config{}
+	applyCosmosHostDefaults(none)
+	assert.Empty(t, none.Geth.NodeURL, "no host leaves URLs untouched")
+}
+
+func TestCosmosHost_EnvOverride(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("COSMOS_HOST", "devnet.shinzo.network")
+	require.NoError(t, applyEnvOverrides(cfg))
+	applyDefaults(cfg)
+	assert.Equal(t, "http://devnet.shinzo.network:26657", cfg.Cosmos.RPCURL)
+	assert.Equal(t, "http://devnet.shinzo.network:8545", cfg.Geth.NodeURL)
+}
+
 func TestChainAdapter_EnvOverrideEmptyIgnored(t *testing.T) {
 	cfg := &Config{}
 	cfg.Chain.Adapter = DefaultChainAdapter
@@ -588,16 +622,18 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 		name         string
 		chainAdapter string
 		cosmos       CosmosConfig
+		gethURL      string
 		shouldError  bool
 		errContains  string
 	}{
-		{"evm valid", DefaultChainAdapter, CosmosConfig{}, false, ""},
-		{"cosmos-evm valid", CosmosEVMChainAdapter, CosmosConfig{RPCURL: "http://h:26657", LCDURL: "http://h:1317"}, false, ""},
-		{"cosmos-evm without rpc_url", CosmosEVMChainAdapter, CosmosConfig{LCDURL: "http://h:1317"}, true, "requires cosmos.rpc_url"},
-		{"cosmos-evm without lcd_url", CosmosEVMChainAdapter, CosmosConfig{RPCURL: "http://h:26657"}, true, "requires cosmos.rpc_url"},
-		{"cosmos rejected", "cosmos", CosmosConfig{}, true, "not yet implemented"},
-		{"solana rejected", "solana", CosmosConfig{}, true, "not yet implemented"},
-		{"empty rejected", "", CosmosConfig{}, true, "not yet implemented"},
+		{"evm valid", DefaultChainAdapter, CosmosConfig{}, "", false, ""},
+		{"cosmos-evm valid", CosmosEVMChainAdapter, CosmosConfig{RPCURL: "http://h:26657", LCDURL: "http://h:1317"}, "http://h:8545", false, ""},
+		{"cosmos-evm without rpc_url", CosmosEVMChainAdapter, CosmosConfig{LCDURL: "http://h:1317"}, "http://h:8545", true, "cosmos.rpc_url"},
+		{"cosmos-evm without lcd_url", CosmosEVMChainAdapter, CosmosConfig{RPCURL: "http://h:26657"}, "http://h:8545", true, "cosmos.lcd_url"},
+		{"cosmos-evm without evm url", CosmosEVMChainAdapter, CosmosConfig{RPCURL: "http://h:26657", LCDURL: "http://h:1317"}, "", true, "geth node_url"},
+		{"cosmos rejected", "cosmos", CosmosConfig{}, "", true, "not yet implemented"},
+		{"solana rejected", "solana", CosmosConfig{}, "", true, "not yet implemented"},
+		{"empty rejected", "", CosmosConfig{}, "", true, "not yet implemented"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -606,6 +642,7 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 			cfg.DefraDB.Embedded = true
 			cfg.Chain.Adapter = tt.chainAdapter
 			cfg.Cosmos = tt.cosmos
+			cfg.Geth.NodeURL = tt.gethURL
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			err := validateConfig(cfg)
 			if tt.shouldError {
