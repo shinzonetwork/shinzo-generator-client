@@ -24,7 +24,7 @@ const DefaultChainAdapter = "evm"
 var ErrChainUnset = errors.New("chain.name and chain.network are required")
 
 // ErrInvalidChainName is returned when the chain name or network cannot be part of a collection name.
-var ErrInvalidChainName = errors.New("chain name and network must each be a letter followed by letters or digits")
+var ErrInvalidChainName = errors.New("chain name and network must each be an upper-case letter followed by letters or digits")
 
 // ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
 var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
@@ -347,10 +347,10 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
-// chainNamePattern is a letter followed by letters or digits. The chain name and network are
-// joined with "__" into collection names such as Ethereum__Mainnet__Block; with no underscores
-// in either part the separator is unambiguous, and the names stay valid GraphQL.
-var chainNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
+// chainNamePattern is an upper-case letter followed by letters or digits, which keeps collection
+// names such as Ethereum__Mainnet__Block valid GraphQL with "__" as an unambiguous separator. The
+// upper-case first letter refuses a typo like mainnet that would create a second set of collections.
+var chainNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
 
 // ValidateChainNames returns ErrInvalidChainName unless the chain name and network can be
 // joined into collection names.
