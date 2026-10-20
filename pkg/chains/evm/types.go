@@ -67,6 +67,7 @@ type Transaction struct {
 	V                    string            `json:"v"`
 	R                    string            `json:"r"`
 	S                    string            `json:"s"`
+	YParity              string            `json:"yParity,omitempty"`
 	Status               bool              `json:"status"`
 	GasUsed              string            `json:"gasUsed,omitempty"`
 	CumulativeGasUsed    string            `json:"cumulativeGasUsed,omitempty"`
