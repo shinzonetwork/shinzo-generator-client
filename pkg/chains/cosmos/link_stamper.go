@@ -74,7 +74,7 @@ func (s *linkStamper) StampBeforeWrite(collection string, docs []map[string]any)
 // here and forwarded to the EVM stamper, which links its own groups to it.
 func (s *linkStamper) RecordDocIDs(collection string, docs []map[string]any, ids []string) error {
 	switch collection {
-	case s.cols.Block:
+	case s.cols.BlockCollection():
 		if len(ids) > 0 {
 			s.blockID = ids[0]
 		}

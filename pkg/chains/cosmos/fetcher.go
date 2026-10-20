@@ -8,7 +8,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
 
 // blockSource is the native Cosmos block reader (Client in production).
@@ -32,12 +31,13 @@ func NewFetcher(evmFetcher chains.Fetcher, cosmos blockSource) *Fetcher {
 	return &Fetcher{evm: evmFetcher, cosmos: cosmos}
 }
 
-// NewFetcherFromConfig builds the EVM fetcher from the geth section and the
-// Cosmos client from the cosmos section.
+// NewFetcherFromConfig builds the EVM fetcher (EVM chain family, geth
+// section) through the chains registry and the Cosmos client from the cosmos
+// section.
 func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
-	evmFetcher, err := evm.NewFetcherFromConfig(cfg)
+	evmFetcher, err := chains.NewFetcher(evmConfig(cfg))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cosmos fetcher: EVM fetcher: %w", err)
 	}
 	timeout := time.Duration(cfg.Cosmos.RequestTimeoutSeconds) * time.Second
 	return NewFetcher(evmFetcher, NewClient(cfg.Cosmos.RPCURL, cfg.Cosmos.LCDURL, timeout)), nil
@@ -74,11 +74,7 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if cosmErr != nil {
 		return nil, cosmErr
 	}
-	evmBundle, ok := evmRaw.(*evm.BlockBundle)
-	if !ok {
-		return nil, fmt.Errorf("cosmos fetcher: EVM fetcher returned %T, want *evm.BlockBundle", evmRaw)
-	}
-	return &Bundle{EVM: evmBundle, Cosmos: cosmosBlock}, nil
+	return &Bundle{EVM: evmRaw, Cosmos: cosmosBlock}, nil
 }
 
 // FetchHighestBlockNumber implements chains.Fetcher.
