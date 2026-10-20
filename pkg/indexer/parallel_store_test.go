@@ -35,9 +35,11 @@ import (
 // optionally parks one height's store until released, and tracks in-flight
 // store concurrency.
 type parkedStorer struct {
-	reorg        *mockReorgHandler
-	failHeights  map[int64]int64 // height → the number of initial failures
-	storeBlocked int64           // the height whose store blocks on released
+	reorg             *mockReorgHandler
+	failHeights       map[int64]int64         // height → the number of initial failures
+	storeBlocked      int64                   // the height whose store blocks on released
+	defaultStoreDelay time.Duration           // sleep before every store without an override
+	storeDelays       map[int64]time.Duration // per-height store delay override
 
 	released   chan struct{}
 	releasedC  chan struct{} // closed the first time the parked store is released
@@ -51,6 +53,14 @@ func (s *parkedStorer) Store(_ context.Context, result chains.ConversionResult) 
 	s.inFlight.Add(1)
 	defer s.inFlight.Add(-1)
 	s.storeCalls.Add(1)
+
+	delay, ok := s.storeDelays[num]
+	if !ok {
+		delay = s.defaultStoreDelay
+	}
+	if delay > 0 {
+		time.Sleep(delay)
+	}
 
 	if s.failHeights != nil && s.failHeights[num] > 0 {
 		s.failHeights[num]--
@@ -716,6 +726,81 @@ func TestParallelStores_DrainConsumesWhileWaiting(t *testing.T) {
 
 		reorg.mu.Lock()
 		assert.Equal(t, canonicalHash(105), reorg.storedHashes[105],
+			"iteration %d: the stale orphan must be rolled back and re-indexed canonically", i)
+		reorg.mu.Unlock()
+	}
+}
+
+// TestParallelStores_DrainDropsHeldDispatch hammers the drain's entry with a
+// held dispatch: 101's store fails instantly and its stale completion parks
+// below the apply cursor (100 is still slow-storing), the pool stays
+// saturated so the collector is holding a checked item with its registration
+// taken, and when 100's completion finally lands it surfaces the parked
+// stale - the episode opens from the buffered stale, not from an incoming
+// one. A drain that entered its wait without dropping the held item would
+// wedge forever: the item never reaches the pool, so no worker pairs a Done
+// with its registration, and the collector - the only release site - is
+// blocked inside the drain. The drain drops the held item at its entry, so
+// the run must converge and unwind inside the deadline; a timeout dumps all
+// goroutines to make a wedge self-documenting.
+func TestParallelStores_DrainDropsHeldDispatch(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	const commitsTarget = 55 // heights 100..154, each committed exactly once
+
+	for i := range 10 {
+		reorg := &mockReorgHandler{storedHashes: map[int64]string{
+			101: orphanHash(101),
+		}}
+		reorg.rollbackFn = func(from, to int64, _ map[int64]string) error {
+			return purgeStoredHashes(reorg, from, to)
+		}
+		storer := &parkedStorer{
+			reorg:             reorg,
+			failHeights:       map[int64]int64{101: 1},
+			defaultStoreDelay: 10 * time.Millisecond,
+			storeDelays: map[int64]time.Duration{
+				100: 60 * time.Millisecond,
+				101: 0,
+			},
+		}
+		rec := &commitRecorder{}
+		p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 160), chainConverter(), storer, reorg, 4, 0)
+
+		cancel, errCh := runProcessor(p, 100, rec.record)
+
+		deadline := time.After(10 * time.Second)
+		for len(rec.snapshot()) < commitsTarget {
+			select {
+			case <-deadline:
+				if err := pprof.Lookup("goroutine").WriteTo(os.Stderr, 2); err != nil {
+					t.Logf("iteration %d: goroutine dump failed: %v", i, err)
+				}
+				t.Fatalf("iteration %d: the drain wedged at %d commits", i, len(rec.snapshot()))
+			case err := <-errCh:
+				t.Fatalf("iteration %d: ProcessBlocks exited early: %v", i, err)
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+		cancel()
+		assert.ErrorIs(t, <-errCh, context.Canceled, "iteration %d", i)
+
+		want := make([]int64, 0, commitsTarget)
+		for h := int64(100); h <= 154; h++ {
+			want = append(want, h)
+		}
+		got := rec.snapshot()
+		require.GreaterOrEqual(t, len(got), commitsTarget, "iteration %d", i)
+		assert.Equal(t, want, got[:commitsTarget],
+			"iteration %d: the ordered apply must commit every height exactly once in order: 100 before the episode, the restart re-storing 101..oldTip and continuing above it", i)
+
+		calls := reorg.calls()
+		require.Len(t, calls, 1, "iteration %d: one stale orphan is exactly one rollback episode", i)
+		assert.Equal(t, int64(101), calls[0].from, "iteration %d", i)
+
+		reorg.mu.Lock()
+		assert.Equal(t, canonicalHash(101), reorg.storedHashes[101],
 			"iteration %d: the stale orphan must be rolled back and re-indexed canonically", i)
 		reorg.mu.Unlock()
 	}

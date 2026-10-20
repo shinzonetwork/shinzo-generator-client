@@ -205,17 +205,29 @@ type ConcurrentBlockProcessor struct {
 	// inFlightWg counts stores handed to the pool: the collector Adds when a
 	// checked item starts waiting for the pool (before any handoff can
 	// start), and the count leaves the group exactly once per item - a pool
-	// worker Dones after its completion send, and the collector Dones when it
-	// abandons the waiting item (episode hold-back, cancellation, or a stale
-	// completion that would trap the drain's Wait on an unsendable item). The
-	// registration therefore happens before the send's rendezvous, so even an
-	// instantly reported store cannot drop ahead of its Add, and Wait
-	// returning implies every registration is either paired with an
-	// already-buffered completion or was abandoned before the drain. Add and
-	// Wait both run on the single collector goroutine, so the Add-while-Waiting
-	// hazard cannot occur, and the group needs no per-run reset: shutdown
-	// settles the pool before the next run can start.
+	// worker Dones after its completion send, the collector Dones when it
+	// abandons the waiting item (episode hold-back or cancellation), and
+	// drainInFlightStores Dones a still-held dispatch at its entry, because
+	// a held item's release sites all sit on the collector, which the drain
+	// blocks. The registration therefore happens before the send's
+	// rendezvous, so even an instantly reported store cannot drop ahead of
+	// its Add, and Wait returning implies every registration is either
+	// paired with an already-buffered completion or was abandoned before
+	// the drain. Add and Wait both run on the single collector goroutine,
+	// so the Add-while-Waiting hazard cannot occur, and the group needs no
+	// per-run reset: shutdown settles the pool before the next run can
+	// start.
 	inFlightWg sync.WaitGroup
+
+	// holdingDispatch is the one checked item waiting for pool capacity: it
+	// is given away by the collector's select's store-send case, so the
+	// collector consumes completions and results while the pool is busy
+	// instead of blocking on the send outside the select. It is owned by
+	// the collector goroutine alone (pop, hold, send, and abandonment all
+	// run there, as does the drain it calls synchronously), so it needs no
+	// lock; nil-with-nil-channel keeps the send case permanently unready
+	// while nothing waits, so no empty send can fire.
+	holdingDispatch *BlockResult
 
 	// episodeRollbacks increments per executed rollback in the current
 	// episode sequence - consecutive rollbacks without an intervening
@@ -456,6 +468,9 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	p.rollbackPoint = nil
 	p.episode = nil
 	p.fatalErr = nil
+	// Collector-only state: the previous run's collector exited inside
+	// shutdown (collectWg.Wait), so resetting here cannot race it.
+	p.holdingDispatch = nil
 	p.dispatchedUpTo = startBlock - 1
 	p.pending = make(map[int64]*BlockResult)
 	// Fresh channels (and a fresh pool) per run: shutdown closes the previous
@@ -615,20 +630,13 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 	resultsClosed := false
 	completionsClosed := false
 
-	// dispatched holds one checked item waiting for pool capacity. It is
-	// given away by the select's store-send case, so the collector consumes
-	// completions and results while the pool is busy instead of blocking on
-	// the send outside the select. The nil-value channel keeps the send case
-	// permanently unready while nothing waits, so no empty send can fire.
-	var dispatched *BlockResult
-
 	// done lets the cancellation case fire once: a nil channel receive
 	// blocks forever, so afterwards the select blocks on the channels until
 	// shutdown closes them instead of busy-spinning on an always-ready case.
 	done := ctx.Done()
 
 	for {
-		if dispatched == nil {
+		if p.holdingDispatch == nil {
 			next, ok := p.popPending(ctx)
 			if ok && next != nil {
 				if p.episodeActive() {
@@ -645,7 +653,7 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 					// negative. Registration and abandonment are both on
 					// this goroutine, so no Done can preempt its Add.
 					p.inFlightWg.Add(1)
-					dispatched = item
+					p.holdingDispatch = item
 				}
 			}
 		}
@@ -655,18 +663,18 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 		// abandoned: the hold-back covers it too, and the restart re-indexes
 		// the height. The registration was taken at creation, so the
 		// abandonment drops it before any worker could pair a Done with it.
-		if dispatched != nil {
+		if p.holdingDispatch != nil {
 			p.pendingMu.Lock()
 			held := p.episode != nil || p.rollbackPoint != nil
 			p.pendingMu.Unlock()
 			if held || ctx.Err() != nil {
 				p.inFlightWg.Done()
-				dispatched = nil
+				p.holdingDispatch = nil
 			}
 		}
 
 		var storeSender chan *BlockResult
-		if dispatched != nil {
+		if p.holdingDispatch != nil {
 			storeSender = p.storeChan
 		}
 		select {
@@ -682,23 +690,10 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 			if !ok {
 				completionsClosed = true
 			} else {
-				// A stale completion opens the stale-pinned episode, whose
-				// drain waits on the in-flight group. A waiting dispatch
-				// carries a registration the collector could never satisfy
-				// from inside that wait (its send case cannot run while the
-				// drain blocks this loop), so the wait other stores deserve
-				// would wedge on it. The stale branch verifies an occurred
-				// disagreement that this run can only leave by rollback:
-				// the dropped height stays unstored and the restart
-				// re-indexes it, exactly like the hold-back above.
-				if completion.stale != nil && dispatched != nil {
-					p.inFlightWg.Done()
-					dispatched = nil
-				}
 				p.applyCompletion(ctx, completion, onBlockProcessed, false)
 			}
-		case storeSender <- dispatched:
-			dispatched = nil
+		case storeSender <- p.holdingDispatch:
+			p.holdingDispatch = nil
 		case <-done:
 			// The collector is storeChan's only sender, so it owns the
 			// close: running it here (rather than in shutdown) puts close
@@ -707,10 +702,10 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 			// send can follow the close. The WaitGroup registration pairs
 			// with the abandonment drop: cancellation raced the check and
 			// the pool never received the item.
-			if dispatched != nil {
+			if p.holdingDispatch != nil {
 				p.inFlightWg.Done()
 			}
-			dispatched = nil
+			p.holdingDispatch = nil
 			done = nil // fire once; afterwards block on the channels until shutdown closes them
 			close(p.storeChan)
 		}
@@ -981,13 +976,27 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 func (p *ConcurrentBlockProcessor) drainInFlightStores(ctx context.Context, ep *reorgEpisode, onBlockProcessed func(blockNum int64)) {
 	suppress := ep.stalePinned
 
+	// A waiting dispatch's registration can only be released on the
+	// collector: the item has not reached the pool, so no worker will pair
+	// a Done with it, and the release sites all sit in the collector's
+	// select, which is blocked while this drain runs on the collector. The
+	// episode that opened may therefore have been triggered by a buffered
+	// stale completion (a gap-filler surfaced it) rather than by the
+	// incoming one, so the entry drop is unconditional here: whatever the
+	// opening path, no unsent registration may enter the wait, and the
+	// episode's rollback re-indexes the dropped height exactly like the
+	// hold-back. The confirmation-wait episode opens at pop time when
+	// nothing can be held, so the drop is a no-op there.
+	if p.holdingDispatch != nil {
+		p.inFlightWg.Done()
+		p.holdingDispatch = nil
+	}
+
 	// Registrations are taken when an item starts waiting for the pool, and
 	// dropped either by the worker (after its completion send) or by the
-	// collector (at abandonment). This drain runs only on the collector, so
-	// at wait entry no waiting-but-unsent dispatch can still be registered:
-	// the completion-case peek drops it before a stale episode opens, the
-	// pop-time episode opens before any dispatch is created, and the abandon
-	// check handles hold-back and cancellation.
+	// collector (at abandonment, or by the entry drop above). After the
+	// drop, the wait's remaining registrations are all handed-to-pool
+	// stores whose completions will arrive.
 	//
 	// The wait cannot lean on the completion buffer alone: the collector's
 	// select hands the pool further stores while earlier reports stay
