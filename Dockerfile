@@ -1,6 +1,6 @@
 # Multi-stage build for Shinzo Network Ethereum Generator.
 # Stage 1: Builder stage
-FROM golang:1.27 AS builder
+FROM golang:1.27.3 AS builder
 
 # Build arguments
 ARG BUILD_DATE
