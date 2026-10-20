@@ -44,7 +44,7 @@ func TestValidateChainNames(t *testing.T) {
 		wantErr error
 	}{
 		{name: "capitalized words", chain: "Ethereum", network: "Mainnet"},
-		{name: "lower-case first letter", chain: "ethereum", network: "sepolia"},
+		{name: "lower-case first letter", chain: "Ethereum", network: "mainnet", wantErr: ErrInvalidChainName},
 		{name: "digits after the first letter", chain: "Base2", network: "Sepolia1"},
 		{name: "space", chain: "Arbitrum One", network: "Mainnet", wantErr: ErrInvalidChainName},
 		{name: "hyphen", chain: "Ethereum", network: "Ethereum-Sepolia", wantErr: ErrInvalidChainName},
