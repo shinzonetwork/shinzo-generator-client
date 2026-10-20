@@ -199,5 +199,5 @@ touch different files.
    read `CosmosMessage.body` by `typeUrl`.
 2. **Hub fix** for precompile log `BlockNumber` (see above). Once it ships,
    refresh the fixtures; `StampReceiptLogs` then becomes a no-op.
-4. **Deployment:** a docker-compose service or systemd unit wrapping
+3. **Deployment:** a docker-compose service or systemd unit wrapping
    `scripts/run_shinzohub.sh`, with its own `DEFRADB_KEYRING_SECRET`.
