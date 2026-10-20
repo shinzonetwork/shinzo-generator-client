@@ -1,5 +1,5 @@
 // Command fetch_blocks captures raw block data from any EVM-compatible
-// JSON-RPC node into a replay fixture for the benchmarking acceptance suites.
+// JSON-RPC node into a replay fixture for the replay acceptance suites.
 // The chain and network are plain parameters (--chain/--network): they only
 // label the fixture and derive its filename — the capture itself is
 // transport-only JSON-RPC over HTTP, so it works unchanged across
@@ -55,7 +55,7 @@ const (
 	// Fixture output layout: fixtures for every chain share one directory
 	// and the filename prefix identifies the chain
 	// (e.g. ethereum_blocks_<from>_<to>.json).
-	defaultOutDir = "benchmarking/testdata"
+	defaultOutDir = "replay/testdata"
 	fixtureExt    = ".json"
 
 	// Receipt capture modes recorded per block.

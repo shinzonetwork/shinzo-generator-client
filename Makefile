@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch deadcode-check
+.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -174,6 +174,17 @@ replay-fetch:
 	fi
 	@mkdir -p replay/testdata
 	go run ./cmd/fetch_blocks --chain ethereum --network mainnet --from $(FROM) --to $(TO)
+
+# ethereum-acceptance-test replays the newest captured fixture through the full
+# production pipeline (mock JSON-RPC → Fetcher → Converter → BlockHandler.Store)
+# and hard-asserts the average per-block processing time stays within the
+# chain's block interval. ETHEREUM_TARGET_BLOCK_TIME overrides the target; a
+# missing fixture skips with regeneration instructions. -count=1 forces the
+# run every time: Go's test cache key ignores runtime inputs (fixture files,
+# ETHEREUM_* env vars), and unlike `go clean -testcache` it leaves the rest of the
+# project's test results cached.
+ethereum-acceptance-test:
+	go test -tags=acceptance ./replay/ethereum -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
 
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
