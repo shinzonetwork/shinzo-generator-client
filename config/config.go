@@ -78,10 +78,11 @@ func (d *DefraDBConfig) Host() string {
 
 // ChainConfig represents the chain being indexed.
 type ChainConfig struct {
-	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
-	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
-	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	Name    string `yaml:"name"`     // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
+	Network string `yaml:"network"`  // e.g. "Mainnet", "Testnet"
+	Hub     string `yaml:"hub"`      // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
+	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	ChainID uint64 `yaml:"chain_id"` // source chain ID reported at registration; 0 = derive from name (Ethereum Mainnet only) (env: CHAIN_ID)
 }
 
 // GethConfig represents Geth node configuration.
@@ -463,6 +464,11 @@ func applyChainEnvOverrides(cfg *Config) {
 	}
 	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
 		cfg.Chain.Adapter = chainAdapter
+	}
+	if chainID := os.Getenv("CHAIN_ID"); chainID != "" {
+		if parsed, err := strconv.ParseUint(chainID, 10, 64); err == nil {
+			cfg.Chain.ChainID = parsed
+		}
 	}
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL
