@@ -36,6 +36,14 @@ type ClientAdapter interface {
 	YParity(tx *ethtypes.Transaction, rawTx json.RawMessage) string
 }
 
+// receiptLogStamper is an optional ClientAdapter extension for chains whose
+// RPC returns logs with wrong block fields: it rewrites a converted
+// receipt's logs in place. Adapters that do not implement it (the default
+// included) leave receipts exactly as the RPC returned them.
+type receiptLogStamper interface {
+	StampReceiptLogs(receipt *TransactionReceipt)
+}
+
 // defaultClientAdapter reproduces today's Ethereum and BSC behaviour
 // exactly: no raw block fetch, sender recovery via GetFromAddress with
 // the zero address fallback, and no yParity indexing. Transaction
