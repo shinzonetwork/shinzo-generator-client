@@ -15,8 +15,13 @@ import (
 // CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
 
-// DefaultChainAdapter is the default and currently only supported chain adapter type.
+// DefaultChainAdapter is the default chain adapter type.
 const DefaultChainAdapter = "evm"
+
+// CosmosEVMChainAdapter indexes a Cosmos SDK chain with an EVM module: the EVM
+// JSON-RPC (geth section) and the native CometBFT/REST APIs (cosmos section)
+// into one block.
+const CosmosEVMChainAdapter = "cosmos-evm"
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
@@ -78,10 +83,33 @@ func (d *DefraDBConfig) Host() string {
 
 // ChainConfig represents the chain being indexed.
 type ChainConfig struct {
-	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
-	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
-	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	Name    string `yaml:"name"`     // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
+	Network string `yaml:"network"`  // e.g. "Mainnet", "Testnet"
+	Hub     string `yaml:"hub"`      // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
+	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	ChainID uint64 `yaml:"chain_id"` // source chain ID reported at registration; 0 = derive from name (Ethereum Mainnet only) (env: CHAIN_ID)
+}
+
+// Default ports of a cosmos-evm node, used to derive endpoint URLs from
+// CosmosConfig.Host.
+const (
+	DefaultCosmosEVMRPCPort = 8545
+	DefaultCosmosRPCPort    = 26657
+	DefaultCosmosLCDPort    = 1317
+)
+
+// CosmosConfig holds the native Cosmos endpoints used by the cosmos-evm
+// chain adapter.
+type CosmosConfig struct {
+	// Host is a single node hostname (no scheme, no port). When set, every
+	// empty endpoint below and geth.node_url are derived from it on the
+	// default ports (EVM 8545, CometBFT 26657, REST 1317); explicit URLs win.
+	Host   string `yaml:"host"`    // e.g. "testnet.shinzo.network" (env: COSMOS_HOST)
+	RPCURL string `yaml:"rpc_url"` // CometBFT RPC base URL, e.g. "http://host:26657" (env: COSMOS_RPC_URL)
+	LCDURL string `yaml:"lcd_url"` // Cosmos REST (LCD) base URL, e.g. "http://host:1317" (env: COSMOS_LCD_URL)
+	// RequestTimeoutSeconds bounds each CometBFT/REST request when positive;
+	// 0 or negative leaves requests bounded only by the caller's context.
+	RequestTimeoutSeconds int `yaml:"request_timeout_seconds"`
 }
 
 // GethConfig represents Geth node configuration.
@@ -207,6 +235,7 @@ type Config struct {
 	Chain     ChainConfig     `yaml:"chain"`
 	DefraDB   DefraDBConfig   `yaml:"defradb"`
 	Geth      GethConfig      `yaml:"geth"`
+	Cosmos    CosmosConfig    `yaml:"cosmos"`
 	Indexer   IndexerConfig   `yaml:"indexer"`
 	Pruner    PrunerConfig    `yaml:"pruner"`
 	Snapshot  SnapshotConfig  `yaml:"snapshot"`
@@ -248,6 +277,8 @@ func LoadConfig(path string) (*Config, error) {
 
 // applyDefaults sets default values for optional configuration.
 func applyDefaults(cfg *Config) {
+	applyCosmosHostDefaults(cfg)
+
 	if cfg.Chain.Name == "" {
 		cfg.Chain.Name = "Ethereum"
 	}
@@ -287,10 +318,38 @@ func applyDefaults(cfg *Config) {
 	cfg.Converter.SetDefaults()
 }
 
+// applyCosmosHostDefaults fills empty cosmos-evm endpoint URLs from
+// cosmos.host. Explicit URLs (YAML or env) are never replaced.
+func applyCosmosHostDefaults(cfg *Config) {
+	host := strings.TrimSpace(cfg.Cosmos.Host)
+	if host == "" {
+		return
+	}
+	if strings.TrimSpace(cfg.Geth.NodeURL) == "" {
+		cfg.Geth.NodeURL = fmt.Sprintf("http://%s:%d", host, DefaultCosmosEVMRPCPort)
+	}
+	if strings.TrimSpace(cfg.Cosmos.RPCURL) == "" {
+		cfg.Cosmos.RPCURL = fmt.Sprintf("http://%s:%d", host, DefaultCosmosRPCPort)
+	}
+	if strings.TrimSpace(cfg.Cosmos.LCDURL) == "" {
+		cfg.Cosmos.LCDURL = fmt.Sprintf("http://%s:%d", host, DefaultCosmosLCDPort)
+	}
+}
+
 // validateConfig validates the configuration.
 func validateConfig(cfg *Config) error {
-	if cfg.Chain.Adapter != DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", cfg.Chain.Adapter, DefaultChainAdapter)
+	switch cfg.Chain.Adapter {
+	case DefaultChainAdapter:
+	case CosmosEVMChainAdapter:
+		if strings.TrimSpace(cfg.Cosmos.RPCURL) == "" || strings.TrimSpace(cfg.Cosmos.LCDURL) == "" {
+			return fmt.Errorf("chain adapter %q requires cosmos.host, or cosmos.rpc_url and cosmos.lcd_url", CosmosEVMChainAdapter)
+		}
+		if strings.TrimSpace(cfg.Geth.NodeURL) == "" && strings.TrimSpace(cfg.Geth.WsURL) == "" {
+			return fmt.Errorf("chain adapter %q requires cosmos.host, or a geth node_url/ws_url", CosmosEVMChainAdapter)
+		}
+	default:
+		return fmt.Errorf("chain adapter %q not yet implemented: supported adapters are %q and %q",
+			cfg.Chain.Adapter, DefaultChainAdapter, CosmosEVMChainAdapter)
 	}
 
 	if cfg.Indexer.StartHeight < 0 {
@@ -463,6 +522,20 @@ func applyChainEnvOverrides(cfg *Config) {
 	}
 	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
 		cfg.Chain.Adapter = chainAdapter
+	}
+	if chainID := os.Getenv("CHAIN_ID"); chainID != "" {
+		if parsed, err := strconv.ParseUint(chainID, 10, 64); err == nil {
+			cfg.Chain.ChainID = parsed
+		}
+	}
+	if cosmosHost := os.Getenv("COSMOS_HOST"); cosmosHost != "" {
+		cfg.Cosmos.Host = cosmosHost
+	}
+	if cosmosRPCURL := os.Getenv("COSMOS_RPC_URL"); cosmosRPCURL != "" {
+		cfg.Cosmos.RPCURL = cosmosRPCURL
+	}
+	if cosmosLCDURL := os.Getenv("COSMOS_LCD_URL"); cosmosLCDURL != "" {
+		cfg.Cosmos.LCDURL = cosmosLCDURL
 	}
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL

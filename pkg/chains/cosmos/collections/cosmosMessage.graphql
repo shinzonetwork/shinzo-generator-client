@@ -1,0 +1,11 @@
+type Cosmos__Chain__CosmosMessage {
+    blockNumber: Int @index
+    transactionHash: String
+    transactionIndex: Int
+    messageIndex: Int
+    typeUrl: String @index
+    body: String
+    # Relationships
+    block: Cosmos__Chain__Block @relation(name: "block_cosmosMessages")
+    transaction: Cosmos__Chain__CosmosTransaction @relation(name: "cosmosTransaction_messages")
+}

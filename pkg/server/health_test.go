@@ -44,6 +44,7 @@ type mockHealthChecker struct {
 	signErr       error
 	sourceChain   string
 	sourceChainID uint64
+	chainName     string
 }
 
 func (m *mockHealthChecker) IsHealthy() bool                 { return m.healthy }
@@ -53,6 +54,8 @@ func (m *mockHealthChecker) GetPeerInfo() (*P2PInfo, error)  { return m.p2pInfo,
 func (m *mockHealthChecker) GetSourceChainInfo() (string, uint64) {
 	return m.sourceChain, m.sourceChainID
 }
+
+func (m *mockHealthChecker) GetChainName() string { return m.chainName }
 
 func (m *mockHealthChecker) SignRegistrationMessage(_ string) (DefraPKRegistration, error) {
 	return m.defraReg, m.signErr
@@ -271,6 +274,7 @@ func TestRegistrationHandler_WithSignedRegistration(t *testing.T) {
 		},
 		sourceChain:   "ethereum",
 		sourceChainID: 1,
+		chainName:     "Ethereum",
 	}
 
 	hs := NewHealthServer(0, mock, "")
@@ -289,7 +293,41 @@ func TestRegistrationHandler_WithSignedRegistration(t *testing.T) {
 	assert.Equal(t, "/ip4/192.0.2.1/tcp/9171/p2p/"+testIndexerPeerID, resp.Registration.ConnectionString)
 	assert.Equal(t, "ethereum", resp.Registration.SourceChain)
 	assert.Equal(t, uint64(1), resp.Registration.SourceChainID)
+	assert.Equal(t, "Ethereum", resp.ChainName)
+	assert.Equal(t, "Ethereum", resp.Registration.ChainName)
 	assert.NotContains(t, rec.Body.String(), "peer_id_registration")
+}
+
+func TestHealthHandler_JSONIncludesChainName(t *testing.T) {
+	t.Parallel()
+	mock := &mockHealthChecker{
+		healthy:       true,
+		currentBlock:  6352900,
+		lastProcessed: time.Now(),
+		p2pInfo:       &P2PInfo{Enabled: false},
+		chainName:     "Shinzohub",
+	}
+	hs := NewHealthServer(0, mock, "")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("Accept", "application/json")
+	hs.healthHandler(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "Shinzohub", body["chain_name"])
+}
+
+func TestHealthHandler_JSONOmitsEmptyChainName(t *testing.T) {
+	t.Parallel()
+	mock := &mockHealthChecker{healthy: true, lastProcessed: time.Now(), p2pInfo: &P2PInfo{}}
+	hs := NewHealthServer(0, mock, "")
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.Header.Set("Accept", "application/json")
+	hs.healthHandler(rec, req)
+	assert.NotContains(t, rec.Body.String(), "chain_name")
 }
 
 func TestRegistrationHandler_SignError(t *testing.T) {
