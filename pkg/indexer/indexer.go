@@ -1014,6 +1014,10 @@ func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	}
 
 	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
+	if i.cfg.Chain.ChainID != 0 && name != "" {
+		return name, i.cfg.Chain.ChainID
+	}
+
 	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
 	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
 		return "ethereum", 1

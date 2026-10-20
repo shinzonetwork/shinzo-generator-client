@@ -834,3 +834,29 @@ func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
 	// Just verify no panic/race occurred.
 	assert.True(t, indexer.GetCurrentBlock() >= 0)
 }
+
+func TestGetSourceChainInfo(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		chain       config.ChainConfig
+		wantName    string
+		wantChainID uint64
+	}{
+		{"default is ethereum mainnet", config.ChainConfig{}, "ethereum", 1},
+		{"ethereum mainnet", config.ChainConfig{Name: "Ethereum", Network: "Mainnet"}, "ethereum", 1},
+		{"explicit chain id", config.ChainConfig{Name: " Shinzohub ", Network: "Local", ChainID: 91273003}, "shinzohub", 91273003},
+		{"explicit chain id overrides ethereum default", config.ChainConfig{Name: "Ethereum", Network: "Sepolia", ChainID: 11155111}, "ethereum", 11155111},
+		{"chain id without name is unknown", config.ChainConfig{Network: "Local", ChainID: 91273003}, "", 0},
+		{"unknown chain without id", config.ChainConfig{Name: "Shinzohub", Network: "Local"}, "", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			i := &ChainIndexer{cfg: &config.Config{Chain: tt.chain}}
+			gotName, gotID := i.GetSourceChainInfo()
+			assert.Equal(t, tt.wantName, gotName)
+			assert.Equal(t, tt.wantChainID, gotID)
+		})
+	}
+}

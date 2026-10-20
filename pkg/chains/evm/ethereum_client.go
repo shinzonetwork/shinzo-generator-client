@@ -622,7 +622,7 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *Transact
 		logs[i] = c.convertGethLog(log)
 	}
 
-	return &TransactionReceipt{
+	converted := &TransactionReceipt{
 		TransactionHash:   receipt.TxHash.Hex(),
 		TransactionIndex:  fmt.Sprintf("%d", receipt.TransactionIndex),
 		BlockHash:         receipt.BlockHash.Hex(),
@@ -633,6 +633,10 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *Transact
 		Logs:              logs,
 		Status:            getReceiptStatus(receipt),
 	}
+	if stamper, ok := c.getAdapter().(receiptLogStamper); ok {
+		stamper.StampReceiptLogs(converted)
+	}
+	return converted
 }
 
 // convertGethLog converts go-ethereum log to our custom log type.
