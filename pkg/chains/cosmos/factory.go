@@ -4,6 +4,10 @@
 // pkg/chains/evm (Block, Transaction, Log, AccessListEntry) and the native
 // view through CometBFT and the Cosmos REST API (CosmosTransaction,
 // CosmosMessage, CosmosEvent) — sharing one Block doc and one block signature.
+//
+// The EVM half is resolved through the chains registry (adapter "evm"), so
+// this package depends only on the pkg/chains interfaces; binaries must
+// blank-import pkg/chains/evm alongside it.
 package cosmos
 
 import (
@@ -19,10 +23,14 @@ func init() {
 			return NewFetcherFromConfig(cfg)
 		},
 		Converter: func(cfg *config.Config) (chains.Converter, error) {
-			return NewConverter(cfg), nil
+			return NewConverter(cfg)
 		},
 		Collections: func(cfg *config.Config) (chains.Collections, error) {
-			return NewConverter(cfg).Collections(), nil
+			evmCollections, err := chains.NewCollections(evmConfig(cfg))
+			if err != nil {
+				return nil, err
+			}
+			return NewCollectionNames(evmCollections), nil
 		},
 	})
 }

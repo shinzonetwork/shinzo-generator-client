@@ -8,7 +8,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -26,12 +25,13 @@ const (
 	defaultMaxDocsPerTxn = 1000
 )
 
-// Converter implements chains.Converter for cosmos-evm chains. The EVM
-// converter builds the Block and EVM groups; this converter appends the
-// CosmosTransaction, CosmosMessage and CosmosEvent groups for the same block
-// and links them to the shared Block doc.
+// Converter implements chains.Converter for cosmos-evm chains. The EVM chain
+// family's converter (resolved through the chains registry) builds the Block
+// and EVM groups; this converter appends the CosmosTransaction,
+// CosmosMessage and CosmosEvent groups for the same block and links them to
+// the shared Block doc.
 type Converter struct {
-	evm  *evm.Converter
+	evm  chains.Converter
 	cols *CollectionNames
 	cfg  *config.Config
 }
@@ -39,15 +39,29 @@ type Converter struct {
 // Compile-time guarantee that Converter implements chains.Converter.
 var _ chains.Converter = (*Converter)(nil)
 
-// NewConverter creates a Converter whose collection prefix is derived from
-// the chain config exactly as the EVM converter derives it.
-func NewConverter(cfg *config.Config) *Converter {
-	evmConverter := evm.NewConverter(cfg)
+// NewConverter creates a Converter around the EVM chain family's converter,
+// so the collection prefix is derived exactly as for an EVM chain.
+func NewConverter(cfg *config.Config) (*Converter, error) {
+	evmConverter, err := chains.NewConverter(evmConfig(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("cosmos converter: EVM converter: %w", err)
+	}
 	return &Converter{
 		evm:  evmConverter,
-		cols: NewCollectionNames(evmConverter.Collections().Prefix()),
+		cols: NewCollectionNames(evmConverter.Collections()),
 		cfg:  cfg,
+	}, nil
+}
+
+// evmConfig returns a shallow copy of cfg that selects the EVM chain family,
+// used to build the EVM half of a cosmos-evm block through the registry.
+func evmConfig(cfg *config.Config) *config.Config {
+	evmCfg := config.Config{}
+	if cfg != nil {
+		evmCfg = *cfg
 	}
+	evmCfg.Chain.Adapter = config.DefaultChainAdapter
+	return &evmCfg
 }
 
 // Convert implements chains.Converter. rawBlock must be a *Bundle whose EVM
@@ -57,15 +71,15 @@ func (c *Converter) Convert(ctx context.Context, rawBlock any) (chains.Conversio
 	if !ok {
 		return chains.ConversionResult{}, fmt.Errorf("cosmos converter: expected *Bundle, got %T", rawBlock)
 	}
-	if bundle == nil || bundle.EVM == nil || bundle.EVM.Block == nil || bundle.Cosmos == nil {
+	if bundle == nil || bundle.EVM == nil || bundle.Cosmos == nil {
 		return chains.ConversionResult{}, fmt.Errorf("cosmos converter: incomplete bundle")
-	}
-	if err := checkSameBlock(bundle); err != nil {
-		return chains.ConversionResult{}, err
 	}
 
 	result, err := c.evm.Convert(ctx, bundle.EVM)
 	if err != nil {
+		return chains.ConversionResult{}, err
+	}
+	if err := checkSameBlock(result, bundle.Cosmos); err != nil {
 		return chains.ConversionResult{}, err
 	}
 
@@ -95,20 +109,42 @@ func (c *Converter) Convert(ctx context.Context, rawBlock any) (chains.Conversio
 }
 
 // checkSameBlock guards against joining two different blocks, e.g. when the
-// EVM and Cosmos endpoints point at nodes on different forks.
-func checkSameBlock(bundle *Bundle) error {
-	evmHeight, err := strconv.ParseInt(bundle.EVM.Block.Number, 10, 64)
+// EVM and Cosmos endpoints point at nodes on different forks. It reads the
+// EVM side from the converted Block doc, which BlockHandler.Store requires to
+// be the first group.
+func checkSameBlock(result chains.ConversionResult, cosmos *Block) error {
+	if len(result.Groups) == 0 || len(result.Groups[0].Docs) == 0 {
+		return fmt.Errorf("cosmos converter: EVM conversion produced no block doc") //nolint:err113
+	}
+	blockGroup := result.Groups[0]
+	blockDoc := blockGroup.Docs[0]
+	evmHeight, err := toInt64(blockDoc[blockGroup.BlockNumField])
 	if err != nil {
-		return fmt.Errorf("cosmos converter: parse EVM block number %q: %w", bundle.EVM.Block.Number, err)
+		return fmt.Errorf("cosmos converter: EVM block number: %w", err)
 	}
-	if evmHeight != bundle.Cosmos.Height {
-		return fmt.Errorf("cosmos converter: EVM block %d joined with Cosmos block %d", evmHeight, bundle.Cosmos.Height) //nolint:err113
+	if evmHeight != cosmos.Height {
+		return fmt.Errorf("cosmos converter: EVM block %d joined with Cosmos block %d", evmHeight, cosmos.Height) //nolint:err113
 	}
-	if !strings.EqualFold(bundle.EVM.Block.Hash, bundle.Cosmos.Hash) {
+	evmHash, _ := blockDoc[blockGroup.BlockHashField].(string)
+	if !strings.EqualFold(evmHash, cosmos.Hash) {
 		return fmt.Errorf("cosmos converter: block %d hash mismatch: EVM %s, Cosmos %s", //nolint:err113
-			evmHeight, bundle.EVM.Block.Hash, bundle.Cosmos.Hash)
+			evmHeight, evmHash, cosmos.Hash)
 	}
 	return nil
+}
+
+// toInt64 reads a block number stored as an integer or decimal string.
+func toInt64(v any) (int64, error) {
+	switch n := v.(type) {
+	case int64:
+		return n, nil
+	case int:
+		return int64(n), nil
+	case string:
+		return strconv.ParseInt(n, 10, 64)
+	default:
+		return 0, fmt.Errorf("unexpected type %T", v) //nolint:err113
+	}
 }
 
 // buildDocs builds the data maps for the block's Cosmos transactions,

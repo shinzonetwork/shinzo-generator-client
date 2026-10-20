@@ -2,12 +2,16 @@ package cosmos
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
+
+// errEmptyCollectionFile is returned when an embedded cosmos .graphql file
+// has no content.
+var errEmptyCollectionFile = errors.New("collection file is empty")
 
 // sdlPrefix is the placeholder prefix the cosmos .graphql files are authored
 // against; CollectionFiles swaps it for the chain's prefix. Cosmos types
@@ -28,15 +32,16 @@ const (
 	cosmosEventCollectionStem       = "cosmosEvent"
 )
 
-// CollectionNames is the cosmos-evm collection set: the full EVM set (whose
-// Block collection is shared, since the EVM and CometBFT block hashes are the
-// same value) plus the native Cosmos transaction, message and event
-// collections.
+// CollectionNames is the cosmos-evm collection set: the EVM chain family's
+// collections (whose Block collection is shared, since the EVM and CometBFT
+// block hashes are the same value) plus the native Cosmos transaction,
+// message and event collections.
 //
 // Every Cosmos collection declares an @index on blockNumber, which the pruner
 // and GetDocIDsByBlockRange rely on.
 type CollectionNames struct {
-	*evm.CollectionNames
+	chains.Collections
+
 	CosmosTransaction string
 	CosmosMessage     string
 	CosmosEvent       string
@@ -45,11 +50,12 @@ type CollectionNames struct {
 // Compile-time guarantee that CollectionNames implements chains.Collections.
 var _ chains.Collections = (*CollectionNames)(nil)
 
-// NewCollectionNames creates cosmos-evm collection names using the given
-// prefix (e.g. "Shinzohub__Testnet").
-func NewCollectionNames(prefix string) *CollectionNames {
+// NewCollectionNames extends the EVM collection set with the Cosmos
+// collections under the same prefix.
+func NewCollectionNames(evmCollections chains.Collections) *CollectionNames {
+	prefix := evmCollections.Prefix()
 	return &CollectionNames{
-		CollectionNames:   evm.NewCollectionNames(prefix),
+		Collections:       evmCollections,
 		CosmosTransaction: fmt.Sprintf("%s__CosmosTransaction", prefix),
 		CosmosMessage:     fmt.Sprintf("%s__CosmosMessage", prefix),
 		CosmosEvent:       fmt.Sprintf("%s__CosmosEvent", prefix),
@@ -59,13 +65,13 @@ func NewCollectionNames(prefix string) *CollectionNames {
 // AllCollections returns the EVM collections followed by the Cosmos ones, in
 // P2P filter order.
 func (c *CollectionNames) AllCollections() []string {
-	return append(c.CollectionNames.AllCollections(), c.cosmosCollections()...)
+	return append(c.Collections.AllCollections(), c.cosmosCollections()...)
 }
 
 // CollectionFiles returns the EVM collection files followed by the Cosmos
 // ones, every SDL adapted to the chain's prefix.
 func (c *CollectionNames) CollectionFiles() ([]chains.CollectionFile, error) {
-	files, err := c.CollectionNames.CollectionFiles()
+	files, err := c.Collections.CollectionFiles()
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +87,7 @@ func (c *CollectionNames) CollectionFiles() ([]chains.CollectionFile, error) {
 		}
 		sdl := strings.TrimSpace(string(data))
 		if sdl == "" {
-			return nil, fmt.Errorf("%w: %s", evm.ErrEmptyCollectionFile, spec.file)
+			return nil, fmt.Errorf("%w: %s", errEmptyCollectionFile, spec.file)
 		}
 		files = append(files, chains.CollectionFile{
 			TypeName: spec.typeName,
