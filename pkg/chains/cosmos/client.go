@@ -19,6 +19,10 @@ import (
 // large IBC client updates stay well below it.
 const maxResponseBytes = 64 << 20
 
+// errorBodyPreviewBytes bounds how much of a failed response body is quoted
+// in the returned error.
+const errorBodyPreviewBytes = 200
+
 // Client reads the native Cosmos view of a block from a CometBFT RPC
 // endpoint (/block_results: execution results and events) and the Cosmos
 // REST API (GetBlockWithTxs: tx bytes and JSON-decoded messages). Decoding
@@ -97,7 +101,7 @@ func (c *Client) getJSON(ctx context.Context, url string, out any) error {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: status %d: %s", req.URL.Path, resp.StatusCode, truncate(string(body), 200)) //nolint:err113
+		return fmt.Errorf("GET %s: status %d: %s", req.URL.Path, resp.StatusCode, truncate(string(body), errorBodyPreviewBytes)) //nolint:err113
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return fmt.Errorf("GET %s: decode: %w", req.URL.Path, err)

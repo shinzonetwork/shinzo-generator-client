@@ -126,6 +126,13 @@ func shinzohubConfig() *config.Config {
 	return cfg
 }
 
+func newTestConverter(t *testing.T) *Converter {
+	t.Helper()
+	conv, err := NewConverter(shinzohubConfig())
+	require.NoError(t, err)
+	return conv
+}
+
 // --- Client ---
 
 func TestClientFetchBlock_TestnetFixtures(t *testing.T) {
@@ -201,7 +208,7 @@ func TestClientFetchBlock_HTTPErrorFails(t *testing.T) {
 func TestConvert_GroupsFollowBlockAndEVMGroups(t *testing.T) {
 	t.Parallel()
 	block := fetchFixtureBlock(t, 5708560)
-	conv := NewConverter(shinzohubConfig())
+	conv := newTestConverter(t)
 
 	result, err := conv.Convert(context.Background(), &Bundle{EVM: evmBundleFor(block), Cosmos: block})
 	require.NoError(t, err)
@@ -226,7 +233,7 @@ func TestConvert_GroupsFollowBlockAndEVMGroups(t *testing.T) {
 func TestConvert_EmptyBlockKeepsFinalizeEvents(t *testing.T) {
 	t.Parallel()
 	block := fetchFixtureBlock(t, 5708559)
-	result, err := NewConverter(shinzohubConfig()).Convert(context.Background(), &Bundle{EVM: evmBundleFor(block), Cosmos: block})
+	result, err := newTestConverter(t).Convert(context.Background(), &Bundle{EVM: evmBundleFor(block), Cosmos: block})
 	require.NoError(t, err)
 	require.Len(t, result.Groups, 2)
 	assert.Equal(t, "Shinzohub__Testnet__CosmosEvent", result.Groups[1].Collection)
@@ -239,7 +246,7 @@ func TestConvert_EmptyBlockKeepsFinalizeEvents(t *testing.T) {
 func TestConvert_RejectsMismatchedViews(t *testing.T) {
 	t.Parallel()
 	block := fetchFixtureBlock(t, 5708560)
-	conv := NewConverter(shinzohubConfig())
+	conv := newTestConverter(t)
 
 	wrongHash := evmBundleFor(block)
 	wrongHash.Block.Hash = "0x" + strings.Repeat("ab", 32)
@@ -290,7 +297,7 @@ func TestRegistry_CosmosEVMAdapter(t *testing.T) {
 
 func TestStore_TestnetBlocksIntoDefra(t *testing.T) {
 	t.Parallel()
-	conv := NewConverter(shinzohubConfig())
+	conv := newTestConverter(t)
 	sdl, err := conv.GetSchema()
 	require.NoError(t, err)
 	td := testutils.SetupTestDefraDBWithSchema(t, sdl)

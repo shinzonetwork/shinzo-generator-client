@@ -2,15 +2,14 @@ package cosmos
 
 import (
 	"encoding/json"
-
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
 
 // Bundle is the raw block returned by the cosmos-evm Fetcher for one height:
 // the EVM view (eth JSON-RPC) and the native Cosmos view (CometBFT + REST) of
-// the same block.
+// the same block. EVM is the EVM chain family's raw block, opaque here and
+// handed back to the EVM converter.
 type Bundle struct {
-	EVM    *evm.BlockBundle
+	EVM    any
 	Cosmos *Block
 }
 
