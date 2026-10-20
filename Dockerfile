@@ -7,7 +7,7 @@
 # wazero are in the graph, wasmer is not in go.mod at all.
 
 # Stage 1: build
-FROM golang:1.27-bookworm AS builder
+FROM golang:1.27.3-bookworm AS builder
 
 WORKDIR /app
 
