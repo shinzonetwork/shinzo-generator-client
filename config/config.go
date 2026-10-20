@@ -125,18 +125,22 @@ type GethConfig struct {
 
 // IndexerConfig represents indexer configuration.
 type IndexerConfig struct {
-	StartHeight        int    `yaml:"start_height"`
-	ConcurrentBlocks   int    `yaml:"concurrent_blocks"`
-	ReceiptWorkers     int    `yaml:"receipt_workers"`
-	MaxDocsPerTxn      int    `yaml:"max_docs_per_txn"`
-	MaxTxDocsPerBatch  int    `yaml:"max_tx_docs_per_batch"`
-	MaxLogDocsPerBatch int    `yaml:"max_log_docs_per_batch"`
-	MaxALEDocsPerBatch int    `yaml:"max_ale_docs_per_batch"`
-	BlocksPerMinute    int    `yaml:"blocks_per_minute"`
-	HealthServerPort   int    `yaml:"health_server_port"`
-	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"`
-	StartBuffer        int    `yaml:"start_buffer"`
-	SchemaAuthMode     string `yaml:"schema_auth_mode"`
+	StartHeight        int  `yaml:"start_height"`
+	ConcurrentBlocks   int  `yaml:"concurrent_blocks"`
+	ReceiptWorkers     int  `yaml:"receipt_workers"`
+	MaxDocsPerTxn      int  `yaml:"max_docs_per_txn"`
+	MaxTxDocsPerBatch  int  `yaml:"max_tx_docs_per_batch"`
+	MaxLogDocsPerBatch int  `yaml:"max_log_docs_per_batch"`
+	MaxALEDocsPerBatch int  `yaml:"max_ale_docs_per_batch"`
+	BlocksPerMinute    int  `yaml:"blocks_per_minute"`
+	HealthServerPort   int  `yaml:"health_server_port"`
+	OpenBrowserOnStart bool `yaml:"open_browser_on_start"`
+	StartBuffer        int  `yaml:"start_buffer"`
+	// StartupRPCWaitSeconds bounds how long startup keeps retrying a chain RPC
+	// that is unreachable (e.g. a sidecar that starts before its node). 0 =
+	// fail fast, the default (env: INDEXER_STARTUP_RPC_WAIT_SECONDS).
+	StartupRPCWaitSeconds int    `yaml:"startup_rpc_wait_seconds"`
+	SchemaAuthMode        string `yaml:"schema_auth_mode"`
 	// SchemaAPIKeys are the accepted bearer tokens for the /api/v1/schema/* endpoints.
 	//
 	// ⚠ IMPORTANT: This field uses yaml:"-", which means YAML configuration is SILENTLY IGNORED.
@@ -606,6 +610,11 @@ func applyIndexerEnvOverrides(cfg *Config) {
 	if startBuffer := os.Getenv("INDEXER_START_BUFFER"); startBuffer != "" {
 		if n, err := strconv.Atoi(startBuffer); err == nil {
 			cfg.Indexer.StartBuffer = n
+		}
+	}
+	if wait := os.Getenv("INDEXER_STARTUP_RPC_WAIT_SECONDS"); wait != "" {
+		if n, err := strconv.Atoi(wait); err == nil {
+			cfg.Indexer.StartupRPCWaitSeconds = n
 		}
 	}
 }

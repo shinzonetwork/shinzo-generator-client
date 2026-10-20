@@ -29,6 +29,10 @@ const (
 
 	// RPCErrorRetryBaseDelay is the base delay for retrying RPC errors.
 	RPCErrorRetryBaseDelay = 500 * time.Millisecond
+
+	// MaxTransientRetryDelay caps the exponential backoff for transient RPC
+	// errors (endpoint unreachable), which are retried without limit.
+	MaxTransientRetryDelay = 30 * time.Second
 )
 
 // BlockResult holds the result of processing a block.
@@ -210,6 +214,7 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 // fetchAndProcessBlock fetches, converts, and stores a block with retry
 // classification:
 //   - fetch not-found: infinite retry with BlockNotFoundRetryDelay
+//   - fetch transient RPC errors: infinite retry with capped exponential backoff
 //   - fetch other errors: up to MaxRPCRetries with linear backoff
 //   - convert: no retry (pure computation)
 //   - store: up to MaxRPCRetries on transaction conflicts; ErrAlreadyExists
@@ -231,9 +236,14 @@ func (p *ConcurrentBlockProcessor) fetchAndProcessBlock(ctx context.Context, blo
 // fetchBlockWithRetry fetches a block from the fetcher with retry
 // classification:
 //   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
+//   - transient RPC errors (endpoint unreachable, 429/5xx): infinite retry with
+//     exponential backoff capped at MaxTransientRetryDelay. A failed block is
+//     skipped by the collector, so giving up during an RPC outage (e.g. a node
+//     restart) would leave permanent gaps.
 //   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
 func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
 	otherErrors := 0
+	transientErrors := 0
 	for {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -254,6 +264,18 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 			continue
 		}
 
+		if errors.IsTransientRPCError(err) {
+			transientErrors++
+			delay := transientRetryDelay(transientErrors)
+			logger.Sugar.Warnf("Block %d: RPC unavailable, retrying in %v (attempt %d): %v", blockNum, delay, transientErrors, err)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+			continue
+		}
+
 		otherErrors++
 		if otherErrors >= MaxRPCRetries {
 			return nil, fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
@@ -264,6 +286,16 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 		case <-time.After(time.Duration(otherErrors) * RPCErrorRetryBaseDelay):
 		}
 	}
+}
+
+// transientRetryDelay returns the backoff before transient retry n (1-based):
+// RPCErrorRetryBaseDelay doubled per attempt, capped at MaxTransientRetryDelay.
+func transientRetryDelay(n int) time.Duration {
+	delay := RPCErrorRetryBaseDelay
+	for i := 1; i < n && delay < MaxTransientRetryDelay; i++ {
+		delay *= 2
+	}
+	return min(delay, MaxTransientRetryDelay)
 }
 
 // storeWithRetry persists a ConversionResult via the block handler. On

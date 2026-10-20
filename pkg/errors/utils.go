@@ -2,8 +2,11 @@ package errors
 
 import (
 	"errors"
+	"io"
 	"maps"
+	"net"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -81,6 +84,47 @@ func IsCritical(err error) bool {
 func IsNetworkError(err error) bool {
 	var networkErr *NetworkError
 	return errors.As(err, &networkErr)
+}
+
+// transientHTTPStatuses are the HTTP statuses that mean the endpoint is
+// temporarily unavailable. go-ethereum's rpc.HTTPError renders as
+// "<code> <text>: <body>"; the Cosmos client renders "status <code>".
+var transientHTTPStatuses = []string{ //nolint:gochecknoglobals // read-only match table
+	"429 Too Many Requests", "502 Bad Gateway", "503 Service Unavailable", "504 Gateway Timeout",
+	"status 429", "status 502", "status 503", "status 504",
+}
+
+// IsTransientRPCError reports whether err means the RPC endpoint is
+// temporarily unreachable (connection refused or reset, DNS failure, timeout,
+// unexpected EOF, HTTP 429/502/503/504) rather than a problem with the
+// requested data. Callers retry such errors until the endpoint returns
+// instead of giving up on a block: a node restart must never skip heights.
+func IsTransientRPCError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if IsNetworkError(err) {
+		return true
+	}
+	for _, target := range []error{
+		syscall.ECONNREFUSED, syscall.ECONNRESET, syscall.ECONNABORTED, syscall.EPIPE,
+		syscall.EHOSTUNREACH, syscall.ENETUNREACH, io.EOF, io.ErrUnexpectedEOF,
+	} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	// Dial, DNS and timeout failures (*net.OpError, *net.DNSError, *url.Error).
+	if _, ok := errors.AsType[net.Error](err); ok {
+		return true
+	}
+	msg := err.Error()
+	for _, status := range transientHTTPStatuses {
+		if strings.Contains(msg, status) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsDataError checks if error is data-related.

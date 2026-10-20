@@ -283,6 +283,30 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 }
 
 // resolveStartHeight determines the block number to start indexing from.
+// fetchChainTip queries the chain tip. With a positive wait it retries
+// transient RPC errors (endpoint unreachable) with capped exponential backoff
+// until the wait elapses, so a generator started before its node does not
+// exit; any other error, or a non-positive wait, returns immediately.
+func (i *ChainIndexer) fetchChainTip(ctx context.Context, wait time.Duration) (int64, error) {
+	deadline := time.Now().Add(wait)
+	for attempt := 1; ; attempt++ {
+		tip, err := i.fetcher.FetchHighestBlockNumber(ctx)
+		if err == nil || wait <= 0 || !indexerErrors.IsTransientRPCError(err) {
+			return tip, err
+		}
+		delay := transientRetryDelay(attempt)
+		if time.Now().Add(delay).After(deadline) {
+			return 0, fmt.Errorf("chain RPC still unreachable after %v: %w", wait, err)
+		}
+		logger.Sugar.Warnf("Chain RPC unreachable, retrying in %v (attempt %d): %v", delay, attempt, err)
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+}
+
 func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
@@ -309,7 +333,7 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 		}
 	}
 
-	latestBlock, err := i.fetcher.FetchHighestBlockNumber(ctx)
+	latestBlock, err := i.fetchChainTip(ctx, time.Duration(cfg.Indexer.StartupRPCWaitSeconds)*time.Second)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block number from RPC: %w", err)
 	}
