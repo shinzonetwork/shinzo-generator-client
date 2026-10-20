@@ -84,6 +84,7 @@ type HealthChecker interface {
 	GetLastProcessedTime() time.Time
 	GetPeerInfo() (*P2PInfo, error)
 	GetSourceChainInfo() (string, uint64)
+	GetChainName() string
 	SignRegistrationMessage(message string) (DefraPKRegistration, error)
 	SignMessages(message string) (DefraPKRegistration, PeerIDRegistration, error)
 }
@@ -106,6 +107,7 @@ type PeerInfo struct {
 type HealthResponse struct {
 	Status           string               `json:"status"`
 	Timestamp        time.Time            `json:"timestamp"`
+	ChainName        string               `json:"chain_name,omitempty"`
 	CurrentBlock     int64                `json:"current_block,omitempty"`
 	LastProcessed    time.Time            `json:"last_processed,omitzero"`
 	DefraDBConnected bool                 `json:"defradb_connected"`
@@ -221,6 +223,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if hs.indexer != nil {
+		response.ChainName = hs.indexer.GetChainName()
 		response.CurrentBlock = hs.indexer.GetCurrentBlock()
 		response.LastProcessed = hs.indexer.GetLastProcessedTime()
 		p2p, _ := hs.indexer.GetPeerInfo()
@@ -270,6 +273,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	if hs.indexer != nil {
+		response.ChainName = hs.indexer.GetChainName()
 		response.CurrentBlock = hs.indexer.GetCurrentBlock()
 		response.LastProcessed = hs.indexer.GetLastProcessedTime()
 		p2p, err := hs.indexer.GetPeerInfo()

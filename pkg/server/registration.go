@@ -25,6 +25,7 @@ type DisplayRegistration struct {
 	Message             string              `json:"message"`
 	DID                 string              `json:"did,omitempty"`
 	ConnectionString    string              `json:"connection_string,omitempty"`
+	ChainName           string              `json:"chain_name,omitempty"`
 	SourceChain         string              `json:"source_chain,omitempty"`
 	SourceChainID       uint64              `json:"source_chain_id,omitempty"`
 	DefraPKRegistration DefraPKRegistration `json:"defra_pk_registration,omitzero"`
@@ -69,6 +70,7 @@ func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistrati
 	if p2p, err := hs.indexer.GetPeerInfo(); err == nil {
 		registration.ConnectionString = deriveConnectionString(r, p2p)
 	}
+	registration.ChainName = hs.indexer.GetChainName()
 	registration.SourceChain, registration.SourceChainID = hs.indexer.GetSourceChainInfo()
 
 	return registration, nil

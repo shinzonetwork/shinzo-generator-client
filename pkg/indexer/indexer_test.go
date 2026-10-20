@@ -860,3 +860,11 @@ func TestGetSourceChainInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestGetChainName(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "Shinzohub", (&ChainIndexer{cfg: &config.Config{Chain: config.ChainConfig{Name: " Shinzohub "}}}).GetChainName())
+	assert.Empty(t, (&ChainIndexer{}).GetChainName())
+	var nilIndexer *ChainIndexer
+	assert.Empty(t, nilIndexer.GetChainName())
+}

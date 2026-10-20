@@ -292,6 +292,8 @@
                     <div class="info-row">
                         <span class="info-label">Version</span>
                         <span class="info-value" id="versionValue">-</span>
+                        <span class="info-label">Chain</span>
+                        <span class="info-value" id="chainNameValue">-</span>
                     </div>
                     <div class="info-row">
                         <span class="info-label">Build Tags</span>
@@ -597,6 +599,7 @@
 
                 // Update configuration section
                 document.getElementById('versionValue').textContent = data.version || '-';
+                document.getElementById('chainNameValue').textContent = data.chain_name || '-';
                 document.getElementById('buildTagsValue').textContent = data.build_tags || '-';
                 document.getElementById('schemaTypeValue').textContent = data.schema_type || '-';
                 document.getElementById('timestampValue').textContent = formatTime(data.timestamp) || '-';
