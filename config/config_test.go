@@ -552,6 +552,28 @@ func TestChainAdapter_EnvOverride(t *testing.T) {
 	}
 }
 
+func TestChainID_EnvOverride(t *testing.T) {
+	tests := []struct {
+		name   string
+		envVal string
+		want   uint64
+	}{
+		{"shinzohub local", "91273003", 91273003},
+		{"empty keeps yaml value", "", 7},
+		{"invalid keeps yaml value", "not-a-number", 7},
+		{"negative keeps yaml value", "-1", 7},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			cfg.Chain.ChainID = 7
+			t.Setenv("CHAIN_ID", tt.envVal)
+			applyChainEnvOverrides(cfg)
+			assert.Equal(t, tt.want, cfg.Chain.ChainID, "Chain.ChainID")
+		})
+	}
+}
+
 func TestChainAdapter_EnvOverrideEmptyIgnored(t *testing.T) {
 	cfg := &Config{}
 	cfg.Chain.Adapter = DefaultChainAdapter
