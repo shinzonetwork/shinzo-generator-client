@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -21,6 +22,9 @@ const DefaultChainAdapter = "evm"
 
 // ErrChainUnset is returned when the config does not name the chain to index.
 var ErrChainUnset = errors.New("chain.name and chain.network are required")
+
+// ErrInvalidChainName is returned when the chain name or network cannot be part of a collection name.
+var ErrInvalidChainName = errors.New("chain name and network must each be a letter followed by letters or digits")
 
 // ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
 var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
@@ -303,6 +307,9 @@ func validateConfig(cfg *Config) error {
 	if cfg.Chain.Name == "" || cfg.Chain.Network == "" {
 		return ErrChainUnset
 	}
+	if err := ValidateChainNames(cfg.Chain.Name, cfg.Chain.Network); err != nil {
+		return err
+	}
 	// chain_id is the EVM chain ID; other chain families identify their chain differently.
 	if cfg.Chain.Adapter == DefaultChainAdapter && cfg.Chain.ChainID == 0 {
 		return ErrChainIDUnset
@@ -342,6 +349,20 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+// chainNamePattern is a letter followed by letters or digits. The chain name and network are
+// joined with "__" into collection names such as Ethereum__Mainnet__Block; with no underscores
+// in either part the separator is unambiguous, and the names stay valid GraphQL.
+var chainNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
+
+// ValidateChainNames returns ErrInvalidChainName unless the chain name and network can be
+// joined into collection names.
+func ValidateChainNames(name, network string) error {
+	if !chainNamePattern.MatchString(name) || !chainNamePattern.MatchString(network) {
+		return fmt.Errorf("%w: got %q and %q", ErrInvalidChainName, name, network)
+	}
 	return nil
 }
 

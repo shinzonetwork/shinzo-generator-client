@@ -35,6 +35,37 @@ func TestLoadConfig_ChainRequired(t *testing.T) {
 	}
 }
 
+func TestValidateChainNames(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		chain   string
+		network string
+		wantErr error
+	}{
+		{name: "capitalized words", chain: "Ethereum", network: "Mainnet"},
+		{name: "lower-case first letter", chain: "ethereum", network: "sepolia"},
+		{name: "digits after the first letter", chain: "Base2", network: "Sepolia1"},
+		{name: "space", chain: "Arbitrum One", network: "Mainnet", wantErr: ErrInvalidChainName},
+		{name: "hyphen", chain: "Ethereum", network: "Ethereum-Sepolia", wantErr: ErrInvalidChainName},
+		{name: "underscore", chain: "Arbitrum_One", network: "Mainnet", wantErr: ErrInvalidChainName},
+		{name: "starts with a digit", chain: "Ethereum", network: "1Mainnet", wantErr: ErrInvalidChainName},
+		{name: "non-ASCII letter", chain: "Éthereum", network: "Mainnet", wantErr: ErrInvalidChainName},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.ErrorIs(t, ValidateChainNames(tt.chain, tt.network), tt.wantErr)
+		})
+	}
+}
+
+func TestLoadConfig_InvalidChainName(t *testing.T) {
+	t.Setenv("CHAIN_NAME", "Arbitrum One")
+	_, err := LoadConfig("config.yaml")
+	require.ErrorIs(t, err, ErrInvalidChainName)
+}
+
 func TestApplyChainEnvOverrides_ChainID(t *testing.T) {
 	t.Setenv("CHAIN_ID", "11155111")
 	cfg := &Config{Chain: testChain}

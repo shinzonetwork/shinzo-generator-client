@@ -46,6 +46,9 @@ func run(args []string, stdout io.Writer) error {
 	if *chain == "" || *network == "" {
 		return errChainFlagsUnset
 	}
+	if err := config.ValidateChainNames(*chain, *network); err != nil {
+		return err
+	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
 		Name:    *chain,
