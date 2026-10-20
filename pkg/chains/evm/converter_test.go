@@ -484,7 +484,8 @@ func TestConvert_DuplicateAccessListEntries(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			c := NewConverter(testConfig())
+			c, err := NewConverter(testConfig())
+			require.NoError(t, err)
 
 			blockNum := int64(16)
 			block := fakeBlockWithTxs(blockNum, tc.txs...)
@@ -521,7 +522,8 @@ func TestConvert_DuplicateAccessListEntries(t *testing.T) {
 // resolve to different links and are correctly NOT dropped.
 func TestConvert_ALEGroupHasNoContentIdenticalDocsPerTx(t *testing.T) {
 	t.Parallel()
-	c := NewConverter(testConfig())
+	c, err := NewConverter(testConfig())
+	require.NoError(t, err)
 
 	aleAddr := "0x0000000000000000000000000000000000000001"
 	key := "0x0000000000000000000000000000000000000000000000000000000000000009"
