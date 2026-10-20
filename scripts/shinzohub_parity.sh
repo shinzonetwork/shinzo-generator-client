@@ -11,9 +11,10 @@ set -euo pipefail
 FROM=${1:?usage: $0 FROM TO}
 TO=${2:?usage: $0 FROM TO}
 GQL=${GQL:?set GQL to the embedded DefraDB GraphQL endpoint}
-EVM=${SHINZOHUB_EVM_RPC_URL:-http://testnet.shinzo.network:8545}
-RPC=${SHINZOHUB_COSMOS_RPC_URL:-http://testnet.shinzo.network:26657}
-LCD=${SHINZOHUB_COSMOS_LCD_URL:-http://testnet.shinzo.network:1317}
+HOST=${SHINZOHUB_HOST:-testnet.shinzo.network}
+EVM="http://$HOST:8545"
+RPC="http://$HOST:26657"
+LCD="http://$HOST:1317"
 P=${PREFIX:-Shinzohub__Testnet}
 
 gql() { curl -sf -X POST -H 'Content-Type: application/json' --data "$(jq -n --arg q "$1" '{query: $q}')" "$GQL"; }
