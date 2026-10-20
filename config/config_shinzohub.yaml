@@ -1,4 +1,4 @@
-# ShinzoHub configuration (cosmos-evm JSON-RPC) - environment variables override these
+# ShinzoHub configuration (cosmos-evm: EVM JSON-RPC + CometBFT/REST) - environment variables override these
 
 # Chain configuration - identifies which EVM chain to index
 # Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
@@ -6,7 +6,7 @@
 chain:
   name: "Shinzohub"      # Selects the shinzohub ClientAdapter; collections are Shinzohub__{network}__* (env: CHAIN_NAME)
   network: "Testnet"     # Testnet | Devnet | Local | Mainnet (env: CHAIN_NETWORK)
-  adapter: "evm"         # Chain adapter: "evm" (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+  adapter: "cosmos-evm"  # Indexes the EVM view (geth section) and the native Cosmos view (cosmos section) of each block (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
   chain_id: 91273001     # EVM chain ID = Cosmos CHAIN_ID: testnet 91273001, devnet 91273002, local 91273003, mainnet 91273000 (env: CHAIN_ID)
 defradb:
@@ -53,13 +53,17 @@ defradb:
     value_log_file_size_mb: 128      # Size of each vlog file (smaller = more effective GC)
 # The geth section name is historical. The Generator is chain-agnostic and accepts any compatible JSON-RPC and WebSocket endpoint, not just Geth.
 geth:
-  node_url: "${GETH_RPC_URL}"  # testnet: http://testnet.shinzo.network:8545
-  ws_url: "${GETH_WS_URL}"     # testnet: ws://testnet.shinzo.network:8546
+  node_url: "http://testnet.shinzo.network:8545"  # EVM JSON-RPC (env: GETH_RPC_URL)
+  ws_url: "ws://testnet.shinzo.network:8546"      # EVM WebSocket (env: GETH_WS_URL)
   api_key: ""                 # Hub RPC is unauthenticated. A non-empty GETH_API_KEY (incl. from .env) still overrides this: run with GETH_API_KEY= set empty
   api_key_type: ""
   dial_timeout_seconds: 10     # Positive: bounds the startup WebSocket dial (seconds); WS timeout with HTTP connected starts HTTP-only. 0 or negative = unbounded (env: GETH_DIAL_TIMEOUT_SECONDS)
+cosmos:
+  rpc_url: "http://testnet.shinzo.network:26657"  # CometBFT RPC (env: COSMOS_RPC_URL)
+  lcd_url: "http://testnet.shinzo.network:1317"   # Cosmos REST, decoded messages (env: COSMOS_LCD_URL)
+  request_timeout_seconds: 30    # Per-request bound for CometBFT/REST calls
 indexer:
-  start_height: 0           # 0 = chain tip - start_buffer. Testnet is ~6.35M blocks (~7 days to backfill at ~10 blocks/s); set a height to backfill
+  start_height: 0           # 0 = chain tip - start_buffer on an empty store
   concurrent_blocks: 1      # Number of blocks to process concurrently
   receipt_workers: 8        # Concurrent receipt fetchers per block
   max_docs_per_txn: 100    # Docs threshold for single-txn block creation
@@ -69,7 +73,7 @@ indexer:
   blocks_per_minute: 120    # Hub produces ~44 blocks/min (~1.37s); headroom lets a lagging node catch up
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
-  start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
+  start_buffer: 1000       # Start 1000 blocks behind the tip; a resume more than 1000 blocks behind also skips ahead
   schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
   # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
   # You MUST set keys via the SCHEMA_API_KEYS environment variable (comma-separated).
@@ -80,14 +84,14 @@ logger:
   development: true
   level: "info"
 pruner:
-  enabled: false            # v1 keeps every block; hub volume is small
+  enabled: true             # Retention window of max_blocks (~23 min at ~1.37s blocks)
   max_blocks: 1000          # Number of blocks to retain
   max_blocks_per_cycle: 50  # Max blocks one prune cycle may delete
   prune_threshold: 1        # Trigger pruning when exceeding max_blocks by this amount
   interval_seconds: 30      # How often to check and prune
   prune_history: true       # Walk DAG chains to delete historical block versions (2-3x slower)
 snapshot:
-  enabled: false            # Snapshots only matter alongside pruning
+  enabled: true             # Snapshot ranges before the pruner deletes them
   dir: "./.defra-shinzohub/snapshots" # Directory to store snapshot files
   blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
   interval_seconds: 30 
