@@ -883,6 +883,15 @@ func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRe
 	}, nil
 }
 
+// GetChainName returns the configured chain name (chain.name, e.g.
+// "Shinzohub"), or "" when no config is loaded.
+func (i *ChainIndexer) GetChainName() string {
+	if i == nil || i.cfg == nil {
+		return ""
+	}
+	return strings.TrimSpace(i.cfg.Chain.Name)
+}
+
 // GetSourceChainInfo returns the ShinzoHub registration source chain metadata for this indexer.
 func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
