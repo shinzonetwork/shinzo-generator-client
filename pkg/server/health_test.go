@@ -130,7 +130,7 @@ func TestHealthHandler_JSONResponse_NilIndexer(t *testing.T) {
 	var resp HealthResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "healthy", resp.Status)
-	// Compared against the pkg/utils var so the test holds with or without
+	// Compared against the config var so the test holds with or without
 	// build-time ldflags injection.
 	assert.Equal(t, config.Version, resp.Version)
 }
