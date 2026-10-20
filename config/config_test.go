@@ -600,6 +600,11 @@ func TestApplyCosmosHostDefaults(t *testing.T) {
 }
 
 func TestCosmosHost_EnvOverride(t *testing.T) {
+	// Explicit endpoint vars win over the derived ones, and CI exports a real
+	// GETH_RPC_URL, so clear them to exercise the derivation alone.
+	for _, name := range []string{"GETH_RPC_URL", "GETH_WS_URL", "COSMOS_RPC_URL", "COSMOS_LCD_URL"} {
+		t.Setenv(name, "")
+	}
 	cfg := &Config{}
 	t.Setenv("COSMOS_HOST", "devnet.shinzo.network")
 	require.NoError(t, applyEnvOverrides(cfg))
