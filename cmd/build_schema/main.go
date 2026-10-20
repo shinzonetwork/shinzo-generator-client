@@ -13,6 +13,7 @@ import (
 
 	// The blank import wires the default chain adapter into the registry;
 	// everything below resolves through the pkg/chains interfaces.
+	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/cosmos"
 	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
 
