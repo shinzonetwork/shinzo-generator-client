@@ -41,10 +41,6 @@ var (
 	errIndexingStopped = errors.New("indexing stopped")
 )
 
-// Version is the generator version, set at build time via -ldflags (see the
-// Makefile build target); falls back to "dev" when built without injection.
-var Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
-
 const (
 	// ShortDelayTime is a short delay duration used in various places to give time for operations to complete.
 	ShortDelayTime = 500 * time.Millisecond // Give the server time to start.
@@ -159,7 +155,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	if logger.Sugar == nil {
 		logger.Init(cfg.Logger.Development)
 	}
-	logger.Sugar.Infof("Starting Shinzo Network Generator %s", Version)
+	logger.Sugar.Infof("Starting Shinzo Network Generator %s", config.Version)
 
 	// Init runs against a stop-cancellable context: initDefra, Connect and
 	// resolveStartHeight all honor ctx, so a concurrent StopIndexing aborts a

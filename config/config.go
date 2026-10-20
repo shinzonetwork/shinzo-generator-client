@@ -23,6 +23,11 @@ const DefaultChainAdapter = "evm"
 // lets the query skip purge residue with a missing or unparsable number.
 const DefaultLowestBlockQueryLimit = 1
 
+// Version is the generator version, for example "v0.7.0-ethereum-mainnet",
+// set at build time via -ldflags (see the Makefile build target and the
+// Dockerfile builder stage); "dev" when built without injection.
+var Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
+
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
 	BootstrapPeers      []string `yaml:"bootstrap_peers"`
