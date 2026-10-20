@@ -1,0 +1,18 @@
+type Cosmos__Chain__CosmosTransaction {
+    hash: String
+    blockHash: String
+    blockNumber: Int @index
+    transactionIndex: Int
+    code: Int
+    codespace: String
+    log: String
+    gasWanted: String
+    gasUsed: String
+    memo: String
+    fee: String
+    messageCount: Int
+    # Relationships
+    block: Cosmos__Chain__Block @relation(name: "block_cosmosTransactions")
+    messages: [Cosmos__Chain__CosmosMessage] @relation(name: "cosmosTransaction_messages")
+    events: [Cosmos__Chain__CosmosEvent] @relation(name: "cosmosTransaction_events")
+}
