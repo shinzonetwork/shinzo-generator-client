@@ -587,13 +587,17 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 	tests := []struct {
 		name         string
 		chainAdapter string
+		cosmos       CosmosConfig
 		shouldError  bool
 		errContains  string
 	}{
-		{"evm valid", DefaultChainAdapter, false, ""},
-		{"cosmos rejected", "cosmos", true, "not yet implemented"},
-		{"solana rejected", "solana", true, "not yet implemented"},
-		{"empty rejected", "", true, "not yet implemented"},
+		{"evm valid", DefaultChainAdapter, CosmosConfig{}, false, ""},
+		{"cosmos-evm valid", CosmosEVMChainAdapter, CosmosConfig{RPCURL: "http://h:26657", LCDURL: "http://h:1317"}, false, ""},
+		{"cosmos-evm without rpc_url", CosmosEVMChainAdapter, CosmosConfig{LCDURL: "http://h:1317"}, true, "requires cosmos.rpc_url"},
+		{"cosmos-evm without lcd_url", CosmosEVMChainAdapter, CosmosConfig{RPCURL: "http://h:26657"}, true, "requires cosmos.rpc_url"},
+		{"cosmos rejected", "cosmos", CosmosConfig{}, true, "not yet implemented"},
+		{"solana rejected", "solana", CosmosConfig{}, true, "not yet implemented"},
+		{"empty rejected", "", CosmosConfig{}, true, "not yet implemented"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -601,6 +605,7 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
 			cfg.Chain.Adapter = tt.chainAdapter
+			cfg.Cosmos = tt.cosmos
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			err := validateConfig(cfg)
 			if tt.shouldError {
