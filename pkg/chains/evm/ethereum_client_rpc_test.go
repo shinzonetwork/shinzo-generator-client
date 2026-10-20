@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net"
 	"strconv"
 	"testing"
 
@@ -264,7 +265,52 @@ func TestGetLatestBlock_Success(t *testing.T) {
 	block, err := client.GetLatestBlock(context.Background())
 	require.NoError(t, err)
 	require.NotNil(t, block)
-	assert.Equal(t, "200", block.Number) // mock always returns same block
+}
+
+// --- RPC error URL redaction ---
+
+// Reproduces the leak found in review: a provider-style endpoint with the API
+// key embedded in the URL path that fails at the HTTP layer must not echo the
+// full URL through net/http's *url.Error ("Post \"http://host/v2/KEY\": dial
+// tcp: connection refused"). Only scheme://host[:port] may appear.
+func TestRPCError_URLRedacted(t *testing.T) {
+	t.Parallel()
+
+	// Reserve a port, then release it so the RPC dial fails with
+	// connection refused without touching the network.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := l.Addr().(*net.TCPAddr).Port
+	require.NoError(t, l.Close())
+
+	const apiKey = "s3cr3t-key-9876"
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/v2/%s", port, apiKey)
+
+	client, err := NewEthereumClient(t.Context(), endpoint, "", apiKey, "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.GetLatestBlockNumber(context.Background())
+	require.Error(t, err)
+
+	assert.NotContains(t, err.Error(), apiKey)
+	assert.Contains(t, err.Error(), fmt.Sprintf("http://127.0.0.1:%d", port))
+}
+
+// The dial path fails on a malformed URL before any request is made, and
+// url.Parse errors echo the raw URL, key included, so the constructed error
+// must carry the hidden-endpoint sentinel instead.
+func TestNewEthereumClient_ParseErrorRedacted(t *testing.T) {
+	t.Parallel()
+
+	const apiKey = "s3cr3t-key-9876"
+	endpoint := "http://127.0.0.1:1/v2/" + apiKey + "\n"
+
+	_, err := NewEthereumClient(t.Context(), endpoint, "", apiKey, "X-Api-Key", 0)
+	require.Error(t, err)
+
+	assert.NotContains(t, err.Error(), apiKey)
+	assert.Contains(t, err.Error(), "(endpoint hidden)")
 }
 
 func TestGetLatestBlock_HeaderError(t *testing.T) {

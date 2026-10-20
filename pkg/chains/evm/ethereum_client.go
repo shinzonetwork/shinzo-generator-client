@@ -99,6 +99,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 				},
 			}))
 			if err != nil {
+				err = utils.RedactHTTPError(err)
 				logger.Sugar.Errorf("Failed to create HTTP client with API key: %v", err)
 				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, err)
 			}
@@ -109,7 +110,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 			// Standard connection without API key
 			httpClient, err = ethclient.DialContext(ctx, httpNodeURL)
 			if err != nil {
-				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, err)
+				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, utils.RedactHTTPError(err))
 			}
 		}
 		client.httpClient = httpClient
@@ -191,6 +192,7 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 		logger.Sugar.Info("Trying standard WebSocket connection as fallback")
 		wsClient, err = ethclient.DialContext(wsCtx, wsURL)
 		if err != nil {
+			err = utils.RedactHTTPError(err)
 			logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
 			// Same classification as the first dial: a deadline-class error
 			// must never silently drop the abort sentinel (the socket deadline
@@ -219,6 +221,7 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 func (c *EthereumClient) connectWebSocketPlain(ctx, wsCtx context.Context, wsURL string) error {
 	wsClient, err := ethclient.DialContext(wsCtx, wsURL)
 	if err != nil {
+		err = utils.RedactHTTPError(err)
 		logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
 		// Classify from the error itself, not from re-reading ctx.Err():
 		// the WS dialer arms a socket deadline from the context deadline,
@@ -289,7 +292,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 	// Get the latest block number first.
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
+		return nil, fmt.Errorf("failed to get latest header: %w", utils.RedactHTTPError(err))
 	}
 
 	// For GCP Erigon nodes, start with blocks that are significantly behind.
@@ -321,7 +324,7 @@ func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
 				return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
 			}
 			// For non-transaction-type errors, fail immediately.
-			return nil, fmt.Errorf("failed to get block: %w", err)
+			return nil, fmt.Errorf("failed to get block: %w", utils.RedactHTTPError(err))
 		}
 
 		// Success - log which block we're actually processing.
@@ -344,7 +347,7 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
+		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, utils.RedactHTTPError(err))
 	}
 
 	return c.convertGethBlock(gethBlock), nil
@@ -357,7 +360,11 @@ func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 		return nil, errNoClientAvailable
 	}
 
-	return client.NetworkID(ctx)
+	networkID, err := client.NetworkID(ctx)
+	if err != nil {
+		return nil, utils.RedactHTTPError(err)
+	}
+	return networkID, nil
 }
 
 // GetLatestBlockNumber returns just the latest block number (not the offset block).
@@ -369,7 +376,7 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
+		return nil, fmt.Errorf("failed to get latest header: %w", utils.RedactHTTPError(err))
 	}
 
 	return latestHeader.Number, nil
@@ -385,7 +392,7 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 	hash := common.HexToHash(txHash)
 	receipt, err := client.TransactionReceipt(ctx, hash)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
+		return nil, fmt.Errorf("failed to get transaction receipt: %w", utils.RedactHTTPError(err))
 	}
 	return c.convertGethReceipt(receipt), nil
 }
@@ -398,7 +405,7 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.
 	}
 	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
+		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, utils.RedactHTTPError(err))
 	}
 	result := make([]*TransactionReceipt, len(receipts))
 	for i, receipt := range receipts {
@@ -720,7 +727,7 @@ func createWebSocketWithHeaders(ctx context.Context, wsURL, apiKey, apiKeyHeader
 
 		rpcClient, err := ethrpc.DialContext(ctx, wsURLWithKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to dial GCP WebSocket: %w", err)
+			return nil, fmt.Errorf("failed to dial GCP WebSocket: %w", utils.RedactHTTPError(err))
 		}
 		logger.Sugar.Info("GCP WebSocket connection established successfully")
 		return ethclient.NewClient(rpcClient), nil
@@ -739,7 +746,7 @@ func createWebSocketWithHeaders(ctx context.Context, wsURL, apiKey, apiKeyHeader
 		ethrpc.WithHeaders(headers),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, err)
+		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, utils.RedactHTTPError(err))
 	}
 
 	logger.Sugar.Infof("WebSocket connection established successfully with %s header", headerName)
