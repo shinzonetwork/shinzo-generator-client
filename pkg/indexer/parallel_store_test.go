@@ -46,6 +46,14 @@ type parkedStorer struct {
 	inFlight   atomic.Int64
 	storeCalls atomic.Int64
 	once       sync.Once
+
+	// mu guards the scripted maps below: sibling pool workers run Store
+	// concurrently, so the failHeights write behind the check must never
+	// interleave with another worker's map lookups. The sleep and the park
+	// wait stay outside the lock - holding it across them would serialize
+	// the workers and void the store-buffer saturation the delay knobs
+	// exist to create.
+	mu sync.Mutex
 }
 
 func (s *parkedStorer) Store(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
@@ -54,17 +62,20 @@ func (s *parkedStorer) Store(_ context.Context, result chains.ConversionResult) 
 	defer s.inFlight.Add(-1)
 	s.storeCalls.Add(1)
 
+	s.mu.Lock()
 	delay, ok := s.storeDelays[num]
 	if !ok {
 		delay = s.defaultStoreDelay
 	}
-	if delay > 0 {
-		time.Sleep(delay)
-	}
-
 	if s.failHeights != nil && s.failHeights[num] > 0 {
 		s.failHeights[num]--
+		s.mu.Unlock()
 		return nil, fmt.Errorf("store exploded")
+	}
+	s.mu.Unlock()
+
+	if delay > 0 {
+		time.Sleep(delay)
 	}
 
 	if s.storeBlocked == num {
