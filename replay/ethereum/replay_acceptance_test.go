@@ -398,7 +398,7 @@ func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Cont
 	assert.Equal(t, expected, blockCount,
 		"block count in the stored range must equal blocks processed minus blocks the pruner removed (duplicate stores are rejected, so a mismatch means a block silently failed or was pruned unexpectedly)")
 
-	sigCount, err := graphqlCountInRange(ctx, td.Node, cols.BlockCollection(),
+	sigCount, err := graphqlCountInRange(ctx, td.Node, cols.BlockSignatureCollection(),
 		constants.BlockNumberFieldName, first, last, processed+1)
 	require.NoError(t, err)
 	// The pruner deletes a block's signature together with its docs (the

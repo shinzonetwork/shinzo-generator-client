@@ -20,7 +20,7 @@ capture (one-time, needs a real endpoint)          acceptance (make ethereum-acc
                                                    └──────────────┬───────────────────┘
                                                                   │
                                                                   ▼
-                                                   the indexer's ConcurrentBlockProcessor
+                                                   the generator's ConcurrentBlockProcessor
                                                    (workers from config.yaml)
                                                                   │
                                                                   ▼
@@ -96,10 +96,10 @@ make ethereum-acceptance-test
   `ETHEREUM_REPLAY_SNAPSHOT_BLOCKS_PER_FILE` (50) tune the services' forced-fast
   cadence and retention.
 
-The loop runs through the indexer's **`ConcurrentBlockProcessor`** — the real
+The loop runs through the generator's **`ConcurrentBlockProcessor`** — the real
 production orchestration (worker pool, retry classification, in-order commit,
 per-block `Committed block N` info logs). The worker count comes from the
-shipped yaml's `concurrent_blocks` like production reads it; there is no bench
+shipped yaml's `concurrent_blocks` like production reads it; there is no replay
 override knob, and the env scrub keeps stray `INDEXER_*` values out, so
 raising concurrency is a yaml change exercised identically in production.
 
@@ -155,14 +155,14 @@ on the local side:
   limits; the bench runs on the host.
 
 **Write-collision concentration**: the loopback mock answers in near-zero
-time and pacing is off, so concurrent workers reach `Store` within the same
+time and pacing is off, so concurrently processed blocks reach `Store` within the same
 milliseconds, back to back — write pressure that paced production (real
 fetch latency plus the `blocks_per_minute` dispatch floor) spreads over
 minutes is compressed here into seconds. Under that pressure a block's
 batch writes can exhaust their conflict retries and commit partially; the
 block then lands unsigned and the signature-count verdict fails naming it.
 Paced production stays below that pressure today — a red signature count
-at several concurrent workers is the deliberate stress finding, not a
+at several concurrently processed blocks is the deliberate stress finding, not a
 harness bug.
 
 So live per-block time ≈ acceptance average + (real RPC time − loopback time)
@@ -206,7 +206,7 @@ Two verdicts, both asserted:
 1. **Throughput**: the effective per-block interval — wall clock from first
    dispatch to the last in-order commit, divided by the block count — must
    stay ≤ the target block interval. Missing it fails the test — the chain
-   outruns the indexer and the backlog grows forever. This — not per-block
+   outruns the generator and the backlog grows forever. This — not per-block
    latency — is the gate, because contention inflates individual latencies
    even when the concurrent pipeline comfortably keeps up.
 2. **Correctness**: a range query on the block collection must count
