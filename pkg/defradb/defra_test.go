@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -406,9 +407,19 @@ func TestOpenKeyring_MigratesLegacyKeyring(t *testing.T) {
 	legacyData, err := os.ReadFile(filepath.Join(legacyDir, NodeIdentityKeyName))
 	require.NoError(t, err)
 	assert.NotEmpty(t, legacyData)
+
+	// A restart finds byte-identical copies at both locations and runs the
+	// comparison path without error; the same identity loads again.
+	kr, err = OpenKeyring(cfg)
+	require.NoError(t, err)
+	reloaded, err := LoadIdentityFromKeyring(kr)
+	require.NoError(t, err)
+	reloadedFull, ok := reloaded.(identity.FullIdentity)
+	require.True(t, ok)
+	assert.Equal(t, seededFull.PublicKey().String(), reloadedFull.PublicKey().String())
 }
 
-func TestOpenKeyring_NoMigrationWhenKeyAlreadyAtNewLocation(t *testing.T) {
+func TestOpenKeyring_ConflictingLegacyKeyringErrors(t *testing.T) {
 	tmpDir := t.TempDir()
 	storePath := filepath.Join(tmpDir, "store")
 	legacyDir := filepath.Join(storePath, "keys")
@@ -419,6 +430,10 @@ func TestOpenKeyring_NoMigrationWhenKeyAlreadyAtNewLocation(t *testing.T) {
 	seedKeyringAt(t, siblingDir, newSeed)
 	seedKeyringAt(t, legacyDir, legacySeed)
 
+	newKeyFile := filepath.Join(siblingDir, NodeIdentityKeyName)
+	before, err := os.ReadFile(newKeyFile)
+	require.NoError(t, err)
+
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{
 			KeyringSecret: testKeyringSecretAlt,
@@ -426,21 +441,20 @@ func TestOpenKeyring_NoMigrationWhenKeyAlreadyAtNewLocation(t *testing.T) {
 		},
 	}
 
-	kr, err := OpenKeyring(cfg)
-	require.NoError(t, err)
+	// Two stores resolving to one keyring directory with different identities
+	// must not start on whichever key lands there first.
+	_, err = OpenKeyring(cfg)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "conflicting node identity keys")
 
-	// The key already beside the store wins; the legacy key is never copied
-	// over it.
-	loaded, err := LoadIdentityFromKeyring(kr)
+	// The conflict never clobbers either side: the sibling key is untouched
+	// and the legacy key stays as the operator-visible backup.
+	after, err := os.ReadFile(newKeyFile)
 	require.NoError(t, err)
-	newFull, err := LoadIdentityFromBytes(newSeed)
+	assert.Equal(t, before, after)
+	legacyData, err := os.ReadFile(filepath.Join(legacyDir, NodeIdentityKeyName))
 	require.NoError(t, err)
-	legacyFull, err := LoadIdentityFromBytes(legacySeed)
-	require.NoError(t, err)
-	loadedFull, ok := loaded.(identity.FullIdentity)
-	require.True(t, ok)
-	assert.Equal(t, newFull.PublicKey().String(), loadedFull.PublicKey().String())
-	assert.NotEqual(t, legacyFull.PublicKey().String(), loadedFull.PublicKey().String())
+	assert.NotEmpty(t, legacyData)
 }
 
 // ─── Plaintext identity import tests ────────────────────────────────────────
@@ -592,13 +606,26 @@ func TestStartDefraAfterKeyringMigrationKeepsPeerID(t *testing.T) {
 	seed := newTestIdentityBytes(t)
 	seedKeyringAt(t, filepath.Join(testConfig.DefraDB.Store.Path, "keys"), seed)
 
+	// The peer ID the node must keep is the one derived from the seeded
+	// identity, through the same chain getNodeIdentityAndP2PKeyBytes uses.
+	loaded, err := LoadIdentityFromBytes(seed)
+	require.NoError(t, err)
+	seedFull, ok := loaded.(identity.FullIdentity)
+	require.True(t, ok)
+	libp2pKey, err := CreateLibP2PKeyFromIdentity(seedFull)
+	require.NoError(t, err)
+	expectedPeerID, err := peer.IDFromPrivateKey(libp2pKey)
+	require.NoError(t, err)
+
 	node, _, err := StartDefraInstance(&testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
 	require.NoError(t, err)
 
 	peerInfo, err := node.DB.PeerInfo(context.Background())
 	require.NoError(t, err)
 	require.NotEmpty(t, peerInfo)
-	originalPeerID := peerInfo[0]
+	addrInfo, err := peer.AddrInfoFromString(peerInfo[0])
+	require.NoError(t, err)
+	require.Equal(t, expectedPeerID, addrInfo.ID)
 	require.NoError(t, node.Close(context.Background()))
 
 	// The legacy keyring was migrated beside the store.
@@ -606,7 +633,7 @@ func TestStartDefraAfterKeyringMigrationKeepsPeerID(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, migrated)
 
-	// A restart reads the migrated keyring and keeps the same peer ID.
+	// A restart reads the migrated keyring and keeps the seeded peer ID.
 	node, _, err = StartDefraInstance(&testConfig, &MockSchemaApplierThatSucceeds{}, nil, nil)
 	require.NoError(t, err)
 	defer func() { _ = node.Close(context.Background()) }()
@@ -614,7 +641,9 @@ func TestStartDefraAfterKeyringMigrationKeepsPeerID(t *testing.T) {
 	newPeerInfo, err := node.DB.PeerInfo(context.Background())
 	require.NoError(t, err)
 	require.NotEmpty(t, newPeerInfo)
-	require.Equal(t, originalPeerID, newPeerInfo[0])
+	newAddrInfo, err := peer.AddrInfoFromString(newPeerInfo[0])
+	require.NoError(t, err)
+	require.Equal(t, expectedPeerID, newAddrInfo.ID)
 }
 
 // ─── CreateLibP2PKeyFromIdentity tests ──────────────────────────────────────

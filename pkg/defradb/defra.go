@@ -111,6 +111,12 @@ const (
 // Both migrations copy and leave the source in place as an operator-visible
 // backup. A new identity is generated only when neither source holds one.
 //
+// If a legacy key and the sibling key both exist with different contents, two
+// stores resolve to the same keyring directory, and starting would silently
+// put one node on the other node's identity. OpenKeyring fails with a
+// conflicting node identity keys error instead, so the operator has to
+// separate the stores' keyrings first.
+//
 // Security Features:
 // - Keys stored in encrypted keyring (keys directory beside the store path)
 // - Encryption key derived from KeyringSecret
@@ -177,6 +183,14 @@ func keyringPathFor(storePath string) string {
 // a key already at the new location is never overwritten and existing
 // destination entries are never clobbered. The legacy directory is left
 // untouched as an operator-visible backup.
+//
+// When the legacy and sibling node-identity-key entries both exist, their file
+// bytes are compared: identical bytes mean the sibling copy came from this
+// same legacy keyring and the migration simply re-runs (a restart), while
+// different contents mean two stores resolve to this keyring directory with
+// different identities. Skipping silently there would start one node on
+// another node's identity, so OpenKeyring fails instead and the operator must
+// separate the stores' keyrings before starting.
 func migrateKeyringDir(storePath, keyringPath string) error {
 	if storePath == "" {
 		return nil
@@ -195,7 +209,7 @@ func migrateKeyringDir(storePath, keyringPath string) error {
 	}
 	newKeyFile := filepath.Join(keyringPath, NodeIdentityKeyName)
 	if _, err := os.Stat(newKeyFile); err == nil {
-		return nil
+		return ensureNoKeyConflict(legacyKeyFile, newKeyFile)
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("failed to inspect keyring: %w", err)
 	}
@@ -220,6 +234,27 @@ func migrateKeyringDir(storePath, keyringPath string) error {
 	}
 
 	logger.Sugar.Infof("Migrated node identity keyring from %s to %s", legacyPath, keyringPath)
+	return nil
+}
+
+// ensureNoKeyConflict fails when two copies of a keyring entry hold different
+// contents. Identical bytes are the restart case: the sibling file was written
+// by this same byte-preserving migration, so there is nothing to copy. Since
+// the files are encrypted, differing bytes cannot be matched to a specific
+// identity without decrypting them, but refusing to pick between them keeps
+// startup safe either way.
+func ensureNoKeyConflict(legacyKeyFile, newKeyFile string) error {
+	legacyData, err := os.ReadFile(legacyKeyFile) //nolint:gosec // local legacy keyring file path built from the store path, never user input
+	if err != nil {
+		return fmt.Errorf("failed to read legacy keyring entry: %w", err)
+	}
+	newData, err := os.ReadFile(newKeyFile) //nolint:gosec // sibling keyring file path built from the store path, never user input
+	if err != nil {
+		return fmt.Errorf("failed to read keyring entry: %w", err)
+	}
+	if !bytes.Equal(legacyData, newData) {
+		return fmt.Errorf("conflicting node identity keys: %s and %s hold different contents; refusing to start on an ambiguous identity", legacyKeyFile, newKeyFile)
+	}
 	return nil
 }
 
