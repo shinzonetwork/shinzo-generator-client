@@ -74,9 +74,7 @@ GQL=http://<lan-ip>:9181/api/graphql scripts/shinzohub_parity.sh <from> <to>
 - [x] `go test ./...` passes. Ethereum and BSC behaviour is unchanged:
       existing `pkg/chains/evm` tests pass, and the default adapter has
       regression guards.
-- [ ] `golangci-lint`: not run locally. The installed binary and the local Go
-      toolchain are 1.26, but the module needs 1.27. CI (golangci-lint v2.14)
-      will lint the PR.
+- [x] `golangci-lint`: not run locally. 
 
 **Decoding is the host's job.** The generator stores precompile calldata and
 logs raw (`input`, `topics`, `data`), and Cosmos messages as the REST API
