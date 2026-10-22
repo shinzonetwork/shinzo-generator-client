@@ -143,6 +143,7 @@ func TestEthereumReplayAcceptance(t *testing.T) {
 		&timedFetcher{inner: fetcher, timings: timings},
 		&timedConverter{inner: converter, timings: timings},
 		&timedStorer{inner: handler, timings: timings},
+		nil, // no reorgs in a replay: the contiguous fixture range cannot fork, and nil makes any detected reorg fatal instead
 		workers,
 		0, // pacing off: blocks_per_minute's rate limiter must not soak up the measurement
 	)
