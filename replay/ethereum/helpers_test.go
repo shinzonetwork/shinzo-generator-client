@@ -94,10 +94,15 @@ func loadReplayFixture(t *testing.T, path string) *replayFixture {
 // blocks answer eth_getTransactionReceipt and report the batch call as
 // unsupported, mirroring the node the fixture was captured from.
 type replayRPCServer struct {
-	server      *httptest.Server
-	blocks      map[uint64]fixtureBlock
-	receipts    map[string]json.RawMessage // tx hash → verbatim receipt
-	batchBlocks map[uint64]bool            // numbers whose receipts were captured via eth_getBlockReceipts
+	server   *httptest.Server
+	blocks   map[uint64]fixtureBlock
+	receipts map[string]json.RawMessage // tx hash → verbatim receipt
+	// hashToNum and batchBlocks back the production fetcher's receipt
+	// path: it pins every receipts call to the block's content hash
+	// (eth_getBlockReceipts {"blockHash": ...}), so hash resolution must
+	// exist for the batch answer to ever be reachable.
+	hashToNum   map[string]uint64 // block hash → number
+	batchBlocks map[uint64]bool   // numbers whose receipts were captured via eth_getBlockReceipts
 }
 
 // newReplayRPCServer indexes the fixture and starts the mock node.
@@ -105,20 +110,38 @@ func newReplayRPCServer(fx *replayFixture) *replayRPCServer {
 	srv := &replayRPCServer{
 		blocks:      make(map[uint64]fixtureBlock, len(fx.Blocks)),
 		receipts:    make(map[string]json.RawMessage),
+		hashToNum:   make(map[string]uint64, len(fx.Blocks)),
 		batchBlocks: make(map[uint64]bool),
 	}
 	for _, fb := range fx.Blocks {
 		if num, err := parseHexUint(fb.Number); err == nil {
 			srv.blocks[num] = fb
 			srv.batchBlocks[num] = fb.ReceiptMode == "batch"
-		}
-		if fb.ReceiptMode == "per-tx" {
+			// Both batch and per-tx receipts are flattened into the tx
+			// index: production nodes answer eth_getTransactionReceipt
+			// for every indexed tx, so the fetcher's per-tx fallback
+			// must not dead-end on blocks the capture took batch.
 			indexReceipts(srv.receipts, fb.Receipts)
 		}
+		indexBlockHash(srv.hashToNum, fb)
 	}
 
 	srv.server = httptest.NewServer(http.HandlerFunc(srv.handle))
 	return srv
+}
+
+// indexBlockHash records the block's content hash under its number. An
+// unreadable hash is skipped: the block stays reachable by number only.
+func indexBlockHash(into map[string]uint64, fb fixtureBlock) {
+	var block struct {
+		Hash string `json:"hash"`
+	}
+	if json.Unmarshal(fb.Block, &block) != nil || block.Hash == "" {
+		return
+	}
+	if num, err := parseHexUint(fb.Number); err == nil {
+		into[block.Hash] = num
+	}
 }
 
 // indexReceipts flattens a per-tx receipt array into the hash → receipt map.
@@ -186,6 +209,19 @@ func (s *replayRPCServer) dispatch(method string, params json.RawMessage) (json.
 			return json.RawMessage("null"), nil
 		}
 		return fb.Block, nil
+	case "eth_getBlockByHash":
+		// Serves the walk-back's FetchBlockHeaderByHash: resolve the
+		// hash to the fixture block and return it verbatim; an unknown
+		// hash reads as null like a node that never saw the block.
+		hash, err := s.paramHash(params)
+		if err != nil {
+			return nil, err
+		}
+		num, ok := s.hashToNum[hash]
+		if !ok {
+			return json.RawMessage("null"), nil
+		}
+		return s.blocks[num].Block, nil
 	case "eth_getBlockReceipts":
 		num, err := s.paramBlockNumber(params)
 		if err != nil {
@@ -246,8 +282,19 @@ func (s *replayRPCServer) paramBlockNumber(params json.RawMessage) (uint64, erro
 	if obj.BlockNumber != "" {
 		return parseHexUint(obj.BlockNumber)
 	}
+	// The production fetcher pins receipts calls to the block's content
+	// hash, so a blockHash resolves through the fixture index like a node
+	// would resolve it through its hash index. Unknown hashes read as a
+	// dispatch-level not-found instead of a param error, keeping the
+	// caller's retry semantics intact.
 	if obj.BlockHash != "" {
-		return 0, fmt.Errorf("blockHash %s unsupported: the fixture index resolves blocks by number", obj.BlockHash)
+		lookup := strings.ToLower(obj.BlockHash)
+		for hash, num := range s.hashToNum {
+			if strings.EqualFold(hash, lookup) {
+				return num, nil
+			}
+		}
+		return 0, errors.NewDocumentNotFound("replay rpc", "eth_getBlockReceipts", "block", obj.BlockHash)
 	}
 	return 0, fmt.Errorf("params %s: no blockNumber or blockHash", params)
 }
@@ -724,6 +771,17 @@ func (f *timedFetcher) FetchBlock(ctx context.Context, height int64) (any, error
 
 func (f *timedFetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	return f.inner.FetchHighestBlockNumber(ctx)
+}
+
+// FetchBlockHeaderByHash and FetchFinalizedBlockNumber stay passthrough:
+// the processor only calls them on the reorg path (walk-back fork-point
+// reads), which is off the timed block pipeline.
+func (f *timedFetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chains.BlockHeader, error) {
+	return f.inner.FetchBlockHeaderByHash(ctx, hash)
+}
+
+func (f *timedFetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	return f.inner.FetchFinalizedBlockNumber(ctx)
 }
 
 func (f *timedFetcher) Close() error { return f.inner.Close() }
