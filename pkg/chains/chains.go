@@ -337,7 +337,7 @@ func NewFetcher(cfg *config.Config) (Fetcher, error) {
 }
 
 // NewConverter constructs the chain converter for the configured chain backend.
-// A nil cfg defaults to the "evm" adapter.
+// A nil cfg selects the "evm" adapter, which returns config.ErrChainUnset for it.
 func NewConverter(cfg *config.Config) (Converter, error) {
 	name := adapterName(cfg)
 	chainFactoryRegistryMu.RLock()
@@ -356,7 +356,8 @@ func NewConverter(cfg *config.Config) (Converter, error) {
 }
 
 // NewCollections constructs the chain Collections for the configured chain
-// backend. A nil cfg defaults to the "evm" adapter.
+// backend. A nil cfg selects the "evm" adapter, which returns
+// config.ErrChainUnset for it.
 func NewCollections(cfg *config.Config) (Collections, error) {
 	name := adapterName(cfg)
 	chainFactoryRegistryMu.RLock()

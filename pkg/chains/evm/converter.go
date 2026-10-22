@@ -17,33 +17,18 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-const (
-	// defaultChainName is the fallback chain name when config is empty.
-	defaultChainName = "Ethereum"
-
-	// defaultNetwork is the fallback network name when config is empty.
-	defaultNetwork = "Mainnet"
-
-	// highestBlockQueryLimit keeps the tip query at a single row: corruption
-	// at the highest block indicates a writer bug, not purge residue.
-	highestBlockQueryLimit = 1
-)
+// highestBlockQueryLimit keeps the tip query at a single row: corruption
+// at the highest block indicates a writer bug, not purge residue.
+const highestBlockQueryLimit = 1
 
 // chainPrefixFromConfig derives the collection prefix (e.g. "Ethereum__Mainnet")
-// from the chain config, applying the same defaults as the existing indexer.
-func chainPrefixFromConfig(cfg *config.Config) string {
-	if cfg == nil {
-		return DefaultCollectionPrefix
+// from the chain name and network. It returns config.ErrChainUnset when cfg is
+// nil or either field is empty, so no caller gets a prefix it did not configure.
+func chainPrefixFromConfig(cfg *config.Config) (string, error) {
+	if cfg == nil || cfg.Chain.Name == "" || cfg.Chain.Network == "" {
+		return "", config.ErrChainUnset
 	}
-	name := cfg.Chain.Name
-	network := cfg.Chain.Network
-	if name == "" {
-		name = defaultChainName
-	}
-	if network == "" {
-		network = defaultNetwork
-	}
-	return fmt.Sprintf("%s__%s", name, network)
+	return fmt.Sprintf("%s__%s", cfg.Chain.Name, cfg.Chain.Network), nil
 }
 
 // Converter is the EVM chain-specific knowledge layer. It implements
@@ -66,15 +51,17 @@ type Converter struct {
 // Compile-time guarantee that Converter implements chains.Converter.
 var _ chains.Converter = (*Converter)(nil)
 
-// NewConverter creates a Converter from the given config, deriving the
-// collection prefix via chainPrefixFromConfig. A nil config uses defaults
-// (Ethereum__Mainnet), matching chainPrefixFromConfig behaviour.
-func NewConverter(cfg *config.Config) *Converter {
-	prefix := chainPrefixFromConfig(cfg)
+// NewConverter creates a Converter for the chain cfg names. It returns
+// config.ErrChainUnset when cfg is nil or has no chain name or network.
+func NewConverter(cfg *config.Config) (*Converter, error) {
+	prefix, err := chainPrefixFromConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &Converter{
 		collections: NewCollectionNames(prefix),
 		cfg:         cfg,
-	}
+	}, nil
 }
 
 // Convert implements chains.Converter. It type-asserts rawBlock to *BlockBundle
