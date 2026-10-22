@@ -126,9 +126,16 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 	// Fail fast when the caller's context died mid-dial (cancelled or
 	// expired between dial steps): never return a "successful" client that
 	// cannot serve a single request.
-	if err := ctx.Err(); err != nil {
+	if callerContextFailed(ctx) {
+		cause := ctx.Err()
+		if cause == nil {
+			// The wall-clock deadline passed but the runtime timer has not
+			// marked the context done yet (see callerContextFailed): report
+			// the deadline sentinel directly.
+			cause = context.DeadlineExceeded
+		}
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
-			fmt.Errorf("dial context expired while connecting: %w", err))
+			fmt.Errorf("dial context expired while connecting: %w", cause))
 	}
 
 	// Ensure at least one client is available
@@ -175,12 +182,13 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 	if err != nil {
 		if isContextError(err) {
 			// Resolve immediately: no further dial attempt is worthwhile.
-			// Classify from the error itself, not from re-reading ctx.Err():
-			// the WS dialer arms a socket deadline from the context deadline,
-			// and the kernel can surface os.ErrDeadlineExceeded before the
-			// runtime timer marks the context done — a racy ctx.Err() read
-			// would lose the abort sentinel.
-			if ctx.Err() != nil || c.httpClient == nil {
+			// Classify from the error and the wall-clock deadline, not from
+			// a bare ctx.Err() read: the WS dialer arms a socket deadline
+			// from the context deadline, and the kernel can surface
+			// os.ErrDeadlineExceeded before the runtime timer marks the
+			// context done — a racy ctx.Err() read would lose the abort
+			// sentinel and degrade instead.
+			if callerContextFailed(ctx) || c.httpClient == nil {
 				return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 					fmt.Errorf("%w: %w", errWSDialAborted, err))
 			}
@@ -195,10 +203,10 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 			err = utils.RedactHTTPError(err)
 			logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
 			// Same classification as the first dial: a deadline-class error
-			// must never silently drop the abort sentinel (the socket deadline
-			// can beat the runtime timer), and HTTP degradation requires the
-			// caller's context to be alive.
-			if isContextError(err) && (ctx.Err() != nil || c.httpClient == nil) {
+			// must never silently drop the abort sentinel (the socket
+			// deadline can beat the runtime timer — see callerContextFailed),
+			// and HTTP degradation requires the caller's context to be alive.
+			if isContextError(err) && (callerContextFailed(ctx) || c.httpClient == nil) {
 				return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 					fmt.Errorf("%w: %w", errWSDialAborted, err))
 			}
@@ -223,12 +231,12 @@ func (c *EthereumClient) connectWebSocketPlain(ctx, wsCtx context.Context, wsURL
 	if err != nil {
 		err = utils.RedactHTTPError(err)
 		logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
-		// Classify from the error itself, not from re-reading ctx.Err():
-		// the WS dialer arms a socket deadline from the context deadline,
-		// and the kernel can surface os.ErrDeadlineExceeded before the
-		// runtime timer marks the context done — a racy ctx.Err() read
-		// would lose the abort sentinel.
-		if isContextError(err) && (ctx.Err() != nil || c.httpClient == nil) {
+		// Classify from the error and the wall-clock deadline, not from a
+		// bare ctx.Err() read: the WS dialer arms a socket deadline from the
+		// context deadline, and the kernel can surface os.ErrDeadlineExceeded
+		// before the runtime timer marks the context done — a racy ctx.Err()
+		// read would lose the abort sentinel and degrade instead.
+		if isContextError(err) && (callerContextFailed(ctx) || c.httpClient == nil) {
 			return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 				fmt.Errorf("%w: %w", errWSDialAborted, err))
 		}
@@ -353,6 +361,86 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	return c.convertGethBlock(gethBlock), nil
 }
 
+// GetHeaderByHash fetches only the header of the block with the given
+// 0x-prefixed content hash; no transactions are fetched or decoded, so the
+// walk-back descent pays one header per step instead of a full block
+// download, and chains whose transactions use custom types (OP/Base 0x7e,
+// Arbitrum 100-106, ZKsync 0x71) cannot fail the typed transaction decoder
+// on the walk-back path. Not-found surfaces with its message preserved
+// (ethclient reports the node's "block not found" or the ethereum.NotFound
+// sentinel, both reading "not found") so pkg/errors.IsErrNotFound classifies
+// it and the caller's retry logic matches by-number fetches; a malformed
+// hash fails normalizeBlockHash as a caller bug, not a not-found.
+func (c *EthereumClient) GetHeaderByHash(ctx context.Context, hash string) (*ethtypes.Header, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, errNoClientAvailable
+	}
+
+	blockHash, err := normalizeBlockHash(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	header, err := client.HeaderByHash(ctx, blockHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get header by hash %s: %w", hash, err)
+	}
+
+	return header, nil
+}
+
+// normalizeBlockHash validates a 0x-prefixed 32-byte block-hash string.
+// common.HexToHash silently mis-pads wrong-length input, so the round trip
+// through common.Hash.Hex() is the shape check: it matches only exact
+// 0x + 64 lowercase hex characters.
+func normalizeBlockHash(hash string) (common.Hash, error) {
+	trimmed := strings.TrimSpace(hash)
+	h := common.HexToHash(trimmed)
+	if h.Hex() != strings.ToLower(trimmed) {
+		return common.Hash{}, fmt.Errorf("block hash %q: not a 0x-prefixed %d-byte hex hash", trimmed, common.HashLength)
+	}
+	return h, nil
+}
+
+// GetFinalizedBlockNumber returns the finalized chain height, falling back to
+// the safe height when the node rejects the finalized tag (older nodes,
+// unfinalized chains). Both tags failing is an error; callers (the reorg
+// walk-back) respond with their hard cap. The error messages keep "not
+// found" where the node reports it, so pkg/errors.IsErrNotFound keeps
+// classifying unavailable tags the same way as missing blocks.
+func (c *EthereumClient) GetFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	finalizedNum, finalizedErr := c.headerNumberForTag(ctx, ethrpc.FinalizedBlockNumber)
+	if finalizedErr == nil {
+		return finalizedNum, nil
+	}
+	safeNum, safeErr := c.headerNumberForTag(ctx, ethrpc.SafeBlockNumber)
+	if safeErr == nil {
+		return safeNum, nil
+	}
+	return 0, fmt.Errorf("finalized block number unavailable: %w; safe fallback also failed: %w", finalizedErr, safeErr)
+}
+
+// headerNumberForTag resolves a special block tag ("finalized", "safe") to
+// its height via a header-only eth_getBlockByNumber fetch. A nil header or a
+// header without a block number is malformed and reported as an error rather
+// than height 0.
+func (c *EthereumClient) headerNumberForTag(ctx context.Context, tag ethrpc.BlockNumber) (int64, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return 0, errNoClientAvailable
+	}
+
+	header, err := client.HeaderByNumber(ctx, big.NewInt(tag.Int64()))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get %s header: %w", tag, err)
+	}
+	if header == nil || header.Number == nil {
+		return 0, fmt.Errorf("%s header has no block number", tag)
+	}
+	return header.Number.Int64(), nil
+}
+
 // GetNetworkID returns the network ID.
 func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 	client := c.getPreferredClient()
@@ -397,15 +485,19 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 	return c.convertGethReceipt(receipt), nil
 }
 
-// GetBlockReceipts fetches all receipts for a block in a single RPC call.
-func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*TransactionReceipt, error) {
+// GetBlockReceipts fetches all receipts for a block in a single RPC call,
+// pinned to the block's content hash. The hash parameter keeps the receipts
+// on the same branch as the block the caller already holds: a reorg between
+// the block fetch and the receipt fetch can no longer serve receipts from
+// the new chain's differently numbered block.
+func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, errNoClientAvailable
 	}
-	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
+	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithHash(common.HexToHash(blockHash), false))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, utils.RedactHTTPError(err))
+		return nil, fmt.Errorf("failed to get block receipts for block hash %s: %w", blockHash, utils.RedactHTTPError(err))
 	}
 	result := make([]*TransactionReceipt, len(receipts))
 	for i, receipt := range receipts {
@@ -762,6 +854,25 @@ func isContextError(err error) bool {
 	return stderrors.Is(err, context.Canceled) ||
 		stderrors.Is(err, context.DeadlineExceeded) ||
 		stderrors.Is(err, os.ErrDeadlineExceeded)
+}
+
+// callerContextFailed reports whether the caller's context is dead for the
+// constructor's purposes: cancelled, its deadline timer already fired, or —
+// closing a classification race — its deadline has passed on the wall clock.
+// The WS dialer arms a socket deadline from the context deadline, and the
+// kernel can surface os.ErrDeadlineExceeded a hair before the runtime timer
+// marks the context done; a plain ctx.Err() read at that instant still
+// reports a live context, which would wrongly degrade an aborted startup to
+// HTTP-only mode. Kernel and runtime timers never fire early, so "now is at
+// or past the deadline" reliably identifies the caller deadline as the one
+// that expired. A context without a deadline can only fail via cancellation,
+// which ctx.Err() catches deterministically.
+func callerContextFailed(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	return ok && !time.Now().Before(deadline)
 }
 
 // maskAPIKey masks the API key in URLs for logging.

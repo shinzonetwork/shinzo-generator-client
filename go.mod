@@ -1,6 +1,6 @@
 module github.com/shinzonetwork/shinzo-generator-client
 
-go 1.27.0
+go 1.27.3
 
 require (
 	github.com/TBD54566975/ssi-sdk v0.0.4-alpha
@@ -232,7 +232,7 @@ require (
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/jmhodges/levigo v1.0.0 // indirect
 	github.com/kilic/bls12-381 v0.1.1-0.20210503002446-7b7597926c69 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/koron/go-ssdp v0.1.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
