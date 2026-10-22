@@ -32,8 +32,17 @@ func run(args []string) error {
 
 	fs := flag.NewFlagSet("block_poster", flag.ContinueOnError)
 	configPath := fs.String("config", "config/config.yaml", "Path to configuration file")
+	showVersion := fs.Bool("version", false, "Print the generator version and exit")
+	showVersionShort := fs.Bool("v", false, "Print the generator version and exit (shorthand)")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+
+	// The version flags are handled before any config load so the version can
+	// be printed without a valid configuration file on disk.
+	if *showVersion || *showVersionShort {
+		printVersion(os.Stdout)
+		return nil
 	}
 
 	// Load configuration
@@ -80,6 +89,15 @@ func run(args []string) error {
 	}
 
 	return nil
+}
+
+// printVersion writes the generator version to w as a single bare line so
+// scripts can parse it directly.
+func printVersion(w io.Writer) {
+	// Write errors are intentionally ignored: printing the version to stdout
+	// must not fail the command, matching the blank-assignment convention
+	// used for Fprint calls elsewhere in this file.
+	_, _ = fmt.Fprintln(w, config.Version)
 }
 
 // verifySnapshots verifies one or more snapshot files and reports results.
