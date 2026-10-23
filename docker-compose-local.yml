@@ -51,6 +51,7 @@ services:
         max-file: "3"
     volumes:
       - ~/shinzo-data/defradb:/app/.defra
+      - ~/shinzo-data/keys:/app/keys
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s

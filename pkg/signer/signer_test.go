@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -330,116 +328,49 @@ func TestSignWithP2PKeys_LongMessage(t *testing.T) {
 	assert.NoError(t, VerifyP2PSignature(pub, string(longMsg), sig))
 }
 
-// ─── loadIdentityFromFile tests ─────────────────────────────────────────────
-
-func TestLoadIdentityFromFile_NotFound(t *testing.T) {
-	_, err := loadIdentityFromFile(t.TempDir())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to read key file")
-}
-
-func TestLoadIdentityFromFile_InvalidHex(t *testing.T) {
-	tmpDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("not-valid-hex!"), 0o600)
-	require.NoError(t, err)
-	_, err = loadIdentityFromFile(tmpDir)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to decode key hex")
-}
-
-func TestLoadIdentityFromFile_InvalidKeyData(t *testing.T) {
-	tmpDir := t.TempDir()
-	err := os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte("deadbeef"), 0o600)
-	require.NoError(t, err)
-	_, err = loadIdentityFromFile(tmpDir)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to reconstruct private key")
-}
-
-func TestLoadIdentityFromFile_ValidKeyFile(t *testing.T) {
-	ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
-	require.NoError(t, err)
-	keyBytes := ident.PrivateKey().Raw()
-
-	tmpDir := t.TempDir()
-	err = os.WriteFile(filepath.Join(tmpDir, keyFileName), []byte(hex.EncodeToString(keyBytes)), 0o600)
-	require.NoError(t, err)
-
-	loaded, err := loadIdentityFromFile(tmpDir)
-	assert.NoError(t, err)
-	assert.NotNil(t, loaded)
-}
-
-// ─── getStorePath tests ─────────────────────────────────────────────────────
-
-func TestGetStorePath_WithConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-	path, err := getStorePath(nil, cfgWithStorePath(tmpDir))
-	assert.NoError(t, err)
-	assert.Equal(t, tmpDir, path)
-}
-
-func TestGetStorePath_NilConfig(t *testing.T) {
-	_, err := getStorePath(nil, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "could not find defra_identity.key")
-}
-
-func TestGetStorePath_EmptyConfigPath(t *testing.T) {
-	_, err := getStorePath(nil, cfgWithStorePath(""))
-	assert.Error(t, err)
-}
-
-func TestGetStorePath_FindsKeyInCommonLocation(t *testing.T) {
-	err := os.MkdirAll(".defra", 0o750)
-	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(".defra", keyFileName), []byte("dummy"), 0o600)
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(".defra") }()
-
-	path, err := getStorePath(nil, nil)
-	assert.NoError(t, err)
-	assert.Equal(t, ".defra", path)
-}
-
 // ─── loadIdentityFromStore tests ────────────────────────────────────────────
 
 func TestLoadIdentityFromStore_NilConfig(t *testing.T) {
-	_, err := loadIdentityFromStore(nil, t.TempDir())
+	_, err := loadIdentityFromStore(nil)
 	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "keyring secret is required")
 }
 
-// ─── No store path error tests ──────────────────────────────────────────────
+// ─── Nil config error tests ──────────────────────────────────────────────────
 
-func TestSignWithDefraKeys_NoStorePath(t *testing.T) {
+func TestSignWithDefraKeys_NilConfig(t *testing.T) {
 	_, err := SignWithDefraKeys("test", nil, nil)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get store path")
+	assert.Contains(t, err.Error(), "failed to load identity")
+	assert.Contains(t, err.Error(), "keyring secret is required")
 }
 
-func TestSignWithP2PKeys_NoStorePath(t *testing.T) {
+func TestSignWithP2PKeys_NilConfig(t *testing.T) {
 	_, err := SignWithP2PKeys("test", nil, nil)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get store path")
+	assert.Contains(t, err.Error(), "failed to load identity")
+	assert.Contains(t, err.Error(), "keyring secret is required")
 }
 
-func TestGetDefraPublicKey_NoStorePath(t *testing.T) {
+func TestGetDefraPublicKey_NilConfig(t *testing.T) {
 	_, err := GetDefraPublicKey(nil, nil)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get store path")
+	assert.Contains(t, err.Error(), "failed to load identity")
+	assert.Contains(t, err.Error(), "keyring secret is required")
 }
 
-func TestGetP2PPublicKey_NoStorePath(t *testing.T) {
+func TestGetP2PPublicKey_NilConfig(t *testing.T) {
 	_, err := GetP2PPublicKey(nil, nil)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get store path")
+	assert.Contains(t, err.Error(), "failed to load identity")
+	assert.Contains(t, err.Error(), "keyring secret is required")
 }
 
 // ─── SignWithDefraKeys error paths via mocked loader ────────────────────────
 
 func TestSignWithDefraKeys_LoadIdentityFails(t *testing.T) {
 	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
-		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+		func(_ *config.Config) (identity.FullIdentity, error) {
 			return nil, fmt.Errorf("injected load error")
 		},
 	)
@@ -449,7 +380,7 @@ func TestSignWithDefraKeys_LoadIdentityFails(t *testing.T) {
 
 func TestSignWithDefraKeys_NilPrivateKey(t *testing.T) {
 	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
-		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+		func(_ *config.Config) (identity.FullIdentity, error) {
 			return &testutils.MockFullIdentity{PrivKey: nil}, nil
 		},
 	)
@@ -459,7 +390,7 @@ func TestSignWithDefraKeys_NilPrivateKey(t *testing.T) {
 
 func TestSignWithDefraKeys_SignError(t *testing.T) {
 	_, err := signWithDefraKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
-		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+		func(_ *config.Config) (identity.FullIdentity, error) {
 			return &testutils.MockFullIdentity{
 				PrivKey: &testutils.MockPrivateKey{
 					RawBytes: make([]byte, 32),
@@ -476,7 +407,7 @@ func TestSignWithDefraKeys_SignError(t *testing.T) {
 
 func TestSignWithP2PKeys_LoadIdentityFails(t *testing.T) {
 	_, err := signWithP2PKeysInternal("msg", nil, cfgWithStorePath(t.TempDir()),
-		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+		func(_ *config.Config) (identity.FullIdentity, error) {
 			return nil, fmt.Errorf("injected load error")
 		},
 	)
@@ -488,7 +419,7 @@ func TestSignWithP2PKeys_LoadIdentityFails(t *testing.T) {
 
 func TestGetDefraPublicKey_LoadIdentityFails(t *testing.T) {
 	_, err := getDefraPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
-		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+		func(_ *config.Config) (identity.FullIdentity, error) {
 			return nil, fmt.Errorf("injected load error")
 		},
 	)
@@ -498,7 +429,7 @@ func TestGetDefraPublicKey_LoadIdentityFails(t *testing.T) {
 
 func TestGetDefraPublicKey_NilPublicKey(t *testing.T) {
 	_, err := getDefraPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
-		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+		func(_ *config.Config) (identity.FullIdentity, error) {
 			return &testutils.MockFullIdentity{PubKey: nil}, nil
 		},
 	)
@@ -510,7 +441,7 @@ func TestGetDefraPublicKey_NilPublicKey(t *testing.T) {
 
 func TestGetP2PPublicKey_LoadIdentityFails(t *testing.T) {
 	_, err := getP2PPublicKeyInternal(nil, cfgWithStorePath(t.TempDir()),
-		func(_ *config.Config, _ string) (identity.FullIdentity, error) {
+		func(_ *config.Config) (identity.FullIdentity, error) {
 			return nil, fmt.Errorf("injected load error")
 		},
 	)

@@ -39,6 +39,11 @@ defradb:
     resource_file_descriptors: 8192   # Must be <= the process ulimit -n
     max_streams_per_peer: 4096        # Per direction. Must exceed 256, the unscaled base, or it is a no-op.
   store:
+    # The node identity keyring lives in a keys/ directory beside this store
+    # directory (./keys for the default path). A keyring found inside the store
+    # or a legacy plaintext defra_identity.key in the store path is migrated
+    # there automatically on first start, so the identity survives store wipes
+    # and restores.
     path: "./.defra"
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size

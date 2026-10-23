@@ -145,7 +145,7 @@ COPY --from=builder /app/config/ /app/config/
 COPY --from=builder /app/pkg/schema/ /app/pkg/schema/
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /app/.defra /app/logs /tmp && \
+RUN mkdir -p /app/.defra /app/keys /app/logs && \
     touch /app/logs/logfile && \
     chown -R shinzo-generator:shinzo-generator /app && \
     chmod -R 755 /app && \
