@@ -164,6 +164,7 @@ type storeCompletion struct {
 type processorMetrics struct {
 	blocks           metric.Int64Counter
 	storeDuration    metric.Float64Histogram
+	reorgs           metric.Int64Counter
 	success, failure metric.MeasurementOption
 }
 
@@ -313,6 +314,13 @@ func NewConcurrentBlockProcessor(
 	if err != nil {
 		otel.Handle(err)
 	}
+	reorgs, err := meter.Int64Counter("shinzo.generator.reorgs",
+		metric.WithDescription("Reorgs confirmed by the indexer."),
+		metric.WithUnit("{reorg}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
 
 	return &ConcurrentBlockProcessor{
 		fetcher:         fetcher,
@@ -327,6 +335,7 @@ func NewConcurrentBlockProcessor(
 		metrics: processorMetrics{
 			blocks:        blocks,
 			storeDuration: storeDuration,
+			reorgs:        reorgs,
 			success:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
 			failure:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
 		},
@@ -1282,6 +1291,8 @@ func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reor
 		p.pendingMu.Unlock()
 		return
 	}
+
+	p.metrics.reorgs.Add(ctx, 1)
 
 	var (
 		forkPoint   int64
