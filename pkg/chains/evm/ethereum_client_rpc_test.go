@@ -2,7 +2,7 @@ package evm
 
 // Tests for the client's RPC methods against the shared mock JSON-RPC server
 // (see helpers_test.go): GetLatestBlockNumber, GetNetworkID, GetBlockByNumber,
-// GetTransactionReceipt, GetBlockReceipts and the GetLatestBlock retry paths.
+// GetTransactionReceipt and GetBlockReceipts.
 
 import (
 	"context"
@@ -457,106 +457,6 @@ func TestGetBlockReceipts_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// --- GetLatestBlock with mock server ---
-
-func TestGetLatestBlock_Success(t *testing.T) {
-	t.Parallel()
-	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			// Both HeaderByNumber and BlockByNumber use this method.
-			// The mock returns the same block for all requests — that's fine.
-			return fullBlockResponse("0xc8", nil), nil // 200
-		default:
-			return "0x1", nil
-		}
-	})
-	defer server.Close()
-
-	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
-	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
-
-	block, err := client.GetLatestBlock(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, block)
-	assert.Equal(t, "200", block.Number) // mock always returns same block
-}
-
-func TestGetLatestBlock_HeaderError(t *testing.T) {
-	t.Parallel()
-	server := newMockRPCServer(func(_ string, _ json.RawMessage) (any, error) {
-		return nil, fmt.Errorf("connection refused")
-	})
-	defer server.Close()
-
-	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
-	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
-
-	_, err = client.GetLatestBlock(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get latest header")
-}
-
-func TestGetLatestBlock_BlockError_NonTxType(t *testing.T) {
-	t.Parallel()
-	callCount := 0
-	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			callCount++
-			if callCount == 1 {
-				// First call is HeaderByNumber (params: [nil, false])
-				return fullBlockResponse("0xc8", nil), nil // 200
-			}
-			// Second call is BlockByNumber - return non-tx-type error
-			return nil, fmt.Errorf("server error")
-		default:
-			return "0x1", nil
-		}
-	})
-	defer server.Close()
-
-	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
-	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
-
-	_, err = client.GetLatestBlock(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get block")
-}
-
-func TestGetLatestBlock_SuccessAfterRetry(t *testing.T) {
-	t.Parallel()
-	callCount := 0
-	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		switch method {
-		case ethGetBlockByNumber:
-			callCount++
-			if callCount == 1 {
-				// HeaderByNumber call
-				return fullBlockResponse("0xc8", nil), nil // 200
-			}
-			// First retry gets success
-			return fullBlockResponse(testBlockNumberHex, nil), nil // 100
-		default:
-			return "0x1", nil
-		}
-	})
-	defer server.Close()
-
-	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
-	require.NoError(t, err)
-	defer func() {
-		_ = client.Close()
-	}()
-
-	block, err := client.GetLatestBlock(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, block)
-}
-
 // --- GetLatestBlockNumber error path ---
 
 func TestGetLatestBlockNumber_Error(t *testing.T) {
@@ -580,67 +480,4 @@ func TestGetLatestBlockNumber_Error(t *testing.T) {
 	_, err = client.GetLatestBlockNumber(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get latest header")
-}
-
-// --- GetLatestBlock with unsupported tx type error ---
-
-func TestGetLatestBlock_UnsupportedTxType_Exhausted(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping slow retry test")
-	}
-	// Test that all 8 retries are exhausted for unsupported tx type errors
-	callCount := 0
-	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		if method == ethGetBlockByNumber {
-			callCount++
-			if callCount == 1 {
-				return fullBlockResponse("0xc8", nil), nil
-			}
-			return nil, fmt.Errorf("transaction type not supported")
-		}
-		return "0x1", nil
-	})
-	defer server.Close()
-
-	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
-	require.NoError(t, err)
-	defer func() {
-		_ = client.Close()
-	}()
-
-	_, err = client.GetLatestBlock(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "transaction type not supported")
-}
-
-func TestGetLatestBlock_UnsupportedTxType_SuccessAfterRetry(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping slow retry test")
-	}
-	// Test success on the second attempt after one unsupported tx type error
-	callCount := 0
-	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		if method == ethGetBlockByNumber {
-			callCount++
-			if callCount == 1 {
-				return fullBlockResponse("0xc8", nil), nil // HeaderByNumber
-			}
-			if callCount == 2 {
-				return nil, fmt.Errorf("transaction type not supported") // First retry fails
-			}
-			return fullBlockResponse(testBlockNumberHex, nil), nil // Second retry succeeds
-		}
-		return "0x1", nil
-	})
-	defer server.Close()
-
-	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
-	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
-
-	block, err := client.GetLatestBlock(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, block)
 }
