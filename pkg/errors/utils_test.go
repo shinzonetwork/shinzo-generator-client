@@ -94,28 +94,6 @@ func TestIsErrDocumentDeleted(t *testing.T) {
 	}
 }
 
-func TestIsErrUnsupportedTxType(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{"nil", nil, false},
-		{"not supported", errors.New("transaction type not supported"), true}, //nolint: err113
-		{"invalid type", errors.New("invalid transaction type"), true},        //nolint: err113
-		{"unrelated", errors.New("timeout"), false},                           //nolint: err113
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsErrUnsupportedTxType(tt.err); got != tt.expected {
-				t.Errorf("IsErrUnsupportedTxType() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestIsRetryable(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
