@@ -12,6 +12,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -95,7 +96,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 		var err error
 
 		if apiKey != "" {
-			logger.Sugar.Infof("Creating HTTP client with API key authentication for %s", httpNodeURL)
+			logger.Sugar.Infof("Creating HTTP client with API key authentication for %s", utils.RedactEndpoint(httpNodeURL))
 			// Create RPC client with custom headers for API key authentication using modern approach
 			var rpcClient *ethrpc.Client
 			rpcClient, err = ethrpc.DialOptions(ctx, httpNodeURL, ethrpc.WithHTTPClient(&http.Client{
@@ -106,6 +107,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 				},
 			}))
 			if err != nil {
+				err = utils.RedactHTTPError(err)
 				logger.Sugar.Errorf("Failed to create HTTP client with API key: %v", err)
 				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, err)
 			}
@@ -116,7 +118,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 			// Standard connection without API key
 			httpClient, err = ethclient.DialContext(ctx, httpNodeURL)
 			if err != nil {
-				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, err)
+				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, utils.RedactHTTPError(err))
 			}
 		}
 		client.httpClient = httpClient
@@ -147,7 +149,8 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 	// Ensure at least one client is available
 	if client.httpClient == nil && client.wsClient == nil {
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
-			fmt.Errorf("no valid connections established - both HTTP (%s) and WebSocket (%s) failed", httpNodeURL, wsURL))
+			fmt.Errorf("no valid connections established - both HTTP (%s) and WebSocket (%s) failed",
+				utils.RedactEndpoint(httpNodeURL), utils.RedactEndpoint(wsURL)))
 	}
 
 	return client, nil
@@ -162,7 +165,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 // connected under a live caller context degrades to HTTP-only mode, and
 // otherwise the failure propagates.
 func (c *EthereumClient) connectWebSocket(ctx context.Context, wsURL, apiKey, headerName string, dialTimeout time.Duration) error {
-	logger.Sugar.Infof("Attempting WebSocket connection to %s", wsURL)
+	logger.Sugar.Infof("Attempting WebSocket connection to %s", utils.RedactEndpoint(wsURL))
 
 	wsCtx := ctx
 	if dialTimeout > 0 {
@@ -205,6 +208,7 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 		logger.Sugar.Info("Trying standard WebSocket connection as fallback")
 		wsClient, err = ethclient.DialContext(wsCtx, wsURL)
 		if err != nil {
+			err = utils.RedactHTTPError(err)
 			logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
 			// Same classification as the first dial: a deadline-class error
 			// must never silently drop the abort sentinel (the socket
@@ -233,6 +237,7 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 func (c *EthereumClient) connectWebSocketPlain(ctx, wsCtx context.Context, wsURL string) error {
 	wsClient, err := ethclient.DialContext(wsCtx, wsURL)
 	if err != nil {
+		err = utils.RedactHTTPError(err)
 		logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
 		// Classify from the error and the wall-clock deadline, not from a
 		// bare ctx.Err() read: the WS dialer arms a socket deadline from the
@@ -273,7 +278,7 @@ type apiKeyTransport struct {
 }
 
 func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, req.URL.String())
+	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, utils.RedactEndpoint(req.URL.String()))
 	headerName := t.apiKeyHeader
 	logger.Sugar.Debugf("Setting %s header: %s", headerName, maskAPIKey(t.apiKey, t.apiKey))
 	req.Header.Set(headerName, t.apiKey)
@@ -303,7 +308,7 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
 	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
+		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, utils.RedactHTTPError(err))
 	}
 
 	return c.convertGethBlock(gethBlock), nil
@@ -399,8 +404,8 @@ func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 	}
 
 	id, err := client.NetworkID(ctx)
-	c.countRPCError(ctx, "net_version", err)
-	return id, err
+	c.countRPCError(ctx, "net_version", utils.RedactHTTPError(err))
+	return id, utils.RedactHTTPError(err)
 }
 
 // GetLatestBlockNumber returns just the latest block number (not the offset block).
@@ -413,7 +418,7 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
 	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
+		return nil, fmt.Errorf("failed to get latest header: %w", utils.RedactHTTPError(err))
 	}
 
 	return latestHeader.Number, nil
@@ -430,7 +435,7 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 	receipt, err := client.TransactionReceipt(ctx, hash)
 	c.countRPCError(ctx, "eth_getTransactionReceipt", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
+		return nil, fmt.Errorf("failed to get transaction receipt: %w", utils.RedactHTTPError(err))
 	}
 	return c.convertGethReceipt(receipt), nil
 }
@@ -448,7 +453,7 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string)
 	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithHash(common.HexToHash(blockHash), false))
 	c.countRPCError(ctx, "eth_getBlockReceipts", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block receipts for block hash %s: %w", blockHash, err)
+		return nil, fmt.Errorf("failed to get block receipts for block hash %s: %w", blockHash, utils.RedactHTTPError(err))
 	}
 	result := make([]*TransactionReceipt, len(receipts))
 	for i, receipt := range receipts {
@@ -770,7 +775,7 @@ func createWebSocketWithHeaders(ctx context.Context, wsURL, apiKey, apiKeyHeader
 
 		rpcClient, err := ethrpc.DialContext(ctx, wsURLWithKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to dial GCP WebSocket: %w", err)
+			return nil, fmt.Errorf("failed to dial GCP WebSocket: %w", utils.RedactHTTPError(err))
 		}
 		logger.Sugar.Info("GCP WebSocket connection established successfully")
 		return ethclient.NewClient(rpcClient), nil
@@ -789,7 +794,7 @@ func createWebSocketWithHeaders(ctx context.Context, wsURL, apiKey, apiKeyHeader
 		ethrpc.WithHeaders(headers),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, err)
+		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, utils.RedactHTTPError(err))
 	}
 
 	logger.Sugar.Infof("WebSocket connection established successfully with %s header", headerName)
