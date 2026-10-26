@@ -137,6 +137,8 @@ func assembleBlock(height int64, lcd *lcdBlockWithTxs, results *blockResults) (*
 		Hash:           "0x" + hex.EncodeToString(hashBytes),
 		Transactions:   make([]Transaction, len(rawTxs)),
 		FinalizeEvents: convertEvents(results.FinalizeBlockEvents),
+		BeginEvents:    convertEvents(results.BeginBlockEvents),
+		EndEvents:      convertEvents(results.EndBlockEvents),
 	}
 	for i, rawTx := range rawTxs {
 		txBytes, err := base64.StdEncoding.DecodeString(rawTx)

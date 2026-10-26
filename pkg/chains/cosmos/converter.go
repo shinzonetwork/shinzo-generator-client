@@ -17,9 +17,12 @@ const (
 	transactionHashFieldName  = "transactionHash"
 	transactionIndexFieldName = "transactionIndex"
 
-	// Event phases: emitted by a transaction, or by FinalizeBlock itself.
+	// Event phases: emitted by a transaction, or by the block itself
+	// (FinalizeBlock on CometBFT v0.38+, BeginBlock/EndBlock on v0.37).
 	eventPhaseTx       = "tx"
 	eventPhaseFinalize = "finalize_block"
+	eventPhaseBegin    = "begin_block"
+	eventPhaseEnd      = "end_block"
 
 	// defaultMaxDocsPerTxn mirrors the EVM converter's fallback.
 	defaultMaxDocsPerTxn = 1000
@@ -182,6 +185,12 @@ func (c *Converter) buildDocs(block *Block) (txDocs, msgDocs, eventDocs []map[st
 			doc[transactionIndexFieldName] = tx.Index
 			eventDocs = append(eventDocs, doc)
 		}
+	}
+	for _, ev := range block.BeginEvents {
+		eventDocs = append(eventDocs, eventDoc(block.Height, eventPhaseBegin, ev))
+	}
+	for _, ev := range block.EndEvents {
+		eventDocs = append(eventDocs, eventDoc(block.Height, eventPhaseEnd, ev))
 	}
 	for _, ev := range block.FinalizeEvents {
 		eventDocs = append(eventDocs, eventDoc(block.Height, eventPhaseFinalize, ev))

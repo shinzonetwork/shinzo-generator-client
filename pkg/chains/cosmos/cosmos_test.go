@@ -365,3 +365,100 @@ func TestStore_TestnetBlocksIntoDefra(t *testing.T) {
 	assert.NotEmpty(t, ids["Shinzohub__Testnet__CosmosEvent"])
 	assert.Len(t, ids["Shinzohub__Testnet__Block"], 1)
 }
+
+// --- Kava (CometBFT v0.37) ---
+
+// kavaFixtureHeights: a MsgEthereumTx block, a mixed EVM + MsgDelegate
+// block, a native pricefeed block, and an empty block, captured from Kava
+// mainnet. Their block_results carry begin/end block events, no finalize.
+var kavaFixtureHeights = []int64{23209054, 23209012, 23208969, 23209032} //nolint:gochecknoglobals // read-only fixture index
+
+var kavaFixtureExpect = map[int64]struct { //nolint:gochecknoglobals // read-only fixture expectations
+	typeURLs  []string
+	endEvents int
+}{
+	23209054: {[]string{"/ethermint.evm.v1.MsgEthereumTx"}, 2},
+	23209012: {[]string{"/ethermint.evm.v1.MsgEthereumTx", "/cosmos.staking.v1beta1.MsgDelegate", "/ethermint.evm.v1.MsgEthereumTx"}, 2},
+	23208969: {[]string{"/kava.pricefeed.v1beta1.MsgPostPrice"}, 3},
+	23209032: {nil, 2},
+}
+
+const kavaBeginEventsPerFixtureBlock = 142
+
+func kavaConfig() *config.Config {
+	cfg := &config.Config{}
+	cfg.Chain.Name = "Kava"
+	cfg.Chain.Network = "Mainnet"
+	cfg.Chain.Adapter = config.CosmosEVMChainAdapter
+	return cfg
+}
+
+// kavaEVMHash reads the EVM block hash captured for the same height.
+func kavaEVMHash(t *testing.T, height int64) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "evm", "testdata", "kava", fmt.Sprintf("block_%d.json", height)))
+	require.NoError(t, err)
+	var b struct {
+		Hash string `json:"hash"`
+	}
+	require.NoError(t, json.Unmarshal(data, &b))
+	return b.Hash
+}
+
+func TestClientFetchBlock_KavaFixtures(t *testing.T) {
+	t.Parallel()
+	for _, height := range kavaFixtureHeights {
+		t.Run(strconv.FormatInt(height, 10), func(t *testing.T) {
+			t.Parallel()
+			block := fetchFixtureBlock(t, height)
+			want := kavaFixtureExpect[height]
+
+			assert.Equal(t, kavaEVMHash(t, height), block.Hash, "Cosmos block hash must equal the EVM block hash")
+			assert.Empty(t, block.FinalizeEvents, "v0.37 has no finalize_block_events")
+			assert.Len(t, block.BeginEvents, kavaBeginEventsPerFixtureBlock)
+			assert.Len(t, block.EndEvents, want.endEvents)
+			for i, ev := range block.BeginEvents {
+				assert.Equal(t, i, ev.Index, "begin event index is its position within BeginBlock")
+			}
+
+			hashes := wantTxHashes(t, height)
+			require.Len(t, block.Transactions, len(hashes))
+			var typeURLs []string
+			for i, tx := range block.Transactions {
+				assert.Equal(t, hashes[i], tx.Hash, "tx %d hash", i)
+				for _, msg := range tx.Messages {
+					typeURLs = append(typeURLs, msg.TypeURL)
+				}
+			}
+			assert.Equal(t, want.typeURLs, typeURLs)
+		})
+	}
+}
+
+func TestConvert_KavaBlockEventPhases(t *testing.T) {
+	t.Parallel()
+	block := fetchFixtureBlock(t, 23209012)
+	conv, err := NewConverter(kavaConfig())
+	require.NoError(t, err)
+	result, err := conv.Convert(context.Background(), &Bundle{EVM: evmBundleFor(block), Cosmos: block})
+	require.NoError(t, err)
+
+	events := result.Groups[len(result.Groups)-1]
+	require.Equal(t, "Kava__Mainnet__CosmosEvent", events.Collection)
+	phases := map[any]int{}
+	for _, doc := range events.Docs {
+		phases[doc["phase"]]++
+		if doc["phase"] != eventPhaseTx {
+			assert.NotContains(t, doc, transactionHashFieldName, "block-level events have no parent tx")
+		}
+	}
+	txEvents := 0
+	for _, tx := range block.Transactions {
+		txEvents += len(tx.Events)
+	}
+	assert.Equal(t, map[any]int{
+		eventPhaseTx:    txEvents,
+		eventPhaseBegin: kavaBeginEventsPerFixtureBlock,
+		eventPhaseEnd:   kavaFixtureExpect[23209012].endEvents,
+	}, phases)
+}

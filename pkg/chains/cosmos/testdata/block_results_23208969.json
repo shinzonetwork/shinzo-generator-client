@@ -1,0 +1,2357 @@
+{
+  "height": "23208969",
+  "txs_results": [
+    {
+      "code": 0,
+      "data": "Ei4KLC9rYXZhLnByaWNlZmVlZC52MWJldGExLk1zZ1Bvc3RQcmljZVJlc3BvbnNl",
+      "log": "[{\"msg_index\":0,\"events\":[{\"type\":\"message\",\"attributes\":[{\"key\":\"action\",\"value\":\"/kava.pricefeed.v1beta1.MsgPostPrice\"},{\"key\":\"sender\",\"value\":\"kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg\"}]},{\"type\":\"oracle_updated_price\",\"attributes\":[{\"key\":\"market_id\",\"value\":\"atom:usd\"},{\"key\":\"oracle\",\"value\":\"kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg\"},{\"key\":\"market_price\",\"value\":\"1.635000000000000009\"},{\"key\":\"expiry\",\"value\":\"2026-10-27 02:31:35.254 +0000 UTC\"}]},{\"type\":\"message\",\"attributes\":[{\"key\":\"module\",\"value\":\"pricefeed\"},{\"key\":\"sender\",\"value\":\"kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg\"}]}]}]",
+      "info": "",
+      "gas_wanted": "150000",
+      "gas_used": "122466",
+      "events": [
+        {
+          "type": "coin_spent",
+          "attributes": [
+            {
+              "key": "spender",
+              "value": "kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg",
+              "index": true
+            },
+            {
+              "key": "amount",
+              "value": "5000ukava",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "coin_received",
+          "attributes": [
+            {
+              "key": "receiver",
+              "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+              "index": true
+            },
+            {
+              "key": "amount",
+              "value": "5000ukava",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "transfer",
+          "attributes": [
+            {
+              "key": "recipient",
+              "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+              "index": true
+            },
+            {
+              "key": "sender",
+              "value": "kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg",
+              "index": true
+            },
+            {
+              "key": "amount",
+              "value": "5000ukava",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "message",
+          "attributes": [
+            {
+              "key": "sender",
+              "value": "kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "tx",
+          "attributes": [
+            {
+              "key": "fee",
+              "value": "5000ukava",
+              "index": true
+            },
+            {
+              "key": "fee_payer",
+              "value": "kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "tx",
+          "attributes": [
+            {
+              "key": "acc_seq",
+              "value": "kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg/2678410",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "tx",
+          "attributes": [
+            {
+              "key": "signature",
+              "value": "5VgjKG7VXqRpN7PVAEVaMqk9+K+IMZLe0bNDPRki7Bh67l3BL41y+LCrywlKFVpKnBbVl/ozC6OLF5el5YyJug==",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "message",
+          "attributes": [
+            {
+              "key": "action",
+              "value": "/kava.pricefeed.v1beta1.MsgPostPrice",
+              "index": true
+            },
+            {
+              "key": "sender",
+              "value": "kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "oracle_updated_price",
+          "attributes": [
+            {
+              "key": "market_id",
+              "value": "atom:usd",
+              "index": true
+            },
+            {
+              "key": "oracle",
+              "value": "kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg",
+              "index": true
+            },
+            {
+              "key": "market_price",
+              "value": "1.635000000000000009",
+              "index": true
+            },
+            {
+              "key": "expiry",
+              "value": "2026-10-27 02:31:35.254 +0000 UTC",
+              "index": true
+            }
+          ]
+        },
+        {
+          "type": "message",
+          "attributes": [
+            {
+              "key": "module",
+              "value": "pricefeed",
+              "index": true
+            },
+            {
+              "key": "sender",
+              "value": "kava1ueak7nzesm3pnev6lngp6lgk0ry02djz8pjpcg",
+              "index": true
+            }
+          ]
+        }
+      ],
+      "codespace": ""
+    }
+  ],
+  "begin_block_events": [
+    {
+      "type": "coin_spent",
+      "attributes": [
+        {
+          "key": "spender",
+          "value": "kava17d2wax0zhjrrecvaszuyxdf5wcu5a0p4qlx3t5",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "1789587ukava",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "1789587ukava",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "transfer",
+      "attributes": [
+        {
+          "key": "recipient",
+          "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+          "index": true
+        },
+        {
+          "key": "sender",
+          "value": "kava17d2wax0zhjrrecvaszuyxdf5wcu5a0p4qlx3t5",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "1789587ukava",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "message",
+      "attributes": [
+        {
+          "key": "sender",
+          "value": "kava17d2wax0zhjrrecvaszuyxdf5wcu5a0p4qlx3t5",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "staking_rewards_paid",
+      "attributes": [
+        {
+          "key": "staking_reward_amount",
+          "value": "1789587ukava",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_spent",
+      "attributes": [
+        {
+          "key": "spender",
+          "value": "kava1m3h30wlvsf8llruxtpukdvsy0km2kum85yn938",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "transfer",
+      "attributes": [
+        {
+          "key": "recipient",
+          "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+          "index": true
+        },
+        {
+          "key": "sender",
+          "value": "kava1m3h30wlvsf8llruxtpukdvsy0km2kum85yn938",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "message",
+      "attributes": [
+        {
+          "key": "sender",
+          "value": "kava1m3h30wlvsf8llruxtpukdvsy0km2kum85yn938",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "mint",
+      "attributes": [
+        {
+          "key": "bonded_ratio",
+          "value": "0.117276348182278348",
+          "index": true
+        },
+        {
+          "key": "inflation",
+          "value": "0.000000000000000000",
+          "index": true
+        },
+        {
+          "key": "annual_provisions",
+          "value": "0.000000000000000000",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "0",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_spent",
+      "attributes": [
+        {
+          "key": "spender",
+          "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "1789587ukava",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1jv65s3grqf6v6jl3dp4t6c9t9rk99cd8m2splc",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "1789587ukava",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "transfer",
+      "attributes": [
+        {
+          "key": "recipient",
+          "value": "kava1jv65s3grqf6v6jl3dp4t6c9t9rk99cd8m2splc",
+          "index": true
+        },
+        {
+          "key": "sender",
+          "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "1789587ukava",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "message",
+      "attributes": [
+        {
+          "key": "sender",
+          "value": "kava17xpfvakm2amg962yls6f84z3kell8c5lvvhaa6",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "42869.541896532564674399ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1axvmf05k4pkxyncn4qn3fy0tfw3c9f400v70ct",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "428695.418965325646743991ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1axvmf05k4pkxyncn4qn3fy0tfw3c9f400v70ct",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "22123.858304415242303206ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1zw8ce44kdqzfu0r2t9qwr75gqdcarclf9fj9lt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "294984.777392203230709407ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1zw8ce44kdqzfu0r2t9qwr75gqdcarclf9fj9lt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "6771.693936428226387739ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1kgddca7qj96z0qcxr2c45z73cfl0c75p27tsg6",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "135433.878728564527754787ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1kgddca7qj96z0qcxr2c45z73cfl0c75p27tsg6",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "5675.809860781406060912ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1ptyzewnns2kn37ewtmv6ppsvhdnmeapvl7z9xh",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "113516.197215628121218233ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1ptyzewnns2kn37ewtmv6ppsvhdnmeapvl7z9xh",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "5034.557752442620411176ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1jl42l225565y3hm9dm4my33hjgdzleucqryhlx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "100691.155048852408223520ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1jl42l225565y3hm9dm4my33hjgdzleucqryhlx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "16114.353032730235092518ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1hztgl202pvetspxch0pcchaqzrduw4qq64q08u",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "80571.765163651175462589ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1hztgl202pvetspxch0pcchaqzrduw4qq64q08u",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "7830.279772393923790493ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1vyzk2va7lyy0atamll5537x25az5klja83j25k",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "78302.797723939237904934ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1vyzk2va7lyy0atamll5537x25az5klja83j25k",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "3182.900788408799953481ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper125s8t5c6ypwee7ytun90lnhgpls2zl3vta43aj",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "63658.015768175999069628ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper125s8t5c6ypwee7ytun90lnhgpls2zl3vta43aj",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "3108.951135985768013979ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1g20mhvcpjxp6gzlwhtfcphjehwcl2njqydgu7q",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "62179.022719715360279580ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1g20mhvcpjxp6gzlwhtfcphjehwcl2njqydgu7q",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "5880.262837329102862274ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1f94frmnhd9wfa7jg26egnqmymc4cpamlw5ezq7",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "58802.628373291028622735ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1f94frmnhd9wfa7jg26egnqmymc4cpamlw5ezq7",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "4956.155704127550834347ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper14vk3997r4ea4m7eej7ugmr503ru768fxwynsmq",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "49561.557041275508343474ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper14vk3997r4ea4m7eej7ugmr503ru768fxwynsmq",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "4435.648852069019798790ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1lrvumc58wz2ww8wevqnj7ndxz03amfkcxjzcgj",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "44356.488520690197987903ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1lrvumc58wz2ww8wevqnj7ndxz03amfkcxjzcgj",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "3264.657317870065518413ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1k760ypy9tzhp6l2rmg06sq4n74z0d3rejwwaa0",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "36273.970198556283537927ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1k760ypy9tzhp6l2rmg06sq4n74z0d3rejwwaa0",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1473.371009083747264177ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1esyc9s7n782hw4xktzvrcf609st6emml5tnluu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "29467.420181674945283538ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1esyc9s7n782hw4xktzvrcf609st6emml5tnluu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1427.877514359059073422ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper17jr6wyhm2twyph6d88l5ux945gwmf8vfkhckda",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "28557.550287181181468448ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper17jr6wyhm2twyph6d88l5ux945gwmf8vfkhckda",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1388.012400451841491350ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1ppj7c8tqt2e3rzqtmztsmd6ea6u3nz6qggcp5e",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "27760.248009036829826991ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1ppj7c8tqt2e3rzqtmztsmd6ea6u3nz6qggcp5e",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "887.004773573916723097ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper122lg7yuwc9p9uwkfqef7wrh5uydp7q6juulfrw",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "17740.095471478334461941ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper122lg7yuwc9p9uwkfqef7wrh5uydp7q6juulfrw",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "782.631003059051456757ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper108emy97pv2pc4sq3u6wfpk2a7aehzphu0xqslu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "15652.620061181029135143ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper108emy97pv2pc4sq3u6wfpk2a7aehzphu0xqslu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1495.637216170989365740ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1uvz0vus7ktxt47cermscwe3k9gs7h9ag05sh6g",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "14956.372161709893657396ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1uvz0vus7ktxt47cermscwe3k9gs7h9ag05sh6g",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1492.105738372145761175ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1y8elet4hh0qpl9jq5hlkkejgl2gx845ekmdq55",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "14921.057383721457611751ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1y8elet4hh0qpl9jq5hlkkejgl2gx845ekmdq55",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "14148.035776955427135021ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1g6jhvcv02qagp5sfpk7m9l4ccln57620sa7rdu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "14148.035776955427135021ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1g6jhvcv02qagp5sfpk7m9l4ccln57620sa7rdu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "14092.484757470027230383ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper18zxhj6f8lm988mfzzvmrmlp47yys0fmcllmscg",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "14092.484757470027230383ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper18zxhj6f8lm988mfzzvmrmlp47yys0fmcllmscg",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "3272.200250059247663936ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1udg4pal8c9gffv4l7zhvza027z0y345gd6esa6",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "10907.334166864158879786ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1udg4pal8c9gffv4l7zhvza027z0y345gd6esa6",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "442.041389337656224448ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1ua2yqfjck23vsmynltcgrvvg5rhfkm4cy78vmq",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "8840.827786753124488953ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1ua2yqfjck23vsmynltcgrvvg5rhfkm4cy78vmq",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "440.754076899809547993ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1fwru9at8hsu7hmhu0zypdn3863xvdcg80nm5dv",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "8815.081537996190959869ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1fwru9at8hsu7hmhu0zypdn3863xvdcg80nm5dv",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "293.288103826748416419ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper13rzkukgxsae26tn2h6vuhlrdxap6rzrc29uhmq",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "5865.762076534968328377ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper13rzkukgxsae26tn2h6vuhlrdxap6rzrc29uhmq",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "434.435183663570653739ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1dntlhrw3jrej6ssdp64yfmkkz08ykyx4n7hphh",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "4344.351836635706537394ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1dntlhrw3jrej6ssdp64yfmkkz08ykyx4n7hphh",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "209.543039520331829912ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1mqsd85lut69zwclmeurj3ve5tarm56hzzkt8fq",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "4190.860790406636598242ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1mqsd85lut69zwclmeurj3ve5tarm56hzzkt8fq",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "193.385753525662420325ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1g5egkvqqgp6wv304ph0laftc7jdf3dt39rwugu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "3867.715070513248406499ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1g5egkvqqgp6wv304ph0laftc7jdf3dt39rwugu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "725.973895415504832221ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1st7akgudd4d3x5t4zd3kn0fg948zn9yf4qpa0m",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "3820.915239028972801164ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1st7akgudd4d3x5t4zd3kn0fg948zn9yf4qpa0m",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "188.143495979094865292ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1w2f95dx7p35ye6mzaanxkpwadye0vr7375avdk",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "3762.869919581897305848ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1w2f95dx7p35ye6mzaanxkpwadye0vr7375avdk",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "92.504707561648715673ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1gkxc5x584g8jfrn7fkn79qhggfu3fs5ls2xdva",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1850.094151232974313463ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1gkxc5x584g8jfrn7fkn79qhggfu3fs5ls2xdva",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "139.011141728399464762ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper14fkp35j5nkvtztmxmsxh88jks6p3w8u7p76zs9",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1737.639271604993309523ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper14fkp35j5nkvtztmxmsxh88jks6p3w8u7p76zs9",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "66.561874146719864060ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1qevj3fw5l3fhh65k6jx4x5x5f8upv58evd22de",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1331.237482934397281199ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1qevj3fw5l3fhh65k6jx4x5x5f8upv58evd22de",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "132.013291587338859032ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1nxgg4grsc0fwh893mks62d3x3r6uazgpj3m3cr",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1320.132915873388590318ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1nxgg4grsc0fwh893mks62d3x3r6uazgpj3m3cr",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "59.846288571943665704ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1cp97dnq2r739avudn74x87a7luu09kpyk2vg55",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1196.925771438873314073ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1cp97dnq2r739avudn74x87a7luu09kpyk2vg55",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "53.719047762138386283ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper12pwqhuhdpcq0gs9mq0wuhmkt9r5zwu7t4fnanx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1074.380955242767725663ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper12pwqhuhdpcq0gs9mq0wuhmkt9r5zwu7t4fnanx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "19.237112303277768756ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1smzrq7r4qhdz6hl40k7jvz2rc09wglzu3swlp5",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "384.742246065555375117ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1smzrq7r4qhdz6hl40k7jvz2rc09wglzu3swlp5",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "33.136140846771309281ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper195j72kgpuel75kwfpeu0kt7nc7rgzm47tytl7p",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "331.361408467713092814ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper195j72kgpuel75kwfpeu0kt7nc7rgzm47tytl7p",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "16.484927091329831445ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1hj99pyu4pyun8p22pyd8nu5v5g2rdd2l0d5c5z",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "329.698541826596628891ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1hj99pyu4pyun8p22pyd8nu5v5g2rdd2l0d5c5z",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "31.877717193791470725ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper15qqkn4q46nqpdej5x4unntsycd90nvdj7jjm5g",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "318.777171937914707253ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper15qqkn4q46nqpdej5x4unntsycd90nvdj7jjm5g",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "315.507807016398259047ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1ndkn5rdl9n929am6q2zt9ndfhhggcxkhetna90",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "315.507807016398259047ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1ndkn5rdl9n929am6q2zt9ndfhhggcxkhetna90",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "12.270687523316367779ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1n4w58yg0v67r7ucg6dt0u2xv7wewyha9knnu28",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "245.413750466327355576ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1n4w58yg0v67r7ucg6dt0u2xv7wewyha9knnu28",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "8.591947382102749742ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1r2ea4069j7rfemtt2k6ej5glctg9qe3y86rltf",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "171.838947642054994836ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1r2ea4069j7rfemtt2k6ej5glctg9qe3y86rltf",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "6.742360546116168268ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper15kwwzz908wl0qv4w66a5ee70kytpmfc9khvah6",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "134.847210922323365358ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper15kwwzz908wl0qv4w66a5ee70kytpmfc9khvah6",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "2.892401509228390829ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1hymhtrelxqnf7p6ua06eh69u4kc36hq2sf9vtu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "57.848030184567816576ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1hymhtrelxqnf7p6ua06eh69u4kc36hq2sf9vtu",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1.500102999548613235ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1vvcssn2zr74xw64vu2jnl4938n9j3nzrxesg9l",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "30.002059990972264707ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1vvcssn2zr74xw64vu2jnl4938n9j3nzrxesg9l",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "1.724871837902801940ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1uzs9qqpqfavfnntzf28ww84tnkac8e5s3ekwgn",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "17.248718379028019400ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper1uzs9qqpqfavfnntzf28ww84tnkac8e5s3ekwgn",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "commission",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "0.002818418035645023ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper154u2dnemyv9tvkcaqyhwyum98jhh5erqfg0vzt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "rewards",
+      "attributes": [
+        {
+          "key": "amount",
+          "value": "0.028184180356450233ukava",
+          "index": true
+        },
+        {
+          "key": "validator",
+          "value": "kavavaloper154u2dnemyv9tvkcaqyhwyum98jhh5erqfg0vzt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "kavadist",
+      "attributes": [
+        {
+          "key": "kava_dist_status",
+          "value": "inactive",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "362debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "362debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "362usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "362usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "4499debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "4499debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "4499usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "4499usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "7debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "7debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "7usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "7usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "3328debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "3328debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "3328usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "3328usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "663debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "663debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "663usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "663usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "34314debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1wq9ts6l7atfn45ryxrtg4a2gwegsh3xha9e6rp",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "34314debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_received",
+      "attributes": [
+        {
+          "key": "receiver",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "34314usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coinbase",
+      "attributes": [
+        {
+          "key": "minter",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "34314usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_spent",
+      "attributes": [
+        {
+          "key": "spender",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "43173debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "burn",
+      "attributes": [
+        {
+          "key": "burner",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "43173debt",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "coin_spent",
+      "attributes": [
+        {
+          "key": "spender",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "43173usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "burn",
+      "attributes": [
+        {
+          "key": "burner",
+          "value": "kava1eu2ta269haf6j6z3lsj79a8rq3hsmnhu689g7z",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "43173usdx",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "swaps_expired",
+      "attributes": [
+        {
+          "key": "atomic_swap_ids",
+          "value": "[]",
+          "index": true
+        },
+        {
+          "key": "expiration_block",
+          "value": "23208969",
+          "index": true
+        }
+      ]
+    }
+  ],
+  "end_block_events": [
+    {
+      "type": "block_bloom",
+      "attributes": [
+        {
+          "key": "bloom",
+          "value": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "block_gas",
+      "attributes": [
+        {
+          "key": "height",
+          "value": "23208969",
+          "index": true
+        },
+        {
+          "key": "amount",
+          "value": "122466",
+          "index": true
+        }
+      ]
+    },
+    {
+      "type": "market_price_updated",
+      "attributes": [
+        {
+          "key": "market_id",
+          "value": "atom:usd",
+          "index": true
+        },
+        {
+          "key": "market_price",
+          "value": "1.640000000000000004",
+          "index": true
+        }
+      ]
+    }
+  ],
+  "validator_updates": null,
+  "consensus_param_updates": {
+    "block": {
+      "max_bytes": "200000",
+      "max_gas": "20000000"
+    },
+    "evidence": {
+      "max_age_num_blocks": "1000000",
+      "max_age_duration": "6000000000000000",
+      "max_bytes": "50000"
+    },
+    "validator": {
+      "pub_key_types": [
+        "ed25519"
+      ]
+    }
+  }
+}
