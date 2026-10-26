@@ -20,6 +20,7 @@ services:
       - "9171:9171"
     volumes:
       - ~/shinzo-data/defradb:/app/.defra
+      - ~/shinzo-data/keys:/app/keys
       - ~/shinzo-data/lens:/app/.defra/lens
     environment:
       - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
