@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"net"
 	"strconv"
 	"strings"
 	"sync"
