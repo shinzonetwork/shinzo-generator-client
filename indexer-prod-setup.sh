@@ -20,6 +20,7 @@ services:
       - "9171:9171"
     volumes:
       - ~/shinzo-data/defradb:/app/.defra
+      - ~/shinzo-data/keys:/app/keys
       - ~/shinzo-data/lens:/app/.defra/lens
     environment:
       - GETH_RPC_URL=https://json-rpc.che8qim8flet1lfjpapfmtl42.blockchainnodeengine.com
@@ -35,6 +36,14 @@ services:
       - LOG_SOURCE=false
       - LOG_STACKTRACE=false
       - SCHEMA_AUTH_MODE=none
+
+      # Metrics (off unless OTEL_METRICS_EXPORTER is set)
+      - OTEL_METRICS_EXPORTER=${OTEL_METRICS_EXPORTER:-}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-}
+      - OTEL_RESOURCE_ATTRIBUTES=${OTEL_RESOURCE_ATTRIBUTES:-}
     logging:
       options:
         max-size: "50m"

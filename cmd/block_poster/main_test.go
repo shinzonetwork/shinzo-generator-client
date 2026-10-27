@@ -139,6 +139,16 @@ func TestVerifySnapshots(t *testing.T) {
 	})
 }
 
+func TestPrintVersion(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	printVersion(&buf)
+
+	// Compared against the config var so the test holds with or without
+	// build-time ldflags injection.
+	assert.Equal(t, config.Version+"\n", buf.String())
+}
+
 func TestRun(t *testing.T) {
 	t.Parallel()
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
@@ -175,6 +185,24 @@ func TestRun(t *testing.T) {
 		err := run([]string{"-invalid-flag-that-does-not-exist"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse flags")
+	})
+
+	t.Run("version flag prints version without loading config", func(t *testing.T) {
+		// Change to a temp dir so the default config/config.yaml does not
+		// exist; the version flags must short-circuit before any config load.
+		origDir, err := os.Getwd()
+		require.NoError(t, err)
+		tmpDir := t.TempDir()
+		require.NoError(t, os.Chdir(tmpDir))
+		defer func() { _ = os.Chdir(origDir) }()
+
+		require.NoError(t, run([]string{"-v"}))
+		require.NoError(t, run([]string{"--version"}))
+	})
+
+	t.Run("version flag ignores invalid config path", func(t *testing.T) {
+		err := run([]string{"-version", "-config", "/nonexistent/config.yaml"})
+		require.NoError(t, err)
 	})
 
 	t.Run("valid config with embedded defra fails at StartIndexing", func(t *testing.T) {

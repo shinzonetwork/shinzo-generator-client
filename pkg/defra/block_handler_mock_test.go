@@ -59,7 +59,7 @@ func (m *mockBlockDB) ExecRequest(ctx context.Context, request string, opts ...o
 
 func execReqFnWithDocIDs() func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 	return func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
-		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		arr := []any{map[string]any{docIDFieldName: "test-doc-id-1"}}
 		return &client.RequestResult{
 			GQL: client.GQLResult{
 				Data: map[string]any{
@@ -94,7 +94,7 @@ func execReqFnWithDocIDsExceptCol(targetCol string) func(_ context.Context, requ
 				GQL: client.GQLResult{Errors: []error{fmt.Errorf("query error for %s", targetCol)}},
 			}
 		}
-		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		arr := []any{map[string]any{docIDFieldName: "test-doc-id-1"}}
 		return &client.RequestResult{
 			GQL: client.GQLResult{
 				Data: map[string]any{
@@ -115,7 +115,7 @@ func execReqFnWithDocIDsForCol(targetCol string) func(_ context.Context, request
 		if !strings.Contains(request, targetCol) {
 			return &client.RequestResult{GQL: client.GQLResult{Data: map[string]any{}}}
 		}
-		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		arr := []any{map[string]any{docIDFieldName: "test-doc-id-1"}}
 		return &client.RequestResult{
 			GQL: client.GQLResult{
 				Data: map[string]any{

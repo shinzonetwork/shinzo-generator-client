@@ -107,7 +107,16 @@ type Collections interface {
 	SnapshotSignatureCollection() string
 }
 
-// ------ Phase 2 ------
+// BlockHeader carries the chain-agnostic subset of block header fields the
+// reorg walk-back consumes: the block height, its content hash, and its
+// parent hash. FetchBlockHeaderByHash returns it, so the processor reads
+// header fields directly without chain SDK knowledge or document
+// conversion.
+type BlockHeader struct {
+	Number     int64
+	Hash       string
+	ParentHash string
+}
 
 // Fetcher is the RPC I/O layer: fetches raw block data from the chain node.
 // Concrete implementations (e.g. EVMFetcher) live in chain-specific packages.
@@ -127,9 +136,26 @@ type Fetcher interface {
 	// an EVM block bundle); callers type-assert or pass it to a Converter.
 	FetchBlock(ctx context.Context, height int64) (any, error)
 
+	// FetchBlockHeaderByHash retrieves only the header fields (height,
+	// content hash, parent hash) of the block with the given content hash,
+	// regardless of which branch of the chain it sits on. It performs no
+	// receipt fetches and needs no conversion, so the reorg walk-back can
+	// follow parent hashes down the new chain without paying for bundle
+	// data, and without the by-number receipt fetch mixing branches on
+	// orphan blocks. A hash the node does not know must surface as a
+	// not-found error recognized by pkg/errors.IsErrNotFound, matching
+	// by-height fetch retry semantics.
+	FetchBlockHeaderByHash(ctx context.Context, hash string) (BlockHeader, error)
+
 	// FetchHighestBlockNumber returns the latest block number known to the
 	// chain (the on-chain tip), querying the RPC endpoint directly.
 	FetchHighestBlockNumber(ctx context.Context) (int64, error)
+
+	// FetchFinalizedBlockNumber returns the finalized block height known to
+	// the chain, with the safe height as the implementation-level fallback
+	// when the finalized tag is unsupported. Used as the lower floor of the
+	// reorg walk-back.
+	FetchFinalizedBlockNumber(ctx context.Context) (int64, error)
 
 	// Close releases the underlying RPC connection.
 	Close() error
@@ -193,6 +219,12 @@ type DocumentGroup struct {
 	// hash (tx/log/ale). Used by generic extractBlockHash to find the block
 	// hash without chain-specific collection-name knowledge.
 	BlockHashField string
+
+	// ParentHashField is the field name in each doc that holds the parent
+	// block hash (e.g. "parentHash" for block docs). Empty for groups that
+	// don't carry a parent hash. Used by generic extractBlockParentHash for
+	// the processor's parentHash continuity check, mirroring BlockHashField.
+	ParentHashField string
 }
 
 // LinkStamper resolves cross-document link fields (_blockID, _transactionID)
