@@ -24,6 +24,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/signer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
@@ -309,7 +310,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	// Init succeeded: indexing intent is set here, isStarted only flips on
 	// once the indexing loop takes over (runConcurrentIndexing).
 	i.setLifecycleFlags(true, false)
-	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
+	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", utils.RedactEndpoint(cfg.Geth.NodeURL))
 
 	// 7. Init services (pruner/snapshot/health — now take converter)
 	if err := i.initServices(ctx, cfg); err != nil {
