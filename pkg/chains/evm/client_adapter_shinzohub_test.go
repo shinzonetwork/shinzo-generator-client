@@ -36,7 +36,14 @@ var shinzohubFixtureBlocks = []int64{5708560, 5648812, 5406552, 5708559} //nolin
 
 func loadShinzohubFixture(t *testing.T, number int64) shinzohubFixture {
 	t.Helper()
-	dir := filepath.Join("testdata", "shinzohub")
+	return loadFixtureFrom(t, "shinzohub", number)
+}
+
+// loadFixtureFrom reads block_<n>.json and receipts_<n>.json from
+// testdata/<chain>.
+func loadFixtureFrom(t *testing.T, chain string, number int64) shinzohubFixture {
+	t.Helper()
+	dir := filepath.Join("testdata", chain)
 	block, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("block_%d.json", number)))
 	require.NoError(t, err)
 	receipts, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("receipts_%d.json", number)))
