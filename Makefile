@@ -24,7 +24,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
 	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
-	go build -o bin/fetch_blocks ./cmd/fetch_blocks
+	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
 	elif grep -aFq "$(VERSION)" bin/block_poster; then \

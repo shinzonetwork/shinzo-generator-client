@@ -180,6 +180,7 @@ func (i *ChainIndexer) observePeers(ctx context.Context, o metric.Int64Observer)
 	o.Observe(int64(len(unique)))
 	return nil
 }
+
 // GetDefraDBURL returns the API URL of the embedded DefraDB node, or "" when
 // using external DefraDB or before the node has started.
 //
