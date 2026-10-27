@@ -11,7 +11,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/multiformats/go-multihash v0.2.3
-	github.com/sourcenetwork/defradb v1.0.1-0.20260928165639-36b29eec4bf5
+	github.com/sourcenetwork/defradb v1.0.1-0.20261026140438-2a899b860df3
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/contrib/exporters/autoexport v0.72.0
@@ -351,7 +351,7 @@ require (
 	github.com/sourcenetwork/go-p2p v0.1.11 // indirect
 	github.com/sourcenetwork/goji v0.0.10 // indirect
 	github.com/sourcenetwork/goleveldb v0.0.0-20251217012629-27249d06b81b // indirect
-	github.com/sourcenetwork/graphql-go v0.7.10-0.20260603160416-fba12ae14d3b // indirect
+	github.com/sourcenetwork/graphql-go v0.7.10-0.20261013230339-4e0c76e8ecf0 // indirect
 	github.com/sourcenetwork/lens/host-go v0.11.0 // indirect
 	github.com/sourcenetwork/raccoondb v0.2.1-0.20240722161350-d4a78b691ec8 // indirect
 	github.com/sourcenetwork/raccoondb/v2 v2.0.0 // indirect
@@ -423,7 +423,7 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
