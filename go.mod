@@ -154,7 +154,7 @@ require (
 	github.com/gammazero/deque v1.2.1 // indirect
 	github.com/getkin/kin-openapi v0.149.0 // indirect
 	github.com/getsentry/sentry-go v0.46.0 // indirect
-	github.com/go-chi/chi/v5 v5.3.0 // indirect
+	github.com/go-chi/chi/v5 v5.4.0 // indirect
 	github.com/go-chi/cors v1.2.2 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
