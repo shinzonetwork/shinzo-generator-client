@@ -82,6 +82,17 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	return f.evm.FetchHighestBlockNumber(ctx)
 }
 
+// FetchBlockHeaderByHash implements chains.Fetcher. The EVM block hash is
+// the CometBFT header hash, so the EVM side serves the reorg walk-back.
+func (f *Fetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chains.BlockHeader, error) {
+	return f.evm.FetchBlockHeaderByHash(ctx, hash)
+}
+
+// FetchFinalizedBlockNumber implements chains.Fetcher.
+func (f *Fetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	return f.evm.FetchFinalizedBlockNumber(ctx)
+}
+
 // Close implements chains.Fetcher.
 func (f *Fetcher) Close() error {
 	return f.evm.Close()

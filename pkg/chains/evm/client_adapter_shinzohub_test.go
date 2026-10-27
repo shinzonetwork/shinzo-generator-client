@@ -150,7 +150,7 @@ func TestShinzohubAdapter_ReceiptLogsCarryBlockFields(t *testing.T) {
 			wantHash, wantTxs := fixtureBlockFields(t, fx.block)
 			wantNumber := strconv.FormatInt(number, 10)
 
-			batch, err := client.GetBlockReceipts(context.Background(), big.NewInt(number))
+			batch, err := client.GetBlockReceipts(context.Background(), wantHash)
 			require.NoError(t, err)
 			require.Len(t, batch, len(wantTxs))
 
@@ -184,7 +184,8 @@ func TestShinzohubAdapter_FixtureHasPrecompileZeroLogBlock(t *testing.T) {
 	fx := loadShinzohubFixture(t, 5708560)
 	client := newRawPathClient(t, newShinzohubFixtureServer(t, fx), defaultAdapter)
 
-	receipts, err := client.GetBlockReceipts(context.Background(), big.NewInt(fx.number))
+	blockHash, _ := fixtureBlockFields(t, fx.block)
+	receipts, err := client.GetBlockReceipts(context.Background(), blockHash)
 	require.NoError(t, err)
 	require.Len(t, receipts, 1)
 	require.Len(t, receipts[0].Logs, 1)
