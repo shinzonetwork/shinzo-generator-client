@@ -730,8 +730,13 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 // convertTransactionWithRaw is the shared transaction conversion core.
 // rawTx carries the raw JSON tx object when the block came from the raw
 // fetch path (nil on the typed path), letting the adapter override the
-// sender via ResolveFrom and populate YParity.
+// sender via ResolveFrom and populate YParity. The hash and type are taken
+// from the raw tx when present: an adapter may remap a non-standard envelope
+// (Celo 0x7b/0x7e) onto a standard one whose recomputed hash would no longer
+// join the tx to its receipt.
 func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, rawTx json.RawMessage, blockHash string, blockNumber uint64, index int) *Transaction {
+	txHash, txType := rawTxIdentity(tx, rawTx)
+
 	// The adapter's explicit sender wins; otherwise recover the sender via
 	// GetFromAddress with the zero address fallback.
 	var fromAddrStr string
@@ -742,7 +747,7 @@ func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, raw
 		switch {
 		case fromErr != nil:
 			// For unsigned transactions or other errors, use zero address.
-			logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), fromErr)
+			logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", txHash, fromErr)
 			fromAddrStr = ZeroAddress
 		case fromAddr != nil:
 			fromAddrStr = fromAddr.Hex()
@@ -786,7 +791,7 @@ func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, raw
 	}
 
 	localTx := Transaction{
-		Hash:                 tx.Hash().Hex(),
+		Hash:                 txHash,
 		BlockHash:            blockHash,
 		BlockNumber:          fmt.Sprintf("%d", blockNumber),
 		From:                 fromAddrStr,
@@ -799,7 +804,7 @@ func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, raw
 		Input:                "0x" + common.Bytes2Hex(tx.Data()),
 		Nonce:                fmt.Sprintf("%d", tx.Nonce()),
 		TransactionIndex:     index,
-		Type:                 fmt.Sprintf("%d", tx.Type()),
+		Type:                 txType,
 		ChainID:              getChainID(tx),
 		AccessList:           accessList,
 		V:                    v.String(),
@@ -810,6 +815,31 @@ func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, raw
 	}
 
 	return &localTx
+}
+
+// rawTxIdentity returns the tx hash and decimal type, preferring the raw
+// tx's hash and type over the decoded tx's so a remapped envelope keeps the
+// identity the RPC (and its receipt) reports. Absent or unreadable raw
+// fields fall back to the decoded tx.
+func rawTxIdentity(tx *ethtypes.Transaction, rawTx json.RawMessage) (hash, typ string) {
+	hash, typ = tx.Hash().Hex(), fmt.Sprintf("%d", tx.Type())
+	if len(rawTx) == 0 {
+		return hash, typ
+	}
+	var fields struct {
+		Hash *common.Hash    `json:"hash"`
+		Type *hexutil.Uint64 `json:"type"`
+	}
+	if err := json.Unmarshal(rawTx, &fields); err != nil {
+		return hash, typ
+	}
+	if fields.Hash != nil {
+		hash = fields.Hash.Hex()
+	}
+	if fields.Type != nil {
+		typ = fmt.Sprintf("%d", uint64(*fields.Type))
+	}
+	return hash, typ
 }
 
 // GetFromAddress recovers the sender address from a transaction.

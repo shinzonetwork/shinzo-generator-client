@@ -242,8 +242,9 @@ func TestGetBlockByNumber_RawPath_NonStandardEnvelope(t *testing.T) {
 	tx := block.Transactions[0]
 	assert.Equal(t, "0x1111111111111111111111111111111111111111", tx.From)
 	assert.Equal(t, "0x0", tx.YParity)
-	assert.Equal(t, "0", tx.Type, "0x71 must map onto the closest standard envelope")
-	assert.Equal(t, "1000000000", tx.GasPrice)
+	assert.Equal(t, "113", tx.Type, "the stored type is the RPC's 0x71, not the mapped envelope's")
+	assert.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000abc", tx.Hash, "the stored hash is the RPC's, so the tx joins its receipt")
+	assert.Equal(t, "1000000000", tx.GasPrice, "0x71 maps onto the closest standard envelope")
 	assert.Equal(t, rawBlockHash, tx.BlockHash)
 	assert.Equal(t, strconv.Itoa(testBlockNumber), tx.BlockNumber)
 }
