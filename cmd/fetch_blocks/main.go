@@ -23,7 +23,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -33,6 +32,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 )
 
 const (
@@ -215,7 +215,7 @@ func run(args []string) error {
 	// this gosec build does not apply the rule's documented sanitizers
 	// (strings.ReplaceAll, strconv.Quote) interprocedurally.
 	log.Printf("capturing %s %s blocks %d..%d (tip %d) from %s",
-		sanitizeLogLabel(opts.chain), sanitizeLogLabel(opts.network), resolvedFrom, resolvedTo, tip, redactEndpoint(rpcURL))
+		sanitizeLogLabel(opts.chain), sanitizeLogLabel(opts.network), resolvedFrom, resolvedTo, tip, utils.RedactEndpoint(rpcURL))
 
 	return captureRange(ctx, env, opts, resolvedFrom, resolvedTo)
 }
@@ -226,18 +226,6 @@ func run(args []string) error {
 func sanitizeLogLabel(s string) string {
 	s = strings.ReplaceAll(s, "\n", "")
 	return strings.ReplaceAll(s, "\r", "")
-}
-
-// redactEndpoint reduces an endpoint URL to scheme://host so API keys that
-// providers embed in the path (.../v2/<key>) never reach terminal or CI logs.
-// url.Parse rejects control characters, so a CR/LF-forged value falls into the
-// unparseable branch rather than being echoed.
-func redactEndpoint(endpoint string) string {
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" {
-		return "(endpoint hidden)"
-	}
-	return u.Scheme + "://" + u.Host
 }
 
 // parseFlags parses and validates the CLI flags.
@@ -511,12 +499,12 @@ func rpcOnce(ctx context.Context, env *rpcEnv, method string, params any) (json.
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 		return nil, &retryableError{
 			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
-			err:        fmt.Errorf("http status %d from %s", resp.StatusCode, redactEndpoint(env.url)),
+			err:        fmt.Errorf("http status %d from %s", resp.StatusCode, utils.RedactEndpoint(env.url)),
 		}
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		return nil, fmt.Errorf("http status %d from %s: %s", resp.StatusCode, redactEndpoint(env.url), string(body))
+		return nil, fmt.Errorf("http status %d from %s: %s", resp.StatusCode, utils.RedactEndpoint(env.url), string(body))
 	}
 
 	var envelope struct {

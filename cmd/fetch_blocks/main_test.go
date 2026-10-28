@@ -328,18 +328,6 @@ func TestIsJSONNull(t *testing.T) {
 	assert.False(t, isJSONNull(json.RawMessage("")))
 }
 
-func TestRedactEndpoint(t *testing.T) {
-	t.Parallel()
-	// Key-in-path style URLs (Infura/Alchemy) must lose everything after the
-	// host, both in the capture log and in rpcCall error strings.
-	assert.Equal(t, "https://mainnet.infura.io", redactEndpoint("https://user:pass@mainnet.infura.io/v3/s3cr3t"))
-	assert.Equal(t, "https://eth-mainnet.g.alchemy.com", redactEndpoint("https://eth-mainnet.g.alchemy.com/v2/KEY"))
-	assert.Equal(t, "http://127.0.0.1:8545", redactEndpoint("http://127.0.0.1:8545"))
-	assert.Equal(t, "(endpoint hidden)", redactEndpoint("http://host\n.evil"))
-	assert.Equal(t, "(endpoint hidden)", redactEndpoint("not a url"))
-	assert.Equal(t, "(endpoint hidden)", redactEndpoint(""))
-}
-
 // receiptTestServer dispatches on the JSON-RPC method: a configurable
 // eth_getBlockReceipts answer that counts batch requests, and per-tx
 // eth_getTransactionReceipt answers keyed by hash. A hash mapped to
