@@ -9,10 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
@@ -248,11 +253,14 @@ func TestFetcher_FetchBlock_BatchSuccess(t *testing.T) {
 	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	blockNum := int64(12345)
 	block := fakeBlockWithTxs(blockNum, fakeTx(txHash))
+	// The receipt must carry the served block's hash for the pinned batch
+	// path to accept it.
 	receipt := fakeReceipt(txHash, blockNum)
+	receipt.BlockHash = block.Hash
 
 	client := &fakeRPCClient{
-		block:         block,
-		batchReceipts: []*TransactionReceipt{receipt},
+		block:          block,
+		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {receipt}},
 	}
 	f := NewFetcher(client, 8)
 
@@ -275,8 +283,8 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 	block := fakeBlock(blockNum)
 
 	client := &fakeRPCClient{
-		block:         block,
-		batchReceipts: []*TransactionReceipt{},
+		block:          block,
+		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {}},
 	}
 	f := NewFetcher(client, 8)
 
@@ -288,6 +296,63 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 	assert.Equal(t, block, bundle.Block)
 	assert.Empty(t, bundle.Transactions)
 	assert.Empty(t, bundle.Receipts)
+}
+
+func TestFetcher_FetchBlock_ReceiptHashMismatchFallsBack(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	blockNum := int64(12345)
+	block := fakeBlockWithTxs(blockNum, fakeTx(txHash))
+
+	// A receipt served for a different block than the one the fetcher
+	// holds: the pinned batch path must reject it instead of bundling
+	// cross-branch content, and the tx-pinned fallback must win.
+	foreignReceipt := fakeReceipt(txHash, blockNum)
+	foreignReceipt.BlockHash = fakeHash("foreign-block")
+	fallbackReceipt := fakeReceipt(txHash, blockNum)
+	fallbackReceipt.BlockHash = block.Hash
+
+	client := &fakeRPCClient{
+		block:          block,
+		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {foreignReceipt}},
+		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+			return fallbackReceipt, nil
+		},
+	}
+	f := NewFetcher(client, 8)
+
+	raw, err := f.FetchBlock(context.Background(), blockNum)
+	require.NoError(t, err)
+
+	bundle, ok := raw.(*BlockBundle)
+	require.True(t, ok)
+	assert.Equal(t, []*TransactionReceipt{fallbackReceipt}, bundle.Receipts,
+		"receipts belonging to another block must not land in the bundle; the tx-pinned fallback serves them instead")
+}
+
+func TestFetcher_FetchBlock_FallbackRejectsReceiptsFromAnotherBlock(t *testing.T) {
+	t.Parallel()
+
+	txHash := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	blockNum := int64(12345)
+	block := fakeBlockWithTxs(blockNum, fakeTx(txHash))
+
+	// Our block was orphaned and the tx re-included: both the pinned batch
+	// and the by-tx-hash lookup serve the canonical block's receipt.
+	canonical := fakeReceipt(txHash, blockNum)
+	canonical.BlockHash = fakeHash("canonical-block")
+	client := &fakeRPCClient{
+		block:          block,
+		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {canonical}},
+		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+			return canonical, nil
+		},
+	}
+	f := NewFetcher(client, 8)
+
+	_, err := f.FetchBlock(context.Background(), blockNum)
+	require.Error(t, err, "receipts from another block must fail the fetch, not be bundled")
 }
 
 // ---------------------------------------------------------------------------
@@ -636,6 +701,139 @@ func TestFetcher_Close_NilClient(t *testing.T) {
 
 	f := &Fetcher{}
 	require.NoError(t, f.Close())
+}
+
+// ---------------------------------------------------------------------------
+// FetchBlockHeaderByHash
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchBlockHeaderByHash(t *testing.T) {
+	t.Parallel()
+
+	var batchReceiptCalls int
+	var individualReceiptCalls int
+	parentHash := common.HexToHash(fakeHash("walkback-parent"))
+	client := &fakeRPCClient{
+		headerByHash: &ethtypes.Header{Number: big.NewInt(50), ParentHash: parentHash},
+		batchFn: func(_ context.Context, _ string) ([]*TransactionReceipt, error) {
+			batchReceiptCalls++
+			return nil, fmt.Errorf("batch receipts unavailable")
+		},
+		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+			individualReceiptCalls++
+			return nil, fmt.Errorf("receipt unavailable")
+		},
+	}
+	f := NewFetcher(client, 4)
+
+	header, err := f.FetchBlockHeaderByHash(context.Background(), fakeHash("walkback"))
+	require.NoError(t, err)
+	assert.Equal(t, chains.BlockHeader{Number: 50, Hash: fakeHash("walkback"), ParentHash: parentHash.Hex()}, header,
+		"the header fetch must carry only the height, content hash, and parent hash")
+	assert.Zero(t, batchReceiptCalls,
+		"the header fetch must not call eth_getBlockReceipts: by-number receipts belong to the canonical branch and mix into an orphan descent")
+	assert.Zero(t, individualReceiptCalls,
+		"the header fetch must not fall back to individual receipt fetches")
+}
+
+func TestFetcher_FetchBlockHeaderByHash_NotFoundIsClassified(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeRPCClient{headerByHashErr: fmt.Errorf("block not found")}
+	f := NewFetcher(client, 4)
+
+	_, err := f.FetchBlockHeaderByHash(context.Background(), fakeHash("missing"))
+	require.Error(t, err)
+	assert.True(t, pkgerrors.IsErrNotFound(err),
+		"the by-hash not-found error must keep its message so IsErrNotFound classifies it for the shared retry logic")
+}
+
+func TestFetcher_FetchBlockHeaderByHash_ErrorCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		client     *fakeRPCClient
+		hash       string
+		wantErrSub string
+	}{
+		{
+			name:       "NotConnected",
+			client:     nil,
+			hash:       fakeHash("unreachable"),
+			wantErrSub: "not connected",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var f *Fetcher
+			if tt.client == nil {
+				f = &Fetcher{}
+			} else {
+				f = NewFetcher(tt.client, 4)
+			}
+
+			_, err := f.FetchBlockHeaderByHash(context.Background(), tt.hash)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrSub)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FetchFinalizedBlockNumber
+// ---------------------------------------------------------------------------
+
+func TestFetcher_FetchFinalizedBlockNumber(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		client     *fakeRPCClient
+		wantHeight int64
+		wantErrSub string
+	}{
+		{
+			name:       "PassthroughNumber",
+			client:     &fakeRPCClient{finalizedNum: 42},
+			wantHeight: 42,
+		},
+		{
+			name:       "ClientErrorSurfaces",
+			client:     &fakeRPCClient{finalizedErr: fmt.Errorf("finalized header not found")},
+			wantErrSub: "finalized header not found",
+		},
+		{
+			name:       "NotConnected",
+			client:     nil,
+			wantErrSub: "not connected",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var f *Fetcher
+			if tt.client == nil {
+				f = &Fetcher{}
+			} else {
+				f = NewFetcher(tt.client, 4)
+			}
+
+			height, err := f.FetchFinalizedBlockNumber(context.Background())
+			if tt.wantErrSub != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSub)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHeight, height)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

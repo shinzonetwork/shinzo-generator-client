@@ -12,21 +12,20 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 const (
-	// InitialBlocksBack is the number of blocks behind chain tip to start fetching.
-	// This avoids transaction type compatibility issues with Erigon nodes.
-	InitialBlocksBack = 100
-
-	// MaxErigonRetries is the maximum number of retries for Erigon compatibility issues.
-	MaxErigonRetries = 8
-
 	// ZeroAddress is the Ethereum zero address used as fallback for unsigned transactions.
 	ZeroAddress = "0x0000000000000000000000000000000000000000"
 )
@@ -51,6 +50,7 @@ type EthereumClient struct {
 	wsURL        string
 	apiKey       string
 	apiKeyHeader string
+	rpcErrors    metric.Int64Counter
 }
 
 // NewEthereumClient creates a new JSON-RPC Ethereum client with HTTP and
@@ -71,11 +71,20 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 			fmt.Errorf("dial context cancelled before connecting: %w", err))
 	}
 
+	rpcErrors, meterErr := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm").Int64Counter("shinzo.generator.rpc.errors",
+		metric.WithDescription("Failed Ethereum JSON-RPC calls, by rpc.method and error.type. Not-yet-mined blocks are not counted."),
+		metric.WithUnit("{error}"),
+	)
+	if meterErr != nil {
+		otel.Handle(meterErr)
+	}
+
 	client := &EthereumClient{
 		nodeURL:      httpNodeURL,
 		wsURL:        wsURL,
 		apiKey:       apiKey,
 		apiKeyHeader: apiKeyHeader,
+		rpcErrors:    rpcErrors,
 	}
 
 	// Normalize header name from env (e.g., "x-goog-api-key", "x-api-key")
@@ -87,7 +96,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 		var err error
 
 		if apiKey != "" {
-			logger.Sugar.Infof("Creating HTTP client with API key authentication for %s", httpNodeURL)
+			logger.Sugar.Infof("Creating HTTP client with API key authentication for %s", utils.RedactEndpoint(httpNodeURL))
 			// Create RPC client with custom headers for API key authentication using modern approach
 			var rpcClient *ethrpc.Client
 			rpcClient, err = ethrpc.DialOptions(ctx, httpNodeURL, ethrpc.WithHTTPClient(&http.Client{
@@ -98,6 +107,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 				},
 			}))
 			if err != nil {
+				err = utils.RedactHTTPError(err)
 				logger.Sugar.Errorf("Failed to create HTTP client with API key: %v", err)
 				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, err)
 			}
@@ -108,7 +118,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 			// Standard connection without API key
 			httpClient, err = ethclient.DialContext(ctx, httpNodeURL)
 			if err != nil {
-				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, err)
+				return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", httpNodeURL, utils.RedactHTTPError(err))
 			}
 		}
 		client.httpClient = httpClient
@@ -124,15 +134,23 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 	// Fail fast when the caller's context died mid-dial (cancelled or
 	// expired between dial steps): never return a "successful" client that
 	// cannot serve a single request.
-	if err := ctx.Err(); err != nil {
+	if callerContextFailed(ctx) {
+		cause := ctx.Err()
+		if cause == nil {
+			// The wall-clock deadline passed but the runtime timer has not
+			// marked the context done yet (see callerContextFailed): report
+			// the deadline sentinel directly.
+			cause = context.DeadlineExceeded
+		}
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
-			fmt.Errorf("dial context expired while connecting: %w", err))
+			fmt.Errorf("dial context expired while connecting: %w", cause))
 	}
 
 	// Ensure at least one client is available
 	if client.httpClient == nil && client.wsClient == nil {
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
-			fmt.Errorf("no valid connections established - both HTTP (%s) and WebSocket (%s) failed", httpNodeURL, wsURL))
+			fmt.Errorf("no valid connections established - both HTTP (%s) and WebSocket (%s) failed",
+				utils.RedactEndpoint(httpNodeURL), utils.RedactEndpoint(wsURL)))
 	}
 
 	return client, nil
@@ -147,7 +165,7 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 // connected under a live caller context degrades to HTTP-only mode, and
 // otherwise the failure propagates.
 func (c *EthereumClient) connectWebSocket(ctx context.Context, wsURL, apiKey, headerName string, dialTimeout time.Duration) error {
-	logger.Sugar.Infof("Attempting WebSocket connection to %s", wsURL)
+	logger.Sugar.Infof("Attempting WebSocket connection to %s", utils.RedactEndpoint(wsURL))
 
 	wsCtx := ctx
 	if dialTimeout > 0 {
@@ -172,12 +190,13 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 	if err != nil {
 		if isContextError(err) {
 			// Resolve immediately: no further dial attempt is worthwhile.
-			// Classify from the error itself, not from re-reading ctx.Err():
-			// the WS dialer arms a socket deadline from the context deadline,
-			// and the kernel can surface os.ErrDeadlineExceeded before the
-			// runtime timer marks the context done — a racy ctx.Err() read
-			// would lose the abort sentinel.
-			if ctx.Err() != nil || c.httpClient == nil {
+			// Classify from the error and the wall-clock deadline, not from
+			// a bare ctx.Err() read: the WS dialer arms a socket deadline
+			// from the context deadline, and the kernel can surface
+			// os.ErrDeadlineExceeded before the runtime timer marks the
+			// context done — a racy ctx.Err() read would lose the abort
+			// sentinel and degrade instead.
+			if callerContextFailed(ctx) || c.httpClient == nil {
 				return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 					fmt.Errorf("%w: %w", errWSDialAborted, err))
 			}
@@ -189,12 +208,13 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 		logger.Sugar.Info("Trying standard WebSocket connection as fallback")
 		wsClient, err = ethclient.DialContext(wsCtx, wsURL)
 		if err != nil {
+			err = utils.RedactHTTPError(err)
 			logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
 			// Same classification as the first dial: a deadline-class error
-			// must never silently drop the abort sentinel (the socket deadline
-			// can beat the runtime timer), and HTTP degradation requires the
-			// caller's context to be alive.
-			if isContextError(err) && (ctx.Err() != nil || c.httpClient == nil) {
+			// must never silently drop the abort sentinel (the socket
+			// deadline can beat the runtime timer — see callerContextFailed),
+			// and HTTP degradation requires the caller's context to be alive.
+			if isContextError(err) && (callerContextFailed(ctx) || c.httpClient == nil) {
 				return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 					fmt.Errorf("%w: %w", errWSDialAborted, err))
 			}
@@ -217,13 +237,14 @@ func (c *EthereumClient) connectWebSocketWithAPIKey(ctx, wsCtx context.Context, 
 func (c *EthereumClient) connectWebSocketPlain(ctx, wsCtx context.Context, wsURL string) error {
 	wsClient, err := ethclient.DialContext(wsCtx, wsURL)
 	if err != nil {
+		err = utils.RedactHTTPError(err)
 		logger.Sugar.Errorf("Failed to establish WebSocket connection: %v", err)
-		// Classify from the error itself, not from re-reading ctx.Err():
-		// the WS dialer arms a socket deadline from the context deadline,
-		// and the kernel can surface os.ErrDeadlineExceeded before the
-		// runtime timer marks the context done — a racy ctx.Err() read
-		// would lose the abort sentinel.
-		if isContextError(err) && (ctx.Err() != nil || c.httpClient == nil) {
+		// Classify from the error and the wall-clock deadline, not from a
+		// bare ctx.Err() read: the WS dialer arms a socket deadline from the
+		// context deadline, and the kernel can surface os.ErrDeadlineExceeded
+		// before the runtime timer marks the context done — a racy ctx.Err()
+		// read would lose the abort sentinel and degrade instead.
+		if isContextError(err) && (callerContextFailed(ctx) || c.httpClient == nil) {
 			return errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", wsURL,
 				fmt.Errorf("%w: %w", errWSDialAborted, err))
 		}
@@ -257,7 +278,7 @@ type apiKeyTransport struct {
 }
 
 func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, req.URL.String())
+	logger.Sugar.Debugf("HTTP Request: %s %s", req.Method, utils.RedactEndpoint(req.URL.String()))
 	headerName := t.apiKeyHeader
 	logger.Sugar.Debugf("Setting %s header: %s", headerName, maskAPIKey(t.apiKey, t.apiKey))
 	req.Header.Set(headerName, t.apiKey)
@@ -277,62 +298,6 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// GetLatestBlock fetches the latest block.
-func (c *EthereumClient) GetLatestBlock(ctx context.Context) (*Block, error) {
-	client := c.getPreferredClient()
-	if client == nil {
-		return nil, errNoClientAvailable
-	}
-
-	// Get the latest block number first.
-	latestHeader, err := client.HeaderByNumber(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
-	}
-
-	// For GCP Erigon nodes, start with blocks that are significantly behind.
-	// to avoid transaction type compatibility issues.
-	targetBlockNumber := big.NewInt(1).Sub(latestHeader.Number, big.NewInt(InitialBlocksBack))
-	logger.Sugar.Infof("Latest block: %s, targeting block: %s (%d blocks behind for Erigon compatibility)",
-		latestHeader.Number.String(), targetBlockNumber.String(), InitialBlocksBack)
-
-	var gethBlock *ethtypes.Block
-
-	// Try progressively older blocks if transaction type errors occur.
-	for retries := range MaxErigonRetries {
-		gethBlock, err = client.BlockByNumber(ctx, targetBlockNumber)
-		if err != nil {
-			if errors.IsErrUnsupportedTxType(err) {
-
-				if retries < MaxErigonRetries-1 {
-					// Go back exponentially further: 100, 200, 400, 800, 1600, 3200, 6400 blocks.
-					blocksBack := InitialBlocksBack * (1 << uint(retries+1))
-					targetBlockNumber = big.NewInt(1).Sub(latestHeader.Number, big.NewInt(int64(blocksBack)))
-					logger.Sugar.Warnf("Retry %d: Transaction type error with Erigon, going back %d blocks total...",
-						retries+1, blocksBack)
-
-					// Add progressive delay to prevent API rate limiting.
-					time.Sleep(time.Duration(retries+1) * time.Second)
-					continue
-				}
-				logger.Sugar.Errorf("Failed after %d retries due to transaction type compatibility with Erigon", retries+1)
-				return nil, fmt.Errorf("transaction type not supported by GCP Erigon node after %d retries", retries+1)
-			}
-			// For non-transaction-type errors, fail immediately.
-			return nil, fmt.Errorf("failed to get block: %w", err)
-		}
-
-		// Success - log which block we're actually processing.
-		if retries > 0 {
-			logger.Sugar.Infof("Successfully retrieved block %s after %d retries (Erigon compatibility)",
-				targetBlockNumber.String(), retries)
-		}
-		break
-	}
-
-	return c.convertGethBlock(gethBlock), nil
-}
-
 // GetBlockByNumber fetches a block by number.
 func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error) {
 	client := c.getPreferredClient()
@@ -341,11 +306,94 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	}
 
 	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, err)
+		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, utils.RedactHTTPError(err))
 	}
 
 	return c.convertGethBlock(gethBlock), nil
+}
+
+// GetHeaderByHash fetches only the header of the block with the given
+// 0x-prefixed content hash; no transactions are fetched or decoded, so the
+// walk-back descent pays one header per step instead of a full block
+// download, and chains whose transactions use custom types (OP/Base 0x7e,
+// Arbitrum 100-106, ZKsync 0x71) cannot fail the typed transaction decoder
+// on the walk-back path. Not-found surfaces with its message preserved
+// (ethclient reports the node's "block not found" or the ethereum.NotFound
+// sentinel, both reading "not found") so pkg/errors.IsErrNotFound classifies
+// it and the caller's retry logic matches by-number fetches; a malformed
+// hash fails normalizeBlockHash as a caller bug, not a not-found.
+func (c *EthereumClient) GetHeaderByHash(ctx context.Context, hash string) (*ethtypes.Header, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return nil, errNoClientAvailable
+	}
+
+	blockHash, err := normalizeBlockHash(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	header, err := client.HeaderByHash(ctx, blockHash)
+	c.countRPCError(ctx, "eth_getBlockByHash", err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get header by hash %s: %w", hash, err)
+	}
+
+	return header, nil
+}
+
+// normalizeBlockHash validates a 0x-prefixed 32-byte block-hash string.
+// common.HexToHash silently mis-pads wrong-length input, so the round trip
+// through common.Hash.Hex() is the shape check: it matches only exact
+// 0x + 64 lowercase hex characters.
+func normalizeBlockHash(hash string) (common.Hash, error) {
+	trimmed := strings.TrimSpace(hash)
+	h := common.HexToHash(trimmed)
+	if h.Hex() != strings.ToLower(trimmed) {
+		return common.Hash{}, fmt.Errorf("block hash %q: not a 0x-prefixed %d-byte hex hash", trimmed, common.HashLength)
+	}
+	return h, nil
+}
+
+// GetFinalizedBlockNumber returns the finalized chain height, falling back to
+// the safe height when the node rejects the finalized tag (older nodes,
+// unfinalized chains). Both tags failing is an error; callers (the reorg
+// walk-back) respond with their hard cap. The error messages keep "not
+// found" where the node reports it, so pkg/errors.IsErrNotFound keeps
+// classifying unavailable tags the same way as missing blocks.
+func (c *EthereumClient) GetFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	finalizedNum, finalizedErr := c.headerNumberForTag(ctx, ethrpc.FinalizedBlockNumber)
+	if finalizedErr == nil {
+		return finalizedNum, nil
+	}
+	safeNum, safeErr := c.headerNumberForTag(ctx, ethrpc.SafeBlockNumber)
+	if safeErr == nil {
+		return safeNum, nil
+	}
+	return 0, fmt.Errorf("finalized block number unavailable: %w; safe fallback also failed: %w", finalizedErr, safeErr)
+}
+
+// headerNumberForTag resolves a special block tag ("finalized", "safe") to
+// its height via a header-only eth_getBlockByNumber fetch. A nil header or a
+// header without a block number is malformed and reported as an error rather
+// than height 0.
+func (c *EthereumClient) headerNumberForTag(ctx context.Context, tag ethrpc.BlockNumber) (int64, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return 0, errNoClientAvailable
+	}
+
+	header, err := client.HeaderByNumber(ctx, big.NewInt(tag.Int64()))
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get %s header: %w", tag, err)
+	}
+	if header == nil || header.Number == nil {
+		return 0, fmt.Errorf("%s header has no block number", tag)
+	}
+	return header.Number.Int64(), nil
 }
 
 // GetNetworkID returns the network ID.
@@ -355,7 +403,9 @@ func (c *EthereumClient) GetNetworkID(ctx context.Context) (*big.Int, error) {
 		return nil, errNoClientAvailable
 	}
 
-	return client.NetworkID(ctx)
+	id, err := client.NetworkID(ctx)
+	c.countRPCError(ctx, "net_version", utils.RedactHTTPError(err))
+	return id, utils.RedactHTTPError(err)
 }
 
 // GetLatestBlockNumber returns just the latest block number (not the offset block).
@@ -366,8 +416,9 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 	}
 
 	latestHeader, err := client.HeaderByNumber(ctx, nil)
+	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get latest header: %w", err)
+		return nil, fmt.Errorf("failed to get latest header: %w", utils.RedactHTTPError(err))
 	}
 
 	return latestHeader.Number, nil
@@ -382,21 +433,27 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 
 	hash := common.HexToHash(txHash)
 	receipt, err := client.TransactionReceipt(ctx, hash)
+	c.countRPCError(ctx, "eth_getTransactionReceipt", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
+		return nil, fmt.Errorf("failed to get transaction receipt: %w", utils.RedactHTTPError(err))
 	}
 	return c.convertGethReceipt(receipt), nil
 }
 
-// GetBlockReceipts fetches all receipts for a block in a single RPC call.
-func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*TransactionReceipt, error) {
+// GetBlockReceipts fetches all receipts for a block in a single RPC call,
+// pinned to the block's content hash. The hash parameter keeps the receipts
+// on the same branch as the block the caller already holds: a reorg between
+// the block fetch and the receipt fetch can no longer serve receipts from
+// the new chain's differently numbered block.
+func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, errNoClientAvailable
 	}
-	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithNumber(ethrpc.BlockNumber(blockNumber.Int64())))
+	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithHash(common.HexToHash(blockHash), false))
+	c.countRPCError(ctx, "eth_getBlockReceipts", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get block receipts for block %v: %w", blockNumber, err)
+		return nil, fmt.Errorf("failed to get block receipts for block hash %s: %w", blockHash, utils.RedactHTTPError(err))
 	}
 	result := make([]*TransactionReceipt, len(receipts))
 	for i, receipt := range receipts {
@@ -718,7 +775,7 @@ func createWebSocketWithHeaders(ctx context.Context, wsURL, apiKey, apiKeyHeader
 
 		rpcClient, err := ethrpc.DialContext(ctx, wsURLWithKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to dial GCP WebSocket: %w", err)
+			return nil, fmt.Errorf("failed to dial GCP WebSocket: %w", utils.RedactHTTPError(err))
 		}
 		logger.Sugar.Info("GCP WebSocket connection established successfully")
 		return ethclient.NewClient(rpcClient), nil
@@ -737,11 +794,47 @@ func createWebSocketWithHeaders(ctx context.Context, wsURL, apiKey, apiKeyHeader
 		ethrpc.WithHeaders(headers),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, err)
+		return nil, fmt.Errorf("failed to dial WebSocket with %s header: %w", headerName, utils.RedactHTTPError(err))
 	}
 
 	logger.Sugar.Infof("WebSocket connection established successfully with %s header", headerName)
 	return ethclient.NewClient(rpcClient), nil
+}
+
+// countRPCError counts a failed RPC call. Not-yet-mined blocks and canceled
+// calls are expected outcomes, not failures.
+func (c *EthereumClient) countRPCError(ctx context.Context, method string, err error) {
+	if c.rpcErrors == nil || err == nil || stderrors.Is(err, ethereum.NotFound) || stderrors.Is(err, context.Canceled) {
+		return
+	}
+	c.rpcErrors.Add(ctx, 1, metric.WithAttributes(
+		semconv.RPCMethod(method),
+		attribute.String("error.type", rpcErrorType(err)),
+	))
+}
+
+const (
+	jsonRPCMethodNotFound = -32601
+)
+
+// rpcErrorType maps err to error.type value, so dashboards can separate method_not_found errors (e.g. a node without eth_getBlockReceipts).
+func rpcErrorType(err error) string {
+	if rpcErr, ok := stderrors.AsType[ethrpc.Error](err); ok {
+		if rpcErr.ErrorCode() == jsonRPCMethodNotFound {
+			return "method_not_found"
+		}
+		return "rpc_error"
+	}
+	if httpErr, ok := stderrors.AsType[ethrpc.HTTPError](err); ok {
+		if httpErr.StatusCode == http.StatusTooManyRequests {
+			return "rate_limited"
+		}
+		return "http_error"
+	}
+	if isContextError(err) {
+		return "timeout"
+	}
+	return "_OTHER"
 }
 
 // isContextError reports whether err was caused by context cancellation or
@@ -753,6 +846,25 @@ func isContextError(err error) bool {
 	return stderrors.Is(err, context.Canceled) ||
 		stderrors.Is(err, context.DeadlineExceeded) ||
 		stderrors.Is(err, os.ErrDeadlineExceeded)
+}
+
+// callerContextFailed reports whether the caller's context is dead for the
+// constructor's purposes: cancelled, its deadline timer already fired, or —
+// closing a classification race — its deadline has passed on the wall clock.
+// The WS dialer arms a socket deadline from the context deadline, and the
+// kernel can surface os.ErrDeadlineExceeded a hair before the runtime timer
+// marks the context done; a plain ctx.Err() read at that instant still
+// reports a live context, which would wrongly degrade an aborted startup to
+// HTTP-only mode. Kernel and runtime timers never fire early, so "now is at
+// or past the deadline" reliably identifies the caller deadline as the one
+// that expired. A context without a deadline can only fail via cancellation,
+// which ctx.Err() catches deterministically.
+func callerContextFailed(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	return ok && !time.Now().Before(deadline)
 }
 
 // maskAPIKey masks the API key in URLs for logging.

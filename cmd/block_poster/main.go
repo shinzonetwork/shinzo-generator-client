@@ -8,12 +8,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 )
+
+const otelShutdownTimeout = 10 * time.Second
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -32,8 +36,17 @@ func run(args []string) error {
 
 	fs := flag.NewFlagSet("block_poster", flag.ContinueOnError)
 	configPath := fs.String("config", "config/config.yaml", "Path to configuration file")
+	showVersion := fs.Bool("version", false, "Print the generator version and exit")
+	showVersionShort := fs.Bool("v", false, "Print the generator version and exit (shorthand)")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+
+	// The version flags are handled before any config load so the version can
+	// be printed without a valid configuration file on disk.
+	if *showVersion || *showVersionShort {
+		printVersion(os.Stdout)
+		return nil
 	}
 
 	// Load configuration
@@ -42,15 +55,31 @@ func run(args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	logger.Init(cfg.Logger.Development)
+
+	// Set up graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up telemetry before creating the indexer, so a node with telemetry
+	// enabled but misconfigured exits before it opens DefraDB or connects.
+	otelShutdown, err := setupOTel(ctx, cfg.Chain)
+	if err != nil {
+		return fmt.Errorf("telemetry setup: %w", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+		defer cancel()
+		if err := otelShutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
+		}
+	}()
+
 	// Create and start indexer
 	chainIndexer, err := indexer.CreateIndexer(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create indexer: %w", err)
 	}
-
-	// Set up graceful shutdown
-	_, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Channel to listen for interrupt signals
 	sigChan := make(chan os.Signal, 1)
@@ -80,6 +109,15 @@ func run(args []string) error {
 	}
 
 	return nil
+}
+
+// printVersion writes the generator version to w as a single bare line so
+// scripts can parse it directly.
+func printVersion(w io.Writer) {
+	// Write errors are intentionally ignored: printing the version to stdout
+	// must not fail the command, matching the blank-assignment convention
+	// used for Fprint calls elsewhere in this file.
+	_, _ = fmt.Fprintln(w, config.Version)
 }
 
 // verifySnapshots verifies one or more snapshot files and reports results.

@@ -130,6 +130,9 @@ func TestHealthHandler_JSONResponse_NilIndexer(t *testing.T) {
 	var resp HealthResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "healthy", resp.Status)
+	// Compared against the config var so the test holds with or without
+	// build-time ldflags injection.
+	assert.Equal(t, config.Version, resp.Version)
 }
 
 func TestHealthHandler_JSONResponse_HealthyIndexer(t *testing.T) {
@@ -289,6 +292,7 @@ func TestRegistrationHandler_WithSignedRegistration(t *testing.T) {
 	assert.Equal(t, "/ip4/192.0.2.1/tcp/9171/p2p/"+testIndexerPeerID, resp.Registration.ConnectionString)
 	assert.Equal(t, "ethereum", resp.Registration.SourceChain)
 	assert.Equal(t, uint64(1), resp.Registration.SourceChainID)
+	assert.Equal(t, config.Version, resp.Version)
 	assert.NotContains(t, rec.Body.String(), "peer_id_registration")
 }
 
@@ -423,6 +427,7 @@ func TestMetricsHandler_NilIndexer(t *testing.T) {
 	var resp MetricsResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, int64(0), resp.CurrentBlock)
+	assert.Equal(t, config.Version, resp.Version)
 }
 
 func TestMetricsHandler_WithIndexer(t *testing.T) {
@@ -455,6 +460,9 @@ func TestRootHandler_RootPath(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "Shinzo Network Indexer", resp["service"])
+	// The root endpoint must report the injected generator version, never a
+	// hardcoded constant.
+	assert.Equal(t, config.Version, resp["version"])
 }
 
 func TestRootHandler_EndpointsIncludesCollections(t *testing.T) {

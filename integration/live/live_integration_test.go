@@ -50,6 +50,10 @@ func TestMain(m *testing.M) {
 	if err := os.RemoveAll("./.defra"); err != nil {
 		logger.Sugar.Warnf("Failed to clean existing live data: %v", err)
 	}
+	// The keyring now lives beside the store, so it needs its own cleanup.
+	if err := os.RemoveAll("./keys"); err != nil {
+		logger.Sugar.Warnf("Failed to clean existing live keyring: %v", err)
+	}
 
 	// Start live indexer with real Ethereum connections.
 	logger.Test("Starting live indexer with real Ethereum connections...")
@@ -112,6 +116,7 @@ func TestMain(m *testing.M) {
 	// Clean up test data.
 	time.Sleep(2 * time.Second) // Give time for cleanup.
 	_ = os.RemoveAll("./.defra")
+	_ = os.RemoveAll("./keys")
 
 	indexerCancel()
 	os.Exit(result) //nolint:gocritic

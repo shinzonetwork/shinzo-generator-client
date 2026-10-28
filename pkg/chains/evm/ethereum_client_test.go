@@ -202,7 +202,6 @@ func TestNilClient_Guards(t *testing.T) {
 	}{
 		{name: "GetNetworkID", call: func(c *EthereumClient) error { _, err := c.GetNetworkID(context.Background()); return err }},
 		{name: "GetLatestBlockNumber", call: func(c *EthereumClient) error { _, err := c.GetLatestBlockNumber(context.Background()); return err }},
-		{name: "GetLatestBlock", call: func(c *EthereumClient) error { _, err := c.GetLatestBlock(context.Background()); return err }},
 		{name: "GetBlockByNumber", call: func(c *EthereumClient) error {
 			_, err := c.GetBlockByNumber(context.Background(), big.NewInt(1))
 			return err
@@ -212,7 +211,7 @@ func TestNilClient_Guards(t *testing.T) {
 			return err
 		}},
 		{name: "GetBlockReceipts", call: func(c *EthereumClient) error {
-			_, err := c.GetBlockReceipts(context.Background(), big.NewInt(1))
+			_, err := c.GetBlockReceipts(context.Background(), "0xabc")
 			return err
 		}},
 	}
@@ -848,9 +847,6 @@ func TestEthereumClient_NilClientGuard_ReturnsSentinel(t *testing.T) {
 	// the errNoClientAvailable sentinel.
 	c := &EthereumClient{}
 
-	_, err := c.GetLatestBlock(t.Context())
-	assert.ErrorIs(t, err, errNoClientAvailable)
-
-	_, err = c.GetLatestBlockNumber(t.Context())
+	_, err := c.GetLatestBlockNumber(t.Context())
 	assert.ErrorIs(t, err, errNoClientAvailable)
 }

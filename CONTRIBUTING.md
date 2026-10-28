@@ -8,7 +8,7 @@ Open an issue to discuss your proposed change before submitting a PR. This avoid
 
 ```plaintext
 cmd/                 Application entry point (block_poster)
-config/              YAML + env-var configuration loading
+config/              YAML + env-var configuration loading and build-time version
 pkg/
   constants/         Collection name helpers
   defra/             DefraDB block handler and helpers
