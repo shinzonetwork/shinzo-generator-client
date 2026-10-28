@@ -343,7 +343,7 @@ func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbe
 	pad("Target Throughput:  %s / block", target)
 	pad("Effective Throughput:  %s / block", effective)
 	pad("Headroom:    %.1f%%", headroomPct(target, effective))
-	pad("Network Latency Budget: %s / block", target-effective)
+	pad("Processing Budget (Network Latency, P2P, State Queries): %s / block", target-effective)
 
 	logger.Test(strings.Repeat("_", width))
 	pad("Sequential Block Processing Stats:")
