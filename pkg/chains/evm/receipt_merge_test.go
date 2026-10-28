@@ -85,6 +85,7 @@ func TestFetcher_MergesReceiptOutcomeOntoTransactions(t *testing.T) {
 			require.Len(t, txGroup.Docs, 1)
 			doc := txGroup.Docs[0]
 			assert.Equal(t, tc.wantStatus, doc[StatusFieldName])
+			assert.Equal(t, "53000", doc[GasUsedFieldName])
 			assert.Equal(t, "79000", doc[CumulativeGasUsedFieldName])
 			assert.Equal(t, "20000000000", doc[EffectiveGasPriceFieldName])
 		})
