@@ -56,6 +56,7 @@ func TestEVMFieldNamesMatchCollectionSDL(t *testing.T) {
 		{file: transactionCollectionFile, field: NonceFieldName},
 		{file: transactionCollectionFile, field: TransactionIndexFieldName},
 		{file: transactionCollectionFile, field: TypeFieldName},
+		{file: transactionCollectionFile, field: GasUsedFieldName},
 		{file: transactionCollectionFile, field: CumulativeGasUsedFieldName},
 		{file: transactionCollectionFile, field: EffectiveGasPriceFieldName},
 		{file: transactionCollectionFile, field: StatusFieldName},

@@ -191,6 +191,9 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	txHash := fakeHash("tx-1")
 	tx := fakeTx(txHash)
 	tx.BlockNumber = "0x2a"
+	// The receipt merge runs upstream in the fetcher, so converter-level
+	// fixtures carry the outcome fields hand-set to the post-merge state.
+	tx.GasUsed = "21000"
 	block := fakeBlockWithTxs(42, tx)
 	receipt := fakeReceipt(txHash, 42)
 	receipt.Logs = []Log{
@@ -224,6 +227,7 @@ func TestConvert_BlockBundleToDocumentGroups(t *testing.T) {
 	require.Len(t, result.Groups[1].Docs, 1)
 	txData := result.Groups[1].Docs[0]
 	assert.Equal(t, txHash, txData[constants.HashFieldName])
+	assert.Equal(t, "21000", txData[GasUsedFieldName])
 	assert.Empty(t, result.Groups[1].BlockHashField,
 		"non-block groups should have empty BlockHashField")
 
