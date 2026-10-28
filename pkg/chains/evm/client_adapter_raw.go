@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -39,4 +40,18 @@ func (rawStandardClientAdapter) DecodeTransactions(rawTxs []json.RawMessage) ([]
 		txs[i] = tx
 	}
 	return txs, nil
+}
+
+// rawFrom returns the raw tx's sender, checksummed, exactly as the RPC
+// reported it; ok=false when the field is absent or the tx cannot be read.
+// Chains whose signatures go-ethereum cannot verify (Celo, Kaia) use it as
+// their ResolveFrom.
+func rawFrom(rawTx json.RawMessage) (string, bool) {
+	var fields struct {
+		From *common.Address `json:"from"`
+	}
+	if err := json.Unmarshal(rawTx, &fields); err != nil || fields.From == nil {
+		return "", false
+	}
+	return fields.From.Hex(), true
 }
