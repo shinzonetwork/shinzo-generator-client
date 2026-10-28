@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -113,6 +114,7 @@ type HealthResponse struct {
 	UptimeSeconds    float64              `json:"uptime_seconds"`
 	P2P              *P2PInfo             `json:"p2p,omitempty"`
 	Registration     *DisplayRegistration `json:"registration,omitempty"`
+	Version          string               `json:"version"`
 	BuildTags        string               `json:"build_tags,omitempty"`
 	SchemaType       string               `json:"schema_type,omitempty"`
 }
@@ -124,6 +126,7 @@ type MetricsResponse struct {
 	LastProcessedTime time.Time       `json:"last_processed_time"`
 	Uptime            string          `json:"uptime"`
 	Latency           *LatencyMetrics `json:"network_latency,omitempty"`
+	Version           string          `json:"version"`
 }
 
 // LatencyMetrics is the read-only view of the indexer's rolling network
@@ -226,6 +229,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		DefraDBConnected: hs.checkDefraDB(),
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
+		Version:          config.Version,
 	}
 
 	if hs.indexer != nil {
@@ -274,6 +278,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		DefraDBConnected: defraConnected,
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
+		Version:          config.Version,
 	}
 
 	if hs.indexer != nil {
@@ -308,7 +313,8 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metrics := MetricsResponse{
-		Uptime: time.Since(hs.startTime).String(),
+		Uptime:  time.Since(hs.startTime).String(),
+		Version: config.Version,
 	}
 
 	if hs.indexer != nil {
@@ -331,7 +337,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]any{
 		"service":   "Shinzo Network Indexer",
-		"version":   "1.0.0",
+		"version":   config.Version,
 		"status":    "running",
 		"timestamp": time.Now(),
 		"endpoints": []string{

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/websocket"
 	"github.com/sourcenetwork/defradb/client"
@@ -100,7 +101,7 @@ func fakeReceipt(txHash string, blockNum int64) *TransactionReceipt {
 	return &TransactionReceipt{
 		TransactionHash:   txHash,
 		TransactionIndex:  "0x0",
-		BlockHash:         "0x0000000000000000000000000000000000000000000000000000000000000001",
+		BlockHash:         fakeHash("block-" + big.NewInt(blockNum).String()),
 		BlockNumber:       "0x" + big.NewInt(blockNum).Text(16),
 		From:              "0x0000000000000000000000000000000000000001",
 		To:                "0x0000000000000000000000000000000000000002",
@@ -157,18 +158,26 @@ func storeResidueBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestD
 }
 
 type fakeRPCClient struct {
-	latestNum     *big.Int
-	latestErr     error
-	block         *Block
-	blockErr      error
-	batchReceipts []*TransactionReceipt
-	batchErr      error
-	txReceipt     *TransactionReceipt
-	txErr         error
-	closed        bool
+	latestNum      *big.Int
+	latestErr      error
+	block          *Block
+	blockErr       error
+	receiptsByHash map[string][]*TransactionReceipt
+	batchErr       error
+	txReceipt      *TransactionReceipt
+	txErr          error
+	closed         bool
+
+	headerByHash    *ethtypes.Header
+	headerByHashErr error
+	headerByHashFn  func(ctx context.Context, hash string) (*ethtypes.Header, error)
+
+	finalizedNum int64
+	finalizedErr error
+	finalizedFn  func(ctx context.Context) (int64, error)
 
 	blockFn     func(ctx context.Context, n *big.Int) (*Block, error)
-	batchFn     func(ctx context.Context, n *big.Int) ([]*TransactionReceipt, error)
+	batchFn     func(ctx context.Context, hash string) ([]*TransactionReceipt, error)
 	txReceiptFn func(ctx context.Context, hash string) (*TransactionReceipt, error)
 }
 
@@ -183,11 +192,22 @@ func (f *fakeRPCClient) GetBlockByNumber(ctx context.Context, n *big.Int) (*Bloc
 	return f.block, f.blockErr
 }
 
-func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, n *big.Int) ([]*TransactionReceipt, error) {
-	if f.batchFn != nil {
-		return f.batchFn(ctx, n)
+func (f *fakeRPCClient) GetHeaderByHash(ctx context.Context, hash string) (*ethtypes.Header, error) {
+	if f.headerByHashFn != nil {
+		return f.headerByHashFn(ctx, hash)
 	}
-	return f.batchReceipts, f.batchErr
+	return f.headerByHash, f.headerByHashErr
+}
+
+func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
+	if f.batchFn != nil {
+		return f.batchFn(ctx, blockHash)
+	}
+	receipts, found := f.receiptsByHash[blockHash]
+	if !found {
+		return nil, f.batchErr
+	}
+	return receipts, f.batchErr
 }
 
 func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) (*TransactionReceipt, error) {
@@ -195,6 +215,13 @@ func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) 
 		return f.txReceiptFn(ctx, hash)
 	}
 	return f.txReceipt, f.txErr
+}
+
+func (f *fakeRPCClient) GetFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	if f.finalizedFn != nil {
+		return f.finalizedFn(ctx)
+	}
+	return f.finalizedNum, f.finalizedErr
 }
 
 func (f *fakeRPCClient) Close() error {
@@ -223,6 +250,14 @@ const (
 	// ethChainID and ethNetVersion are the two chain-identity probe methods used by the mock servers.
 	ethChainID    = "eth_chainId"
 	ethNetVersion = "net_version"
+
+	// ethGetBlockByHash is used in tests to identify the by-hash block retrieval RPC call.
+	ethGetBlockByHash = "eth_getBlockByHash"
+
+	// ethGetBlockTagFinalized and ethGetBlockTagSafe are the special block
+	// tags served to / requested from the finalized-height fetch.
+	ethGetBlockTagFinalized = "finalized"
+	ethGetBlockTagSafe      = "safe"
 
 	testBlockNumber = 100
 )
@@ -276,6 +311,21 @@ func simpleRPCServer() *httptest.Server {
 			return "0x1", nil
 		}
 	})
+}
+
+// requestedBlockTag extracts the first eth_getBlockByNumber param as a block
+// tag string ("latest", "finalized", "safe"); ok is false for hex numbers,
+// null, and unparseable params.
+func requestedBlockTag(params json.RawMessage) (string, bool) {
+	var rawParams []json.RawMessage
+	if err := json.Unmarshal(params, &rawParams); err != nil || len(rawParams) == 0 {
+		return "", false
+	}
+	var tag string
+	if err := json.Unmarshal(rawParams[0], &tag); err != nil {
+		return "", false
+	}
+	return tag, true
 }
 
 func fullBlockResponse(number string, txs []any) map[string]any {

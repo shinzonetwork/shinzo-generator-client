@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -23,10 +24,13 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/signer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/node"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -48,10 +52,6 @@ var (
 	// teardown and a typed system error so the process exits non-zero.
 	errNetworkLatencyExceeded = errors.New("maximum allowed network latency exceeded. At this fetch pace the indexer cannot catch up with the network tip — co-locate the generator with the node or use a lower-latency deployment location")
 )
-
-// Version is the generator version, set at build time via -ldflags (see the
-// Makefile build target); falls back to "dev" when built without injection.
-var Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
 
 const (
 	// ShortDelayTime is a short delay duration used in various places to give time for operations to complete.
@@ -77,6 +77,8 @@ const (
 	// IndexingStartStopTimeout bounds how long StopIndexing waits for an
 	// in-flight StartIndexing to settle before tearing down anyway.
 	IndexingStartStopTimeout = 30 * time.Second
+	// ChainHeadPollInterval is how often the chain head is read for the lag metric.
+	ChainHeadPollInterval = 30 * time.Second
 )
 
 // var requiredPeers = []string{} // Here, we can consider adding any "big peers" we need - these requiredPeers can be used as a quick start point to speed up the peer discovery process.
@@ -96,10 +98,12 @@ type ChainIndexer struct {
 	defraNode                 *node.Node              // Embedded DefraDB node (nil if using external)
 	networkHandler            *defradb.NetworkHandler // P2P network handler (nil if using external)
 	healthServer              *server.HealthServer
-	pruner                    *pruner.Pruner         // Document pruner for removing old blocks.
-	snapshotter               *snapshot.Snapshotter  // Snapshot exporter for archiving blocks.
-	latencyMonitor            *NetworkLatencyMonitor // Rolling fetch-latency tracker of the last/current indexing run; guarded by mutex, nil before indexing starts.
+	pruner                    *pruner.Pruner              // Document pruner for removing old blocks.
+	snapshotter               *snapshot.Snapshotter       // Snapshot exporter for archiving blocks.
+	docIDTracker              defra.DocIDTrackerInterface // Prune-queue tracker; set only when the pruner is enabled, and used by the block handler to track stored docIDs (queue entries are intentionally retained across rollbacks so the pruner can purge the soft-deleted docs).
+	latencyMonitor            *NetworkLatencyMonitor      // Rolling fetch-latency tracker of the last/current indexing run; guarded by mutex, nil before indexing starts.
 	currentBlock              int64
+	chainHead                 atomic.Int64
 	lastProcessedTime         time.Time
 	indexingCancel            context.CancelCauseFunc // Cancel for the indexing loop; nil unless concurrent indexing is running.
 	indexingDone              chan struct{}           // Closed when the indexing loop has fully exited; guarded by mutex.
@@ -126,10 +130,64 @@ func (i *ChainIndexer) HasIndexedAtLeastOneBlock() bool {
 
 // GetDefraDBPort returns the port of the embedded DefraDB node, or -1 if using external DefraDB.
 func (i *ChainIndexer) GetDefraDBPort() int {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	if i.defraNode == nil {
 		return -1
 	}
 	return defra.GetPort(i.defraNode)
+}
+
+// gaugeState returns the started flag, committed height and chain head.
+func (i *ChainIndexer) gaugeState() (started bool, height, head int64) {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
+	return i.isStarted, i.currentBlock, i.chainHead.Load()
+}
+
+// observeHeight reports OTel metrics of the highest block committed in order.
+func (i *ChainIndexer) observeHeight(_ context.Context, o metric.Int64Observer) error {
+	if started, height, _ := i.gaugeState(); started && height > 0 {
+		o.Observe(height)
+	}
+	return nil
+}
+
+// observeChainHead reports OTel metrics of the latest block number seen on the RPC node.
+func (i *ChainIndexer) observeChainHead(_ context.Context, o metric.Int64Observer) error {
+	if started, _, head := i.gaugeState(); started && head > 0 {
+		o.Observe(head)
+	}
+	return nil
+}
+
+// observeLag reports OTel metrics of the blocks between the chain head and the committed height.
+func (i *ChainIndexer) observeLag(_ context.Context, o metric.Int64Observer) error {
+	if started, height, head := i.gaugeState(); started && height > 0 && head > 0 {
+		o.Observe(max(head-height, 0))
+	}
+	return nil
+}
+
+// observePeers reports OTel metrics of the number of unique connected peers.
+func (i *ChainIndexer) observePeers(ctx context.Context, o metric.Int64Observer) error {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
+	// Not indexing, or P2P disabled or unavailable: report no value rather than 0.
+	if !i.isStarted || i.defraNode == nil || i.networkHandler == nil || !i.networkHandler.IsNetworkActive() {
+		return nil
+	}
+	addrs, err := i.defraNode.DB.ActivePeers(ctx)
+	if err != nil {
+		return nil //nolint:nilerr // no need to send err to OTEL
+	}
+	peers, _ := defradb.BootstrapIntoPeers(addrs)
+	unique := make(map[string]struct{}, len(peers))
+	for _, p := range peers {
+		unique[p.ID] = struct{}{}
+	}
+	o.Observe(int64(len(unique)))
+	return nil
 }
 
 // GetDefraDBURL returns the API URL of the embedded DefraDB node, or "" when
@@ -158,12 +216,48 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 			indexerErrors.WithMetadata("host", "nil"),
 			indexerErrors.WithMetadata("port", "nil"))
 	}
-	return &ChainIndexer{
+	i := &ChainIndexer{
 		cfg:                       cfg,
 		shouldIndex:               false,
 		isStarted:                 false,
 		hasIndexedAtLeastOneBlock: false,
-	}, nil
+	}
+
+	meter := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/indexer")
+	_, err := meter.Int64ObservableGauge("shinzo.generator.block.height",
+		metric.WithDescription("Highest block committed in order."),
+		metric.WithUnit("{block}"),
+		metric.WithInt64Callback(i.observeHeight),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	_, err = meter.Int64ObservableGauge("shinzo.p2p.peers",
+		metric.WithDescription("Unique peers connected to the embedded DefraDB node."),
+		metric.WithUnit("{peer}"),
+		metric.WithInt64Callback(i.observePeers),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	_, err = meter.Int64ObservableGauge("shinzo.generator.chain.head",
+		metric.WithDescription("Latest block number reported by the RPC node."),
+		metric.WithUnit("{block}"),
+		metric.WithInt64Callback(i.observeChainHead),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	_, err = meter.Int64ObservableGauge("shinzo.generator.block.lag",
+		metric.WithDescription("Blocks between the chain head and the committed height."),
+		metric.WithUnit("{block}"),
+		metric.WithInt64Callback(i.observeLag),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+
+	return i, nil
 }
 
 // StartIndexing initializes dependencies and starts concurrent block indexing.
@@ -179,10 +273,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 		// Add any "big peers" here to speed up peer discovery.
 	}...)
 
-	if logger.Sugar == nil {
-		logger.Init(cfg.Logger.Development)
-	}
-	logger.Sugar.Infof("Starting Shinzo Network Generator %s", Version)
+	logger.Sugar.Infof("Starting Shinzo Network Generator %s", config.Version)
 
 	// Init runs against a stop-cancellable context: initDefra, Connect and
 	// resolveStartHeight all honor ctx, so a concurrent StopIndexing aborts a
@@ -242,7 +333,7 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	// Init succeeded: indexing intent is set here, isStarted only flips on
 	// once the indexing loop takes over (runConcurrentIndexing).
 	i.setLifecycleFlags(true, false)
-	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", cfg.Geth.NodeURL)
+	logger.Sugar.Info("Starting indexer - will process latest blocks from Geth ", utils.RedactEndpoint(cfg.Geth.NodeURL))
 
 	// 7. Init services (pruner/snapshot/health — now take converter)
 	if err := i.initServices(ctx, cfg); err != nil {
@@ -274,8 +365,10 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		if err != nil {
 			return ctx, fmt.Errorf("failed to start DefraDB instance: %w", err)
 		}
+		i.mutex.Lock()
 		i.defraNode = defraNode
 		i.networkHandler = networkHandler
+		i.mutex.Unlock()
 
 		if err := waitForDefraDBFn(ctx, defraNode.APIURL); err != nil {
 			return ctx, err
@@ -306,30 +399,22 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 }
 
 // resolveStartHeight determines the block number to start indexing from.
+// Resume is always derived from the DB: the highest visible block comes from
+// GetHighestStoredBlockNumber, and soft-deleted orphans are invisible to
+// queries, so the DB's highest block sits at the fork point and resume lands
+// just above it. The prune queue is purely a prune-tracking structure and is
+// never consulted here; it intentionally retains rolled-back orphan heights
+// for the pruner's later local purge, so its highest entry would push resume
+// above the real DB tip.
 func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
-	var pruneQueue *pruner.IndexerQueue
 
-	if cfg.Pruner.Enabled {
-		pruneQueue = pruner.NewIndexerQueue()
-		queueFilePath := filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")
-		loaded, err := pruneQueue.LoadFromFile(queueFilePath)
-		if err != nil {
-			logger.Sugar.Warnf("Failed to load prune queue from disk: %v", err)
-		} else if loaded > 0 {
-			logger.Sugar.Infof("Restored %d entries from prune queue file", loaded)
-		}
-		highestExisting = pruneQueue.HighestBlockNumber()
-	}
-
-	if highestExisting == 0 {
-		nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraNode)
-		if err != nil {
-			logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
-		} else {
-			highestExisting = nBlock
-		}
+	nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraNode)
+	if err != nil {
+		logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
+	} else {
+		highestExisting = nBlock
 	}
 
 	latestBlock, err := i.fetcher.FetchHighestBlockNumber(ctx)
@@ -395,10 +480,11 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config) err
 			logger.Sugar.Infof("Restored %d entries from prune queue file", restored)
 		}
 		i.pruner.SetQueue(pruneQueue)
-		i.blockHandler.SetDocIDTracker(&indexerQueueTracker{
+		i.docIDTracker = &indexerQueueTracker{
 			queue:       pruneQueue,
 			collections: i.converter.Collections(),
-		})
+		}
+		i.blockHandler.SetDocIDTracker(i.docIDTracker)
 		logger.Sugar.Infof("Prune queue ready (queue=%d, max_blocks=%d)", pruneQueue.Len(), cfg.Pruner.MaxBlocks)
 		if err := i.pruner.Start(ctx); err != nil {
 			logger.Sugar.Warnf("Failed to start pruner: %v", err)
@@ -508,16 +594,21 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	i.mutex.Lock()
 	i.latencyMonitor = monitor
 	i.mutex.Unlock()
+	roller, err := defra.NewReorgRoller(i.defraNode, i.converter)
+	if err != nil {
+		return fmt.Errorf("create reorg roller: %w", err)
+	}
 
 	processor := NewConcurrentBlockProcessor(
 		i.fetcher,
 		i.converter,
 		i.blockHandler,
+		roller,
 		cfg.Indexer.ConcurrentBlocks,
 		cfg.Indexer.BlocksPerMinute,
 	)
 
-	err := processor.ProcessBlocks(ctx, startBlock, func(blockNum int64, fetchDuration time.Duration) {
+	err = processor.ProcessBlocks(ctx, startBlock, func(blockNum int64, fetchDuration time.Duration) {
 		i.updateBlockInfo(blockNum)
 		i.mutex.Lock()
 		i.hasIndexedAtLeastOneBlock = true
@@ -737,18 +828,23 @@ func (i *ChainIndexer) teardownSubsystems() {
 		i.fetcher = nil
 	}
 
+	// Detach the node and network handler before closing them, so metric callbacks
+	// wont access stopped instances.
+	i.mutex.Lock()
+	networkHandler, defraNode := i.networkHandler, i.defraNode
+	i.networkHandler, i.defraNode = nil, nil
+	i.mutex.Unlock()
+
 	// Stop P2P network handler before closing the node
-	if i.networkHandler != nil {
+	if networkHandler != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultRetryDelay)
 		defer cancel()
-		_ = i.networkHandler.StopNetwork(&ctx)
-		i.networkHandler = nil
+		_ = networkHandler.StopNetwork(&ctx)
 	}
 
 	// Close embedded DefraDB node if it exists
-	if i.defraNode != nil {
-		_ = i.defraNode.Close(context.Background())
-		i.defraNode = nil
+	if defraNode != nil {
+		_ = defraNode.Close(context.Background())
 	}
 }
 

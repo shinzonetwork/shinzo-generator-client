@@ -1,4 +1,4 @@
-.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test ethereum-live-test bsc-live-test bsc-replay-fetch bsc-acceptance-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help
+.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test ethereum-live-test bsc-live-test bsc-replay-fetch bsc-acceptance-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local deadcode-check help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -23,8 +23,8 @@ TO ?= 0
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
-	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/pkg/indexer.Version=$(VERSION)" -o bin/block_poster cmd/block_poster/main.go
-	go build -o bin/fetch_blocks cmd/fetch_blocks/main.go
+	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
+	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
 	elif grep -aFq "$(VERSION)" bin/block_poster; then \
@@ -147,7 +147,7 @@ bsc-replay-fetch:
 		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
 		exit 1; \
 	fi
-	@mkdir -p replaymarking/testdata
+	@mkdir -p replay/testdata
 	go run ./cmd/fetch_blocks --chain bsc --network mainnet --from $(FROM) --to $(TO)
 
 # bsc-acceptance-test replays the newest captured fixture through the full
@@ -166,6 +166,12 @@ lint:
 	@golangci-lint run ./...
 	@echo "📏 Checking file sizes..."
 	@./scripts/check_loc.sh
+	@echo "🪦 Checking for dead code..."
+	@./scripts/deadcode-check.sh
+
+# Standalone dead-code check (also runs as part of make lint).
+deadcode-check:
+	@./scripts/deadcode-check.sh
 
 lint-fix:
 	@echo "🔧 Running golangci-lint with auto-fix..."
@@ -229,6 +235,7 @@ help:
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
 	@echo "  lint-fix           - Run golangci-lint with auto-fix"
+	@echo "  deadcode-check     - Fail on functions no binary or test can reach"
 	@echo "  fmt                - Format code with gofmt and goimports"
 	@echo ""
 	@echo "🔗 Connectivity Testing:"

@@ -14,8 +14,7 @@ const (
 	ErrStrAlreadyExists           = "already exists"
 	ErrStrCollectionAlreadyExists = "collection already exists"
 	ErrStrTransactionConflict     = "transaction conflict"
-	ErrStrTxTypeNotSupported      = "transaction type not supported"
-	ErrStrInvalidTxType           = "invalid transaction type"
+	ErrStrDocumentDeleted         = "has been deleted"
 	DefaultRetryDelay             = 30 * time.Second
 )
 
@@ -44,13 +43,15 @@ func IsErrTransactionConflict(err error) bool {
 	return strings.Contains(err.Error(), ErrStrTransactionConflict)
 }
 
-// IsErrUnsupportedTxType checks if an error indicates an unsupported transaction type.
-func IsErrUnsupportedTxType(err error) bool {
+// IsErrDocumentDeleted checks if an error message indicates DefraDB refused
+// to re-create a document whose content-derived docID was soft-deleted (the
+// store is refused with "a document with the given ID has been deleted"
+// instead of resurrecting the deleted documents).
+func IsErrDocumentDeleted(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, ErrStrTxTypeNotSupported) || strings.Contains(msg, ErrStrInvalidTxType)
+	return strings.Contains(err.Error(), ErrStrDocumentDeleted)
 }
 
 // IsRetryable checks if an error can be retried.
