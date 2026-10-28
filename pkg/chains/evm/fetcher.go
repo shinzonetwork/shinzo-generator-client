@@ -226,6 +226,7 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 
 	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, block.Hash)
 	if batchErr == nil && receiptHashesMatch(batchReceipts, block.Hash) {
+		mergeReceiptsOntoTransactions(transactions, batchReceipts)
 		return transactions, batchReceipts, nil
 	}
 	if batchErr == nil {
@@ -283,7 +284,42 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 		return transactions, receipts, fmt.Errorf("block %d: %d/%d transaction receipts could not be fetched", blockNum, failed, len(receipts))
 	}
 
+	mergeReceiptsOntoTransactions(transactions, receipts)
 	return transactions, receipts, nil
+}
+
+// mergeReceiptsOntoTransactions copies execution results from the receipts
+// onto their transactions so the bundle carries outcome data, not only the
+// signed payloads. Matching is by the transaction's own hash because both
+// receipt paths key receipts that way; a miss leaves the fields untouched
+// and is logged rather than failing the block, matching the lenient
+// handling of receiptless bundles.
+func mergeReceiptsOntoTransactions(txs []*Transaction, receipts []*TransactionReceipt) {
+	byHash := make(map[string]*TransactionReceipt, len(receipts))
+	for _, r := range receipts {
+		if r != nil {
+			byHash[r.TransactionHash] = r
+		}
+	}
+	for _, tx := range txs {
+		if tx == nil {
+			continue
+		}
+		r, ok := byHash[tx.Hash]
+		if !ok || r == nil {
+			if logger.Sugar != nil {
+				logger.Sugar.Debugf("No receipt matched transaction %s; keeping conversion defaults", tx.Hash)
+			}
+			continue
+		}
+		// The comparison targets the client's converted status format
+		// (getReceiptStatus emits decimal "1"/"0"), not the wire's hex
+		// quantity form.
+		tx.Status = r.Status == "1"
+		tx.GasUsed = r.GasUsed
+		tx.CumulativeGasUsed = r.CumulativeGasUsed
+		tx.EffectiveGasPrice = r.EffectiveGasPrice
+	}
 }
 
 // receiptHashesMatch reports whether every receipt belongs to the pinned
