@@ -201,6 +201,7 @@ func TestConvertGethReceipt_Success(t *testing.T) {
 		TxHash:            common.HexToHash("0xtxhash"),
 		ContractAddress:   common.Address{},
 		GasUsed:           21000,
+		EffectiveGasPrice: big.NewInt(20000000000),
 		BlockHash:         common.HexToHash("0xblockhash"),
 		BlockNumber:       big.NewInt(testBlockNumber),
 		TransactionIndex:  0,
@@ -214,6 +215,23 @@ func TestConvertGethReceipt_Success(t *testing.T) {
 	assert.Equal(t, "1", result.Status)
 	assert.Equal(t, "", result.ContractAddress) // empty for non-contract-creation
 	assert.Equal(t, "21000", result.GasUsed)
+	assert.Equal(t, "20000000000", result.EffectiveGasPrice)
+}
+
+func TestConvertGethReceipt_NilEffectiveGasPrice(t *testing.T) {
+	t.Parallel()
+	receipt := &ethtypes.Receipt{
+		Status:      ethtypes.ReceiptStatusSuccessful,
+		TxHash:      common.HexToHash("0xtxhash"),
+		BlockNumber: big.NewInt(testBlockNumber),
+		Logs:        []*ethtypes.Log{},
+	}
+
+	client := &EthereumClient{}
+	result := client.convertGethReceipt(receipt)
+
+	require.NotNil(t, result)
+	assert.Empty(t, result.EffectiveGasPrice, "pre-EIP-1559 receipts carry no effective gas price")
 }
 
 func TestConvertGethReceipt_FailedStatus(t *testing.T) {

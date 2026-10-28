@@ -344,6 +344,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, receipt)
 	assert.Equal(t, "1", receipt.Status)
+	assert.Equal(t, "20000000000", receipt.EffectiveGasPrice, "the wire value 0x4a817c800 must survive the decode as a decimal string")
 }
 
 func TestGetTransactionReceipt_Error(t *testing.T) {
@@ -402,6 +403,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, receipts, 1)
 	assert.Equal(t, "1", receipts[0].Status)
+	assert.Equal(t, "20000000000", receipts[0].EffectiveGasPrice, "the wire value 0x4a817c800 must survive the decode as a decimal string")
 }
 
 // TestGetBlockReceipts_RequestPinsBlockHash proves the wire shape: the

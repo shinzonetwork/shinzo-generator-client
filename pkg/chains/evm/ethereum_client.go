@@ -481,6 +481,7 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *Transact
 		BlockNumber:       receipt.BlockNumber.String(),
 		CumulativeGasUsed: fmt.Sprintf("%d", receipt.CumulativeGasUsed),
 		GasUsed:           fmt.Sprintf("%d", receipt.GasUsed),
+		EffectiveGasPrice: getEffectiveGasPrice(receipt),
 		ContractAddress:   getContractAddress(receipt),
 		Logs:              logs,
 		Status:            getReceiptStatus(receipt),
@@ -521,6 +522,16 @@ func getReceiptStatus(receipt *ethtypes.Receipt) string {
 		return "1"
 	}
 	return "0"
+}
+
+// getEffectiveGasPrice formats the receipt's effective gas price as a decimal
+// string, matching the GasUsed formatting. The field exists only on
+// post-EIP-1559 receipts, so a nil value yields an empty string.
+func getEffectiveGasPrice(receipt *ethtypes.Receipt) string {
+	if receipt.EffectiveGasPrice == nil {
+		return ""
+	}
+	return receipt.EffectiveGasPrice.String()
 }
 
 // convertGethBlock converts go-ethereum Block to our custom Block type.
@@ -639,7 +650,7 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		V:                    v.String(),                               // string
 		R:                    r.String(),                               // string
 		S:                    s.String(),                               // string
-		Status:               true,                                     // Default to true, will be updated from receipt.
+		Status:               true,                                     // signed payloads carry no execution outcome, so status defaults to true; the fetcher's receipt merge overwrites it with the executed result
 	}
 
 	return &localTx
