@@ -367,6 +367,39 @@ func TestRunPrune_Dispatching(t *testing.T) {
 	})
 }
 
+// SetCycleObserver is the seam the replay harness reads cycle facts through:
+// every completed cycle reports its deltas and wall time, and the consumer
+// owns which cycles count as work.
+func TestSetCycleObserver_ReportsCycleFacts(t *testing.T) {
+	n := startTestNode(t)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 5, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
+	ctx := context.Background()
+
+	// Retention exceeded (8 blocks, cap 5): the startup cleanup path deletes
+	// the 3 lowest blocks, so this cycle reports a real purge.
+	for i := int64(1); i <= 8; i++ {
+		insertTestBlock(t, n, i, 0)
+	}
+
+	var events []CycleEvent
+	p.SetCycleObserver(func(ev CycleEvent) { events = append(events, ev) })
+
+	require.NoError(t, p.timedCycle(ctx, p.startupCleanup))
+	require.Len(t, events, 1)
+	assert.Equal(t, int64(3), events[0].Blocks)
+	assert.Equal(t, int64(3), events[0].Docs)
+	assert.Greater(t, events[0].Duration, time.Duration(0))
+
+	// Retention now holds (5 blocks remain, cap 5): the check-only cycle
+	// still reports, with zero deltas. Filtering is the consumer's policy,
+	// not the package's.
+	require.NoError(t, p.timedCycle(ctx, p.runPrune))
+	require.Len(t, events, 2)
+	assert.Equal(t, int64(0), events[1].Blocks)
+	assert.Equal(t, int64(0), events[1].Docs)
+}
+
 func TestGetBlockRange(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}

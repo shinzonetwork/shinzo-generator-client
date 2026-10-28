@@ -132,8 +132,10 @@ background load does. The per-cycle prune size is the one pruner knob the
 harness does not override: whatever the shipped yaml sets, the bench runs
 with it, so raising it there concentrates the same deletes into fewer,
 heavier cycles and moves this replay's average and tail. Their outcome
-prints below the report box, one line per service, and the block-count
-assertion is pruning-aware (expected rows = processed − pruned).
+prints below the report box, one service per block: a summary line followed
+by the operation timing (total / average / max, over cycles that actually
+did work), and the block-count assertion is pruning-aware
+(expected rows = processed − pruned).
 
 ### What this measures vs. live indexing
 
@@ -189,17 +191,19 @@ Sequential Block Processing Stats:
  - Outliers:
     - 126050782 - 1.356533708s - +367.4% vs avg
 ====================================================================================================
-Pruner: 51 blocks / 53882 docs pruned
-Snapshotter: 3 snapshots (last block 126050850)
+Pruner: 51 blocks / 53882 docs across 3 cycles
+ - Pruning Duration: 4.2s total, 1.4s average, 2.1s max
+Snapshots: 3
+ - Snapshots Duration: 9.6s total, 3.2s average, 3.4s max
 ```
 
 The report is bracketed by two `=` banners and splits inside: the throughput
 section backs the verdict, the underscore divider opens the sequential block
 processing stats. Every content line is space-padded to the 100-character
 banner width (long lines are never truncated). The values above are
-illustrative, not a real run; the `Pruner:`/`Snapshotter:` lines print below
-the report, one per enabled service, and are skipped when a service is
-disabled.
+illustrative, not a real run; the `Pruner:`/`Snapshots:` blocks print below
+the report, one two-line block per enabled service, and are skipped when a
+service is disabled.
 
 Two verdicts, both asserted:
 

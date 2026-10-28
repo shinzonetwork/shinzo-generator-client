@@ -885,12 +885,15 @@ func (t *replayQueueTracker) TrackBlock(_ context.Context, blockNumber int64, re
 }
 
 // replayServices groups the background services running beside the timing
-// loop. Both are optional: nil fields mean the service was disabled. stopOnce
-// makes stop idempotent: Cleanup and the happy path both call it.
+// loop. Both are optional: nil fields mean the service was disabled. The
+// stats structs aggregate the work-cycle durations their observers feed;
+// stopOnce makes stop idempotent: Cleanup and the happy path both call it.
 type replayServices struct {
-	pruneSvc *pruner.Pruner
-	snapSvc  *snapshot.Snapshotter
-	stopOnce sync.Once
+	pruneSvc   *pruner.Pruner
+	snapSvc    *snapshot.Snapshotter
+	pruneStats replayCycleStats
+	snapStats  replayCycleStats
+	stopOnce   sync.Once
 }
 
 // startReplayServices wires the pruner and snapshotter the way the indexer's
@@ -913,6 +916,18 @@ func startReplayServices(t *testing.T, cfg *config.Config, defraNode *node.Node,
 		}
 		rs.pruneSvc = pruner.NewPruner(&cfg.Pruner, defraNode, converter)
 		rs.pruneSvc.SetQueue(pruneQueue)
+		// The observer must be registered before Start: the loop's startup
+		// cleanup is itself a prune cycle and its facts would otherwise be
+		// missed. The seam reports every cycle; deciding that only cycles
+		// which deleted blocks count as work is harness policy, kept here
+		// so the package stays free of bench semantics.
+		rs.pruneSvc.SetCycleObserver(func(ev pruner.CycleEvent) {
+			if ev.Blocks <= 0 {
+				return
+			}
+			logger.Testf("prune cycle: +%d blocks / +%d docs in %v", ev.Blocks, ev.Docs, ev.Duration)
+			rs.pruneStats.observe(ev.Duration)
+		})
 		handler.SetDocIDTracker(&replayQueueTracker{queue: pruneQueue})
 		require.NoError(t, rs.pruneSvc.Start(ctx))
 		logger.Testf("pruner started: interval %ds, retention %d blocks", cfg.Pruner.IntervalSeconds, cfg.Pruner.MaxBlocks)
@@ -920,6 +935,15 @@ func startReplayServices(t *testing.T, cfg *config.Config, defraNode *node.Node,
 
 	if cfg.Snapshot.Enabled {
 		rs.snapSvc = snapshot.New(&cfg.Snapshot, defraNode, converter)
+		// Same policy split as the pruner's observer: every cycle is
+		// reported, only snapshot-creating cycles count as work here.
+		rs.snapSvc.SetCycleObserver(func(ev snapshot.CycleEvent) {
+			if ev.Snapshots <= 0 {
+				return
+			}
+			logger.Testf("snapshot cycle: +%d snapshot in %v", ev.Snapshots, ev.Duration)
+			rs.snapStats.observe(ev.Duration)
+		})
 		require.NoError(t, rs.snapSvc.Start(ctx))
 		logger.Testf("snapshotter started: dir %s, interval %ds, blocks per file %d",
 			cfg.Snapshot.Dir, cfg.Snapshot.IntervalSeconds, cfg.Snapshot.BlocksPerFile)
@@ -959,15 +983,64 @@ func (rs *replayServices) prunedBlocks() int64 {
 }
 
 // logServiceStats prints each service's outcome below the report box so the
-// fixed-width report format stays untouched.
+// fixed-width report format stays untouched. Each service prints a summary
+// line followed by a duration line; a service that ran no work cycles prints
+// zeros rather than dividing by a zero cycle count. Cycle counts and
+// durations come from the harness's own observer aggregation, not from the
+// services' metrics.
 func logServiceStats(t *testing.T, rs *replayServices) {
 	t.Helper()
 	if rs.pruneSvc != nil {
 		m := rs.pruneSvc.GetMetrics()
-		logger.Testf("Pruner: %d blocks / %d docs pruned", m.TotalBlocksPruned, m.TotalDocsPruned)
+		logger.Testf("Pruner: %d blocks / %d docs across %d cycles", m.TotalBlocksPruned, m.TotalDocsPruned, rs.pruneStats.cycles())
+		total, avg, peak := rs.pruneStats.durations()
+		logger.Testf(" - Pruning Duration: %s total, %s average, %s max", total, avg, peak)
 	}
 	if rs.snapSvc != nil {
 		m := rs.snapSvc.GetMetrics()
-		logger.Testf("Snapshotter: %d snapshots (last block %d)", m.TotalSnapshots, m.LastSnapshotBlock)
+		logger.Testf("Snapshots: %d", m.TotalSnapshots)
+		total, avg, peak := rs.snapStats.durations()
+		logger.Testf(" - Snapshots Duration: %s total, %s average, %s max", total, avg, peak)
 	}
+}
+
+// replayCycleStats aggregates work-cycle durations for one background
+// service. The packages' observer seams report raw per-cycle facts; which
+// cycles count as work and the total/average/max rollup are replay-harness
+// policy, kept here so the packages stay free of bench semantics.
+type replayCycleStats struct {
+	mu    sync.Mutex
+	count int64
+	total time.Duration
+	peak  time.Duration
+}
+
+// observe folds one work cycle's wall time into the rollup. Called from the
+// service goroutines through the observers, hence the mutex.
+func (cs *replayCycleStats) observe(d time.Duration) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cs.count++
+	cs.total += d
+	if d > cs.peak {
+		cs.peak = d
+	}
+}
+
+// cycles reports how many work cycles were observed.
+func (cs *replayCycleStats) cycles() int64 {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	return cs.count
+}
+
+// durations returns total / average / max over the observed work cycles. A
+// zero cycle count means no cycle ever did work, so all three answer zero.
+func (cs *replayCycleStats) durations() (time.Duration, time.Duration, time.Duration) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if cs.count <= 0 {
+		return 0, 0, 0
+	}
+	return cs.total, cs.total / time.Duration(cs.count), cs.peak
 }
