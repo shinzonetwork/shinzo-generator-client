@@ -1,4 +1,7 @@
-package main
+// Package app holds the shared block_poster runner. Each per-chain binary in
+// cmd/block_poster/<chain> blank-imports its chain adapter (which registers it
+// via init()) and delegates to Main; the runner itself stays chain-agnostic.
+package app
 
 import (
 	"context"
@@ -11,7 +14,6 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -19,14 +21,18 @@ import (
 
 const otelShutdownTimeout = 10 * time.Second
 
-func main() {
-	if err := run(os.Args[1:]); err != nil {
+// Main is the process entry point shared by every per-chain block_poster
+// binary. It prints the error to stderr and exits non-zero on failure.
+func Main() {
+	if err := Run(os.Args[1:]); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
+// Run parses args and either verifies snapshots or starts indexing until a
+// signal arrives. The caller's chain adapter must already be registered.
+func Run(args []string) error {
 	// Check for subcommands before parsing flags
 	if len(args) > 0 {
 		if args[0] == "verify" { //nolint:goconst
