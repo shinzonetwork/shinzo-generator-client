@@ -394,6 +394,17 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 // Queries docIDs from the chain, then purges each collection in sorted-name
 // order (DefraDB has no FK enforcement; any orphans are cleaned by the next
 // prune run).
+//
+// The queue is discarded of entries at or below endBlock regardless of the
+// purge outcome: when the purge succeeded, keeping the entries is the double
+// count, since the next Drain would purge and count those blocks again; when
+// the purge failed, dropping entries for possibly-still-existing blocks is
+// safe, because a later filter pass deletes them by DB range and counts them
+// once, while keeping entries for deleted blocks is the unsafe direction.
+// Discarding here covers both callers (filterBasedPrune and startupCleanup)
+// and makes the strategy race harmless for counting: the queue can sit at or
+// below retention when the cycle picks the filter path, yet the DB range
+// measured afterwards can be over retention due to blocks stored in between.
 func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64) (int64, error) {
 	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
 		startBlock, endBlock, endBlock-startBlock+1)
@@ -404,6 +415,10 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 	}
 
 	totalPurged, purgeErr := p.purgeByDocIDsByCollection(ctx, docIDsByCollection)
+
+	if iq, ok := p.queue.(*IndexerQueue); ok {
+		iq.DiscardUpTo(endBlock)
+	}
 
 	logger.Sugar.Infof("pruneBlockRange: purged %d docs for blocks %d-%d", totalPurged, startBlock, endBlock)
 	return totalPurged, purgeErr

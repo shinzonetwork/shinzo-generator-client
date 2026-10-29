@@ -711,6 +711,60 @@ func TestPurgeFromDrainResult_PurgeError(t *testing.T) {
 	})
 }
 
+// Regression test for the strategy race between the queue read and the DB
+// measurement: the queue sits at retention when the cycle picks the filter
+// path, but the DB has grown past it, so the filter path deletes a block
+// while its queue entry survives. A later Drain would purge that stale entry
+// a second time and double count the block.
+func TestPrunerDoesNotDoubleCountRangePrunedBlocks(t *testing.T) {
+	n := startTestNode(t)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 20, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
+	q := NewIndexerQueue()
+	p.SetQueue(q)
+	ctx := context.Background()
+
+	// DB holds blocks 1..21 (one over retention) while the queue tracks
+	// exactly 1..20: the queue read picks the filter path.
+	docIDs := make(map[int64]string)
+	for i := int64(1); i <= 21; i++ {
+		docIDs[i] = insertTestBlock(t, n, i, 0)
+	}
+	for i := int64(1); i <= 20; i++ {
+		err := q.TrackBlockDocIDs(i, docIDs[i], nil, "")
+		require.NoError(t, err)
+	}
+	require.Equal(t, 20, q.Len())
+
+	// The filter path prunes block 1 by DB range and must discard its queue
+	// entry, even though the queue length read chose the filter path.
+	require.NoError(t, p.runPrune(ctx))
+	assert.Equal(t, int64(1), p.totalBlocksPruned)
+
+	// New blocks arrive: the DB is again one over retention and the queue
+	// holds one more entry than a Drain needs to remove.
+	docIDs[22] = insertTestBlock(t, n, 22, 0)
+	for _, i := range []int64{21, 22} {
+		err := q.TrackBlockDocIDs(i, docIDs[i], nil, "")
+		require.NoError(t, err)
+	}
+	require.Equal(t, 21, q.Len())
+
+	// This cycle drains only the live block-2 entry. Without the discard,
+	// the stale block-1 entry is drained too, purged (the doc no longer
+	// exists) and counted again, pushing the counter to 3.
+	require.NoError(t, p.runPrune(ctx))
+
+	// The counter equals the distinct deleted blocks: 1 by range plus 2 by
+	// drain. No block was counted under both strategies.
+	assert.Equal(t, int64(2), p.totalBlocksPruned)
+
+	// The queue holds no entry at or below the old range-prune cutoff.
+	for _, entry := range q.entries {
+		assert.Greater(t, entry.BlockNumber, int64(1), "stale entry for block %d", entry.BlockNumber)
+	}
+}
+
 func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}
