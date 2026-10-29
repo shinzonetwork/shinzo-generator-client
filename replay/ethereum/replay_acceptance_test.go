@@ -40,9 +40,17 @@ const (
 	// (ethereum_blocks_<from>_<to>.json).
 	fixtureDir = "../testdata"
 
-	// fixtureGlob matches this chain's captures so the newest fixture wins
-	// when no explicit path is given.
+	// fixtureGlob matches this chain's captures so the newest complete
+	// fixture wins when no explicit path is given. resolveFixturePath skips
+	// _partial captures; they are still loadable via ETHEREUM_REPLAY_FIXTURE.
+	// resolveFixturePath skips _partial captures; they are still loadable
+	// via ETHEREUM_REPLAY_FIXTURE.
 	fixtureGlob = "ethereum_blocks_*.json"
+
+	// fixturePartialSuffix marks an interrupted capture's fixture, mirroring
+	// the constant in cmd/fetch_blocks (test packages cannot import a main
+	// package, so the on-disk naming is duplicated here).
+	fixturePartialSuffix = "_partial"
 )
 
 // TestEthereumReplayAcceptance answers "can we index Ethereum blocks at the tip": it
@@ -244,11 +252,19 @@ func resolveFixturePath(t *testing.T) string {
 		return ""
 	}
 
-	// Newest capture wins; the filename embeds the block range, not the
-	// capture time, so modtime is the only reliable ordering.
-	newest := matches[0]
+	// Newest complete capture wins; the filename embeds the block range,
+	// not the capture time, so modtime is the only reliable ordering.
+	// _partial files are skipped: an interrupted capture must neither
+	// preempt the newest complete capture (a newer modtime would win) nor
+	// - when the interrupt hit before any block saved - starve the suite of
+	// the complete fixture sitting in the same directory. They still run on
+	// purpose via ETHEREUM_REPLAY_FIXTURE.
+	newest := ""
 	var newestMod time.Time
 	for _, match := range matches {
+		if strings.Contains(match, fixturePartialSuffix) {
+			continue
+		}
 		info, err := os.Stat(match)
 		if err != nil {
 			continue

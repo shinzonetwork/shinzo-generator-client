@@ -58,6 +58,11 @@ const (
 	defaultOutDir = "replay/testdata"
 	fixtureExt    = ".json"
 
+	// fixturePartialSuffix marks an interrupted capture's fixture
+	// (e.g. ethereum_blocks_100_120_partial.json) so consumers can tell a
+	// mid-run snapshot from a complete capture.
+	fixturePartialSuffix = "_partial"
+
 	// Receipt capture modes recorded per block.
 	receiptModeBatch = "batch"
 	receiptModePerTx = "per-tx"
@@ -287,7 +292,7 @@ func fixtureOutPath(opts *captureOptions, fx *replayFixture) string {
 	}
 	name := fmt.Sprintf("%s%d_%d%s", fixturePrefix(opts.chain), fx.Meta.From, fx.Meta.To, fixtureExt)
 	if fx.Meta.CapturePartial {
-		name = strings.TrimSuffix(name, fixtureExt) + "_partial" + fixtureExt
+		name = strings.TrimSuffix(name, fixtureExt) + fixturePartialSuffix + fixtureExt
 	}
 	return filepath.Join(defaultOutDir, name)
 }
@@ -329,6 +334,14 @@ func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, 
 		}
 	}
 
+	// Zero blocks is not a fixture: the only way here is an interrupt
+	// landing before the first block completed (a real block error returns
+	// directly above), so the file would be an empty marker whose _partial
+	// name silently replaces a complete capture in the suite's latest-file
+	// pick. Nothing mid-capture was lost, so there is nothing to salvage.
+	if len(fx.Blocks) == 0 {
+		return fmt.Errorf("interrupted before any block completed; no fixture written (requested %d..%d)", from, to)
+	}
 	if interrupted {
 		last := fx.Meta.From
 		if len(fx.Blocks) > 0 {

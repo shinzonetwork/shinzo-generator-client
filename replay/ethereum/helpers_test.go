@@ -85,6 +85,12 @@ func loadReplayFixture(t *testing.T, path string) *replayFixture {
 	if !strings.EqualFold(fx.Meta.Chain, "Ethereum") {
 		t.Fatalf("fixture %s is for chain %q, want ethereum", path, fx.Meta.Chain)
 	}
+	// Partial captures replay fine on purpose (ETHEREUM_REPLAY_FIXTURE), but
+	// the verdict covers only what the file contains, so keep that visible:
+	// an unexplained 20-block run would otherwise pass unnoticed.
+	if fx.Meta.CapturePartial {
+		logger.Testf("WARNING: fixture %s is a partial capture (%d blocks); the verdict covers only what it contains", path, len(fx.Blocks))
+	}
 	return &fx
 }
 

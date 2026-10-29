@@ -505,13 +505,14 @@ func TestCaptureRangeNamesCompleteFixture(t *testing.T) {
 	assert.Equal(t, 1, saved.Meta.BlockCount)
 }
 
-func TestCaptureRangeInterruptSavesPartialFixture(t *testing.T) {
+func TestCaptureRangeInterruptWithZeroBlocksWritesNothing(t *testing.T) {
 	// Not parallel: t.Chdir redirects the whole process's working directory.
 	t.Chdir(t.TempDir())
 
-	// A pre-cancelled context interrupts capture before the first request;
-	// the partial fixture must still be saved, named after the blocks
-	// actually captured.
+	// A pre-cancelled context interrupts capture before the first request:
+	// a 0-block fixture is not salvage, so nothing may be written - an
+	// empty _partial file would be the newest file in testdata and replace
+	// a complete capture in the acceptance suite's pick.
 	server := captureTestServer(t, zeroTxBlock)
 	server.Close()
 
@@ -519,14 +520,11 @@ func TestCaptureRangeInterruptSavesPartialFixture(t *testing.T) {
 	cancel()
 
 	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
-	require.NoError(t, captureRange(ctx, testEnv(server), opts, 10, 12))
+	err := captureRange(ctx, testEnv(server), opts, 10, 12)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "interrupted before any block completed")
 
-	out := filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt)
-	data, err := os.ReadFile(out)
-	require.NoError(t, err)
-	var saved replayFixture
-	require.NoError(t, json.Unmarshal(data, &saved))
-	assert.True(t, saved.Meta.CapturePartial)
-	assert.Equal(t, uint64(10), saved.Meta.To, "To is the last captured block, not the requested range end")
-	assert.Equal(t, 0, saved.Meta.BlockCount)
+	// No fixture of any kind: both the plain and _partial names are empty.
+	assert.NoFileExists(t, filepath.Join(defaultOutDir, "bsc_blocks_10_12"+fixtureExt))
+	assert.NoFileExists(t, filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt))
 }
