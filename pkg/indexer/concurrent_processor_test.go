@@ -850,6 +850,49 @@ func TestProcessBlocks_DispatchesFinalizedOnly(t *testing.T) {
 	assert.ErrorIs(t, <-errCh, context.Canceled)
 }
 
+// A height whose convert or store fails is retried until it succeeds and committed in order; each
+// fails twice here, so a single retry is not enough.
+func TestProcessBlocks_RetriesFailedHeights(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+	}
+	var converts101, stores102 atomic.Int64
+	converter := chainConverter()
+	convert := converter.ConvertFn
+	converter.ConvertFn = func(ctx context.Context, raw any) (chains.ConversionResult, error) {
+		if raw.(*servedBlock).height == 101 && converts101.Add(1) <= 2 {
+			return chains.ConversionResult{}, errors.New("convert failed")
+		}
+		return convert(ctx, raw)
+	}
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, result chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			if extractBlockHash(result.Groups) == canonicalHash(102) && stores102.Add(1) <= 2 {
+				return nil, errors.New("store failed")
+			}
+			return &defra.BlockCreationResult{BlockID: "mock-block-id"}, nil
+		},
+	}
+	p := NewConcurrentBlockProcessor(fetcher, converter, storer, &mockReorgHandler{}, 2, 0)
+	p.RetryFailedHeights()
+
+	rec := &commitRecorder{}
+	cancel, errCh := runProcessor(p, 100, rec.record)
+	defer cancel()
+
+	waitForCommits(t, rec, 4, errCh)
+	assert.Equal(t, []int64{100, 101, 102, 103}, rec.snapshot()[:4])
+	assert.Equal(t, int64(3), converts101.Load())
+	assert.Equal(t, int64(3), stores102.Load())
+	cancel()
+	assert.ErrorIs(t, <-errCh, context.Canceled)
+}
+
 // ---------------------------------------------------------------------------
 // ProcessBlocks - out-of-order completion is committed in nonce order.
 // ---------------------------------------------------------------------------

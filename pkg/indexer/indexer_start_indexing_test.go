@@ -718,19 +718,14 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	assert.True(t, indexer.shouldIndex)
 }
 
-// In tokens mode the indexer fetches no block above the finalized height.
-func TestRunConcurrentIndexing_TokensModeDispatchesFinalizedOnly(t *testing.T) {
-	t.Parallel()
-	logger.InitConsoleOnly(true)
+// newTokensModeIndexer returns a tokens-mode indexer over fetcher, with a test DefraDB.
+func newTokensModeIndexer(t *testing.T, fetcher *testutils.MockFetcher) *ChainIndexer {
+	t.Helper()
 	td := testutils.SetupTestDefraDB(t)
-
-	fetcher := &testutils.MockFetcher{
-		FetchFinalizedBlockNumberFn: func(context.Context) (int64, error) { return 5000, nil },
-	}
 	converter := chainConverter()
 	handler, err := defra.NewBlockHandler(td.Node, 1000, converter.Collections().Prefix(), testChainID)
 	require.NoError(t, err)
-	indexer := &ChainIndexer{
+	return &ChainIndexer{
 		cfg: &config.Config{
 			Chain:   config.ChainConfig{Mode: config.ChainModeTokens},
 			Indexer: config.IndexerConfig{ConcurrentBlocks: 2},
@@ -740,11 +735,37 @@ func TestRunConcurrentIndexing_TokensModeDispatchesFinalizedOnly(t *testing.T) {
 		blockHandler: handler,
 		defraNode:    td.Node,
 	}
+}
+
+// In tokens mode the indexer fetches no block above the finalized height.
+func TestRunConcurrentIndexing_TokensModeDispatchesFinalizedOnly(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+	fetcher := &testutils.MockFetcher{
+		FetchFinalizedBlockNumberFn: func(context.Context) (int64, error) { return 5000, nil },
+	}
+	indexer := newTokensModeIndexer(t, fetcher)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg), context.DeadlineExceeded)
 	assert.Empty(t, fetcher.FetchBlockCalls)
+}
+
+// In tokens mode the indexer keeps fetching a height whose fetch fails, instead of passing it.
+func TestRunConcurrentIndexing_TokensModeRetriesFailedHeights(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn:                func(context.Context, int64) (any, error) { return nil, errors.New("fetch failed") },
+		FetchFinalizedBlockNumberFn: func(context.Context) (int64, error) { return 5001, nil },
+	}
+	indexer := newTokensModeIndexer(t, fetcher)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg), context.DeadlineExceeded)
+	assert.Greater(t, len(fetcher.FetchBlockCalls), MaxRPCRetries)
 }
 
 // ---------------------------------------------------------------------------
