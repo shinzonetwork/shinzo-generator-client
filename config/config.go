@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -17,7 +18,7 @@ import (
 // CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
 
-// DefaultChainAdapter is the default and currently only supported chain adapter type.
+// DefaultChainAdapter is the default chain adapter type, used when chain.adapter is unset.
 const DefaultChainAdapter = "evm"
 
 // ErrChainUnset is returned when the config does not name the chain to index.
@@ -28,6 +29,12 @@ var ErrInvalidChainName = errors.New("chain name and network must each be an upp
 
 // ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
 var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
+// DefaultTronDialTimeoutSeconds is the default HTTP client timeout for the Tron
+// wallet API when tron.dial_timeout_seconds is unset, zero or negative.
+const DefaultTronDialTimeoutSeconds = 10
+
+// SupportedChainAdapters lists every chain adapter validateConfig accepts.
+var SupportedChainAdapters = []string{DefaultChainAdapter, "tron"} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
@@ -98,7 +105,7 @@ type ChainConfig struct {
 	Network string `yaml:"network"`  // e.g. "Mainnet", "Testnet"
 	ChainID uint64 `yaml:"chain_id"` // EVM chain ID the RPC must report from eth_chainId, e.g. 1 for Ethereum mainnet (env: CHAIN_ID)
 	Hub     string `yaml:"hub"`      // ShinzoHub hostname only: no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default) or "tron". Future: "cosmos", etc. (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -109,6 +116,16 @@ type GethConfig struct {
 	APIKeyType string `yaml:"api_key_type"`
 	// DialTimeoutSeconds bounds the startup RPC/WS dial phase when positive.
 	// 0 or negative = unbounded dial; the caller's context governs.
+	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
+}
+
+// TronConfig represents Tron wallet API (java-tron FullNode/SolidityNode) configuration.
+type TronConfig struct {
+	NodeURL     string `yaml:"node_url"`     // FullNode HTTP base URL, e.g. "https://api.trongrid.io" (env: TRON_RPC_URL)
+	SolidityURL string `yaml:"solidity_url"` // SolidityNode base URL; empty = same host as node_url, TronGrid serves /walletsolidity/* there (env: TRON_SOLIDITY_RPC_URL)
+	APIKey      string `yaml:"api_key"`      // Sent as the TRON-PRO-API-KEY header on every request when set (env: TRON_API_KEY)
+	// DialTimeoutSeconds bounds the HTTP client timeout when positive.
+	// 0 or negative = DefaultTronDialTimeoutSeconds (env: TRON_DIAL_TIMEOUT_SECONDS).
 	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
 }
 
@@ -224,6 +241,7 @@ type Config struct {
 	Chain     ChainConfig     `yaml:"chain"`
 	DefraDB   DefraDBConfig   `yaml:"defradb"`
 	Geth      GethConfig      `yaml:"geth"`
+	Tron      TronConfig      `yaml:"tron"` // inert when chain.adapter is evm
 	Indexer   IndexerConfig   `yaml:"indexer"`
 	Pruner    PrunerConfig    `yaml:"pruner"`
 	Snapshot  SnapshotConfig  `yaml:"snapshot"`
@@ -288,6 +306,11 @@ func applyDefaults(cfg *Config) {
 		cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 	}
 
+	// Tron defaults. Applied unconditionally; inert when chain.adapter is evm.
+	if cfg.Tron.DialTimeoutSeconds <= 0 {
+		cfg.Tron.DialTimeoutSeconds = DefaultTronDialTimeoutSeconds
+	}
+
 	// Pruner defaults.
 	cfg.Pruner.SetDefaults()
 
@@ -300,8 +323,12 @@ func applyDefaults(cfg *Config) {
 
 // validateConfig validates the configuration.
 func validateConfig(cfg *Config) error {
-	if cfg.Chain.Adapter != DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", cfg.Chain.Adapter, DefaultChainAdapter)
+	if !slices.Contains(SupportedChainAdapters, cfg.Chain.Adapter) {
+		return fmt.Errorf("chain adapter %q not yet implemented: supported adapters are %s",
+			cfg.Chain.Adapter, strings.Join(SupportedChainAdapters, ", "))
+	}
+	if cfg.Chain.Adapter == "tron" && strings.TrimSpace(cfg.Tron.NodeURL) == "" {
+		return fmt.Errorf("tron adapter requires a non-empty tron.node_url (env: TRON_RPC_URL)")
 	}
 
 	if cfg.Chain.Name == "" || cfg.Chain.Network == "" {
@@ -524,6 +551,20 @@ func applyChainEnvOverrides(cfg *Config) error {
 	if gethDialTimeout := os.Getenv("GETH_DIAL_TIMEOUT_SECONDS"); gethDialTimeout != "" {
 		if n, err := strconv.Atoi(gethDialTimeout); err == nil {
 			cfg.Geth.DialTimeoutSeconds = n
+		}
+	}
+	if tronRPCURL := os.Getenv("TRON_RPC_URL"); tronRPCURL != "" {
+		cfg.Tron.NodeURL = tronRPCURL
+	}
+	if tronSolidityURL := os.Getenv("TRON_SOLIDITY_RPC_URL"); tronSolidityURL != "" {
+		cfg.Tron.SolidityURL = tronSolidityURL
+	}
+	if tronAPIKey := os.Getenv("TRON_API_KEY"); tronAPIKey != "" {
+		cfg.Tron.APIKey = tronAPIKey
+	}
+	if tronDialTimeout := os.Getenv("TRON_DIAL_TIMEOUT_SECONDS"); tronDialTimeout != "" {
+		if n, err := strconv.Atoi(tronDialTimeout); err == nil {
+			cfg.Tron.DialTimeoutSeconds = n
 		}
 	}
 	return nil
