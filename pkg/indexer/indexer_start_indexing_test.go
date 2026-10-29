@@ -923,7 +923,7 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 			name: "BlockHandler creation error",
 			setupSeam: func() func() {
 				original := newBlockHandlerFn
-				newBlockHandlerFn = func(_ *node.Node, _ int) (*defra.BlockHandler, error) {
+				newBlockHandlerFn = func(_ *node.Node, _ int, _ string, _ uint64) (*defra.BlockHandler, error) {
 					return nil, errors.New("forced block handler failure")
 				}
 				return func() { newBlockHandlerFn = original }

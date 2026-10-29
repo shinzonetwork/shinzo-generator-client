@@ -76,6 +76,11 @@ const (
 	// Secp256k1ValueString is the signature-type value for ES256K
 	// (secp256k1) signers.
 	Secp256k1ValueString = "ES256K"
+
+	// EdDSAValueString is the signature-type value block signatures carry for
+	// Ed25519 signers: the JOSE algorithm name, which the defra fork's batch
+	// signing also writes. Snapshot signatures use Ed25519ValueString.
+	EdDSAValueString = "EdDSA"
 )
 
 // Authentication modes for the schema endpoint.

@@ -1,8 +1,10 @@
 package defra
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,9 +20,11 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/sourcenetwork/defradb/client/mocks"
 	"github.com/sourcenetwork/defradb/client/options"
+	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -30,6 +34,9 @@ const (
 	colLog             = "Ethereum__Mainnet__Log"
 	colAccessListEntry = "Ethereum__Mainnet__AccessListEntry"
 	colBlockSignature  = "Ethereum__Mainnet__BlockSignature"
+
+	testChainPrefix = "Ethereum__Mainnet"
+	testChainID     = 1
 )
 
 var testDocIDCounter atomic.Uint64
@@ -140,10 +147,10 @@ func newMockHandler(t *testing.T, db *mockBlockDB) *BlockHandler {
 	return &BlockHandler{
 		db:            db,
 		maxDocsPerTxn: 1000,
-		signBatchFn: func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		signBatchFn: func(_ context.Context, _ int64, _ string, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 			return nil, nil
 		},
-		verifyBatchSigFn: func(_ *node.BatchSignature, _ []cid.Cid) (bool, error) {
+		verifyBatchSigFn: func(_ *node.BatchSignature, _ int64, _ string, _ []cid.Cid) (bool, error) {
 			return true, nil
 		},
 		collectDocCIDsFn: func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
@@ -417,7 +424,7 @@ func TestExistingSig_SigningTxn_Error(t *testing.T) {
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ int64, _ string, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
 	result := buildSigGroups(t, testBlock(), nil, nil)
@@ -436,7 +443,7 @@ func TestExistingSig_SignBlock_Error(t *testing.T) {
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ int64, _ string, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return nil, fmt.Errorf("sign error") //nolint:err113
 	}
 	result := buildSigGroups(t, testBlock(), nil, nil)
@@ -477,7 +484,7 @@ func TestExistingSig_GetSigCol_Error(t *testing.T) {
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ int64, _ string, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
 	result := buildSigGroups(t, testBlock(), nil, nil)
@@ -504,7 +511,7 @@ func TestExistingSig_BuildSigDoc_Error(t *testing.T) {
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ int64, _ string, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
 	result := buildSigGroups(t, testBlock(), nil, nil)
@@ -533,7 +540,7 @@ func TestExistingSig_CreateSigDoc_Error(t *testing.T) {
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ int64, _ string, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
 	result := buildSigGroups(t, testBlock(), nil, nil)
@@ -560,7 +567,7 @@ func TestExistingSig_Commit_Error(t *testing.T) {
 	h.collectDocCIDsFn = func(_ context.Context, _ []string, _ []string) ([]cid.Cid, error) {
 		return []cid.Cid{oneTestCID()}, nil
 	}
-	h.signBatchFn = func(_ context.Context, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
+	h.signBatchFn = func(_ context.Context, _ int64, _ string, _ *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		return &node.BatchSignature{MerkleRoot: make([]byte, 32)}, nil //nolint:mnd
 	}
 	result := buildSigGroups(t, testBlock(), nil, nil)
@@ -790,6 +797,63 @@ func TestExistingSig_EmptyBlockNumFieldFailsFast(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty BlockNumField")
 	assert.Contains(t, err.Error(), colBlock)
 	assert.Zero(t, queries, "no query may be issued for a contract-violating group")
+}
+
+func TestBlockSignature_BoundToChainBlockAndCount(t *testing.T) {
+	t.Parallel()
+	cids := make([]cid.Cid, 3)
+	for i := range cids {
+		digest, err := mh.Sum([]byte{byte(i)}, mh.SHA2_256, -1)
+		require.NoError(t, err)
+		cids[i] = cid.NewCidV1(cid.Raw, digest)
+	}
+	// The tree sorts the CIDs and repeats the last node of an odd level, so
+	// repeating the highest CID keeps the Merkle root.
+	slices.SortFunc(cids, func(a, b cid.Cid) int { return bytes.Compare(a.Bytes(), b.Bytes()) })
+	repeated := append(slices.Clone(cids), cids[len(cids)-1])
+	require.Equal(t, node.ComputeMerkleRoot(cids), node.ComputeMerkleRoot(repeated))
+
+	for _, keyType := range []crypto.KeyType{crypto.KeyTypeSecp256k1, crypto.KeyTypeEd25519} {
+		t.Run(string(keyType), func(t *testing.T) {
+			t.Parallel()
+			ident, err := identity.Generate(keyType)
+			require.NoError(t, err)
+			signer := &BlockHandler{chainPrefix: testChainPrefix, chainID: testChainID}
+			signer.SetNodeIdentity(ident)
+			collector := node.NewBatchCIDCollector()
+			for _, c := range cids {
+				collector.Add(c)
+			}
+			sig, err := signer.defaultSignBatch(context.Background(), 100, "0xblock100", collector)
+			require.NoError(t, err)
+
+			otherRoot := *sig
+			otherRoot.MerkleRoot = make([]byte, len(sig.MerkleRoot))
+
+			cases := []struct {
+				name     string
+				verifier *BlockHandler
+				sig      *node.BatchSignature
+				number   int64
+				hash     string
+				cids     []cid.Cid
+				want     bool
+			}{
+				{name: "same block", verifier: signer, sig: sig, number: 100, hash: "0xblock100", cids: cids, want: true},
+				{name: "other chain prefix", verifier: &BlockHandler{chainPrefix: "Ethereum__Sepolia", chainID: testChainID}, sig: sig, number: 100, hash: "0xblock100", cids: cids},
+				{name: "other chain ID", verifier: &BlockHandler{chainPrefix: testChainPrefix, chainID: 56}, sig: sig, number: 100, hash: "0xblock100", cids: cids},
+				{name: "other block number", verifier: signer, sig: sig, number: 101, hash: "0xblock100", cids: cids},
+				{name: "other block hash", verifier: signer, sig: sig, number: 100, hash: "0xblock101", cids: cids},
+				{name: "repeated CID", verifier: signer, sig: sig, number: 100, hash: "0xblock100", cids: repeated},
+				{name: "other stored Merkle root", verifier: signer, sig: &otherRoot, number: 100, hash: "0xblock100", cids: cids},
+			}
+			for _, tc := range cases {
+				valid, err := tc.verifier.defaultVerifyBatchSig(tc.sig, tc.number, tc.hash, tc.cids)
+				require.NoError(t, err, tc.name)
+				assert.Equal(t, tc.want, valid, tc.name)
+			}
+		})
+	}
 }
 
 // =========================================================================

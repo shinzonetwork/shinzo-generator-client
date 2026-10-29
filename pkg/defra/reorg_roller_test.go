@@ -47,7 +47,7 @@ func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	converter := newTestConverter(t)
@@ -141,7 +141,7 @@ func TestReorgRoller_GetStoredBlockHash(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	converter := newTestConverter(t)
@@ -216,7 +216,7 @@ func TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused(t *testing.
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	converter := newTestConverter(t)
@@ -268,7 +268,7 @@ func TestReorgRoller_RollbackBlocks_RetainsQueueEntries(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	converter := newTestConverter(t)
@@ -310,7 +310,7 @@ func TestReorgRoller_GetStoredBlockHash_MultiRowErrors(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	converter := newTestConverter(t)
@@ -362,7 +362,7 @@ func TestReorgRoller_QueueRetainedOrphansAreHardPurgeable(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	converter := newTestConverter(t)

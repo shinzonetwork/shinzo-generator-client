@@ -1,10 +1,13 @@
 package defra
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	stderrors "errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +26,9 @@ import (
 )
 
 var errNoIdentity = stderrors.New("no identity available for signing") //nolint:gochecknoglobals
+
+// errSignaturePayloadField reports a block field that the signed payload cannot encode.
+var errSignaturePayloadField = stderrors.New("block field cannot be signed")
 
 // docIDFieldName is DefraDB's implicit document-ID field name: it appears
 // both as a GraphQL query field/filter key and as the result-map key
@@ -70,21 +76,28 @@ type BlockHandler struct {
 	maxDocsPerTxn int                   // Default per-group batch size when group BatchSize is 0.
 	docIDTracker  DocIDTrackerInterface // Optional tracker for docIDs.
 	nodeIdentity  identity.Identity     // Node identity for signing.
+	chainPrefix   string                // Collection prefix of the chain, signed into every block signature.
+	chainID       uint64                // Chain ID, signed into every block signature.
 
 	// Injectable functions for testability (set to defaults in NewBlockHandler).
-	signBatchFn      func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error)
-	verifyBatchSigFn func(sig *node.BatchSignature, cids []cid.Cid) (bool, error)
+	signBatchFn      func(ctx context.Context, blockNumber int64, blockHash string, collector *node.BatchCIDCollector) (*node.BatchSignature, error)
+	verifyBatchSigFn func(sig *node.BatchSignature, blockNumber int64, blockHash string, cids []cid.Cid) (bool, error)
 	collectDocCIDsFn func(ctx context.Context, docIDs []string, collectionNames []string) ([]cid.Cid, error)
 	maxCIDRetries    int
 	retryBackoffFn   func(int) time.Duration
 }
 
 // NewBlockHandler creates a BlockHandler that uses direct DB calls.
-// maxDocsPerTxn is the default per-group batch size.
-func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int) (*BlockHandler, error) {
+// maxDocsPerTxn is the default per-group batch size. chainPrefix and chainID
+// name the chain the block signatures are bound to.
+func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int, chainPrefix string, chainID uint64) (*BlockHandler, error) {
 	if defraNode == nil {
 		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
 			"defraNode is nil", "", nil)
+	}
+	if chainPrefix == "" {
+		return nil, errors.NewConfigurationError("defra", "NewBlockHandler",
+			"chainPrefix is empty", "", nil)
 	}
 	if maxDocsPerTxn <= 0 {
 		maxDocsPerTxn = 1000 //nolint:mnd
@@ -92,11 +105,13 @@ func NewBlockHandler(defraNode *node.Node, maxDocsPerTxn int) (*BlockHandler, er
 	h := &BlockHandler{
 		db:             defraNode.DB,
 		maxDocsPerTxn:  maxDocsPerTxn,
+		chainPrefix:    chainPrefix,
+		chainID:        chainID,
 		maxCIDRetries:  15, //nolint:mnd
 		retryBackoffFn: retryBackoff,
 	}
 	h.signBatchFn = h.defaultSignBatch
-	h.verifyBatchSigFn = node.VerifyBatchSignature
+	h.verifyBatchSigFn = h.defaultVerifyBatchSig
 	h.collectDocCIDsFn = h.defaultCollectDocCIDs
 	return h, nil
 }
@@ -106,8 +121,9 @@ func (h *BlockHandler) SetNodeIdentity(id identity.Identity) {
 	h.nodeIdentity = id
 }
 
-// defaultSignBatch signs the collected CIDs using the node identity.
-func (h *BlockHandler) defaultSignBatch(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+// defaultSignBatch signs the block's signature payload over the collected CIDs
+// with the node identity.
+func (h *BlockHandler) defaultSignBatch(ctx context.Context, blockNumber int64, blockHash string, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
 	nodeIdent := h.nodeIdentity
 	if nodeIdent == nil {
 		id, ok := defracontext.IdentityFrom(ctx)
@@ -123,18 +139,22 @@ func (h *BlockHandler) defaultSignBatch(ctx context.Context, collector *node.Bat
 
 	cids := collector.GetCIDs()
 	merkleRoot := node.ComputeMerkleRoot(cids)
-
-	sigValue, err := fullIdent.PrivateKey().Sign(merkleRoot)
+	payload, err := signaturePayload(h.chainPrefix, h.chainID, blockNumber, blockHash, len(cids), merkleRoot)
 	if err != nil {
-		return nil, fmt.Errorf("sign merkle root: %w", err)
+		return nil, err
+	}
+
+	sigValue, err := fullIdent.PrivateKey().Sign(payload)
+	if err != nil {
+		return nil, fmt.Errorf("sign block payload: %w", err)
 	}
 
 	var sigType string
 	switch fullIdent.PrivateKey().Type() { //nolint:exhaustive
 	case crypto.KeyTypeSecp256k1:
-		sigType = "ES256K"
+		sigType = constants.Secp256k1ValueString
 	case crypto.KeyTypeEd25519:
-		sigType = "EdDSA"
+		sigType = constants.EdDSAValueString
 	default:
 		return nil, fmt.Errorf("unsupported key type: %v", fullIdent.PrivateKey().Type()) //nolint:err113
 	}
@@ -146,6 +166,63 @@ func (h *BlockHandler) defaultSignBatch(ctx context.Context, collector *node.Bat
 	sig.MerkleRoot = merkleRoot
 	sig.CIDCount = len(cids)
 	return sig, nil
+}
+
+// defaultVerifyBatchSig reports whether sig is the signature of the block's
+// payload over cids, checked from the signature's own fields: the Merkle root
+// is rebuilt from cids and the public key is read from the header.
+func (h *BlockHandler) defaultVerifyBatchSig(sig *node.BatchSignature, blockNumber int64, blockHash string, cids []cid.Cid) (bool, error) {
+	merkleRoot := node.ComputeMerkleRoot(cids)
+	if !bytes.Equal(merkleRoot, sig.MerkleRoot) {
+		return false, nil
+	}
+
+	var keyType crypto.KeyType
+	switch sig.Header.Type {
+	case constants.Secp256k1ValueString:
+		keyType = crypto.KeyTypeSecp256k1
+	case constants.EdDSAValueString:
+		keyType = crypto.KeyTypeEd25519
+	default:
+		return false, fmt.Errorf("unsupported signature type %q", sig.Header.Type) //nolint:err113
+	}
+	pubKey, err := crypto.PublicKeyFromString(keyType, string(sig.Header.Identity))
+	if err != nil {
+		return false, fmt.Errorf("parse signer public key: %w", err)
+	}
+
+	payload, err := signaturePayload(h.chainPrefix, h.chainID, blockNumber, blockHash, len(cids), merkleRoot)
+	if err != nil {
+		return false, err
+	}
+	return pubKey.Verify(payload, sig.Value)
+}
+
+// signaturePayload returns the bytes a block signature signs, in this order:
+// the chain prefix, the chain ID, the block number, the block hash as stored in
+// the block document, the number of signed CIDs and their Merkle root.
+// The two strings are preceded by their length as a big-endian uint16 and the
+// three integers are big-endian uint64, so no two field sets share a payload.
+// The CID count separates CID sets that share a root, since the tree repeats
+// the last node of an odd level.
+func signaturePayload(chainPrefix string, chainID uint64, blockNumber int64, blockHash string, cidCount int, merkleRoot []byte) ([]byte, error) {
+	if blockNumber < 0 || cidCount < 0 {
+		return nil, fmt.Errorf("%w: negative block number %d or CID count %d", errSignaturePayloadField, blockNumber, cidCount)
+	}
+	prefixLen, hashLen := len(chainPrefix), len(blockHash)
+	if prefixLen > math.MaxUint16 || hashLen > math.MaxUint16 {
+		return nil, fmt.Errorf("%w: chain prefix or block hash longer than %d bytes", errSignaturePayloadField, math.MaxUint16)
+	}
+
+	payload := make([]byte, 0, 2+prefixLen+8+8+2+hashLen+8+len(merkleRoot))
+	payload = binary.BigEndian.AppendUint16(payload, uint16(prefixLen))
+	payload = append(payload, chainPrefix...)
+	payload = binary.BigEndian.AppendUint64(payload, chainID)
+	payload = binary.BigEndian.AppendUint64(payload, uint64(blockNumber))
+	payload = binary.BigEndian.AppendUint16(payload, uint16(hashLen))
+	payload = append(payload, blockHash...)
+	payload = binary.BigEndian.AppendUint64(payload, uint64(cidCount))
+	return append(payload, merkleRoot...), nil
 }
 
 // buildDocIDJSONArray builds a JSON array string from docIDs for use in GQL filters.
@@ -805,7 +882,7 @@ func (h *BlockHandler) signBlockOverCIDs(ctx context.Context, blockNumber int64,
 		collector.Add(c)
 	}
 
-	blockSig, err := h.signBatchFn(ctx, collector)
+	blockSig, err := h.signBatchFn(ctx, blockNumber, blockHash, collector)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign block: %w", err) //nolint: err113
 	}
@@ -815,7 +892,7 @@ func (h *BlockHandler) signBlockOverCIDs(ctx context.Context, blockNumber int64,
 
 	// The signature must verify over the CIDs it is about to attest. A failure means signing
 	// produced an inconsistent signature, so it is not stored.
-	if valid, verifyErr := h.verifyBatchSigFn(blockSig, cids); verifyErr != nil {
+	if valid, verifyErr := h.verifyBatchSigFn(blockSig, blockNumber, blockHash, cids); verifyErr != nil {
 		return "", fmt.Errorf("verify block signature: %w", verifyErr) //nolint: err113
 	} else if !valid {
 		return "", fmt.Errorf("block signature failed self-verification") //nolint: err113
