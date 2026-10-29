@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"maps"
+	"slices"
 	"testing"
 
 	cid "github.com/ipfs/go-cid"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -1530,4 +1532,80 @@ func TestStore_Rearrival_SignsOverStoredCIDs(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, sortedCIDStrings(queriedCIDs), sortedCIDStrings(signedCIDs),
 		"re-arrival signature must attest exactly the stored document CIDs (no misaligned links)")
+}
+
+// ---------------------------------------------------------------------------
+// Store in tokens mode
+// ---------------------------------------------------------------------------
+
+// tokenNode starts a node with a node identity of its own, as a generator's node runs, holding the
+// tokens-mode schema for mockReceipt's log contract, and returns it with the matching converter.
+func tokenNode(t *testing.T) (*testutils.TestDefraDB, *evm.Converter) {
+	t.Helper()
+	conv, err := evm.NewConverter(&config.Config{Chain: config.ChainConfig{
+		Name: "Bsc", Network: "Mainnet",
+		Mode: config.ChainModeTokens, Contracts: []string{"0x0000000000000000000000000000000000000003"},
+	}})
+	require.NoError(t, err)
+	sdl, err := conv.GetSchema()
+	require.NoError(t, err)
+	ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
+	require.NoError(t, err)
+	return testutils.SetupTestDefraDBWithNodeIdentity(t, sdl, ident), conv
+}
+
+// storeTokenBlock stores mockReceipt's block in tokens mode, signed, and returns the IDs of the
+// documents it wrote with the CIDs the block signature covers.
+func storeTokenBlock(t *testing.T, td *testutils.TestDefraDB, conv *evm.Converter) (docIDs []string, signed []cid.Cid) {
+	t.Helper()
+	const txHash = "0xddd1000000000000000000000000000000000000000000000000000000000001"
+	result, err := conv.Convert(context.Background(), &evm.BlockBundle{
+		Block:        mockBlock("0x7D0"), // 2000
+		Transactions: []*evm.Transaction{mockTransaction(txHash, "2000")},
+		Receipts:     []*evm.TransactionReceipt{mockReceipt(txHash, "0x7D0")},
+	})
+	require.NoError(t, err)
+
+	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	inner := handler.signBatchFn
+	handler.signBatchFn = func(ctx context.Context, blockNumber int64, blockHash string, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		signed = collector.GetCIDs()
+		return inner(ctx, blockNumber, blockHash, collector)
+	}
+	res, err := handler.Store(ctxWithIdentity(t), result)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.BlockSignatureID)
+
+	docIDs = []string{res.BlockID}
+	for _, ids := range res.OtherDocIDs {
+		docIDs = append(docIDs, ids...)
+	}
+	return docIDs, signed
+}
+
+func TestStore_TokenModeSignsHeaderAndContractLogs(t *testing.T) {
+	t.Parallel()
+	td, conv := tokenNode(t)
+	docIDs, signed := storeTokenBlock(t, td, conv)
+	require.Len(t, docIDs, 2, "the header and the contract's one log")
+
+	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	stored, err := handler.defaultCollectDocCIDs(context.Background(), docIDs, conv.GetCollections())
+	require.NoError(t, err)
+	assert.Equal(t, sortedCIDStrings(stored), sortedCIDStrings(signed))
+}
+
+func TestStore_TokenDocumentsIdenticalAcrossNodes(t *testing.T) {
+	t.Parallel()
+	var docIDs, signed [2][]string
+	for i := range 2 {
+		td, conv := tokenNode(t)
+		ids, cids := storeTokenBlock(t, td, conv)
+		slices.Sort(ids)
+		docIDs[i], signed[i] = ids, sortedCIDStrings(cids)
+	}
+	assert.Equal(t, docIDs[0], docIDs[1])
+	assert.Equal(t, signed[0], signed[1], "generators with different node identities must sign the same documents")
 }

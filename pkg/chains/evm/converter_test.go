@@ -3,7 +3,9 @@ package evm
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/sourcenetwork/defradb/client"
@@ -571,6 +573,49 @@ func TestConvert_ALEGroupHasNoContentIdenticalDocsPerTx(t *testing.T) {
 // Progress queries (require real DefraDB)
 // ---------------------------------------------------------------------------
 
+func TestConvert_TokenMode(t *testing.T) {
+	t.Parallel()
+	const (
+		listedA  = "0xaa00000000000000000000000000000000000001"
+		listedB  = "0xbb00000000000000000000000000000000000002"
+		unlisted = "0xcc00000000000000000000000000000000000003"
+	)
+	cfg := testConfig()
+	cfg.Chain.Name = "Bsc"
+	cfg.Chain.Mode = config.ChainModeTokens
+	cfg.Chain.Contracts = []string{listedB, "0xAA00000000000000000000000000000000000001"}
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
+
+	txHash := fakeHash("tx-1")
+	tx := fakeTx(txHash)
+	block := fakeBlockWithTxs(42, tx)
+	receipt := fakeReceipt(txHash, 42)
+	for i, addr := range []string{listedA, unlisted, listedB, listedA} {
+		receipt.Logs = append(receipt.Logs, Log{Address: addr, BlockNumber: "0x2a", BlockHash: block.Hash, TransactionHash: txHash, LogIndex: i})
+	}
+	bundle := &BlockBundle{Block: block, Transactions: []*Transaction{&tx}, Receipts: []*TransactionReceipt{receipt}}
+
+	result, err := c.Convert(context.Background(), bundle)
+	require.NoError(t, err)
+	assert.Equal(t, "Bsc__Mainnet__BlockSignature", result.SignatureCollection)
+	assert.Nil(t, result.LinkStamper)
+
+	require.Len(t, result.Groups, 3)
+	assert.Equal(t, "Bsc__Mainnet__Header", result.Groups[0].Collection)
+	assert.Equal(t, []map[string]any{c.buildBlockData(block, 42)}, result.Groups[0].Docs)
+	assert.Equal(t, "Bsc__Mainnet__ContractLog_aa00000000000000000000000000000000000001", result.Groups[1].Collection)
+	assert.Equal(t, []map[string]any{c.buildLogData(&receipt.Logs[0]), c.buildLogData(&receipt.Logs[3])}, result.Groups[1].Docs)
+	assert.Equal(t, "Bsc__Mainnet__ContractLog_bb00000000000000000000000000000000000002", result.Groups[2].Collection)
+	assert.Equal(t, []map[string]any{c.buildLogData(&receipt.Logs[2])}, result.Groups[2].Docs)
+
+	// A block with no listed contract's logs has only its header.
+	receipt.Logs = receipt.Logs[1:2]
+	result, err = c.Convert(context.Background(), bundle)
+	require.NoError(t, err)
+	require.Len(t, result.Groups, 1)
+}
+
 func TestGetHighestStoredBlockNumber_NoBlocks(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
@@ -739,6 +784,45 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 			require.NoError(t, errHigh)
 			assert.Equal(t, tc.wantHigh, highest)
 		})
+	}
+}
+
+func TestTokenMode_ReadsTokenTables(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Chain.Name = "Bsc"
+	cfg.Chain.Mode = config.ChainModeTokens
+	cfg.Chain.Contracts = []string{"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"}
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
+	sdl, err := c.GetSchema()
+	require.NoError(t, err)
+	td := testutils.SetupTestDefraDBWithSchema(t, sdl)
+	ctx := context.Background()
+
+	contractLog := c.collections.ContractLogs[0].Name
+	for _, add := range []string{
+		fmt.Sprintf(`%s(input: {number: 7, hash: "0x07"})`, c.collections.Header),
+		fmt.Sprintf(`%s(input: {number: 9, hash: "0x09"})`, c.collections.Header),
+		fmt.Sprintf(`%s(input: {blockNumber: 7, logIndex: 0})`, contractLog),
+		fmt.Sprintf(`%s(input: {blockNumber: 7})`, c.collections.BlockSignature),
+	} {
+		res := td.Node.DB.ExecRequest(ctx, "mutation { add_"+add+" { _docID } }")
+		require.Empty(t, res.GQL.Errors)
+	}
+
+	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), lowest)
+	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(9), highest)
+
+	docIDs, err := c.GetDocIDsByBlockRange(ctx, td.Node, 7, 7)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{c.collections.Header, contractLog, c.collections.BlockSignature}, slices.Collect(maps.Keys(docIDs)))
+	for name, ids := range docIDs {
+		assert.Len(t, ids, 1, name)
 	}
 }
 

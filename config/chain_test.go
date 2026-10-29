@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,6 +75,47 @@ func TestApplyChainEnvOverrides_ChainID(t *testing.T) {
 
 	t.Setenv("CHAIN_ID", "sepolia")
 	require.Error(t, applyChainEnvOverrides(cfg))
+}
+
+func TestValidateConfig_ChainMode(t *testing.T) {
+	t.Parallel()
+	const usd1 = "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"
+	cases := []struct {
+		name      string
+		mode      string
+		contracts []string
+		wantErr   error
+	}{
+		{name: "full by default", mode: ""},
+		{name: "full", mode: ChainModeFull},
+		{name: "tokens", mode: ChainModeTokens, contracts: []string{usd1, "8D0D000EE44948FC98C9B98A4FA4921476F08B0E"}},
+		{name: "unknown mode", mode: "logs", wantErr: ErrInvalidChainMode},
+		{name: "tokens without contracts", mode: ChainModeTokens, wantErr: ErrInvalidContracts},
+		{name: "contracts in full mode", mode: ChainModeFull, contracts: []string{usd1}, wantErr: ErrInvalidContracts},
+		{name: "short address", mode: ChainModeTokens, contracts: []string{"0x8d0d"}, wantErr: ErrInvalidContractAddress},
+		{name: "non-hex address", mode: ChainModeTokens, contracts: []string{"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0g"}, wantErr: ErrInvalidContractAddress},
+		{name: "same address twice", mode: ChainModeTokens, contracts: []string{usd1, "8D0D000EE44948FC98C9B98A4FA4921476F08B0D"}, wantErr: ErrInvalidContractAddress},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{Chain: testChain}
+			cfg.Chain.Mode = tt.mode
+			cfg.Chain.Contracts = tt.contracts
+			cfg.DefraDB.Embedded = true
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+			require.ErrorIs(t, validateConfig(cfg), tt.wantErr)
+		})
+	}
+}
+
+func TestApplyChainEnvOverrides_Mode(t *testing.T) {
+	t.Setenv("CHAIN_MODE", ChainModeTokens)
+	t.Setenv("CHAIN_CONTRACTS", " 0xaa, 0xbb ")
+	cfg := &Config{Chain: testChain}
+	require.NoError(t, applyChainEnvOverrides(cfg))
+	require.Equal(t, ChainModeTokens, cfg.Chain.Mode)
+	require.Equal(t, []string{"0xaa", "0xbb"}, cfg.Chain.Contracts)
 }
 
 // The container image runs with the shipped config, so it must name a chain the generator accepts.

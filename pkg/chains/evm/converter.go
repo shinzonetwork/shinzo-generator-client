@@ -49,15 +49,15 @@ type Converter struct {
 // Compile-time guarantee that Converter implements chains.Converter.
 var _ chains.Converter = (*Converter)(nil)
 
-// NewConverter creates a Converter for the chain cfg names. It returns
-// config.ErrChainUnset when cfg is nil or has no chain name or network.
+// NewConverter creates a Converter for the chain and mode cfg names. It
+// returns config.ErrChainUnset when cfg is nil or has no chain name or network.
 func NewConverter(cfg *config.Config) (*Converter, error) {
-	prefix, err := chainPrefixFromConfig(cfg)
+	collections, err := collectionNamesFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 	return &Converter{
-		collections: NewCollectionNames(prefix),
+		collections: collections,
 		cfg:         cfg,
 	}, nil
 }
@@ -74,6 +74,9 @@ func NewConverter(cfg *config.Config) (*Converter, error) {
 // field name holding the block number in each doc map). The signature
 // collection name is returned inside the ConversionResult; the signature
 // document itself is built later by BlockHandler during signing.
+//
+// In tokens mode it builds the header and the listed contracts' logs instead
+// (convertTokens).
 func (c *Converter) Convert(
 	_ context.Context,
 	rawBlock any,
@@ -89,6 +92,9 @@ func (c *Converter) Convert(
 	blockInt, err := utils.HexToInt(bundle.Block.Number)
 	if err != nil {
 		return chains.ConversionResult{}, fmt.Errorf("converter: parse block number: %w", err)
+	}
+	if c.collections.tokenMode() {
+		return c.convertTokens(bundle, blockInt), nil
 	}
 
 	blockData := c.buildBlockData(bundle.Block, blockInt)
@@ -141,6 +147,51 @@ func (c *Converter) Convert(
 		SignatureCollection: c.collections.BlockSignature,
 		LinkStamper:         stamper,
 	}, nil
+}
+
+// convertTokens builds the tokens-mode groups: the block's Header, then one
+// group per listed contract with logs in the block, in address order. Token
+// documents carry no links, so the result has no LinkStamper.
+func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) chains.ConversionResult {
+	defaultBatch := c.maxDocsPerTxn()
+	groups := []chains.DocumentGroup{{
+		Collection:      c.collections.Header,
+		Docs:            []map[string]any{c.buildBlockData(bundle.Block, blockInt)},
+		BatchSize:       defaultBatch,
+		BlockNumField:   constants.NumberFieldName,
+		BlockHashField:  constants.HashFieldName,
+		ParentHashField: ParentHashFieldName,
+	}}
+
+	logs := make(map[string][]map[string]any, len(c.collections.ContractLogs))
+	for _, cl := range c.collections.ContractLogs {
+		logs[cl.Address] = nil
+	}
+	for _, doc := range c.buildLogDocs(bundle.Transactions, c.buildReceiptMap(bundle.Receipts)) {
+		raw, _ := doc[AddressFieldName].(string)
+		addr, err := config.ContractAddress(raw)
+		if err != nil {
+			continue // not a 20-byte address, so not a listed contract
+		}
+		if docs, listed := logs[addr]; listed {
+			logs[addr] = append(docs, doc)
+		}
+	}
+	for _, cl := range c.collections.ContractLogs {
+		if len(logs[cl.Address]) > 0 {
+			groups = append(groups, chains.DocumentGroup{
+				Collection:    cl.Name,
+				Docs:          logs[cl.Address],
+				BatchSize:     c.logBatchSize(defaultBatch),
+				BlockNumField: constants.BlockNumberFieldName,
+			})
+		}
+	}
+
+	return chains.ConversionResult{
+		Groups:              groups,
+		SignatureCollection: c.collections.BlockSignature,
+	}
 }
 
 // maxDocsPerTxn returns the configured default batch size for BlockHandler.
@@ -304,16 +355,23 @@ func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node
 // for every relevant collection whose block-number field falls in [from, to]
 // inclusive. SnapshotSignature is excluded; BlockSignature is included.
 func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
-	cols := []struct {
+	type rangeCollection struct {
 		name  string
 		field string
-	}{
+	}
+	cols := []rangeCollection{
 		{c.collections.Block, constants.NumberFieldName},
 		{c.collections.Transaction, constants.BlockNumberFieldName},
 		{c.collections.Log, constants.BlockNumberFieldName},
 		{c.collections.AccessListEntry, constants.BlockNumberFieldName},
-		{c.collections.BlockSignature, constants.BlockNumberFieldName},
 	}
+	if c.collections.tokenMode() {
+		cols = []rangeCollection{{c.collections.Header, constants.NumberFieldName}}
+		for _, cl := range c.collections.ContractLogs {
+			cols = append(cols, rangeCollection{cl.Name, constants.BlockNumberFieldName})
+		}
+	}
+	cols = append(cols, rangeCollection{c.collections.BlockSignature, constants.BlockNumberFieldName})
 
 	result := make(map[string][]string)
 	for _, col := range cols {
@@ -427,7 +485,7 @@ func (c *Converter) buildALEData(ale *AccessListEntry, blockNumber int64) map[st
 // Rows that still arrive unparseable are skipped and reported; all errors
 // are tagged with opName.
 func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
-	blockCol := c.collections.Block
+	blockCol := c.collections.BlockCollection()
 	field := constants.NumberFieldName
 	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { ` + field + ` _docID }}`
 

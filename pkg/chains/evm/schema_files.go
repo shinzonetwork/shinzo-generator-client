@@ -41,6 +41,8 @@ const (
 	transactionCollectionFile       = "transaction.graphql"
 	accessListEntryCollectionFile   = "accessListEntry.graphql"
 	logCollectionFile               = "log.graphql"
+	headerCollectionFile            = "header.graphql"
+	contractLogCollectionFile       = "contractLog.graphql"
 
 	blockCollectionStem             = "block"
 	blockSignatureCollectionStem    = "blockSignature"
@@ -48,7 +50,13 @@ const (
 	transactionCollectionStem       = "transaction"
 	accessListEntryCollectionStem   = "accessListEntry"
 	logCollectionStem               = "log"
+	headerCollectionStem            = "header"
+	contractLogCollectionStemPrefix = "contractLog_"
 )
+
+// contractLogTemplateName is the type name contractLog.graphql is written
+// with; CollectionFiles replaces it with each contract's table name.
+const contractLogTemplateName = DefaultCollectionPrefix + "__ContractLog_0000000000000000000000000000000000000000"
 
 // CollectionFiles implements chains.Collections. It returns the collection
 // type names, files, and SDLs in schema-apply order, with every SDL adapted
@@ -64,8 +72,14 @@ func (c *CollectionNames) CollectionFiles() ([]chains.CollectionFile, error) {
 		{c.AccessListEntry, accessListEntryCollectionStem, accessListEntryCollectionFile},
 		{c.Log, logCollectionStem, logCollectionFile},
 	}
+	if c.tokenMode() {
+		specs = []collectionSpec{
+			{c.Header, headerCollectionStem, headerCollectionFile},
+			{c.BlockSignature, blockSignatureCollectionStem, blockSignatureCollectionFile},
+		}
+	}
 
-	files := make([]chains.CollectionFile, 0, len(specs))
+	files := make([]chains.CollectionFile, 0, len(specs)+len(c.ContractLogs))
 	for _, spec := range specs {
 		sdl, err := readCollectionSDL(spec.file)
 		if err != nil {
@@ -76,6 +90,22 @@ func (c *CollectionNames) CollectionFiles() ([]chains.CollectionFile, error) {
 			Name:     spec.name,
 			File:     spec.file,
 			SDL:      strings.ReplaceAll(sdl, DefaultCollectionPrefix, c.prefix),
+		})
+	}
+
+	if len(c.ContractLogs) == 0 {
+		return files, nil
+	}
+	template, err := readCollectionSDL(contractLogCollectionFile)
+	if err != nil {
+		return nil, err
+	}
+	for _, cl := range c.ContractLogs {
+		files = append(files, chains.CollectionFile{
+			TypeName: cl.Name,
+			Name:     contractLogCollectionStemPrefix + cl.Address,
+			File:     contractLogCollectionFile,
+			SDL:      strings.ReplaceAll(template, contractLogTemplateName, cl.Name),
 		})
 	}
 	return files, nil

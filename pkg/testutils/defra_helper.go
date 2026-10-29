@@ -12,6 +12,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
+	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client/options"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -44,6 +45,13 @@ func SetupTestDefraDB(t *testing.T) *TestDefraDB {
 // Call the returned cleanup function (or use t.Cleanup) when done.
 func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 	t.Helper()
+	return SetupTestDefraDBWithNodeIdentity(t, schemaSDL, nil)
+}
+
+// SetupTestDefraDBWithNodeIdentity is SetupTestDefraDBWithSchema for a node started with ident as
+// its node identity, as the generator starts its node. A nil ident starts the node without one.
+func SetupTestDefraDBWithNodeIdentity(t *testing.T, schemaSDL string, ident identity.Identity) *TestDefraDB {
+	t.Helper()
 
 	// Initialize logger if not already done
 	logger.InitConsoleOnly(true)
@@ -59,6 +67,9 @@ func SetupTestDefraDBWithSchema(t *testing.T, schemaSDL string) *TestDefraDB {
 		SetDisableP2P(true)
 	opts.Store().SetPath(tmpDir)
 	opts.HTTP().SetAddress(addr)
+	if ident != nil {
+		opts.DB().SetNodeIdentity(ident)
+	}
 
 	defraNode, err := node.New(ctx, opts)
 	if err != nil {
