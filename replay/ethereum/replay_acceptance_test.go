@@ -32,7 +32,7 @@ const (
 	// defaultTargetBlockTime is Ethereum mainnet's block interval.
 	// The verdict asserts the pipeline keeps up with the chain, so the default is a hard acceptance bar, not an
 	// informational number.
-	defaultTargetBlockTime = 12000 * time.Millisecond
+	defaultTargetBlockTime = 12 * time.Second
 
 	// fixtureDir holds per-machine capture fixtures produced by
 	// cmd/fetch_blocks; they are gitignored. Fixtures for every chain share
@@ -376,7 +376,7 @@ func assertVerdict(t *testing.T, fx *replayFixture, blockCount int, wall time.Du
 	t.Helper()
 	effective := wall / time.Duration(blockCount)
 	require.LessOrEqual(t, effective, target,
-		"acceptance FAILED: effective per-block interval %s exceeds the %s block interval at %d workers (fixture blocks %d..%d) - the concurrent pipeline cannot keep up with Etheruem at the tip",
+		"acceptance FAILED: effective per-block interval %s exceeds the %s block interval at %d workers (fixture blocks %d..%d) - the concurrent pipeline cannot keep up with Ethereum at the tip",
 		effective, target, workers, fx.Meta.From, fx.Meta.To)
 }
 
