@@ -21,52 +21,41 @@ func neutralizeTronEnv(t *testing.T) {
 	t.Setenv("TRON_DIAL_TIMEOUT_SECONDS", "")
 }
 
-func TestValidateConfig_TronAdapterValid(t *testing.T) {
+func TestValidateConfig_Tron(t *testing.T) {
 	t.Parallel()
-	cfg := &Config{}
-	cfg.DefraDB.Embedded = true
-	cfg.Chain.Adapter = "tron"
-	cfg.Tron.NodeURL = "https://api.trongrid.io"
-	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
-
-	require.NoError(t, validateConfig(cfg))
-}
-
-func TestValidateConfig_TronAdapterRequiresNodeURL(t *testing.T) {
-	t.Parallel()
+	// One table for the tron validation contract: a complete tron config
+	// passes, a missing or whitespace-only node URL reports the offending
+	// field, and the evm adapter keeps passing with an entirely empty tron
+	// section (the section stays inert outside the tron adapter).
 	tests := []struct {
 		name    string
+		adapter string
 		nodeURL string
+		wantErr string
 	}{
-		{"empty", ""},
-		{"whitespace only", "   "},
+		{"tron with node url", TronChainAdapter, "https://api.trongrid.io", ""},
+		{"tron without node url", TronChainAdapter, "", "tron.node_url"},
+		{"tron with whitespace-only node url", TronChainAdapter, "   ", "tron.node_url"},
+		{"evm with empty tron section", DefaultChainAdapter, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
-			cfg.Chain.Adapter = "tron"
+			cfg.Chain.Adapter = tt.adapter
 			cfg.Tron.NodeURL = tt.nodeURL
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 
 			err := validateConfig(cfg)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "tron.node_url")
+			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
-}
-
-func TestValidateConfig_TronAdapterStillAllowsEVM(t *testing.T) {
-	t.Parallel()
-	// The tron section stays inert when the adapter is evm: an empty Tron
-	// config must not fail validation for an EVM deployment.
-	cfg := &Config{}
-	cfg.DefraDB.Embedded = true
-	cfg.Chain.Adapter = DefaultChainAdapter
-	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
-
-	require.NoError(t, validateConfig(cfg))
 }
 
 func TestApplyDefaults_TronDialTimeoutSeconds(t *testing.T) {
@@ -135,6 +124,27 @@ defradb:
 	assert.Equal(t, "tron", cfg.Chain.Adapter, "Chain.Adapter")
 	assert.Equal(t, "https://api.trongrid.io", cfg.Tron.NodeURL, "Tron.NodeURL")
 	assert.Equal(t, DefaultTronDialTimeoutSeconds, cfg.Tron.DialTimeoutSeconds, "Tron.DialTimeoutSeconds default")
+
+	// A tron config that omits chain.name must default to Tron, not
+	// Ethereum: otherwise collections derive the Ethereum__Mainnet prefix
+	// from the tron adapter's own SDL.
+	namelessPath := filepath.Join(tempDir, "config-tron-noname.yaml")
+	namelessContent := `
+chain:
+  network: "Mainnet"
+  adapter: "tron"
+tron:
+  node_url: "https://api.trongrid.io"
+defradb:
+  embedded: true
+`
+	require.NoError(t, os.WriteFile(namelessPath, []byte(namelessContent), 0o600))
+
+	nameless, err := LoadConfig(namelessPath)
+	require.NoError(t, err)
+	assert.Equal(t, "Tron", nameless.Chain.Name, "Chain.Name tron default")
+	assert.Equal(t, "Mainnet", nameless.Chain.Network, "Chain.Network default")
+	assert.Equal(t, "tron", nameless.Chain.Adapter, "Chain.Adapter")
 }
 
 func TestLoadConfig_RepositoryTronConfigFile(t *testing.T) {
