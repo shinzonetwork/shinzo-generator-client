@@ -59,9 +59,9 @@ geth:
   dial_timeout_seconds: 10     # Positive: bounds the startup WebSocket dial (seconds); WS timeout with HTTP connected starts HTTP-only. 0 or negative = unbounded (env: GETH_DIAL_TIMEOUT_SECONDS)
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
-  concurrent_blocks: 1      # Number of blocks to process concurrently
-  receipt_workers: 8        # Concurrent receipt fetchers per block
-  max_docs_per_txn: 100    # Docs threshold for single-txn block creation
+  concurrent_blocks: 8      # Number of blocks to process concurrently
+  receipt_workers: 64        # Concurrent receipt fetchers per block
+  max_docs_per_txn: 100     # Docs threshold for single-txn block creation
   max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
   max_log_docs_per_batch: 125  # Per-batch size for logs (0 = use max_docs_per_txn)
   max_ale_docs_per_batch: 500  # Per-batch size for ALEs (0 = use max_docs_per_txn)

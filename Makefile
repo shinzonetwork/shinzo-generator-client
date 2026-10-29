@@ -1,4 +1,4 @@
-.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test ethereum-live-test bsc-live-test bsc-bench-fetch bsc-acceptance-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local deadcode-check help
+.PHONY: deps env build start start-bsc clean defradb gitpush test testrpc coverage playground stop integration-test ethereum-live-test bsc-live-test bsc-replay-fetch bsc-acceptance-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local deadcode-check help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -11,8 +11,8 @@ GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
 
-# Capture range for bsc-bench-fetch. 0 = auto: latest 100 blocks from the
-# current chain tip. Without these defaults a bare `make bsc-bench-fetch`
+# Capture range for bsc-replay-fetch. 0 = auto: latest 100 blocks from the
+# current chain tip. Without these defaults a bare `make bsc-replay-fetch`
 # would expand to a bare `--from --to` and the flag package would eat the
 # next token as the value, failing the run.
 FROM ?= 0
@@ -137,17 +137,17 @@ bsc-live-test:
 		echo "⚠️  Skipping BSC live tests - GETH_RPC_URL not set"; \
 	fi
 
-# bsc-bench-fetch captures a raw replay fixture via the chain-agnostic
+# bsc-replay-fetch captures a raw replay fixture via the chain-agnostic
 # cmd/fetch_blocks CLI (one-time; needs a real endpoint). FROM/TO are
 # overridable block numbers; the default captures 100 blocks ending at the
-# current tip. Fixtures land in benchmarking/testdata/ (gitignored) as
+# current tip. Fixtures land in replaymarking/testdata/ (gitignored) as
 # bsc_blocks_<from>_<to>.json.
-bsc-bench-fetch:
+bsc-replay-fetch:
 	@if [ -z "$(GETH_RPC_URL)" ]; then \
 		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
 		exit 1; \
 	fi
-	@mkdir -p benchmarking/testdata
+	@mkdir -p replay/testdata
 	go run ./cmd/fetch_blocks --chain bsc --network mainnet --from $(FROM) --to $(TO)
 
 # bsc-acceptance-test replays the newest captured fixture through the full
@@ -159,8 +159,7 @@ bsc-bench-fetch:
 # BSC_* env vars), and unlike `go clean -testcache` it leaves the rest of the
 # project's test results cached.
 bsc-acceptance-test:
-	go vet -tags=acceptance ./...
-	go test -tags=acceptance ./benchmarking/bsc -run TestBSCReplayAcceptance -count=1 -v -timeout 30m
+	go test -tags=acceptance ./replay/bsc -run TestBSCReplayAcceptance -count=1 -v -timeout 30m
 
 lint:
 	@echo "🔍 Running golangci-lint..."
@@ -230,7 +229,7 @@ help:
 	@echo "  bsc-live-test      - BSC live suite (GETH_RPC_URL gates the run)"
 	@echo ""
 	@echo "⏱  BSC tip-indexing acceptance (replay):"
-	@echo "  bsc-bench-fetch    - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
+	@echo "  bsc-replay-fetch    - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
 	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
 	@echo ""
 	@echo "🔍 Code Quality:"
