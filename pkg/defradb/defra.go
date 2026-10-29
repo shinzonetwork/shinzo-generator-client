@@ -605,6 +605,20 @@ func applyP2PResourceLimits(nb *options.NodeOptionsBuilder, p2pCfg config.DefraD
 	)
 }
 
+// ValueLogFileSizeBytes returns the badger value-log file size in bytes for
+// cfg: the configured MB raised to bytes, falling back to
+// defaultBadgerValueLogFileSizeMB when the config key is unset or
+// non-positive — the same fallback the production bootstrap applies. Shared
+// so callers (e.g. the replay harness) always pass the production size,
+// even when value_log_file_size_mb is missing from the config.
+func ValueLogFileSizeBytes(cfg *config.Config) int64 {
+	vlogSizeMB := cfg.DefraDB.Store.ValueLogFileSizeMB
+	if vlogSizeMB <= 0 {
+		vlogSizeMB = defaultBadgerValueLogFileSizeMB
+	}
+	return vlogSizeMB << log2BytesPerMebibyte
+}
+
 func buildNodeOptions(
 	cfg *config.Config,
 	nodeIdentity identity.Identity,
@@ -621,12 +635,9 @@ func buildNodeOptions(
 	nb.HTTP().SetAddress(defraURL)
 	nb.DB().SetNodeIdentity(nodeIdentity)
 
-	vlogSizeMB := cfg.DefraDB.Store.ValueLogFileSizeMB
-	if vlogSizeMB <= 0 {
-		vlogSizeMB = defaultBadgerValueLogFileSizeMB
-	}
-	nb.Store().SetBadgerFileSize(vlogSizeMB << log2BytesPerMebibyte)
-	logger.Sugar.Infof("Badger value log file size: %dMB", vlogSizeMB)
+	vlogSizeBytes := ValueLogFileSizeBytes(cfg)
+	nb.Store().SetBadgerFileSize(vlogSizeBytes)
+	logger.Sugar.Infof("Badger value log file size: %dMB", vlogSizeBytes>>log2BytesPerMebibyte)
 
 	if len(listenAddress) > 0 {
 		nb.P2P().SetListenAddresses(listenAddress)

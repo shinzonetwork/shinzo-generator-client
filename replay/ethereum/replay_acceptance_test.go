@@ -43,10 +43,6 @@ const (
 	// fixtureGlob matches this chain's captures so the newest fixture wins
 	// when no explicit path is given.
 	fixtureGlob = "ethereum_blocks_*.json"
-
-	// badgerVlogSizeShift is log2 of one mebibyte: the config field is in MB,
-	// SetBadgerFileSize wants bytes.
-	badgerVlogSizeShift = 20
 )
 
 // TestEthereumReplayAcceptance answers "can we index Ethereum blocks at the tip": it
@@ -107,7 +103,7 @@ func TestEthereumReplayAcceptance(t *testing.T) {
 	td := testutils.SetupTestDefraDBWithSchemaOpts(t, sdl, storePath,
 		func(nb *options.NodeOptionsBuilder) { nb.DB().SetNodeIdentity(nodeIdent) },
 		func(nb *options.NodeOptionsBuilder) {
-			nb.Store().SetBadgerFileSize(cfg.DefraDB.Store.ValueLogFileSizeMB << badgerVlogSizeShift)
+			nb.Store().SetBadgerFileSize(defradb.ValueLogFileSizeBytes(cfg))
 		},
 	)
 
