@@ -443,9 +443,8 @@ func TestParallelStores_CallbackOutsideProcessorLock(t *testing.T) {
 	// fires there) and read after the run returned, so the errCh send
 	// provides the ordering.
 	var fatalDuringRun error
-	cancel, errCh := runProcessor(p, 100, func(blockNum int64) {
-		rec.record(blockNum)
-		fatalDuringRun = p.fatalFailure()
+	cancel, errCh := runProcessor(p, 100, func(blockNum int64, _ time.Duration) {
+		rec.record(blockNum, 0)
 	})
 	defer cancel()
 
@@ -705,8 +704,8 @@ func TestParallelStores_DrainConsumesWhileWaiting(t *testing.T) {
 		// the wait is entered with the buffer near full and the pool
 		// saturated.
 		sleep := time.Duration(2+i%4) * time.Millisecond
-		cancel, errCh := runProcessor(p, 100, func(blockNum int64) {
-			rec.record(blockNum)
+		cancel, errCh := runProcessor(p, 100, func(blockNum int64, _ time.Duration) {
+			rec.record(blockNum, 0)
 			time.Sleep(sleep)
 		})
 

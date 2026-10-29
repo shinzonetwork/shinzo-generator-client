@@ -148,7 +148,7 @@ type commitRecorder struct {
 	committed []int64
 }
 
-func (r *commitRecorder) record(blockNum int64) {
+func (r *commitRecorder) record(blockNum int64, _ time.Duration) {
 	r.mu.Lock()
 	r.committed = append(r.committed, blockNum)
 	r.mu.Unlock()
@@ -182,7 +182,7 @@ func waitForCommits(t *testing.T, r *commitRecorder, want int, errCh <-chan erro
 
 // runProcessor launches ProcessBlocks in the background and returns its
 // error channel; the caller cancels via the returned cancel.
-func runProcessor(p *ConcurrentBlockProcessor, startBlock int64, onBlockProcessed func(int64)) (context.CancelFunc, <-chan error) {
+func runProcessor(p *ConcurrentBlockProcessor, startBlock int64, onBlockProcessed func(int64, time.Duration)) (context.CancelFunc, <-chan error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {

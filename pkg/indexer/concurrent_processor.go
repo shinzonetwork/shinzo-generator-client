@@ -179,7 +179,8 @@ type BlockResult struct {
 	// Converted carries the conversion result the bounded store pool stores
 	// - but only after the parentHash continuity check passed on the
 	// collector's pop flow.
-	Converted chains.ConversionResult
+	Converted     chains.ConversionResult
+	FetchDuration time.Duration
 }
 
 // BlockStorer is the store-side interface used by the processor. The concrete
@@ -367,7 +368,7 @@ func NewConcurrentBlockProcessor(
 func (p *ConcurrentBlockProcessor) ProcessBlocks(
 	ctx context.Context,
 	startBlock int64,
-	onBlockProcessed func(blockNum int64),
+	onBlockProcessed func(blockNum int64, fetchDuration time.Duration),
 ) error {
 	from := startBlock
 	// Pin the walk-back's lower bound: nothing is ever stored below the start
@@ -491,7 +492,7 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 	ctx context.Context,
 	startBlock int64,
 	seedHash string,
-	onBlockProcessed func(blockNum int64),
+	onBlockProcessed func(blockNum int64, fetchDuration time.Duration),
 ) (*rollbackPoint, error) {
 	runCtx, runCancel := context.WithCancelCause(ctx)
 	defer runCancel(nil)
@@ -573,7 +574,7 @@ func (p *ConcurrentBlockProcessor) processBlocksOnce(
 // startWorkers launches fetch/convert workers, the bounded store pool (the
 // only callers of Store), and the result-collection goroutine that also
 // consumes pool completions.
-func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProcessed func(blockNum int64)) (chan int64, *sync.WaitGroup, *sync.WaitGroup, *sync.WaitGroup) {
+func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) (chan int64, *sync.WaitGroup, *sync.WaitGroup, *sync.WaitGroup) {
 	workChan := make(chan int64, p.workers*DefaultWorkersAhead)
 
 	var wg sync.WaitGroup
@@ -669,7 +670,7 @@ func (p *ConcurrentBlockProcessor) detectStaleOrphan(ctx context.Context, item *
 // pool is backed up (a long check pass can never make the collector stop
 // consuming them) and even while an episode parks results. It returns once
 // both sources have closed (shutdown).
-func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) {
 	resultsClosed := false
 	completionsClosed := false
 
@@ -885,7 +886,7 @@ func (p *ConcurrentBlockProcessor) poppedGapSignal(ctx context.Context, next *Bl
 // batch is identical for a completion that lands at the cursor and one that
 // completes a parked prefix, and recorded hole heights (failed fetch or
 // convert, unstored) are skipped by the same pass.
-func (p *ConcurrentBlockProcessor) applyCompletion(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64), suppress bool) {
+func (p *ConcurrentBlockProcessor) applyCompletion(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64, fetchDuration time.Duration), suppress bool) {
 	p.pendingMu.Lock()
 	p.reorderCompletions[completion.item.BlockNum] = completion
 	batch := p.collectReadyCompletionsLocked()
@@ -925,7 +926,7 @@ func (p *ConcurrentBlockProcessor) collectReadyCompletionsLocked() []storeComple
 // by an earlier iteration (a stale-pinned episode finalizing mid-batch) puts
 // the rest of the batch inside the range about to be rolled back, so it must
 // not commit or fire callbacks.
-func (p *ConcurrentBlockProcessor) applyBatch(ctx context.Context, batch []storeCompletion, onBlockProcessed func(blockNum int64), suppress bool) {
+func (p *ConcurrentBlockProcessor) applyBatch(ctx context.Context, batch []storeCompletion, onBlockProcessed func(blockNum int64, fetchDuration time.Duration), suppress bool) {
 	for _, c := range batch {
 		p.pendingMu.Lock()
 		ended := p.rollbackPoint != nil || p.fatalErr != nil
@@ -944,7 +945,7 @@ func (p *ConcurrentBlockProcessor) applyBatch(ctx context.Context, batch []store
 // guard-write nothing: their heights sit in the rollback range the episode
 // is about to hand back, so the restart re-commits them and fires the
 // callbacks in height order.
-func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64), suppress bool) {
+func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64, fetchDuration time.Duration), suppress bool) {
 	item := completion.item
 	computed := completion.computed
 	if computed.Error != nil {
@@ -1018,7 +1019,7 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 // episode's drain applies fully: its in-flight stores were dispatched before
 // the mismatch height, so their completions are ordinary pre-mismatch
 // commits and fire the callback in height order.
-func (p *ConcurrentBlockProcessor) drainInFlightStores(ctx context.Context, ep *reorgEpisode, onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) drainInFlightStores(ctx context.Context, ep *reorgEpisode, onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) {
 	suppress := ep.stalePinned
 
 	// A waiting dispatch's registration can only be released on the
@@ -1098,7 +1099,7 @@ waiting:
 // walk-back descent from the stale height is the confirmation. The drain
 // inside finalize continues collecting further stale verifications before
 // the descent starts.
-func (p *ConcurrentBlockProcessor) openStaleEpisode(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) openStaleEpisode(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) {
 	item := completion.item
 	logger.Sugar.Warnf(
 		"Reorg detected: stored block %d (hash %s) disagrees with chain-side block %d (hash %s); holding from height %d",
@@ -1127,7 +1128,7 @@ func (p *ConcurrentBlockProcessor) openStaleEpisode(ctx context.Context, complet
 // sequence (applyCommit runs only on the single collector goroutine, so
 // ordering and serialization are unchanged), and a callback can no longer
 // re-enter a pendingMu path and self-deadlock.
-func (p *ConcurrentBlockProcessor) applyCommit(ctx context.Context, item *BlockResult, computed *BlockResult, onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) applyCommit(ctx context.Context, item *BlockResult, computed *BlockResult, onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) {
 	p.metrics.blocks.Add(ctx, 1, p.metrics.success)
 	p.pendingMu.Lock()
 	if computed.BlockID != "" {
@@ -1146,7 +1147,7 @@ func (p *ConcurrentBlockProcessor) applyCommit(ctx context.Context, item *BlockR
 	p.pendingMu.Unlock()
 
 	if onBlockProcessed != nil {
-		onBlockProcessed(item.BlockNum)
+		onBlockProcessed(item.BlockNum, item.FetchDuration)
 	}
 }
 
@@ -1174,7 +1175,7 @@ func (p *ConcurrentBlockProcessor) startReorgEpisode(signal reorgSignal, parked 
 // it on the newest chain, and an unusable item (worker failure or a result
 // without usable hashes) is re-fetched by height so the wait can continue
 // past the gap. Nothing here is ever stored.
-func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item *BlockResult, onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item *BlockResult, onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) {
 	for {
 		p.pendingMu.Lock()
 		ep := p.episode
@@ -1281,7 +1282,7 @@ func (p *ConcurrentBlockProcessor) refillEpisodeGap(ctx context.Context, ep *reo
 // unless the run context is already cancelled (user shutdown: the episode is
 // simply abandoned - the next run's seed and gap checks re-detect the
 // mismatch).
-func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reorgEpisode, confirmed *BlockResult, onBlockProcessed func(blockNum int64)) {
+func (p *ConcurrentBlockProcessor) finalizeEpisode(ctx context.Context, ep *reorgEpisode, confirmed *BlockResult, onBlockProcessed func(blockNum int64, fetchDuration time.Duration)) {
 	p.drainInFlightStores(ctx, ep, onBlockProcessed)
 
 	if ctx.Err() != nil {
@@ -1448,7 +1449,7 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 // feeds the continuity check, and the conversion result itself is handed to
 // the store pool only after that check passed.
 func (p *ConcurrentBlockProcessor) fetchAndConvertBlock(ctx context.Context, blockNum int64) *BlockResult {
-	raw, err := p.fetchBlockWithRetry(ctx, blockNum)
+	raw, fetchDuration, err := p.fetchBlockWithRetry(ctx, blockNum)
 	if err != nil {
 		return &BlockResult{BlockNum: blockNum, Error: err}
 	}
@@ -1466,7 +1467,8 @@ func (p *ConcurrentBlockProcessor) fetchAndConvertBlock(ctx context.Context, blo
 		// Success marks a fetch+convert pass: the ordered check, the store
 		// pool and the episode's confirmation rules treat the content as
 		// verified input, not as a completed store.
-		Success: true,
+		Success:       true,
+		FetchDuration: fetchDuration,
 	}
 }
 
@@ -1474,23 +1476,29 @@ func (p *ConcurrentBlockProcessor) fetchAndConvertBlock(ctx context.Context, blo
 // classification:
 //   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
 //   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
-func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
+//
+// It returns the successful attempt's wall time; retries discard the failed
+// attempts' timings, so the reported latency reflects exactly the network
+// fetch that eventually delivered the block.
+func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, time.Duration, error) {
 	otherErrors := 0
 	for {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		}
 
+		attemptStart := time.Now()
 		raw, err := p.fetcher.FetchBlock(ctx, blockNum)
+		fetchDuration := time.Since(attemptStart)
 		if err == nil {
-			return raw, nil
+			return raw, fetchDuration, nil
 		}
 
 		if errors.IsErrNotFound(err) {
 			logger.Sugar.Infof("Block %d not available yet, waiting...", blockNum)
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, 0, ctx.Err()
 			case <-time.After(BlockNotFoundRetryDelay):
 			}
 			continue
@@ -1498,11 +1506,11 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 
 		otherErrors++
 		if otherErrors >= MaxRPCRetries {
-			return nil, fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
+			return nil, 0, fmt.Errorf("failed to fetch block %d: %w", blockNum, err)
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-time.After(time.Duration(otherErrors) * RPCErrorRetryBaseDelay):
 		}
 	}
