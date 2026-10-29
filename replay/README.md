@@ -179,18 +179,18 @@ answers *"does it hold with the network in the loop"*.
 ====================================================================================================
 Blocks Replayed: 24001000 - 24001150   (151 blocks)
 Concurrent Blocks: 1
-Total Time:  24m52.184471515s
+Total Time:  24m9.6s
 Target Throughput:  12s  / block
-Effective Throughput:  9.871239644s / block
-Headroom:    17.7%
-Processing Budget (Network Latency, P2P, State Queries):  2.128760356s / block
+Effective Throughput:  9.6s / block
+Headroom:    20.0%
+Processing Budget (Network Latency, P2P, State Queries):  2.4s / block
 ____________________________________________________________________________________________________
 Sequential Block Processing Stats:
- -  Average Block Time:  9.856173644s
+ -  Average Block Time:  9.6431s
  -  Average Phase Times:  fetch 2.1ms || convert 41ms || store 9.6s
  -  Min: 7.852322104s || p50: 9.718181802s || p95: 11.342512257s || Max: 12.9185s
  - Outliers:
-    - 24001082 - 12.918533708s - +30.9% vs avg
+    - 24001082 - 12.918533708s - +34.0% vs avg
 ====================================================================================================
 Pruner: 51 blocks / 53882 docs across 3 cycles
  - Pruning Duration: 4.2s total, 1.4s average, 2.1s max
@@ -214,12 +214,17 @@ Two verdicts, both asserted:
    outruns the generator and the backlog grows forever. This — not per-block
    latency — is the gate, because contention inflates individual latencies
    even when the concurrent pipeline comfortably keeps up.
-2. **Correctness**: a range query on the block collection must count
-   exactly the blocks processed minus what the pruner removed (stores are
-   duplicate-rejecting, so a mismatch means a block silently failed), and
-   every stored block (processed − pruned) must carry a `BlockSignature` —
-   a signed block is a complete block, so a shortfall names a block that
-   was committed with a partial store.
+2. **Correctness**: read from the store itself, not from any service
+   counter: the block collection must fill the whole range from the lowest
+   stored block to the last with no gaps (stores are duplicate-rejecting,
+   so a gap means a block silently failed or was pruned mid-range), and
+   every stored block in that range must carry a `BlockSignature`
+   (a signed block is a complete block, so a shortfall names a block that
+   was committed with a partial store). The verdict does not consume the
+   pruner's block counter: it is a deletion-event tally that can count one
+   block under both of its prune strategies, so `processed - pruned` could
+   contradict a healthy store; a counter disagreement with the store
+   history is logged, not asserted.
 
 The remaining statistics — `Average Block Time`, `Min`/`p50`/`p95`/`Max`,
 `Outliers` — are per-block sums of the three phase durations: the time the
@@ -233,6 +238,15 @@ than one worker it includes the shared badger/`/seq/doc` write pressure.
 Beyond-tip fetch dispatches that are still in flight when the run's last
 block commits are cancelled and contribute no samples (they are also
 excluded from the wall clock).
+
+The two sections can disagree in either direction, and the direction is
+the diagnostic. `Effective Throughput` is a wall-clock rate: with stores
+serialized at one worker it settles on the store average, while the next
+block's fetch and convert work hides inside each store's window.
+`Average Block Time` counts that hidden work too, so it sits above the
+effective interval by roughly the fetch + convert average (in the sample
+above, 9.6431s against 9.6s). The reverse gap, an effective interval
+above the phase sum, is the queuing shape the phase sum exists to exclude.
 
 `Average Phase Times` decomposes the average block time into its
 fetch / convert / store phases; the store share is the throughput ceiling

@@ -229,7 +229,7 @@ func TestEthereumReplayAcceptance(t *testing.T) {
 	reportResults(t, fx, blocks, numbers, timingsList, phaseAvg, workers, wall, target)
 	logServiceStats(t, services)
 	assertVerdict(t, fx, len(blocks), wall, workers, target)
-	assertCorrectness(t, td, ctx, cols, numbers, len(blocks), services.prunedBlocks())
+	assertCorrectness(t, td, ctx, cols, converter, numbers, len(blocks), services.prunedBlocks())
 }
 
 // resolveFixturePath picks the fixture to replay: ETHEREUM_REPLAY_FIXTURE wins,
@@ -380,39 +380,58 @@ func assertVerdict(t *testing.T, fx *replayFixture, blockCount int, wall time.Du
 		effective, target, workers, fx.Meta.From, fx.Meta.To)
 }
 
-// assertCorrectness is the "can index" half of the verdict: every processed
-// block must be present in DefraDB unless the pruner removed it, every stored
-// block must carry a BlockSignature (a signed block is a complete block), and
-// the pruner's deletions are accounted for on both counts.
-func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Context, cols chains.Collections, numbers []uint64, processed int, pruned int64) {
+// assertCorrectness is the "can index" half of the verdict, and it reads the
+// store itself: the block collection must fill the whole range from the
+// lowest stored block to the last with no gaps, and every block in that
+// range must carry a BlockSignature (a signed block is a complete block).
+// The verdict does not consume the pruner's block counter: the counter is a
+// deletion-event tally that can count one block under both of the pruner's
+// strategies, so a healthy store can legitimately disagree with
+// `processed - pruned`. The counter still feeds an informational
+// disagreement line below.
+func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Context, cols chains.Collections, converter chains.Converter, numbers []uint64, processed int, pruned int64) {
 	t.Helper()
 
-	// The capture is a contiguous range and the cap keeps a prefix of it, so
-	// the stored range is the first and last processed block number. Pruned
-	// blocks come off the low end of that range, so the expected row count is
-	// everything processed minus what the pruner deleted.
+	// The capture is a contiguous range and the cap keeps a prefix of it, and
+	// pruning only removes blocks from the low end, so the surviving store is
+	// a contiguous [lowest, last]. `lowest` comes from the same production
+	// query the pruner and snapshotter use, so the verdict reads the store
+	// exactly the way the services do.
 	first, last := int64(numbers[0]), int64(numbers[len(numbers)-1])
-	expected := processed - int(pruned)
+	lowest, err := converter.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err, "query the lowest stored block: the store holds no blocks, so nothing was indexed")
+	require.GreaterOrEqual(t, lowest, first, "nothing can be stored below the fixture's first block %d", first)
+	expected := int(last - lowest + 1)
 
 	blockCount, err := graphqlCountInRange(ctx, td.Node, cols.BlockCollection(),
-		constants.NumberFieldName, first, last, processed+1)
+		constants.NumberFieldName, lowest, last, processed+1)
 	require.NoError(t, err)
 	assert.Equal(t, expected, blockCount,
-		"block count in the stored range must equal blocks processed minus blocks the pruner removed (duplicate stores are rejected, so a mismatch means a block silently failed or was pruned unexpectedly)")
+		"stored blocks must fill %d-%d with no gaps - a shortfall means a block silently failed or was pruned inside the range",
+		lowest, last)
 
 	sigCount, err := graphqlCountInRange(ctx, td.Node, cols.BlockSignatureCollection(),
-		constants.BlockNumberFieldName, first, last, processed+1)
+		constants.BlockNumberFieldName, lowest, last, processed+1)
 	require.NoError(t, err)
 	// The pruner deletes a block's signature together with its docs (the
-	// queue tracks it per block), so stored − pruned is the expected count,
-	// same arithmetic as the block rows. A shortfall names the real damage,
-	// not a counting error: a block whose store landed partially and that
-	// was committed through the already-exists path without a signature
-	// counts toward zero here. This is the assertion that catches lost
-	// blocks under concurrent write contention.
+	// queue tracks it per block), so the signature rows must match the block
+	// rows one for one. A shortfall names the real damage, not a counting
+	// error: a block that was committed through the already-exists path
+	// without a signature counts toward zero here. This is the assertion
+	// that catches lost blocks under concurrent write contention.
 	assert.Equal(t, expected, sigCount,
-		"every stored block must carry a BlockSignature (expected %d = %d stored - %d pruned) - a shortfall means a block was committed with a partial store or its signature could not be created",
-		expected, processed, pruned)
-	logger.Testf("✓ correctness: %d blocks stored, %d block signatures (expected %d blocks after pruning %d)",
-		blockCount, sigCount, expected, pruned)
+		"every stored block in %d-%d must carry a BlockSignature - a shortfall means a block was committed with a partial store or its signature could not be created",
+		lowest, last)
+	logger.Testf("✓ correctness: blocks %d-%d stored with no gaps, %d block signatures",
+		lowest, last, sigCount)
+
+	// Informational, never failed: distinct pruned blocks are exactly
+	// lowest - first (pruning only removes a low-end prefix), so the
+	// pruner's counter should agree with the store history. A disagreement
+	// reports the inflated tally instead of turning the indexer's verdict
+	// into a service bookkeeping check.
+	if pruned != lowest-first {
+		logger.Testf("pruner counter disagreement: counted %d blocks, %d measured from the store (lowest %d)",
+			pruned, lowest-first, lowest)
+	}
 }
