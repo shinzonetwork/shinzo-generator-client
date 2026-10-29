@@ -226,9 +226,9 @@ func TestEthereumReplayAcceptance(t *testing.T) {
 	// becomes a no-op after this.
 	services.stop()
 
-	reportResults(t, fx, blocks, numbers, timingsList, phaseAvg, workers, wall, target)
+	reportResults(t, blocks, numbers, timingsList, phaseAvg, workers, wall, target)
 	logServiceStats(t, services)
-	assertVerdict(t, fx, len(blocks), wall, workers, target)
+	assertVerdict(t, numbers, wall, workers, target)
 	assertCorrectness(t, td, ctx, cols, converter, numbers, len(blocks), services.prunedBlocks())
 }
 
@@ -321,8 +321,9 @@ func parsePositiveInt(raw string) (int, error) {
 // the time the pipeline spent working each block, queue wait between the
 // processor's pools excluded. The phase line decomposes the average into
 // fetch / convert / store; the store share is the throughput ceiling if
-// stores are ever serialized.
-func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbers []uint64, timings blockTimings, phaseAvg replayPhases, workers int, wall time.Duration, target time.Duration) {
+// stores are ever serialized. Its block range is the replayed sample's
+// range, not the fixture's full range.
+func reportResults(t *testing.T, blocks []fixtureBlock, numbers []uint64, timings blockTimings, phaseAvg replayPhases, workers int, wall time.Duration, target time.Duration) {
 	t.Helper()
 	avg := timings.avg()
 	effective := wall / time.Duration(len(blocks))
@@ -338,7 +339,10 @@ func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbe
 	// separates the throughput section from the per-block stats. All three
 	// match the content width exactly.
 	logger.Test(strings.Repeat("=", width))
-	pad("Blocks Replayed: %d - %d   (%d blocks)", fx.Meta.From, fx.Meta.To, len(blocks))
+	// The replayed sample's own range, not the fixture's full range: a
+	// ETHEREUM_REPLAY_MAX_BLOCKS cap trims the prefix, so the fixture's
+	// To would name blocks this run never touched.
+	pad("Blocks Replayed: %d - %d   (%d blocks)", numbers[0], numbers[len(numbers)-1], len(blocks))
 	pad("Concurrent Blocks: %d", workers)
 	pad("Total Time:  %s", wall)
 	pad("Target Throughput:  %s / block", target)
@@ -371,13 +375,17 @@ func headroomPct(target, effective time.Duration) float64 {
 // divided by the block count — must stay within the chain's block interval,
 // or the chain outruns the indexer and blocks pile up forever. Per-block
 // latency is not gated: contention inflates individual latencies even when
-// the concurrent pipeline comfortably keeps up.
-func assertVerdict(t *testing.T, fx *replayFixture, blockCount int, wall time.Duration, workers int, target time.Duration) {
+// the concurrent pipeline comfortably keeps up. Its failure message names
+// the replayed sample's range (numbers may be a capped prefix of the
+// fixture), not the fixture's full range.
+func assertVerdict(t *testing.T, numbers []uint64, wall time.Duration, workers int, target time.Duration) {
 	t.Helper()
+	blockCount := len(numbers)
 	effective := wall / time.Duration(blockCount)
+	first, last := numbers[0], numbers[len(numbers)-1]
 	require.LessOrEqual(t, effective, target,
-		"acceptance FAILED: effective per-block interval %s exceeds the %s block interval at %d workers (fixture blocks %d..%d) - the concurrent pipeline cannot keep up with Ethereum at the tip",
-		effective, target, workers, fx.Meta.From, fx.Meta.To)
+		"acceptance FAILED: effective per-block interval %s exceeds the %s block interval at %d workers (blocks %d..%d) - the concurrent pipeline cannot keep up with Ethereum at the tip",
+		effective, target, workers, first, last)
 }
 
 // assertCorrectness is the "can index" half of the verdict, and it reads the
