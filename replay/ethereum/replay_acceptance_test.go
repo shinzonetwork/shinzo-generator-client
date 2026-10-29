@@ -317,10 +317,11 @@ func parsePositiveInt(raw string) (int, error) {
 // the two sections align; lines longer than the width get no padding (never
 // truncated). The report splits in two: the throughput section (concurrency,
 // total time, effective per-block interval) backs the acceptance verdict,
-// while the sequential block processing stats are the per-block contended
-// fetch→store latencies — reported as evidence, not gated. The phase line
-// decomposes the average into fetch / convert / store; the store share is
-// the throughput ceiling if stores are ever serialized.
+// while the sequential block processing stats are per-block phase sums:
+// the time the pipeline spent working each block, queue wait between the
+// processor's pools excluded. The phase line decomposes the average into
+// fetch / convert / store; the store share is the throughput ceiling if
+// stores are ever serialized.
 func reportResults(t *testing.T, fx *replayFixture, blocks []fixtureBlock, numbers []uint64, timings blockTimings, phaseAvg replayPhases, workers int, wall time.Duration, target time.Duration) {
 	t.Helper()
 	avg := timings.avg()

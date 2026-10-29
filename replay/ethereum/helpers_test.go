@@ -620,20 +620,25 @@ type replayPhases struct {
 	store   time.Duration
 }
 
-// replayTimings collects per-block fetch→store durations and their
+// replayTimings collects per-block processing durations and their
 // fetch/convert/store phase breakdown in the concurrent replay.
+// A block's timing sample is the sum of its three phase durations, not a
+// fetch→store wall window: the processor runs fetch, convert, and store in
+// separate worker pools, so the wall window between a fetch
+// success and the store's completion is dominated by inter-stage queue
+// wait, idleness that says nothing about pipeline capacity. The phase sum
+// counts only the time the pipeline actually worked the block.
 // The ConcurrentBlockProcessor exposes no per-block timing hook, so
 // the wrappers around its Fetcher, Converter, and BlockStorer interfaces
-// feed this collector: the fetcher stamps each block's start, the converter
-// and storer record their phase durations, and the storer closes the total
-// window. Completion order differs from block order under concurrency, so
+// feed this collector: the fetcher records the fetch duration, the converter
+// and storer record their phase durations, and the storer closes the sample.
+// Completion order differs from block order under concurrency, so
 // samples are keyed by block number and emit in ascending order — the
 // fixture range is contiguous (capture invariant, capSample keeps a
 // prefix), which keeps the slice index-aligned with the parsed block
 // numbers for the outlier list.
 type replayTimings struct {
 	mu      sync.Mutex
-	starts  map[int64]time.Time
 	samples map[int64]time.Duration
 	phases  map[int64]replayPhases
 }
@@ -641,38 +646,33 @@ type replayTimings struct {
 // newReplayTimings creates an empty collector.
 func newReplayTimings() *replayTimings {
 	return &replayTimings{
-		starts:  make(map[int64]time.Time),
 		samples: make(map[int64]time.Duration),
 		phases:  make(map[int64]replayPhases),
 	}
 }
 
-// startFetch records a block's fetch start; retried fetches overwrite the
-// stamp so only a completed fetch→store pair yields a sample.
-func (rt *replayTimings) startFetch(blockNum int64) {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	rt.starts[blockNum] = time.Now()
-}
-
-// endStore closes a block's window at store completion.
+// endStore closes a block's timing sample when its store lands, summing the
+// phase durations recorded so far: fetch (the successful attempt), convert,
+// and every store attempt. recordStore has already folded the just-finished
+// attempt in by the time this runs. A store the processor also failed leaves
+// the sample unclosed. Retried stores re-sum on the attempt that lands, and
+// the sample-count check then names a block that never landed at all.
 func (rt *replayTimings) endStore(blockNum int64, stored bool) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if !stored {
 		return
 	}
-	start, ok := rt.starts[blockNum]
+	p, ok := rt.phases[blockNum]
 	if !ok {
 		return
 	}
-	rt.samples[blockNum] = time.Since(start)
-	delete(rt.starts, blockNum)
+	rt.samples[blockNum] = p.fetch + p.convert + p.store
 }
 
-// recordFetch stamps a block's fetch duration; retried fetches overwrite the
-// stamp, matching the cycle-start overwrite so only a completed
-// fetch→store pair yields a sample.
+// recordFetch stamps a block's fetch duration. Processor-level fetch retries
+// re-enter FetchBlock, and only a successful attempt records, so the stamp
+// holds the duration of the attempt whose block actually flowed through.
 func (rt *replayTimings) recordFetch(blockNum int64, elapsed time.Duration) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -748,8 +748,8 @@ func (rt *replayTimings) phaseAverages(first, last int64) (replayPhases, error) 
 	}, nil
 }
 
-// timedFetcher wraps a chains.Fetcher, stamping each block's start into a
-// replayTimings collector before passing through. It exists for the same
+// timedFetcher wraps a chains.Fetcher, recording each block's fetch duration
+// into a replayTimings collector before passing through. It exists for the same
 // reason replayQueueTracker does: the timing is not exposed by the
 // orchestration layer, so the harness instruments the interfaces it owns.
 type timedFetcher struct {
@@ -760,7 +760,6 @@ type timedFetcher struct {
 func (f *timedFetcher) Connect(ctx context.Context) error { return f.inner.Connect(ctx) }
 
 func (f *timedFetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
-	f.timings.startFetch(height)
 	start := time.Now()
 	res, err := f.inner.FetchBlock(ctx, height)
 	if err == nil {
@@ -824,13 +823,13 @@ func (c *timedConverter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node
 }
 
 // timedStorer wraps the processor's BlockStorer, closing each block's timing
-// window when its store lands. The processor's own extractBlockHash finds
+// sample when its store lands. The processor's own extractBlockHash finds
 // the block group by its BlockHashField; the number is recovered the same
 // way via the group's BlockNumField ("number" on block groups per the
-// converter). An already-exists outcome closes the window too: the processor
+// converter). An already-exists outcome closes the sample too: the processor
 // commits a block through that path (it fires the detached SignExisting and
-// reports success), so the sample spans every store attempt the block took.
-// Only a store the processor also failed leaves the window open — the
+// reports success), so the store phase spans every store attempt the block took.
+// Only a store the processor also failed leaves the sample unclosed — the
 // sample-count check then names the block, so silence cannot hide a lost one.
 //
 // The store phase accumulates on every attempt — success, already-exists, or

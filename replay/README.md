@@ -183,7 +183,7 @@ Total Time:  24m52.184471515s
 Target Throughput:  12s  / block
 Effective Throughput:  9.871239644s / block
 Headroom:    17.7%
-Network Latency Budget:  2.128760356s / block
+Processing Budget (Network Latency, P2P, State Queries):  2.128760356s / block
 ____________________________________________________________________________________________________
 Sequential Block Processing Stats:
  -  Average Block Time:  9.856173644s
@@ -222,11 +222,14 @@ Two verdicts, both asserted:
    was committed with a partial store.
 
 The remaining statistics — `Average Block Time`, `Min`/`p50`/`p95`/`Max`,
-`Outliers` — are per-block fetch→store latencies under concurrency: reported
-as evidence, not gated. At more than one worker they include the shared
-badger/`/seq/doc` write contention and every retry attempt a block needed —
-a block that reaches store only after processor retries carries its full
-retry window.
+`Outliers` — are per-block sums of the three phase durations: the time the
+pipeline spent actually working each block. Reported as evidence, not gated.
+Since fetch, convert, and store run in separate worker pools, a plain
+fetch→commit window would mostly measure a block queuing between pools; the
+phase sum ignores that idle time. Contention still shows up: the store phase
+accumulates every attempt a block needed (processor-level retries re-enter
+`Store`, and the batch-retry conflict sleeps live inside it), and at more
+than one worker it includes the shared badger/`/seq/doc` write pressure.
 Beyond-tip fetch dispatches that are still in flight when the run's last
 block commits are cancelled and contribute no samples (they are also
 excluded from the wall clock).
