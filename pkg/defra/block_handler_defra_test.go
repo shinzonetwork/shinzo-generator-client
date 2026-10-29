@@ -17,6 +17,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -142,7 +143,7 @@ func TestNewBlockHandler_WithNode(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 	require.NotNil(t, handler)
 	assert.Equal(t, 1000, handler.maxDocsPerTxn)
@@ -152,12 +153,12 @@ func TestNewBlockHandler_DefaultMaxDocsWithNode(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 0)
+	handler, err := NewBlockHandler(td.Node, 0, testChainPrefix, testChainID)
 	require.NoError(t, err)
 	require.NotNil(t, handler)
 	assert.Equal(t, 1000, handler.maxDocsPerTxn, "maxDocsPerTxn should default to 1000 when 0")
 
-	handler2, err := NewBlockHandler(td.Node, -5)
+	handler2, err := NewBlockHandler(td.Node, -5, testChainPrefix, testChainID)
 	require.NoError(t, err)
 	require.NotNil(t, handler2)
 	assert.Equal(t, 1000, handler2.maxDocsPerTxn, "maxDocsPerTxn should default to 1000 when negative")
@@ -182,7 +183,7 @@ func TestStore_BlockOnly(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x64") // 100
@@ -195,7 +196,7 @@ func TestStore_BlockOnly(t *testing.T) {
 func TestStore_WithTransaction(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0xC8") // 200
@@ -211,7 +212,7 @@ func TestStore_WithTransaction(t *testing.T) {
 func TestStore_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x12C") // 300
@@ -251,7 +252,7 @@ func TestStore_DuplicateBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x190") // 400
@@ -276,7 +277,7 @@ func TestStore_WithDocIDTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -302,7 +303,7 @@ func TestStore_NilTransaction(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x258") // 600
@@ -319,7 +320,7 @@ func TestStore_NilReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x2BC") // 700
@@ -340,7 +341,7 @@ func TestStore_BatchedMode(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x320") // 800
@@ -359,7 +360,7 @@ func TestStore_BatchedMode_WithTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -387,7 +388,7 @@ func TestStore_BatchedMode_DuplicateBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x3E8") // 1000
@@ -411,7 +412,7 @@ func TestStore_BatchedMode_DuplicateBlock(t *testing.T) {
 func TestStore_MultipleTransactionsNoReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x44C") // 1100
@@ -432,7 +433,7 @@ func TestStore_BatchedMode_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x4B0") // 1200
@@ -474,7 +475,7 @@ func TestStore_WithSigningIdentity_BlockOnly(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -489,7 +490,7 @@ func TestStore_WithSigningIdentity_FullBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -509,11 +510,68 @@ func TestStore_WithSigningIdentity_FullBlock(t *testing.T) {
 	assert.NotEmpty(t, res.BlockID)
 }
 
+// A host verifies a block signature from the stored document alone, so the
+// fields written beside the signature must rebuild the payload it signs.
+func TestStore_WithSigningIdentity_VerifiesFromStoredFields(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		sigType string
+		keyType crypto.KeyType
+	}{
+		{sigType: "ES256K", keyType: crypto.KeyTypeSecp256k1},
+		{sigType: "EdDSA", keyType: crypto.KeyTypeEd25519},
+	}
+	for _, tc := range cases {
+		t.Run(tc.sigType, func(t *testing.T) {
+			t.Parallel()
+			td := testutils.SetupTestDefraDB(t)
+			handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
+			require.NoError(t, err)
+			ident, err := identity.Generate(tc.keyType)
+			require.NoError(t, err)
+			ctx := defracontext.WithIdentity(context.Background(), ident)
+
+			res, err := handler.Store(ctx, buildGroups(t, mockBlock("0x514"), nil, nil))
+			require.NoError(t, err)
+			require.NotEmpty(t, res.BlockSignatureID)
+
+			col, err := td.Node.DB.GetCollectionByName(ctx, res.BlockSignatureCollection)
+			require.NoError(t, err)
+			docID, err := client.NewDocIDFromString(res.BlockSignatureID)
+			require.NoError(t, err)
+			doc, err := col.GetDocument(ctx, docID)
+			require.NoError(t, err)
+			field := func(name string) any {
+				t.Helper()
+				v, err := doc.Get(name)
+				require.NoError(t, err)
+				return v
+			}
+
+			require.Equal(t, tc.sigType, field(constants.SignatureTypeFieldName))
+			merkleRoot, err := hex.DecodeString(field(constants.MerkleRootFieldName).(string))
+			require.NoError(t, err)
+			payload, err := signaturePayload(testChainPrefix, testChainID,
+				field(constants.BlockNumberFieldName).(int64), field(constants.BlockHashFieldName).(string),
+				int(field(constants.CIDCountFieldName).(int64)), merkleRoot)
+			require.NoError(t, err)
+			pubKey, err := crypto.PublicKeyFromString(tc.keyType, field(constants.SignatureIdentityFieldName).(string))
+			require.NoError(t, err)
+			sigValue, err := hex.DecodeString(field(constants.SignatureValueFieldName).(string))
+			require.NoError(t, err)
+
+			valid, err := pubKey.Verify(payload, sigValue)
+			require.NoError(t, err)
+			assert.True(t, valid)
+		})
+	}
+}
+
 func TestStore_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -539,7 +597,7 @@ func TestStore_DuplicateWithIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -561,7 +619,7 @@ func TestStore_DuplicateWithIdentity(t *testing.T) {
 func TestStore_BatchedMode_WithSigningIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -581,7 +639,7 @@ func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -618,7 +676,7 @@ func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -626,9 +684,9 @@ func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 
 	var signedCIDs []cid.Cid
 	inner := handler.signBatchFn
-	handler.signBatchFn = func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+	handler.signBatchFn = func(ctx context.Context, blockNumber int64, blockHash string, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
 		signedCIDs = collector.GetCIDs()
-		return inner(ctx, collector)
+		return inner(ctx, blockNumber, blockHash, collector)
 	}
 
 	ctx := ctxWithIdentity(t)
@@ -676,7 +734,7 @@ func TestStore_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	ctx := ctxWithIdentity(t)
@@ -707,7 +765,7 @@ func TestStore_BatchedMode_RepeatedAccessListEntrySignsNormally(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	tracker := &mockDocIDTracker{}
@@ -777,7 +835,7 @@ func TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			td := testutils.SetupTestDefraDB(t)
-			handler, err := NewBlockHandler(td.Node, 2)
+			handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 			require.NoError(t, err)
 
 			cols := evm.NewCollectionNames("Ethereum__Mainnet")
@@ -853,7 +911,7 @@ func TestStore_UnwritableDuplicateIsTruthfulAndUnsigned(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x1162") // 4450
@@ -901,7 +959,7 @@ func TestStore_BatchedMode_NilTransactionsInBatch(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x7D0") // 2000
@@ -923,7 +981,7 @@ func TestStore_BatchedMode_NilReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x834") // 2100
@@ -945,7 +1003,7 @@ func TestStore_BatchedMode_ManyLogs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x898") // 2200
@@ -1019,7 +1077,7 @@ func TestSignExisting_Success(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x8FC") // 2300
@@ -1040,7 +1098,7 @@ func TestSignExisting_WithAccessList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x960") // 2400
@@ -1067,7 +1125,7 @@ func TestSignExisting_NilTransactionsAndReceipts(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0x9C4") // 2500
@@ -1086,7 +1144,7 @@ func TestSignExisting_NilTxInList(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0xA28") // 2600
@@ -1108,7 +1166,7 @@ func TestSignExisting_NoIdentity(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0xA8C") // 2700
@@ -1124,7 +1182,7 @@ func TestSignExisting_NoIdentity(t *testing.T) {
 func TestSignExisting_RefusesIncompleteBlock(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0xE10") // 3600
@@ -1172,7 +1230,7 @@ func TestStore_TxWithNoMatchingReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0xB54") // 2900
@@ -1193,7 +1251,7 @@ func TestStore_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0xBB8") // 3000
@@ -1215,7 +1273,7 @@ func TestStore_BatchedMode_ManyAccessListEntries(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 2)
+	handler, err := NewBlockHandler(td.Node, 2, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0xC1C") // 3100
@@ -1250,7 +1308,7 @@ func TestStore_BatchedMode_TransactionsMultipleBatches(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 
-	handler, err := NewBlockHandler(td.Node, 1)
+	handler, err := NewBlockHandler(td.Node, 1, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	block := mockBlock("0xCE4") // 3300
@@ -1316,7 +1374,7 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			td := testutils.SetupTestDefraDB(t)
-			handler, err := NewBlockHandler(td.Node, 1000)
+			handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 			require.NoError(t, err)
 
 			tracker := &mockDocIDTracker{}
@@ -1324,9 +1382,9 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 
 			var signedCIDs []cid.Cid
 			inner := handler.signBatchFn
-			handler.signBatchFn = func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+			handler.signBatchFn = func(ctx context.Context, blockNumber int64, blockHash string, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
 				signedCIDs = collector.GetCIDs()
-				return inner(ctx, collector)
+				return inner(ctx, blockNumber, blockHash, collector)
 			}
 
 			ctx := ctxWithIdentity(t)
@@ -1400,13 +1458,13 @@ func TestStore_Rearrival_SignsOverStoredCIDs(t *testing.T) {
 	t.Parallel()
 	td := testutils.SetupTestDefraDB(t)
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
-	handler, err := NewBlockHandler(td.Node, 1000)
+	handler, err := NewBlockHandler(td.Node, 1000, testChainPrefix, testChainID)
 	require.NoError(t, err)
 
 	var signedCIDs []cid.Cid
 	inner := handler.signBatchFn
-	handler.signBatchFn = func(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
-		sig, err := inner(ctx, collector)
+	handler.signBatchFn = func(ctx context.Context, blockNumber int64, blockHash string, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		sig, err := inner(ctx, blockNumber, blockHash, collector)
 		if err == nil && sig != nil {
 			// Record only signatures that were actually produced: pass 1
 			// runs without an identity, so its signing attempt fails inside

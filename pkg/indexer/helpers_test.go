@@ -134,7 +134,7 @@ func newTestProcessor(t *testing.T, td *testutils.TestDefraDB, rpcServerURL stri
 	converter, err := evm.NewConverter(cfg)
 	require.NoError(t, err)
 
-	blockHandler, err := defra.NewBlockHandler(td.Node, cfg.Indexer.MaxDocsPerTxn)
+	blockHandler, err := defra.NewBlockHandler(td.Node, cfg.Indexer.MaxDocsPerTxn, converter.Collections().Prefix(), cfg.Chain.ChainID)
 	require.NoError(t, err)
 
 	return fetcher, converter, blockHandler

@@ -489,7 +489,7 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 	}
 	enteredSeam := make(chan struct{}, 1)
 	original := newBlockHandlerFn
-	newBlockHandlerFn = func(_ *node.Node, _ int) (*defra.BlockHandler, error) {
+	newBlockHandlerFn = func(_ *node.Node, _ int, _ string, _ uint64) (*defra.BlockHandler, error) {
 		select {
 		case enteredSeam <- struct{}{}:
 		default:

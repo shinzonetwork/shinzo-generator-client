@@ -2,11 +2,14 @@ package defra
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,12 +38,64 @@ func TestMain(m *testing.M) {
 func TestNewBlockHandler_NilNode(t *testing.T) {
 	t.Parallel()
 	// Test that nil node returns error.
-	handler, err := NewBlockHandler(nil, 1000)
+	handler, err := NewBlockHandler(nil, 1000, testChainPrefix, testChainID)
 	if err == nil {
 		t.Error("Expected error for nil node, got nil")
 	}
 	if handler != nil {
 		t.Error("Expected handler to be nil for nil node")
+	}
+}
+
+func TestNewBlockHandler_EmptyChainPrefix(t *testing.T) {
+	t.Parallel()
+	td := testutils.SetupTestDefraDB(t)
+
+	handler, err := NewBlockHandler(td.Node, 1000, "", testChainID)
+	require.Error(t, err)
+	assert.Nil(t, handler)
+}
+
+// The expected bytes are the reference vector for every implementation that
+// rebuilds the payload to verify a block signature.
+func TestSignaturePayload(t *testing.T) {
+	t.Parallel()
+	merkleRoot := make([]byte, 32)
+	for i := range merkleRoot {
+		merkleRoot[i] = byte(i + 1)
+	}
+
+	payload, err := signaturePayload("Ethereum__Mainnet", 1, 26293834, "0x"+strings.Repeat("ab", 32), 3, merkleRoot)
+	require.NoError(t, err)
+	want := "0011457468657265756d5f5f4d61696e6e6574" + // chain prefix
+		"0000000000000001" + // chain ID
+		"000000000191364a" + // block number
+		"0042307861626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162" + // block hash
+		"0000000000000003" + // CID count
+		"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20" // Merkle root
+	assert.Equal(t, want, hex.EncodeToString(payload))
+}
+
+func TestSignaturePayload_UnencodableField(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		chainPrefix string
+		blockNumber int64
+		blockHash   string
+		cidCount    int
+	}{
+		{name: "Negative block number", chainPrefix: "Ethereum__Mainnet", blockNumber: -1, blockHash: "0xab", cidCount: 1},
+		{name: "Negative CID count", chainPrefix: "Ethereum__Mainnet", blockNumber: 1, blockHash: "0xab", cidCount: -1},
+		{name: "Chain prefix too long", chainPrefix: strings.Repeat("a", math.MaxUint16+1), blockNumber: 1, blockHash: "0xab", cidCount: 1},
+		{name: "Block hash too long", chainPrefix: "Ethereum__Mainnet", blockNumber: 1, blockHash: strings.Repeat("a", math.MaxUint16+1), cidCount: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := signaturePayload(tt.chainPrefix, 1, tt.blockNumber, tt.blockHash, tt.cidCount, make([]byte, 32))
+			require.ErrorIs(t, err, errSignaturePayloadField)
+		})
 	}
 }
 
@@ -433,13 +488,13 @@ func TestNewBlockHandler_ZeroMaxDocs(t *testing.T) {
 	// by verifying both the nil-node error path and the default logic.
 
 	// With nil node, verify the error is returned regardless of maxDocsPerTxn
-	_, err := NewBlockHandler(nil, 0)
+	_, err := NewBlockHandler(nil, 0, testChainPrefix, testChainID)
 	require.Error(t, err, "NewBlockHandler(nil, 0) should return error")
 
-	_, err = NewBlockHandler(nil, -1)
+	_, err = NewBlockHandler(nil, -1, testChainPrefix, testChainID)
 	require.Error(t, err, "NewBlockHandler(nil, -1) should return error")
 
-	_, err = NewBlockHandler(nil, -100)
+	_, err = NewBlockHandler(nil, -100, testChainPrefix, testChainID)
 	require.Error(t, err, "NewBlockHandler(nil, -100) should return error")
 }
 

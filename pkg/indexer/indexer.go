@@ -298,7 +298,8 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	}
 
 	// 5. Create block handler (was done in adapter.Init)
-	i.blockHandler, err = newBlockHandlerFn(i.defraNode, cfg.Indexer.MaxDocsPerTxn)
+	i.blockHandler, err = newBlockHandlerFn(i.defraNode, cfg.Indexer.MaxDocsPerTxn,
+		i.converter.Collections().Prefix(), cfg.Chain.ChainID)
 	if err != nil {
 		return fmt.Errorf("failed to create block handler: %w", err)
 	}
