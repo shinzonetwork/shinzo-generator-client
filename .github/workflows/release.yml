@@ -28,13 +28,6 @@ jobs:
           go-version-file: 'go.mod'
       - run: make build
 
-      - name: Verify version injection
-        run: |
-          grep -aFq "${{ github.ref_name }}" bin/block_poster || {
-            echo "❌ version injection failed: binary lacks ${{ github.ref_name }} — refusing to publish"
-            exit 1
-          }
-
       - name: Extract chain and network from tag
         id: meta
         run: |
@@ -42,8 +35,21 @@ jobs:
           SUFFIX="${TAG#v*.*.*-}"
           NETWORK="${SUFFIX##*-}"
           CHAIN="${SUFFIX%-*}"
+          case "$CHAIN" in
+            tron) BINPATH=./cmd/block_poster/tron; BINFILE=bin/block_poster_tron ;;
+            *)    BINPATH=./cmd/block_poster/evm; BINFILE=bin/block_poster_evm ;;
+          esac
           echo "chain=$CHAIN" >> $GITHUB_OUTPUT
           echo "network=$NETWORK" >> $GITHUB_OUTPUT
+          echo "binpath=$BINPATH" >> $GITHUB_OUTPUT
+          echo "binfile=$BINFILE" >> $GITHUB_OUTPUT
+
+      - name: Verify version injection
+        run: |
+          grep -aFq "${{ github.ref_name }}" ${{ steps.meta.outputs.binfile }} || {
+            echo "❌ version injection failed: ${{ steps.meta.outputs.binfile }} lacks ${{ github.ref_name }} — refusing to publish"
+            exit 1
+          }
 
       - name: Build and push Docker image
         run: |
@@ -59,7 +65,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: bin/block_poster
+          files: ${{ steps.meta.outputs.binfile }}
           generate_release_notes: true
           tag_name: ${{ github.ref_name }}
           draft: false

@@ -16,15 +16,18 @@ go mod download
 make build
 ```
 
-The compiled binary goes into `./bin`.
+The compiled binaries go into `./bin`: `block_poster_evm` (EVM) and `block_poster_tron` (Tron). Both share one runner; each binary registers its chain adapter at startup.
 
 ## Useful commands
 
 | Command | What it does |
 | --- | --- |
-| `make build` | Build the generator binary (standard mode). |
-| `make start` | Run the compiled binary for Ethereum. |
+| `make build` | Build both generator binaries. |
+| `make evm-build` | Build only the EVM generator binary (`bin/block_poster_evm`). |
+| `make tron-build` | Build only the Tron generator binary (`bin/block_poster_tron`). |
+| `make evm-start` | Run the compiled EVM binary. |
 | `make start-bsc` | Run the compiled binary for BSC. |
+| `make tron-start` | Run the compiled Tron binary with `config/config-tron.yml`. |
 | `make test` | Run all tests with a summary. |
 | `make integration-test` | Run mock and live integration tests. The mock phase covers the EVM and Tron suites; the Tron live smoke runs when `TRON_RPC_URL` is set. |
 | `make ethereum-live-test` | Run live integration tests for Ethereum |
@@ -37,3 +40,5 @@ The compiled binary goes into `./bin`.
 | `make clean` | Remove build artifacts. |
 | `make stop` | Stop running generator and DefraDB processes. |
 | `make help` | Show all available targets. |
+
+To manage schemas for the Tron adapter without building anything, `go run ./cmd/build_schema --adapter tron` works as well.

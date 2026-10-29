@@ -7,7 +7,7 @@ Open an issue to discuss your proposed change before submitting a PR. This avoid
 ## Making changes
 
 ```plaintext
-cmd/                 Application entry point (block_poster)
+cmd/                 Per-chain binary entry points (block_poster: evm/ and tron/ sharing internal/app)
 config/              YAML + env-var configuration loading and build-time version
 pkg/
   constants/         Collection name helpers
