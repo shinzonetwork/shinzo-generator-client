@@ -26,11 +26,12 @@ The compiled binary goes into `./bin`.
 | `make start` | Run the compiled binary for Ethereum. |
 | `make start-bsc` | Run the compiled binary for BSC. |
 | `make test` | Run all tests with a summary. |
-| `make integration-test` | Run the fast mock integration suite (embedded DefraDB, synthetic data, no chain endpoint). |
+| `make integration-test` | Run mock and live integration tests. The mock phase covers the EVM and Tron suites; the Tron live smoke runs when `TRON_RPC_URL` is set. |
 | `make ethereum-live-test` | Run live integration tests for Ethereum |
 | `make bsc-live-test` | Run live integration tests for BSC |
 | `make bsc-bench-fetch` | Captures replay fixture for BSC acceptance test from BSC RPC |
 | `make bsc-acceptance-test` | Run replay acceptance test for BSC |
+| `make tron-live-test` | Run the Tron live smoke against `TRON_RPC_URL` (wallet-API base URL, for example `https://nile.trongrid.io`; optional `TRON_SOLIDITY_RPC_URL` and `TRON_API_KEY`). Fails fast with a setup hint when the variable is unset. |
 | `make coverage` | Generate an HTML coverage report. |
 | `make node-status` | Check connectivity and current block number for a blockchain node. Probes Ethereum-compatible JSON-RPC endpoints via `eth_blockNumber`; the Generator itself is chain-agnostic and accepts any compatible JSON-RPC/WebSocket endpoint. |
 | `make clean` | Remove build artifacts. |
