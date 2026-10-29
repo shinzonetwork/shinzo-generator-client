@@ -344,7 +344,8 @@ func toInt64(v any) (int64, error) {
 // Processing is fail-fast: the first group stamp or write failure stops the
 // remaining groups, since a skipped parent would leave its dependents written
 // without links. The block signature is created over the collected CIDs when
-// signing identity is available.
+// signing identity is available. A BlockLast result is written by
+// storeBlockLast instead.
 func (h *BlockHandler) Store(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -353,20 +354,16 @@ func (h *BlockHandler) Store(
 		return nil, errors.NewConfigurationError("defra", "Store",
 			"store requires embedded DefraDB node", "", nil)
 	}
-	if len(result.Groups) == 0 {
-		return nil, fmt.Errorf("no document groups to store")
+	if result.BlockLast {
+		return h.storeBlockLast(ctx, result)
 	}
 
-	blockGroup := result.Groups[0]
-	if len(blockGroup.Docs) == 0 {
-		return nil, fmt.Errorf("no block document in groups")
-	}
-	blockData := blockGroup.Docs[0]
-	blockInt, err := toInt64(blockData[blockGroup.BlockNumField])
+	blockInt, blockHash, err := blockNumberAndHash(result)
 	if err != nil {
-		return nil, fmt.Errorf("invalid block number: %w", err)
+		return nil, err
 	}
-	blockHash, _ := blockData[blockGroup.BlockHashField].(string)
+	blockGroup := result.Groups[0]
+	blockData := blockGroup.Docs[0]
 
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
@@ -434,6 +431,25 @@ func (h *BlockHandler) Store(
 	}
 
 	return creationResult, nil
+}
+
+// blockNumberAndHash returns the block number and hash from the block document, the first
+// document of the first group.
+func blockNumberAndHash(result chains.ConversionResult) (int64, string, error) {
+	if len(result.Groups) == 0 {
+		return 0, "", fmt.Errorf("no document groups to store")
+	}
+	blockGroup := result.Groups[0]
+	if len(blockGroup.Docs) == 0 {
+		return 0, "", fmt.Errorf("no block document in groups")
+	}
+	blockData := blockGroup.Docs[0]
+	blockInt, err := toInt64(blockData[blockGroup.BlockNumField])
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid block number: %w", err)
+	}
+	blockHash, _ := blockData[blockGroup.BlockHashField].(string)
+	return blockInt, blockHash, nil
 }
 
 // stampBlockGroup stamps the block group before its write when the conversion
@@ -877,25 +893,9 @@ func (h *BlockHandler) waitForCIDs(ctx context.Context, blockNumber int64, allDo
 // docCount is the number of documents the CIDs cover and is used only for logging.
 // signatureCollection names the collection where the signature document is stored.
 func (h *BlockHandler) signBlockOverCIDs(ctx context.Context, blockNumber int64, blockHash string, docCount int, cids []cid.Cid, signatureCollection string) (string, error) {
-	collector := node.NewBatchCIDCollector()
-	for _, c := range cids {
-		collector.Add(c)
-	}
-
-	blockSig, err := h.signBatchFn(ctx, blockNumber, blockHash, collector)
+	blockSig, err := h.signBlock(ctx, blockNumber, blockHash, cids)
 	if err != nil {
-		return "", fmt.Errorf("failed to sign block: %w", err) //nolint: err113
-	}
-	if blockSig == nil {
-		return "", fmt.Errorf("signing returned nil (no identity?)") //nolint: err113
-	}
-
-	// The signature must verify over the CIDs it is about to attest. A failure means signing
-	// produced an inconsistent signature, so it is not stored.
-	if valid, verifyErr := h.verifyBatchSigFn(blockSig, blockNumber, blockHash, cids); verifyErr != nil {
-		return "", fmt.Errorf("verify block signature: %w", verifyErr) //nolint: err113
-	} else if !valid {
-		return "", fmt.Errorf("block signature failed self-verification") //nolint: err113
+		return "", err
 	}
 
 	sigTxn, err := h.db.NewTxn(false)
@@ -930,6 +930,186 @@ func (h *BlockHandler) signBlockOverCIDs(ctx context.Context, blockNumber int64,
 		blockNumber, docCount, len(cids), truncate(string(blockSig.Header.Identity), 16)) //nolint:mnd
 
 	return docID, nil
+}
+
+// signBlock signs the block over cids and checks the signature verifies over them. A signature
+// that does not verify means signing produced an inconsistent signature, so it is never stored.
+func (h *BlockHandler) signBlock(ctx context.Context, blockNumber int64, blockHash string, cids []cid.Cid) (*node.BatchSignature, error) {
+	collector := node.NewBatchCIDCollector()
+	for _, c := range cids {
+		collector.Add(c)
+	}
+
+	blockSig, err := h.signBatchFn(ctx, blockNumber, blockHash, collector)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign block: %w", err) //nolint: err113
+	}
+	if blockSig == nil {
+		return nil, fmt.Errorf("signing returned nil (no identity?)") //nolint: err113
+	}
+
+	if valid, verifyErr := h.verifyBatchSigFn(blockSig, blockNumber, blockHash, cids); verifyErr != nil {
+		return nil, fmt.Errorf("verify block signature: %w", verifyErr) //nolint: err113
+	} else if !valid {
+		return nil, fmt.Errorf("block signature failed self-verification") //nolint: err113
+	}
+	return blockSig, nil
+}
+
+// storeBlockLast writes the other groups first and then, in one transaction, the block document
+// and the block signature, so a stored block document always means a complete, signed block. A
+// block that cannot be signed leaves no block document. Documents a failed attempt left at the
+// height are purged first; a height that already has a block document is reported as existing and
+// left untouched.
+func (h *BlockHandler) storeBlockLast(ctx context.Context, result chains.ConversionResult) (*BlockCreationResult, error) {
+	blockInt, blockHash, err := blockNumberAndHash(result)
+	if err != nil {
+		return nil, err
+	}
+	blockGroup := result.Groups[0]
+	stored, err := h.queryCollectionDocIDs(ctx, blockGroup.Collection, blockGroup.BlockNumField, blockInt, blockInt)
+	if err != nil {
+		return nil, err
+	}
+	if len(stored) > 0 {
+		return nil, fmt.Errorf("block already exists") //nolint:err113
+	}
+	if err := h.purgeLeftovers(ctx, result.Groups[1:], blockInt); err != nil {
+		return nil, err
+	}
+
+	collector := node.NewBatchCIDCollector()
+	ctx = node.ContextWithBatchSigning(ctx, collector)
+	creation := &BlockCreationResult{
+		BlockNumber:              blockInt,
+		BlockSignatureCollection: result.SignatureCollection,
+		OtherDocIDs:              map[string][]string{},
+	}
+	docCount := 1
+	for _, g := range result.Groups[1:] {
+		ids, err := h.writeGroup(ctx, blockInt, g)
+		if err != nil {
+			return nil, err
+		}
+		creation.OtherDocIDs[g.Collection] = append(creation.OtherDocIDs[g.Collection], ids...)
+		docCount += len(ids)
+	}
+
+	if err := h.commitBlock(ctx, result, blockInt, blockHash, docCount, collector, creation); err != nil {
+		return nil, err
+	}
+	if h.docIDTracker != nil {
+		if err := h.docIDTracker.TrackBlock(ctx, blockInt, creation); err != nil {
+			logger.Sugar.Warnf("Failed to track docIDs for block %d: %v", blockInt, err)
+		}
+	}
+	return creation, nil
+}
+
+// commitBlock adds the block document, signs every collected CID and adds the block signature, in
+// one transaction. It records the two document IDs in creation.
+func (h *BlockHandler) commitBlock(ctx context.Context, result chains.ConversionResult, blockInt int64, blockHash string, docCount int, collector *node.BatchCIDCollector, creation *BlockCreationResult) error {
+	txn, err := h.db.NewTxn(false)
+	if err != nil {
+		return fmt.Errorf("create txn for block %d: %w", blockInt, err)
+	}
+	defer txn.Discard()
+
+	blockGroup := result.Groups[0]
+	blockCol, err := txnCollection(ctx, txn, blockGroup.Collection)
+	if err != nil {
+		return err
+	}
+	blockDoc, err := client.NewDocFromMap(ctx, blockGroup.Docs[0], blockCol.Version())
+	if err != nil {
+		return fmt.Errorf("build block document %d: %w", blockInt, err)
+	}
+	if err := blockCol.AddDocument(ctx, blockDoc); err != nil {
+		return fmt.Errorf("add block document %d: %w", blockInt, err)
+	}
+
+	cids := collector.GetCIDs()
+	if len(cids) != docCount {
+		return fmt.Errorf("block %d: collected %d CIDs for %d documents", blockInt, len(cids), docCount) //nolint:err113
+	}
+	blockSig, err := h.signBlock(ctx, blockInt, blockHash, cids)
+	if err != nil {
+		return err
+	}
+	sigCol, err := txnCollection(ctx, txn, result.SignatureCollection)
+	if err != nil {
+		return err
+	}
+	sigDoc, err := h.buildBlockSignatureDocument(ctx, blockSig, blockHash, blockInt, sigCol, sortedCIDStrings(cids))
+	if err != nil {
+		return fmt.Errorf("failed to build block signature document: %w", err)
+	}
+	if err := sigCol.AddDocument(ctx, sigDoc); err != nil {
+		return fmt.Errorf("failed to create block signature document: %w", err)
+	}
+	if err := txn.Commit(); err != nil {
+		return fmt.Errorf("commit block %d: %w", blockInt, err)
+	}
+
+	creation.BlockID = blockDoc.ID().String()
+	creation.BlockSignatureID = sigDoc.ID().String()
+	logger.Sugar.Infof("Block %d: signed (%d docs, %d CIDs, identity: %s...)",
+		blockInt, docCount, len(cids), truncate(string(blockSig.Header.Identity), 16)) //nolint:mnd
+	return nil
+}
+
+// purgeLeftovers hard-purges the documents the groups' collections hold at blockNumber. It runs
+// only for a height with no block document, where they can only be what a failed attempt left. A
+// soft-deleted document cannot be added again, so they are purged.
+func (h *BlockHandler) purgeLeftovers(ctx context.Context, groups []chains.DocumentGroup, blockNumber int64) error {
+	for _, g := range groups {
+		ids, err := h.queryCollectionDocIDs(ctx, g.Collection, g.BlockNumField, blockNumber, blockNumber)
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		docIDs := make([]client.DocID, 0, len(ids))
+		for _, id := range ids {
+			docID, err := client.NewDocIDFromString(id)
+			if err != nil {
+				return fmt.Errorf("parse docID %s: %w", id, err)
+			}
+			docIDs = append(docIDs, docID)
+		}
+		txn, err := h.db.NewTxn(false)
+		if err != nil {
+			return fmt.Errorf("create txn to purge block %d: %w", blockNumber, err)
+		}
+		col, err := txnCollection(ctx, txn, g.Collection)
+		if err != nil {
+			txn.Discard()
+			return err
+		}
+		if err := col.PurgeByDocIDs(ctx, docIDs, false); err != nil {
+			txn.Discard()
+			return fmt.Errorf("purge %d documents a failed attempt left in %s at block %d: %w", len(docIDs), g.Collection, blockNumber, err)
+		}
+		if err := txn.Commit(); err != nil {
+			return fmt.Errorf("commit purge at block %d: %w", blockNumber, err)
+		}
+		logger.Sugar.Warnf("Block %d: purged %d documents a failed attempt left in %s", blockNumber, len(docIDs), g.Collection)
+	}
+	return nil
+}
+
+// txnCollection returns the collection named name bound to txn. A collection from
+// txn.GetCollectionByName writes outside the transaction; one from GetCollections writes inside it.
+func txnCollection(ctx context.Context, txn client.Txn, name string) (client.Collection, error) {
+	cols, err := txn.GetCollections(ctx, options.GetCollections().SetCollectionName(name))
+	if err != nil {
+		return nil, fmt.Errorf("get collection %s: %w", name, err)
+	}
+	if len(cols) == 0 {
+		return nil, fmt.Errorf("get collection %s: %w", name, client.ErrCollectionNotFound)
+	}
+	return cols[0], nil
 }
 
 func truncate(s string, n int) string {

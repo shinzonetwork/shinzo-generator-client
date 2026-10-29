@@ -269,6 +269,10 @@ type ConversionResult struct {
 	Groups              []DocumentGroup
 	SignatureCollection string
 	LinkStamper         LinkStamper
+	// BlockLast asks BlockHandler.Store to write the other groups first and the block document
+	// last, in one transaction with the block signature, so a stored block document always means
+	// a complete, signed block. Only for groups that do not link to the block document.
+	BlockLast bool
 }
 
 // ChainFactories bundles all chain-specific factory functions for a single

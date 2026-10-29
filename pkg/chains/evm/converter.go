@@ -153,7 +153,8 @@ func (c *Converter) Convert(
 
 // convertTokens builds the tokens-mode groups: the block's Header, then one
 // group per listed contract with logs in the block, in address order. Token
-// documents carry no links, so the result has no LinkStamper.
+// documents carry no links, so the result has no LinkStamper, and the header
+// can be written last as the block's commit.
 func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.ConversionResult, error) {
 	if bundle.Block.Header == nil {
 		return chains.ConversionResult{}, fmt.Errorf("converter: block %d has no decoded header", blockInt)
@@ -201,6 +202,7 @@ func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.C
 	return chains.ConversionResult{
 		Groups:              groups,
 		SignatureCollection: c.collections.BlockSignature,
+		BlockLast:           true,
 	}, nil
 }
 
