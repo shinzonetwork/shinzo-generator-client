@@ -577,6 +577,9 @@ func (i *ChainIndexer) runConcurrentIndexing(
 		cfg.Indexer.ConcurrentBlocks,
 		cfg.Indexer.BlocksPerMinute,
 	)
+	if cfg.Chain.Mode == config.ChainModeTokens {
+		processor.DispatchFinalizedOnly()
+	}
 
 	headCtx, stopHead := context.WithCancel(ctx)
 	var headWg sync.WaitGroup

@@ -26,6 +26,10 @@ const (
 	// DispatchThrottleDelay is the delay when the processor is too far ahead of committed blocks.
 	DispatchThrottleDelay = 100 * time.Millisecond
 
+	// FinalizedPollInterval is how often dispatch asks for the finalized height once it has reached
+	// it, or while the fetcher cannot report one.
+	FinalizedPollInterval = time.Second
+
 	// transactionConflictRetryBaseDelay is the base delay for retrying
 	// transaction conflicts on store.
 	transactionConflictRetryBaseDelay = 50 * time.Millisecond
@@ -203,6 +207,11 @@ type ConcurrentBlockProcessor struct {
 	pendingMu       sync.Mutex
 	pending         map[int64]*BlockResult
 	nextToCommit    int64
+
+	// finalizedOnly bounds dispatch at the fetcher's finalized height. finalized is the last
+	// height the fetcher reported; only the dispatch loop uses it.
+	finalizedOnly bool
+	finalized     int64
 
 	// bounded store pool: the collector never calls Store. Fetch/convert
 	// workers hand checked results to storeChan, pool goroutines run
@@ -1387,6 +1396,37 @@ func gapFallbackSignal(storedHash string, next *BlockResult) (reorgSignal, bool)
 	}, true
 }
 
+// DispatchFinalizedOnly bounds dispatch at the height the fetcher reports as finalized, so no
+// block a reorg can still replace is indexed. Call it before ProcessBlocks.
+func (p *ConcurrentBlockProcessor) DispatchFinalizedOnly() {
+	p.finalizedOnly = true
+}
+
+// waitForFinalized returns once the fetcher reports height as finalized, asking every
+// FinalizedPollInterval, or with ctx's error once ctx is done.
+func (p *ConcurrentBlockProcessor) waitForFinalized(ctx context.Context, height int64) error {
+	for height > p.finalized {
+		finalized, err := p.fetcher.FetchFinalizedBlockNumber(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			logger.Sugar.Warnf("Block %d waits for dispatch: finalized height unknown: %v", height, err)
+		} else {
+			p.finalized = finalized
+			if height <= finalized {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(FinalizedPollInterval):
+		}
+	}
+	return nil
+}
+
 // dispatchLoop sends block numbers to workChan with optional rate limiting.
 func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock int64, workChan chan int64, shutdown func()) error {
 	var minInterval time.Duration
@@ -1425,6 +1465,13 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 				return ctx.Err()
 			case <-time.After(DispatchThrottleDelay):
 				continue
+			}
+		}
+
+		if p.finalizedOnly {
+			if err := p.waitForFinalized(ctx, nextBlock); err != nil {
+				shutdown()
+				return err
 			}
 		}
 

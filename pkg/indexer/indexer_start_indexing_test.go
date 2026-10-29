@@ -718,6 +718,35 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	assert.True(t, indexer.shouldIndex)
 }
 
+// In tokens mode the indexer fetches no block above the finalized height.
+func TestRunConcurrentIndexing_TokensModeDispatchesFinalizedOnly(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+	td := testutils.SetupTestDefraDB(t)
+
+	fetcher := &testutils.MockFetcher{
+		FetchFinalizedBlockNumberFn: func(context.Context) (int64, error) { return 5000, nil },
+	}
+	converter := chainConverter()
+	handler, err := defra.NewBlockHandler(td.Node, 1000, converter.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	indexer := &ChainIndexer{
+		cfg: &config.Config{
+			Chain:   config.ChainConfig{Mode: config.ChainModeTokens},
+			Indexer: config.IndexerConfig{ConcurrentBlocks: 2},
+		},
+		fetcher:      fetcher,
+		converter:    converter,
+		blockHandler: handler,
+		defraNode:    td.Node,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg), context.DeadlineExceeded)
+	assert.Empty(t, fetcher.FetchBlockCalls)
+}
+
 // ---------------------------------------------------------------------------
 // StartIndexing — GetHighestStoredBlockNumber succeeds with pre-populated DB.
 // Strategy: Run one indexer to populate a block, stop it, then create a new,

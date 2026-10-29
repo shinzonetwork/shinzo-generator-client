@@ -32,6 +32,8 @@ type rpcClient interface {
 	GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error)
 	GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
 	GetFinalizedBlockNumber(ctx context.Context) (int64, error)
+	// GetFinalizedHeight returns the finalized tag's height, with no fallback.
+	GetFinalizedHeight(ctx context.Context) (int64, error)
 	Close() error
 }
 
@@ -69,6 +71,9 @@ type Fetcher struct {
 	dialTimeout time.Duration
 	// chainID is the chain ID Connect requires the endpoint to report.
 	chainID uint64
+	// finalizedOnly makes FetchFinalizedBlockNumber report the finalized tag only, without the
+	// safe fallback.
+	finalizedOnly bool
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -103,6 +108,7 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		dialTimeout:    time.Duration(cfg.Geth.DialTimeoutSeconds) * time.Second,
 		chainID:        cfg.Chain.ChainID,
 		receiptWorkers: receiptWorkers,
+		finalizedOnly:  cfg.Chain.Mode == config.ChainModeTokens,
 	}, nil
 }
 
@@ -211,10 +217,14 @@ func (f *Fetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chai
 
 // FetchFinalizedBlockNumber implements chains.Fetcher. It returns the
 // finalized chain height (the client falls back to the safe height when the
-// finalized tag is unavailable), used as the floor of the reorg walk-back.
+// finalized tag is unavailable, except in tokens mode), used as the floor of
+// the reorg walk-back and, in tokens mode, as the dispatch ceiling.
 func (f *Fetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
 	if f.client == nil {
 		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchFinalizedBlockNumber")
+	}
+	if f.finalizedOnly {
+		return f.client.GetFinalizedHeight(ctx)
 	}
 	return f.client.GetFinalizedBlockNumber(ctx)
 }

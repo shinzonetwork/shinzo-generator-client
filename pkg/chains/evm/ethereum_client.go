@@ -375,6 +375,12 @@ func (c *EthereumClient) GetFinalizedBlockNumber(ctx context.Context) (int64, er
 	return 0, fmt.Errorf("finalized block number unavailable: %w; safe fallback also failed: %w", finalizedErr, safeErr)
 }
 
+// GetFinalizedHeight returns the height the node reports for the finalized tag, with no
+// fallback: a node that cannot report it returns an error.
+func (c *EthereumClient) GetFinalizedHeight(ctx context.Context) (int64, error) {
+	return c.headerNumberForTag(ctx, ethrpc.FinalizedBlockNumber)
+}
+
 // headerNumberForTag resolves a special block tag ("finalized", "safe") to
 // its height via a header-only eth_getBlockByNumber fetch. A nil header or a
 // header without a block number is malformed and reported as an error rather
