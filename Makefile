@@ -25,6 +25,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
 	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
+	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
 	elif grep -aFq "$(VERSION)" bin/block_poster; then \
@@ -165,7 +166,7 @@ stop:
 # replay-fetch captures a raw replay fixture via the chain-agnostic
 # cmd/fetch_blocks CLI (one-time; needs a real endpoint). FROM/TO are
 # overridable block numbers; the default captures 100 blocks ending at the
-# current tip. Fixtures land in benchmarking/testdata/ (gitignored) as
+# current tip. Fixtures land in replay/testdata/ (gitignored) as
 # ethereum_blocks_<from>_<to>.json.
 replay-fetch:
 	@if [ -z "$(GETH_RPC_URL)" ]; then \

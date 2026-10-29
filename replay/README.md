@@ -1,10 +1,10 @@
 # Replay Testing — Hot Tip-Indexing Acceptance
 
-Answers the question **"can we index a chian blocks at the tip"** with a hard,
+Answers the question **"can we index a chain's blocks at the tip"** with a hard,
 repeatable verdict: capture real blocks once, replay them through the
 production pipeline and orchestration on any machine, and assert the
-effective per-block interval stays within the chain's block time (12 seconds on Ethereum; 450 ms on
-BSC mainnet since the Fermi hardfork, Jan 2026 /).
+effective per-block interval stays within the chain's block time (12 seconds on Ethereum;
+450 ms on BSC mainnet since the Fermi hardfork in January 2026).
 
 ```
 capture (one-time, needs a real endpoint)          acceptance (make ethereum-acceptance-test)
@@ -38,8 +38,8 @@ export GETH_RPC_URL=https://your-node-archival-node:8545   # GETH_* names are hi
 export GETH_API_KEY=...                          # optional
 export GETH_API_KEY_TYPE=x-api-key               # optional header name
 
-make build                              # produces ./bin/fetch_blocks (loads .env itself)
-./bin/fetch_blocks --chain ethreum --network mainnet --from 126050700 --to 126050850
+make build                              # produces ./bin/block_poster and ./bin/fetch_blocks (loads .env itself)
+./bin/fetch_blocks --chain ethereum --network mainnet --from 24001000 --to 24001150
 
 make replay-fetch                    # same, via go run (100 blocks ending at the current tip)
 make replay-fetch FROM=1000 TO=1099  # explicit range
@@ -68,7 +68,7 @@ Semantics:
   partial fixture (`capture_partial: true` in the meta).
 - Saves atomically (temp file + rename).
 - Fixtures land in the shared `replay/testdata/` directory named
-  `<chain>_blocks_<from>_<to>.json` (ethereum_blocks_4901_5000.json`), so fixtures
+  `<chain>_blocks_<from>_<to>.json` (`ethereum_blocks_4901_5000.json`), so fixtures
   for other chains coexist side by side. The name is derived from the
   fixture's final range at save time, so an interrupted capture is saved as
   `<chain>_blocks_<from>_<last-captured>_partial.json`: it never promises
@@ -87,8 +87,9 @@ make ethereum-acceptance-test
   `replay/testdata/ethereum_blocks_*.json` is used. **Missing fixture →
   the test skips** with regeneration instructions.
 - `ETHEREUM_REPLAY_MAX_BLOCKS=50` caps the sample for slow hosts.
-- `ETHEREUM_TARGET_BLOCK_TIME=750ms` overrides the target block interval (e.g. for
-  a Maxwell-era fixture); the default is `450ms`.
+- `ETHEREUM_TARGET_BLOCK_TIME=10s` overrides the target block interval (e.g. to
+  stress a slow host against a tighter gate); the default is `12s`, Ethereum
+  mainnet's block time.
 - `ETHEREUM_REPLAY_PRUNER=off` / `ETHEREUM_REPLAY_SNAPSHOT=off` disable the background
   services (both are on by default, see below).
 - `ETHEREUM_REPLAY_PRUNER_INTERVAL_SECONDS` (10), `ETHEREUM_REPLAY_PRUNER_MAX_BLOCKS`
@@ -176,20 +177,20 @@ answers *"does it hold with the network in the loop"*.
 
 ```
 ====================================================================================================
-Blocks Replayed: 126050700 - 126050850   (151 blocks)
+Blocks Replayed: 24001000 - 24001150   (151 blocks)
 Concurrent Blocks: 1
-Total Time:  44.184471515s
-Target Throughput:  450ms  / block
-Effective Throughput:  292.612394ms / block
-Headroom:    35.0%
-Network Latency Budget: 157.387606ms / block
+Total Time:  24m52.184471515s
+Target Throughput:  12s  / block
+Effective Throughput:  9.871239644s / block
+Headroom:    17.7%
+Network Latency Budget:  2.128760356s / block
 ____________________________________________________________________________________________________
 Sequential Block Processing Stats:
- -  Average Block Time:  292.231173ms
- -  Average Phase Times:  fetch 2.1ms || convert 41ms || store 553ms
- -  Min: 125.270292ms || p50: 257.144167ms || p95: 517.100084ms || Max: 1.356533708s
+ -  Average Block Time:  9.856173644s
+ -  Average Phase Times:  fetch 2.1ms || convert 41ms || store 9.6s
+ -  Min: 7.852322104s || p50: 9.718181802s || p95: 11.342512257s || Max: 12.9185s
  - Outliers:
-    - 126050782 - 1.356533708s - +367.4% vs avg
+    - 24001082 - 12.918533708s - +30.9% vs avg
 ====================================================================================================
 Pruner: 51 blocks / 53882 docs across 3 cycles
  - Pruning Duration: 4.2s total, 1.4s average, 2.1s max

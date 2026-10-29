@@ -265,13 +265,13 @@ func resolveFixturePath(t *testing.T) string {
 	return newest
 }
 
-// resolveTargetBlockTime parses ETHEREUM_TARGET_BLOCK_TIME when set (e.g. 750ms
-// for a Maxwell-era fixture) and falls back to the current mainnet interval.
+// resolveTargetBlockTime parses ETHEREUM_TARGET_BLOCK_TIME when set (e.g. 10s
+// to gate a slow host harder) and falls back to the current mainnet interval.
 func resolveTargetBlockTime(t *testing.T) time.Duration {
 	t.Helper()
 	if raw := os.Getenv("ETHEREUM_TARGET_BLOCK_TIME"); raw != "" {
 		d, err := time.ParseDuration(raw)
-		require.NoError(t, err, "invalid ETHEREUM_TARGET_BLOCK_TIME %q: want a duration like 450ms or 750ms", raw)
+		require.NoError(t, err, "invalid ETHEREUM_TARGET_BLOCK_TIME %q: want a duration like 10s or 12s", raw)
 		return d
 	}
 	return defaultTargetBlockTime
