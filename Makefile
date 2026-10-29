@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check tron-live-test
+.PHONY: deps env build evm-build tron-build evm-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test tron-live-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help replay-fetch ethereum-acceptance-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -27,19 +27,46 @@ TRON_API_KEY ?=
 # commit offset and dirty state; falls back to "dev" outside a git repo).
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
+LDFLAGS := -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)"
+
 build:
-	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
+	go build $(LDFLAGS) -o bin/block_poster_evm ./cmd/block_poster/evm
+	go build $(LDFLAGS) -o bin/block_poster_tron ./cmd/block_poster/tron
 	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
-	elif grep -aFq "$(VERSION)" bin/block_poster; then \
+	elif grep -aFq "$(VERSION)" bin/block_poster_evm && grep -aFq "$(VERSION)" bin/block_poster_tron; then \
 		echo "✅ version injected: $(VERSION)"; \
 	else \
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
 	fi
 
-start:
-	./bin/block_poster
+evm-build:
+	go build $(LDFLAGS) -o bin/block_poster_evm ./cmd/block_poster/evm
+	@if [ "$(VERSION)" = "dev" ]; then \
+		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+	elif grep -aFq "$(VERSION)" bin/block_poster_evm; then \
+		echo "✅ version injected: $(VERSION)"; \
+	else \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
+	fi
+
+tron-build:
+	go build $(LDFLAGS) -o bin/block_poster_tron ./cmd/block_poster/tron
+	@if [ "$(VERSION)" = "dev" ]; then \
+		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+	elif grep -aFq "$(VERSION)" bin/block_poster_tron; then \
+		echo "✅ version injected: $(VERSION)"; \
+	else \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
+	fi
+
+evm-start:
+	./bin/block_poster_evm
+
+
+tron-start:
+	./bin/block_poster_tron -config config/config-tron.yml
 
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
@@ -214,7 +241,9 @@ help:
 	@echo "=================================================="
 	@echo ""
 	@echo "📦 Build & Test:"
-	@echo "  build              - Build the generator binary"
+	@echo "  build              - Build the generator binaries (block_poster_evm + block_poster_tron)"
+	@echo "  evm-build          - Build only the evm generator binary (block_poster_evm)"
+	@echo "  tron-build         - Build only the tron generator binary (block_poster_tron)"
 	@echo "  test               - Run all tests with summary"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
@@ -233,7 +262,8 @@ help:
 	@echo ""
 	@echo "🏃 Services:"
 	@echo "  defra-start        - Start DefraDB"
-	@echo "  start              - Start the generator"
+	@echo "  evm-start          - Start the generator (evm binary)"
+	@echo "  tron-start         - Start the tron generator (block_poster_tron)"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
