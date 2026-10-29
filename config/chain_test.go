@@ -84,6 +84,7 @@ func TestValidateConfig_ChainMode(t *testing.T) {
 		name      string
 		mode      string
 		contracts []string
+		snapshots bool
 		wantErr   error
 	}{
 		{name: "full by default", mode: ""},
@@ -95,6 +96,8 @@ func TestValidateConfig_ChainMode(t *testing.T) {
 		{name: "short address", mode: ChainModeTokens, contracts: []string{"0x8d0d"}, wantErr: ErrInvalidContractAddress},
 		{name: "non-hex address", mode: ChainModeTokens, contracts: []string{"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0g"}, wantErr: ErrInvalidContractAddress},
 		{name: "same address twice", mode: ChainModeTokens, contracts: []string{usd1, "8D0D000EE44948FC98C9B98A4FA4921476F08B0D"}, wantErr: ErrInvalidContractAddress},
+		{name: "snapshots in full mode", mode: ChainModeFull, snapshots: true},
+		{name: "snapshots in tokens mode", mode: ChainModeTokens, contracts: []string{usd1}, snapshots: true, wantErr: ErrSnapshotsInTokensMode},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,6 +105,7 @@ func TestValidateConfig_ChainMode(t *testing.T) {
 			cfg := &Config{Chain: testChain}
 			cfg.Chain.Mode = tt.mode
 			cfg.Chain.Contracts = tt.contracts
+			cfg.Snapshot.Enabled = tt.snapshots
 			cfg.DefraDB.Embedded = true
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			require.ErrorIs(t, validateConfig(cfg), tt.wantErr)

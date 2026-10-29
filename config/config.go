@@ -39,6 +39,10 @@ var ErrInvalidContracts = errors.New("chain.contracts must list at least one con
 // listed twice.
 var ErrInvalidContractAddress = errors.New("chain.contracts must hold distinct 20-byte hex addresses")
 
+// ErrSnapshotsInTokensMode is returned when snapshots are enabled in tokens mode, whose schema has
+// no SnapshotSignature table to sign them in.
+var ErrSnapshotsInTokensMode = errors.New("snapshot.enabled must be false in tokens mode")
+
 // Chain modes. Full mode indexes every block, transaction, log and access-list entry. Tokens mode
 // indexes block headers and the logs of chain.contracts only.
 const (
@@ -336,6 +340,9 @@ func validateConfig(cfg *Config) error {
 	}
 	if err := validateChainMode(cfg.Chain); err != nil {
 		return err
+	}
+	if cfg.Chain.Mode == ChainModeTokens && cfg.Snapshot.Enabled {
+		return ErrSnapshotsInTokensMode
 	}
 
 	if cfg.Indexer.StartHeight < 0 {
