@@ -43,7 +43,7 @@ make build                              # produces ./bin/block_poster and ./bin/
 
 make replay-fetch                    # same, via go run (100 blocks ending at the current tip)
 make replay-fetch FROM=1000 TO=1099  # explicit range
-go run ./cmd/fetch_blocks --out my_fixture.json  # custom path
+go run ./cmd/fetch_blocks --chain ethereum --network mainnet --out my_fixture.json  # custom path
 go run ./cmd/fetch_blocks --chain arbitrum --network mainnet  # any EVM-compatible chain
 ```
 
@@ -53,9 +53,10 @@ Semantics:
   receipt/state history, which pruned/full nodes only serve near the tip.
   Pointing `GETH_RPC_URL` at a non-archival node fails deeper captures with
   null blocks or missing receipts.
-- **Chain agnostic**: `--chain` (default `ethereum`) and `--network` (default
-  `mainnet`) only label the fixture and derive its filename; the capture is
-  plain EVM-compatible JSON-RPC, so any compatible endpoint works.
+- **Chain agnostic**: the required `--chain` and `--network` flags only label
+  the fixture and derive its filename (no defaults: a silently prefilled chain
+  would name the fixture after a chain the suite's glob never finds); the
+  capture is plain EVM-compatible JSON-RPC, so any compatible endpoint works.
 - Stores the node's `eth_getBlockByNumber(full=true)` and receipt result bytes
   **verbatim**, so the replay mock serves exactly what the node served.
 - Prefers `eth_getBlockReceipts`; falls back to per-transaction

@@ -97,15 +97,18 @@ func TestHexNum(t *testing.T) {
 
 func TestParseFlags(t *testing.T) {
 	t.Parallel()
-	t.Run("defaults", func(t *testing.T) {
+	t.Run("chain is required", func(t *testing.T) {
 		t.Parallel()
-		opts, err := parseFlags([]string{})
-		require.NoError(t, err)
-		assert.Equal(t, defaultChain, opts.chain)
-		assert.Equal(t, defaultNetwork, opts.network)
-		assert.Equal(t, uint64(0), opts.from)
-		assert.Equal(t, uint64(0), opts.to)
-		assert.Equal(t, defaultDelay, opts.delay)
+		_, err := parseFlags([]string{"--network", "Mainnet"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--chain is required")
+	})
+
+	t.Run("network is required", func(t *testing.T) {
+		t.Parallel()
+		_, err := parseFlags([]string{"--chain", "ethereum"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--network is required")
 	})
 
 	t.Run("explicit chain and network", func(t *testing.T) {
@@ -114,20 +117,23 @@ func TestParseFlags(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "arbitrum", opts.chain)
 		assert.Equal(t, "testnet", opts.network)
+		assert.Equal(t, uint64(0), opts.from)
+		assert.Equal(t, uint64(0), opts.to)
+		assert.Equal(t, defaultDelay, opts.delay)
 	})
 
 	t.Run("empty chain rejected", func(t *testing.T) {
 		t.Parallel()
 		_, err := parseFlags([]string{"--chain", " "})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--chain must not be empty")
+		assert.Contains(t, err.Error(), "--chain is required")
 	})
 
 	t.Run("empty network rejected", func(t *testing.T) {
 		t.Parallel()
-		_, err := parseFlags([]string{"--network", ""})
+		_, err := parseFlags([]string{"--chain", "ethereum", "--network", ""})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--network must not be empty")
+		assert.Contains(t, err.Error(), "--network is required")
 	})
 }
 
@@ -173,8 +179,8 @@ func TestFixtureRoundTrip(t *testing.T) {
 	// bytes intact: the replay mock serves exactly what the node served.
 	original := replayFixture{
 		Meta: fixtureMeta{
-			Chain:      defaultChain,
-			Network:    defaultNetwork,
+			Chain:      "ethereum",
+			Network:    "mainnet",
 			From:       10,
 			To:         11,
 			BlockCount: 2,
@@ -211,9 +217,9 @@ func TestFixtureRoundTrip(t *testing.T) {
 
 func TestSaveFixtureAtomic(t *testing.T) {
 	t.Parallel()
-	out := t.TempDir() + "/nested/" + fixturePrefix(defaultChain) + "1_2" + fixtureExt
+	out := t.TempDir() + "/nested/" + fixturePrefix("BSC") + "1_2" + fixtureExt
 	fx := &replayFixture{
-		Meta:   fixtureMeta{Chain: defaultChain, From: 1, To: 2, BlockCount: 1},
+		Meta:   fixtureMeta{Chain: "BSC", From: 1, To: 2, BlockCount: 1},
 		Blocks: []fixtureBlock{{Number: "0x1", Block: json.RawMessage(`{}`)}},
 	}
 
@@ -487,7 +493,7 @@ func TestCaptureRangeNamesCompleteFixture(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	server := captureTestServer(t, zeroTxBlock)
-	opts := &captureOptions{chain: defaultChain, network: defaultNetwork, delay: time.Millisecond}
+	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
 	require.NoError(t, captureRange(context.Background(), testEnv(server), opts, 1, 1))
 
 	// A complete capture keeps the plain range name — no _partial suffix.
@@ -512,7 +518,7 @@ func TestCaptureRangeInterruptSavesPartialFixture(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	opts := &captureOptions{chain: defaultChain, network: defaultNetwork, delay: time.Millisecond}
+	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
 	require.NoError(t, captureRange(ctx, testEnv(server), opts, 10, 12))
 
 	out := filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt)

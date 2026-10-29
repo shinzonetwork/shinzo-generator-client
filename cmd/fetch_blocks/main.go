@@ -62,11 +62,6 @@ const (
 	receiptModeBatch = "batch"
 	receiptModePerTx = "per-tx"
 
-	// defaultChain/defaultNetwork prefill the chain-agnostic --chain and
-	// --network flags; they only label the fixture, never the transport.
-	defaultChain   = "BSC"
-	defaultNetwork = "Mainnet"
-
 	// maxErrorBodyBytes bounds how much of an error response body is
 	// echoed into error messages.
 	maxErrorBodyBytes = 1024
@@ -232,8 +227,11 @@ func sanitizeLogLabel(s string) string {
 func parseFlags(args []string) (*captureOptions, error) {
 	opts := &captureOptions{}
 	fs := flag.NewFlagSet("fetch_blocks", flag.ContinueOnError)
-	fs.StringVar(&opts.chain, "chain", defaultChain, "chain name labelling the fixture (e.g. BSC)")
-	fs.StringVar(&opts.network, "network", defaultNetwork, "network name labelling the fixture (e.g. Mainnet)")
+	// chain/network have no defaults: the fixture filename is derived from
+	// --chain, so a silently prefilled chain would let a bare run of the
+	// binary drop a fixture the acceptance suite's glob never finds.
+	fs.StringVar(&opts.chain, "chain", "", "chain name labelling the fixture (required; e.g. BSC)")
+	fs.StringVar(&opts.network, "network", "", "network name labelling the fixture (required; e.g. Mainnet)")
 	fs.Uint64Var(&opts.from, "from", 0, "first block to capture (0 = defaultBlockCount blocks ending at --to or the tip)")
 	fs.Uint64Var(&opts.to, "to", 0, "last block to capture (0 = the current tip)")
 	fs.StringVar(&opts.out, "out", "", fmt.Sprintf("output fixture path (default %s/<chain>_<from>_<to>%s)", defaultOutDir, fixtureExt))
@@ -245,10 +243,10 @@ func parseFlags(args []string) (*captureOptions, error) {
 	// A blank chain or network would corrupt the fixture identity and its
 	// filename, so reject it up front rather than mid-capture.
 	if strings.TrimSpace(opts.chain) == "" {
-		return nil, fmt.Errorf("--chain must not be empty")
+		return nil, fmt.Errorf("--chain is required (it labels the fixture and derives its filename)")
 	}
 	if strings.TrimSpace(opts.network) == "" {
-		return nil, fmt.Errorf("--network must not be empty")
+		return nil, fmt.Errorf("--network is required (it labels the fixture)")
 	}
 	return opts, nil
 }
