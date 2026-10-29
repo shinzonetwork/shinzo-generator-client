@@ -290,6 +290,27 @@ func (q *IndexerQueue) Drain(keep int, blockCollectionName, blockSigCollectionNa
 	return q.buildDrainResult(drained, drainCount, blockCollectionName, blockSigCollectionName)
 }
 
+// DiscardUpTo removes and counts the entries for blocks at or below
+// blockNumber. Entries are not required to be sorted; surviving entries keep
+// their relative order. After a range prune the queue must not hold entries
+// for deleted blocks, or the next Drain purges and counts them again.
+func (q *IndexerQueue) DiscardUpTo(blockNumber int64) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	kept := q.entries[:0]
+	removed := 0
+	for _, entry := range q.entries {
+		if entry.BlockNumber <= blockNumber {
+			removed++
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	q.entries = kept
+	return removed
+}
+
 // buildDrainResult rebuilds DocIDsByCollection from the drained entries:
 // block docIDs under the block collection name, batch-sig docIDs under the
 // block-signature collection name, and all OtherDocIDs under their own keys.
