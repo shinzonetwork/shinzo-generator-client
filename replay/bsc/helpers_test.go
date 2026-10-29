@@ -93,28 +93,43 @@ func loadReplayFixture(t *testing.T, path string) *replayFixture {
 // bytes verbatim. Batch-mode blocks answer eth_getBlockReceipts; per-tx-mode
 // blocks answer eth_getTransactionReceipt and report the batch call as
 // unsupported, mirroring the node the fixture was captured from.
+// eth_getBlockReceipts resolves by content hash (the production client pins
+// receipts to the block hash, pkgs/chains/evm/ethereum_client.go), so blocks
+// are additionally indexed by hash; a real Geth/BSC node serves
+// eth_getTransactionReceipt for every tx regardless of capture mode, so all
+// receipts land in the per-tx index and the fetcher's per-tx fallback works
+// for batch-mode blocks too.
 type replayRPCServer struct {
-	server      *httptest.Server
-	blocks      map[uint64]fixtureBlock
-	receipts    map[string]json.RawMessage // tx hash → verbatim receipt
-	batchBlocks map[uint64]bool            // numbers whose receipts were captured via eth_getBlockReceipts
+	server       *httptest.Server
+	blocks       map[uint64]fixtureBlock
+	blocksByHash map[string]uint64           // content hash → block number
+	receipts     map[string]json.RawMessage // tx hash → verbatim receipt
+	batchBlocks  map[uint64]bool            // numbers whose receipts were captured via eth_getBlockReceipts
 }
 
 // newReplayRPCServer indexes the fixture and starts the mock node.
 func newReplayRPCServer(fx *replayFixture) *replayRPCServer {
 	srv := &replayRPCServer{
-		blocks:      make(map[uint64]fixtureBlock, len(fx.Blocks)),
-		receipts:    make(map[string]json.RawMessage),
-		batchBlocks: make(map[uint64]bool),
+		blocks:       make(map[uint64]fixtureBlock, len(fx.Blocks)),
+		blocksByHash: make(map[string]uint64, len(fx.Blocks)),
+		receipts:     make(map[string]json.RawMessage),
+		batchBlocks:  make(map[uint64]bool),
 	}
 	for _, fb := range fx.Blocks {
 		if num, err := parseHexUint(fb.Number); err == nil {
 			srv.blocks[num] = fb
 			srv.batchBlocks[num] = fb.ReceiptMode == "batch"
+			// The captured block's own "hash" field indexes the by-hash
+			// route eth_getBlockReceipts takes; keys are lowercased so the
+			// lookup tolerates any checksumming the caller applies.
+			var blk struct {
+				Hash string `json:"hash"`
+			}
+			if json.Unmarshal(fb.Block, &blk) == nil && blk.Hash != "" {
+				srv.blocksByHash[strings.ToLower(blk.Hash)] = num
+			}
 		}
-		if fb.ReceiptMode == "per-tx" {
-			indexReceipts(srv.receipts, fb.Receipts)
-		}
+		indexReceipts(srv.receipts, fb.Receipts)
 	}
 
 	srv.server = httptest.NewServer(http.HandlerFunc(srv.handle))
@@ -177,7 +192,7 @@ func (s *replayRPCServer) dispatch(method string, params json.RawMessage) (json.
 		// The fixture's capture-time tip is the mock node's tip.
 		return json.RawMessage(`"` + hexNum(s.tip()) + `"`), nil
 	case "eth_getBlockByNumber":
-		num, err := s.paramBlockNumber(params)
+		num, err := s.paramBlockRef(params)
 		if err != nil {
 			return nil, err
 		}
@@ -187,20 +202,20 @@ func (s *replayRPCServer) dispatch(method string, params json.RawMessage) (json.
 		}
 		return fb.Block, nil
 	case "eth_getBlockReceipts":
-		num, err := s.paramBlockNumber(params)
+		num, err := s.paramBlockRef(params)
 		if err != nil {
 			return nil, err
 		}
-		if s.batchBlocks[num] {
-			return s.blocks[num].Receipts, nil
+		if !s.batchBlocks[num] {
+			return nil, fmt.Errorf("eth_getBlockReceipts is not supported by this node")
 		}
-		return nil, fmt.Errorf("eth_getBlockReceipts is not supported by this node")
+		return s.blocks[num].Receipts, nil
 	case "eth_getTransactionReceipt":
 		hash, err := s.paramHash(params)
 		if err != nil {
 			return nil, err
 		}
-		raw, ok := s.receipts[hash]
+		raw, ok := s.receipts[strings.ToLower(hash)]
 		if !ok {
 			return json.RawMessage("null"), nil
 		}
@@ -221,14 +236,16 @@ func (s *replayRPCServer) tip() uint64 {
 	return highest
 }
 
-// paramBlockNumber extracts the block number from the first params element,
+// paramBlockRef extracts the block locator from the first params element,
 // which may be a plain hex string (eth_getBlockByNumber sends
 // ["0x...", true]) or a BlockNumberOrHash object (eth_getBlockReceipts sends
-// [{"blockNumber":"0x..."}] or [{"blockHash":"0x..."}]).
-func (s *replayRPCServer) paramBlockNumber(params json.RawMessage) (uint64, error) {
+// [{"blockNumber":"0x..."}] or [{"blockHash":"0x..."}]). A blockHash resolves
+// through the by-hash fixture index, so the production client's pinned,
+// by-hash receipt fetches land on the same block they were captured with.
+func (s *replayRPCServer) paramBlockRef(params json.RawMessage) (uint64, error) {
 	var arr []json.RawMessage
 	if err := json.Unmarshal(params, &arr); err != nil || len(arr) == 0 {
-		return 0, fmt.Errorf("params %s: want [blockNumber, ...]", params)
+		return 0, fmt.Errorf("params %s: want [blockNumber|blockRef, ...]", params)
 	}
 
 	var hexStr string
@@ -247,7 +264,11 @@ func (s *replayRPCServer) paramBlockNumber(params json.RawMessage) (uint64, erro
 		return parseHexUint(obj.BlockNumber)
 	}
 	if obj.BlockHash != "" {
-		return 0, fmt.Errorf("blockHash %s unsupported: the fixture index resolves blocks by number", obj.BlockHash)
+		num, ok := s.blocksByHash[strings.ToLower(obj.BlockHash)]
+		if !ok {
+			return 0, fmt.Errorf("blockHash %s not found in the fixture index", obj.BlockHash)
+		}
+		return num, nil
 	}
 	return 0, fmt.Errorf("params %s: no blockNumber or blockHash", params)
 }
@@ -718,6 +739,17 @@ func (f *timedFetcher) FetchHighestBlockNumber(ctx context.Context) (int64, erro
 	return f.inner.FetchHighestBlockNumber(ctx)
 }
 
+// FetchBlockHeaderByHash and FetchFinalizedBlockNumber stay passthrough:
+// the processor only calls them on the reorg path (walk-back fork-point
+// reads), which is off the timed block pipeline.
+func (f *timedFetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chains.BlockHeader, error) {
+	return f.inner.FetchBlockHeaderByHash(ctx, hash)
+}
+
+func (f *timedFetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	return f.inner.FetchFinalizedBlockNumber(ctx)
+}
+
 func (f *timedFetcher) Close() error { return f.inner.Close() }
 
 // timedConverter wraps a chains.Converter, recording each block's convert
@@ -757,8 +789,6 @@ func (c *timedConverter) GetLowestStoredBlockNumber(ctx context.Context, n *node
 func (c *timedConverter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
 	return c.inner.GetDocIDsByBlockRange(ctx, n, from, to)
 }
-
-func (c *timedConverter) SignatureCollection() string { return c.inner.SignatureCollection() }
 
 // timedStorer wraps the processor's BlockStorer, closing each block's timing
 // window when its store lands. The processor's own extractBlockHash finds

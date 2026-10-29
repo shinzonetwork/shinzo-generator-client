@@ -144,8 +144,10 @@ func TestBSCReplayAcceptance(t *testing.T) {
 		&timedFetcher{inner: fetcher, timings: timings},
 		&timedConverter{inner: converter, timings: timings},
 		&timedStorer{inner: handler, timings: timings},
+		nil, // no reorgs in a replay: the contiguous fixture range cannot fork, and nil makes any detected reorg fatal instead
 		workers,
 		0, // pacing off: blocks_per_minute's rate limiter must not soak up the measurement
+
 	)
 
 	// The dispatcher runs to infinity; the run ends when the last fixture
@@ -393,13 +395,13 @@ func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Cont
 	first, last := int64(numbers[0]), int64(numbers[len(numbers)-1])
 	expected := processed - int(pruned)
 
-	blockCount, err := graphqlCountInRange(ctx, td.Node, mustBlockCollection(t, cols),
+	blockCount, err := graphqlCountInRange(ctx, td.Node, cols.BlockCollection(),
 		constants.NumberFieldName, first, last, processed+1)
 	require.NoError(t, err)
 	assert.Equal(t, expected, blockCount,
 		"block count in the stored range must equal blocks processed minus blocks the pruner removed (duplicate stores are rejected, so a mismatch means a block silently failed or was pruned unexpectedly)")
 
-	sigCount, err := graphqlCountInRange(ctx, td.Node, mustSignatureCollection(t, cols),
+	sigCount, err := graphqlCountInRange(ctx, td.Node, cols.BlockSignatureCollection(),
 		constants.BlockNumberFieldName, first, last, processed+1)
 	require.NoError(t, err)
 	// The pruner deletes a block's signature together with its docs (the
@@ -414,20 +416,4 @@ func assertCorrectness(t *testing.T, td *testutils.TestDefraDB, ctx context.Cont
 		expected, processed, pruned)
 	logger.Testf("✓ correctness: %d blocks stored, %d block signatures (expected %d blocks after pruning %d)",
 		blockCount, sigCount, expected, pruned)
-}
-
-// mustBlockCollection resolves the chain's block collection name.
-func mustBlockCollection(t *testing.T, cols chains.Collections) string {
-	t.Helper()
-	name, err := cols.GetCollection(chains.TypeBlock)
-	require.NoError(t, err)
-	return name
-}
-
-// mustSignatureCollection resolves the chain's block-signature collection name.
-func mustSignatureCollection(t *testing.T, cols chains.Collections) string {
-	t.Helper()
-	name, err := cols.GetCollection(chains.TypeBlockSignature)
-	require.NoError(t, err)
-	return name
 }
