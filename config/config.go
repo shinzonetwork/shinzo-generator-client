@@ -19,12 +19,16 @@ const CollectionName = "shinzo"
 // DefaultChainAdapter is the default chain adapter type, used when chain.adapter is unset.
 const DefaultChainAdapter = "evm"
 
+// TronChainAdapter is the non-EVM adapter name, used in the SupportedChainAdapters
+// allowlist and the tron-specific defaults.
+const TronChainAdapter = "tron"
+
 // DefaultTronDialTimeoutSeconds is the default HTTP client timeout for the Tron
 // wallet API when tron.dial_timeout_seconds is unset, zero or negative.
 const DefaultTronDialTimeoutSeconds = 10
 
 // SupportedChainAdapters lists every chain adapter validateConfig accepts.
-var SupportedChainAdapters = []string{DefaultChainAdapter, "tron"} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
+var SupportedChainAdapters = []string{DefaultChainAdapter, TronChainAdapter} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
@@ -272,14 +276,23 @@ func LoadConfig(path string) (*Config, error) {
 
 // applyDefaults sets default values for optional configuration.
 func applyDefaults(cfg *Config) {
+	// The adapter default comes first so the chain-name default below can
+	// follow the adapter: a Tron deployment that omits chain.name must not
+	// end up with Ethereum-prefixed collections built from tron SDL.
+	// The literals stay local to config: the depguard boundary forbids
+	// importing pkg/chains here, and "Ethereum" was hardcoded the same way.
+	if cfg.Chain.Adapter == "" {
+		cfg.Chain.Adapter = DefaultChainAdapter
+	}
 	if cfg.Chain.Name == "" {
-		cfg.Chain.Name = "Ethereum"
+		if cfg.Chain.Adapter == TronChainAdapter {
+			cfg.Chain.Name = "Tron"
+		} else {
+			cfg.Chain.Name = "Ethereum"
+		}
 	}
 	if cfg.Chain.Network == "" {
 		cfg.Chain.Network = "Mainnet"
-	}
-	if cfg.Chain.Adapter == "" {
-		cfg.Chain.Adapter = DefaultChainAdapter
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
@@ -322,7 +335,7 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("chain adapter %q not yet implemented: supported adapters are %s",
 			cfg.Chain.Adapter, strings.Join(SupportedChainAdapters, ", "))
 	}
-	if cfg.Chain.Adapter == "tron" && strings.TrimSpace(cfg.Tron.NodeURL) == "" {
+	if cfg.Chain.Adapter == TronChainAdapter && strings.TrimSpace(cfg.Tron.NodeURL) == "" {
 		return fmt.Errorf("tron adapter requires a non-empty tron.node_url (env: TRON_RPC_URL)")
 	}
 
