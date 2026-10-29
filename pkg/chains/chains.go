@@ -196,6 +196,10 @@ type Converter interface {
 	// persisted in DefraDB. Useful for pruning windows.
 	GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
 
+	// GetStoredBlockNumbers returns the number of every block persisted in
+	// DefraDB, in ascending order.
+	GetStoredBlockNumbers(ctx context.Context, n *node.Node) ([]int64, error)
+
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
 	GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)

@@ -532,6 +532,28 @@ func TestStoreWithRetry_SignersTracked(t *testing.T) {
 	}
 }
 
+// A block stored block-last already carries its signature, so storing it again signs nothing.
+func TestStoreWithRetry_StoredBlockLastIsNotSignedAgain(t *testing.T) {
+	t.Parallel()
+
+	var signed atomic.Int64
+	storer := &mockBlockStorer{
+		storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
+			return nil, errors.New("block already exists")
+		},
+		signExistingFn: func(_ context.Context, _ chains.ConversionResult, _ string, _ int64) (string, error) {
+			signed.Add(1)
+			return "mock-sig-id", nil
+		},
+	}
+	p := NewConcurrentBlockProcessor(nil, nil, storer, nil, 1, 0)
+
+	result := p.storeWithRetry(context.Background(), 5001, chains.ConversionResult{BlockLast: true})
+	p.signWg.Wait()
+	assert.True(t, result.Success)
+	assert.Zero(t, signed.Load())
+}
+
 // TestStoreWithRetry_PartialStoreErrorFailsBlockWithoutSigner proves a
 // partially-stored batch - Store's distinct "previously stored" error wrapped
 // inside "partially indexed with N batch errors" - fails the block

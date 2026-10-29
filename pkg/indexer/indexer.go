@@ -386,6 +386,10 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 // never consulted here; it intentionally retains rolled-back orphan heights
 // for the pruner's later local purge, so its highest entry would push resume
 // above the real DB tip.
+//
+// In tokens mode it resumes at the lowest height missing between the stored
+// blocks, so a height an interrupted run left unstored is indexed again, and
+// it never skips ahead to the chain tip.
 func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
 	var highestExisting int64
@@ -405,6 +409,13 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	startBuffer := int64(cfg.Indexer.StartBuffer)
 
 	switch {
+	case highestExisting > 0 && cfg.Chain.Mode == config.ChainModeTokens:
+		stored, err := i.converter.GetStoredBlockNumbers(ctx, i.defraNode)
+		if err != nil {
+			return 0, fmt.Errorf("list stored block numbers: %w", err)
+		}
+		cfg.Indexer.StartHeight = int(lowestGap(stored, highestExisting))
+		logger.Sugar.Infof("Resuming from block %d, the lowest height not stored (highest existing: %d, chain tip: %d)", cfg.Indexer.StartHeight, highestExisting, chainTip)
 	case highestExisting > 0:
 		resumeFrom := highestExisting + 1
 		gap := chainTip - highestExisting
@@ -422,6 +433,17 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	}
 
 	return int64(cfg.Indexer.StartHeight), nil
+}
+
+// lowestGap returns the lowest height missing between the first and last
+// entries of stored, which is sorted ascending, or highest+1 when none is.
+func lowestGap(stored []int64, highest int64) int64 {
+	for i := 1; i < len(stored); i++ {
+		if stored[i] > stored[i-1]+1 {
+			return stored[i-1] + 1
+		}
+	}
+	return highest + 1
 }
 
 // newSchemaAuthenticator builds the authenticator for the schema endpoint and

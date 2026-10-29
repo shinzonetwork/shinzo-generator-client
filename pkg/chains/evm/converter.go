@@ -380,6 +380,43 @@ func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node
 	return c.queryBlockNumber(ctx, n, "ASC", "GetLowestStoredBlockNumber", c.lowestBlockQueryLimit())
 }
 
+// GetStoredBlockNumbers implements chains.Converter. Like queryBlockNumber, it
+// filters on `_geq: 0` so rows a purge left without a number are not listed; a
+// listed row whose number does not parse is reported as
+// chains.ErrBlockNumberCorrupt.
+func (c *Converter) GetStoredBlockNumbers(ctx context.Context, n *node.Node) ([]int64, error) {
+	blockCol := c.collections.BlockCollection()
+	field := constants.NumberFieldName
+	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ASC}) { ` + field + ` }}`
+
+	result := n.DB.ExecRequest(ctx, query)
+	if len(result.GQL.Errors) > 0 {
+		return nil, errors.NewQueryFailed("defra", "GetStoredBlockNumbers", query, result.GQL.Errors[0])
+	}
+
+	data, _ := result.GQL.Data.(map[string]any)
+	var rows []map[string]any
+	switch typed := data[blockCol].(type) {
+	case []map[string]any:
+		rows = typed
+	case []any:
+		for _, r := range typed {
+			row, _ := r.(map[string]any)
+			rows = append(rows, row)
+		}
+	}
+
+	numbers := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		num, ok := parseBlockNumberRow(row)
+		if !ok {
+			return nil, fmt.Errorf("GetStoredBlockNumbers: %w (row %v)", chains.ErrBlockNumberCorrupt, row)
+		}
+		numbers = append(numbers, num)
+	}
+	return numbers, nil
+}
+
 // GetDocIDsByBlockRange implements chains.Converter. It returns document IDs
 // for every relevant collection whose block-number field falls in [from, to]
 // inclusive. SnapshotSignature is excluded; BlockSignature is included.

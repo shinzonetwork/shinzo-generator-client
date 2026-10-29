@@ -917,6 +917,46 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	t.Log("Phase 2 indexer resumed successfully from existing blocks")
 }
 
+// A tokens-mode restart resumes at the lowest unstored height and never skips ahead; full mode
+// skips ahead when the gap to the tip exceeds the start buffer.
+func TestResolveStartHeight(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		mode   string
+		stored []int64
+		want   int64
+	}{
+		{"tokens mode, gap below the highest", config.ChainModeTokens, []int64{100, 101, 103, 104}, 102},
+		{"tokens mode, no gap", config.ChainModeTokens, []int64{100, 101, 102}, 103},
+		{"full mode", config.ChainModeFull, []int64{100, 101, 102}, 990},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := &ChainIndexer{
+				converter: &testutils.MockConverter{
+					GetHighestStoredBlockNumberFn: func(context.Context, *node.Node) (int64, error) {
+						return tc.stored[len(tc.stored)-1], nil
+					},
+					GetStoredBlockNumbersFn: func(context.Context, *node.Node) ([]int64, error) { return tc.stored, nil },
+				},
+				fetcher: &testutils.MockFetcher{
+					FetchHighestBlockNumberFn: func(context.Context) (int64, error) { return 1000, nil },
+				},
+			}
+			cfg := &config.Config{
+				Chain:   config.ChainConfig{Mode: tc.mode},
+				Indexer: config.IndexerConfig{StartBuffer: 10},
+			}
+
+			got, err := indexer.resolveStartHeight(context.Background(), cfg)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------.
 // StartIndexing — init-stage errors (Issue 1: ERROR_PATH_RESOURCE_CLEANUP).
 // Asserts that when NewBlockHandler or WaitForDefraDB fails, the deferred

@@ -1699,10 +1699,11 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 // storeWithRetry persists a ConversionResult via the block handler from the
 // bounded store pool. Transaction conflicts are retried up to MaxRPCRetries
 // times with transactionConflictRetryBaseDelay backoff; ErrAlreadyExists is
-// the routine idempotent path - a fire-and-forget SignExisting goroutine and
-// success - since content-derived dockeys can only collide on byte-identical
-// content (the differing-content stale-stored case the old backstop targeted
-// is covered by the seed and gap-fallback continuity rules instead).
+// the routine idempotent path - success, plus a fire-and-forget SignExisting
+// goroutine unless the block was stored block-last - since content-derived
+// dockeys can only collide on byte-identical content (the differing-content
+// stale-stored case the old backstop targeted is covered by the seed and
+// gap-fallback continuity rules instead).
 func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum int64, result chains.ConversionResult) *BlockResult {
 	blockHash := extractBlockHash(result.Groups)
 
@@ -1723,11 +1724,14 @@ func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum 
 		}
 
 		if errors.IsErrAlreadyExists(err) {
-			p.signWg.Go(func() {
-				if _, sErr := p.blockHandler.SignExisting(ctx, result, blockHash, blockNum); sErr != nil {
-					logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, sErr)
-				}
-			})
+			// A block stored block-last was committed with its signature.
+			if !result.BlockLast {
+				p.signWg.Go(func() {
+					if _, sErr := p.blockHandler.SignExisting(ctx, result, blockHash, blockNum); sErr != nil {
+						logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, sErr)
+					}
+				})
+			}
 			return &BlockResult{BlockNum: blockNum, Hash: blockHash, Success: true}
 		}
 
