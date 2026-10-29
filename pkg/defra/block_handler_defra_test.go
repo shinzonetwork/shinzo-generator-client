@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"maps"
+	"math/big"
 	"slices"
 	"testing"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	cid "github.com/ipfs/go-cid"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
@@ -1559,8 +1561,10 @@ func tokenNode(t *testing.T) (*testutils.TestDefraDB, *evm.Converter) {
 func storeTokenBlock(t *testing.T, td *testutils.TestDefraDB, conv *evm.Converter) (docIDs []string, signed []cid.Cid) {
 	t.Helper()
 	const txHash = "0xddd1000000000000000000000000000000000000000000000000000000000001"
+	block := mockBlock("0x7D0") // 2000
+	block.Header = &ethtypes.Header{Number: big.NewInt(2000), Difficulty: big.NewInt(0)}
 	result, err := conv.Convert(context.Background(), &evm.BlockBundle{
-		Block:        mockBlock("0x7D0"), // 2000
+		Block:        block,
 		Transactions: []*evm.Transaction{mockTransaction(txHash, "2000")},
 		Receipts:     []*evm.TransactionReceipt{mockReceipt(txHash, "0x7D0")},
 	})

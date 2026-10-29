@@ -578,6 +578,7 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *Block {
 		MixHash:          gethBlock.MixDigest().Hex(),
 		Uncles:           uncles,
 		Transactions:     transactions,
+		Header:           gethBlock.Header(),
 	}
 }
 

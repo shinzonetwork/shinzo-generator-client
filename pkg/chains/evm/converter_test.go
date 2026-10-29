@@ -2,12 +2,18 @@ package evm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
+	"math/big"
+	"os"
 	"reflect"
 	"slices"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -590,6 +596,7 @@ func TestConvert_TokenMode(t *testing.T) {
 	txHash := fakeHash("tx-1")
 	tx := fakeTx(txHash)
 	block := fakeBlockWithTxs(42, tx)
+	block.Header = &ethtypes.Header{Number: big.NewInt(42), Difficulty: big.NewInt(0)}
 	receipt := fakeReceipt(txHash, 42)
 	for i, addr := range []string{listedA, unlisted, listedB, listedA} {
 		receipt.Logs = append(receipt.Logs, Log{Address: addr, BlockNumber: "0x2a", BlockHash: block.Hash, TransactionHash: txHash, LogIndex: i})
@@ -603,7 +610,9 @@ func TestConvert_TokenMode(t *testing.T) {
 
 	require.Len(t, result.Groups, 3)
 	assert.Equal(t, "Bsc__Mainnet__Header", result.Groups[0].Collection)
-	assert.Equal(t, []map[string]any{c.buildBlockData(block, 42)}, result.Groups[0].Docs)
+	headerData, err := buildHeaderData(block.Header)
+	require.NoError(t, err)
+	assert.Equal(t, []map[string]any{headerData}, result.Groups[0].Docs)
 	assert.Equal(t, "Bsc__Mainnet__ContractLog_aa00000000000000000000000000000000000001", result.Groups[1].Collection)
 	assert.Equal(t, []map[string]any{c.buildLogData(&receipt.Logs[0]), c.buildLogData(&receipt.Logs[3])}, result.Groups[1].Docs)
 	assert.Equal(t, "Bsc__Mainnet__ContractLog_bb00000000000000000000000000000000000002", result.Groups[2].Collection)
@@ -614,6 +623,54 @@ func TestConvert_TokenMode(t *testing.T) {
 	result, err = c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
 	require.Len(t, result.Groups, 1)
+
+	block.Header = nil
+	_, err = c.Convert(context.Background(), bundle)
+	require.Error(t, err)
+}
+
+// The Header document must hold every field the block hash covers, in a form that decodes back
+// into the header. Each fixture is a node's eth_getBlockByNumber result without its transaction
+// and withdrawal lists.
+func TestBuildHeaderData_DecodesToTheBlockHash(t *testing.T) {
+	t.Parallel()
+	for _, file := range []string{"testdata/ethereum_mainnet_header.json", "testdata/bsc_mainnet_header.json"} {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+			raw, err := os.ReadFile(file)
+			require.NoError(t, err)
+			var node struct {
+				Hash common.Hash `json:"hash"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &node))
+			var header ethtypes.Header
+			require.NoError(t, json.Unmarshal(raw, &header))
+			require.Equal(t, node.Hash, header.Hash(), "the fixture decodes to the node's hash")
+
+			doc, err := buildHeaderData(&header)
+			require.NoError(t, err)
+			assert.Equal(t, node.Hash.Hex(), doc[constants.HashFieldName])
+			assert.Equal(t, node.Hash, decodeHeaderDoc(t, doc).Hash())
+
+			doc["stateRoot"] = common.Hash{}.Hex()
+			assert.NotEqual(t, node.Hash, decodeHeaderDoc(t, doc).Hash(), "an altered field changes the hash")
+		})
+	}
+}
+
+// decodeHeaderDoc decodes a Header document back into a header, as a reader of the table does:
+// number is stored as an Int and go-ethereum reads it as a hex quantity.
+func decodeHeaderDoc(t *testing.T, doc map[string]any) *ethtypes.Header {
+	t.Helper()
+	fields := maps.Clone(doc)
+	n, ok := fields[constants.NumberFieldName].(int64)
+	require.True(t, ok)
+	fields[constants.NumberFieldName] = hexutil.EncodeUint64(uint64(n))
+	raw, err := json.Marshal(fields)
+	require.NoError(t, err)
+	var header ethtypes.Header
+	require.NoError(t, json.Unmarshal(raw, &header))
+	return &header
 }
 
 func TestGetHighestStoredBlockNumber_NoBlocks(t *testing.T) {

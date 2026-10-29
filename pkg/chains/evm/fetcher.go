@@ -154,6 +154,15 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch block %d receipts: %w", height, err)
 	}
+	// block.Hash is computed from the decoded header, so it is the node's hash only if decoding
+	// kept every header field. The receipts are fetched and checked against that hash, which
+	// proves it for a block with transactions; a block without any is checked by fetching its
+	// header by that hash.
+	if len(block.Transactions) == 0 {
+		if _, err := f.client.GetHeaderByHash(ctx, block.Hash); err != nil {
+			return nil, fmt.Errorf("block %d: node has no header with hash %s: %w", height, block.Hash, err)
+		}
+	}
 	return &BlockBundle{
 		Block:        block,
 		Transactions: transactions,

@@ -2,10 +2,12 @@ package evm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -94,7 +96,7 @@ func (c *Converter) Convert(
 		return chains.ConversionResult{}, fmt.Errorf("converter: parse block number: %w", err)
 	}
 	if c.collections.tokenMode() {
-		return c.convertTokens(bundle, blockInt), nil
+		return c.convertTokens(bundle, blockInt)
 	}
 
 	blockData := c.buildBlockData(bundle.Block, blockInt)
@@ -152,11 +154,19 @@ func (c *Converter) Convert(
 // convertTokens builds the tokens-mode groups: the block's Header, then one
 // group per listed contract with logs in the block, in address order. Token
 // documents carry no links, so the result has no LinkStamper.
-func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) chains.ConversionResult {
+func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.ConversionResult, error) {
+	if bundle.Block.Header == nil {
+		return chains.ConversionResult{}, fmt.Errorf("converter: block %d has no decoded header", blockInt)
+	}
+	headerData, err := buildHeaderData(bundle.Block.Header)
+	if err != nil {
+		return chains.ConversionResult{}, fmt.Errorf("converter: block %d header: %w", blockInt, err)
+	}
+
 	defaultBatch := c.maxDocsPerTxn()
 	groups := []chains.DocumentGroup{{
 		Collection:      c.collections.Header,
-		Docs:            []map[string]any{c.buildBlockData(bundle.Block, blockInt)},
+		Docs:            []map[string]any{headerData},
 		BatchSize:       defaultBatch,
 		BlockNumField:   constants.NumberFieldName,
 		BlockHashField:  constants.HashFieldName,
@@ -191,7 +201,24 @@ func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) chains.Co
 	return chains.ConversionResult{
 		Groups:              groups,
 		SignatureCollection: c.collections.BlockSignature,
+	}, nil
+}
+
+// buildHeaderData builds the Header document: every field of h under the name
+// and in the encoding go-ethereum's JSON gives it, so the document decodes back
+// into a header that hashes to the block hash. The number is stored as an Int
+// for the height index.
+func buildHeaderData(h *ethtypes.Header) (map[string]any, error) {
+	raw, err := json.Marshal(h)
+	if err != nil {
+		return nil, err
 	}
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, err
+	}
+	data[constants.NumberFieldName] = h.Number.Int64()
+	return data, nil
 }
 
 // maxDocsPerTxn returns the configured default batch size for BlockHandler.

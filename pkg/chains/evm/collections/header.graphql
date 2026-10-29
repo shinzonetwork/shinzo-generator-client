@@ -1,22 +1,28 @@
+# Every field of go-ethereum's types.Header under its JSON name, so a document decodes back into
+# the header and re-hashes to hash. number is an Int for the height index; the rest are strings.
 type Ethereum__Mainnet__Header {
-    hash: String
-    number: Int @index
-    timestamp: String
     parentHash: String
-    difficulty: String
-    totalDifficulty: String
-    gasUsed: String
-    gasLimit: String
-    baseFeePerGas: String
-    nonce: String
-    miner: String
-    size: String
-    stateRoot: String
     sha3Uncles: String
+    miner: String
+    stateRoot: String
     transactionsRoot: String
     receiptsRoot: String
     logsBloom: String
+    difficulty: String
+    number: Int @index
+    gasLimit: String
+    gasUsed: String
+    timestamp: String
     extraData: String
     mixHash: String
-    uncles: [String]
+    nonce: String
+    baseFeePerGas: String
+    withdrawalsRoot: String
+    blobGasUsed: String
+    excessBlobGas: String
+    parentBeaconBlockRoot: String
+    requestsHash: String
+    blockAccessListHash: String
+    slotNumber: String
+    hash: String
 }

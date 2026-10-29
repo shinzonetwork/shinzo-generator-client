@@ -56,6 +56,8 @@ const (
 	testChainID = 1
 	// ethGetTransactionReceipt is used in tests to identify the transaction receipt RPC call.
 	ethGetTransactionReceipt = "eth_getTransactionReceipt"
+	// ethGetBlockByHash is used in tests to identify the block-by-hash RPC call.
+	ethGetBlockByHash = "eth_getBlockByHash"
 
 	testDefraURL         = "http://localhost:9181"
 	testDefraRandomURL   = "127.0.0.1:0"

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
@@ -345,6 +346,28 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 	assert.Equal(t, block, bundle.Block)
 	assert.Empty(t, bundle.Transactions)
 	assert.Empty(t, bundle.Receipts)
+}
+
+// A block without transactions has no receipts to tie its hash to the node, so the node must
+// know the block by that hash.
+func TestFetcher_FetchBlock_NoTransactionsUnknownHash(t *testing.T) {
+	t.Parallel()
+
+	blockNum := int64(100)
+	block := fakeBlock(blockNum)
+	var asked string
+	client := &fakeRPCClient{
+		block:          block,
+		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {}},
+		headerByHashFn: func(_ context.Context, hash string) (*ethtypes.Header, error) {
+			asked = hash
+			return nil, ethereum.NotFound
+		},
+	}
+
+	_, err := NewFetcher(client, 8).FetchBlock(context.Background(), blockNum)
+	require.ErrorIs(t, err, ethereum.NotFound)
+	assert.Equal(t, block.Hash, asked)
 }
 
 func TestFetcher_FetchBlock_ReceiptHashMismatchFallsBack(t *testing.T) {

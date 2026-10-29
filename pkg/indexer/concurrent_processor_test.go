@@ -263,6 +263,8 @@ func TestFetchAndConvertBlock_RetryThenSuccess(t *testing.T) {
 					return fullBlockResponse(tc.blockHex, nil), nil
 				case ethGetBlockReceipts:
 					return []any{}, nil
+				case ethGetBlockByHash:
+					return fullBlockResponse(tc.blockHex, nil), nil
 				default:
 					return "0x1", nil
 				}
@@ -322,6 +324,8 @@ func TestStoreWithRetry_DuplicateBlock(t *testing.T) {
 					return fullBlockResponse(tc.blockHex, nil), nil
 				case ethGetBlockReceipts:
 					return []any{}, nil
+				case ethGetBlockByHash:
+					return fullBlockResponse(tc.blockHex, nil), nil
 				default:
 					return "0x1", nil
 				}
@@ -393,6 +397,8 @@ func TestStoreWithRetry_ConcurrentConflict(t *testing.T) {
 					return fullBlockResponse(tc.blockHex, nil), nil
 				case ethGetBlockReceipts:
 					return []any{}, nil
+				case ethGetBlockByHash:
+					return fullBlockResponse(tc.blockHex, nil), nil
 				default:
 					return "0x1", nil
 				}
@@ -580,6 +586,8 @@ func TestStoreWithRetry_ContextCancelDuringConflictRetry(t *testing.T) {
 			return fullBlockResponse("0xdead1", nil), nil
 		case ethGetBlockReceipts:
 			return []any{}, nil
+		case ethGetBlockByHash:
+			return fullBlockResponse("0xdead1", nil), nil
 		default:
 			return "0x1", nil
 		}
@@ -893,6 +901,8 @@ func TestProcessBlocks_ErrorAndExisting(t *testing.T) {
 					return fullBlockResponse(tc.blockHex, nil), nil
 				case ethGetBlockReceipts:
 					return []any{}, nil
+				case ethGetBlockByHash:
+					return fullBlockResponse(tc.blockHex, nil), nil
 				default:
 					return "0x1", nil
 				}

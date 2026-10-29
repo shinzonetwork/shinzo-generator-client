@@ -1,5 +1,7 @@
 package evm
 
+import ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 // AccessListEntry represents an access list entry for EIP-2930 transactions.
 type AccessListEntry struct {
 	Address     string   `json:"address"`
@@ -44,6 +46,9 @@ type Block struct {
 	MixHash          string        `json:"mixHash"`
 	Uncles           []string      `json:"uncles"`
 	Transactions     []Transaction `json:"transactions,omitempty"`
+
+	// Header is the header as go-ethereum decoded it, holding every field the block hash covers.
+	Header *ethtypes.Header `json:"-"`
 }
 
 // Transaction represents an Ethereum transaction.
