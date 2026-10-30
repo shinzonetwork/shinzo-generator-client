@@ -5,16 +5,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestRun_DefaultSchema(t *testing.T) {
+func TestRun_EthereumMainnetSchema(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	require.NoError(t, run([]string{"build_schema"}, &buf))
+	require.NoError(t, run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet"}, &buf))
 	sdl := buf.String()
 	assert.NotEmpty(t, sdl)
 	for _, typeName := range evm.DefaultCollections() {
@@ -25,7 +26,7 @@ func TestRun_DefaultSchema(t *testing.T) {
 func TestRun_WithChain(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	require.NoError(t, run([]string{"build_schema", "--chain", "Arbitrum"}, &buf))
+	require.NoError(t, run([]string{"build_schema", "--chain", "Arbitrum", "--network", "Mainnet"}, &buf))
 	sdl := buf.String()
 	assert.NotEmpty(t, sdl)
 	assert.NotContains(t, sdl, evm.DefaultCollectionPrefix)
@@ -35,7 +36,7 @@ func TestRun_WithChain(t *testing.T) {
 func TestRun_ChainReplacesAllCollectionTypes(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	require.NoError(t, run([]string{"build_schema", "--chain", "Optimism"}, &buf))
+	require.NoError(t, run([]string{"build_schema", "--chain", "Optimism", "--network", "Mainnet"}, &buf))
 	sdl := buf.String()
 	collections := evm.NewCollectionNames("Optimism__Mainnet")
 	for _, name := range collections.AllCollections() {
@@ -49,10 +50,10 @@ func TestRun_InvalidFlag(t *testing.T) {
 	require.Error(t, run([]string{"build_schema", "--nonexistent"}, &buf))
 }
 
-func TestRun_DefaultOutputMatchesFacade(t *testing.T) {
+func TestRun_EthereumMainnetOutputMatchesFacade(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	require.NoError(t, run([]string{"build_schema"}, &buf))
+	require.NoError(t, run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet"}, &buf))
 	expected, err := evm.NewCollectionNames(evm.DefaultCollectionPrefix).MergedSDL()
 	require.NoError(t, err)
 	assert.Equal(t, expected, buf.String())
@@ -70,7 +71,7 @@ func TestRun_OutputWithChainMatchesFacade(t *testing.T) {
 func TestRun_UnknownAdapterFails(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := run([]string{"build_schema", "--adapter", "cosmos"}, &buf)
+	err := run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--adapter", "cosmos"}, &buf)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, chains.ErrChainFactoryNotRegistered)
 }
@@ -78,7 +79,7 @@ func TestRun_UnknownAdapterFails(t *testing.T) {
 func TestRun_SingleFile(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	require.NoError(t, run([]string{"build_schema", "--file", "block.graphql"}, &buf))
+	require.NoError(t, run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--file", "block.graphql"}, &buf))
 	sdl := buf.String()
 	assert.NotEmpty(t, sdl)
 	assert.Contains(t, sdl, "Ethereum__Mainnet__Block")
@@ -88,7 +89,7 @@ func TestRun_SingleFile(t *testing.T) {
 func TestRun_SingleFileWithChain(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	require.NoError(t, run([]string{"build_schema", "--file", "block.graphql", "--chain", "Arbitrum"}, &buf))
+	require.NoError(t, run([]string{"build_schema", "--file", "block.graphql", "--chain", "Arbitrum", "--network", "Mainnet"}, &buf))
 	sdl := buf.String()
 	assert.NotContains(t, sdl, "Ethereum__Mainnet")
 	assert.Contains(t, sdl, "Arbitrum__Mainnet__Block")
@@ -97,13 +98,13 @@ func TestRun_SingleFileWithChain(t *testing.T) {
 func TestRun_SingleFileNotFound(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	require.Error(t, run([]string{"build_schema", "--file", "nonexistent.graphql"}, &buf))
+	require.Error(t, run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--file", "nonexistent.graphql"}, &buf))
 }
 
 func TestRun_ListFiles(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	require.NoError(t, run([]string{"build_schema", "--list-files"}, &buf))
+	require.NoError(t, run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--list-files"}, &buf))
 	output := strings.TrimSpace(buf.String())
 	assert.NotEmpty(t, output)
 	lines := strings.Split(output, "\n")
@@ -118,10 +119,10 @@ func TestRun_ListFiles(t *testing.T) {
 
 func TestRun_ListFilesIgnoresChain(t *testing.T) {
 	t.Parallel()
-	var bufNoChain, bufWithChain bytes.Buffer
-	require.NoError(t, run([]string{"build_schema", "--list-files"}, &bufNoChain))
-	require.NoError(t, run([]string{"build_schema", "--list-files", "--chain", "Arbitrum"}, &bufWithChain))
-	assert.Equal(t, bufNoChain.String(), bufWithChain.String())
+	var bufEthereum, bufArbitrum bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--list-files", "--chain", "Ethereum", "--network", "Mainnet"}, &bufEthereum))
+	require.NoError(t, run([]string{"build_schema", "--list-files", "--chain", "Arbitrum", "--network", "Mainnet"}, &bufArbitrum))
+	assert.Equal(t, bufEthereum.String(), bufArbitrum.String())
 }
 
 func TestRun_PrefixFlagFails(t *testing.T) {
@@ -131,5 +132,34 @@ func TestRun_PrefixFlagFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "--prefix is no longer supported")
 	assert.Contains(t, err.Error(), "--chain, --network, and --adapter")
+	assert.Empty(t, buf.String())
+}
+
+func TestRun_ChainAndNetworkRequired(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "neither", args: []string{"build_schema"}},
+		{name: "no network", args: []string{"build_schema", "--chain", "BSC"}},
+		{name: "no chain", args: []string{"build_schema", "--network", "Testnet"}},
+		{name: "list files", args: []string{"build_schema", "--list-files"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			require.ErrorIs(t, run(tc.args, &buf), errChainFlagsUnset)
+			assert.Empty(t, buf.String())
+		})
+	}
+}
+
+func TestRun_InvalidChainName(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	err := run([]string{"build_schema", "--chain", "Arbitrum One", "--network", "Mainnet"}, &buf)
+	require.ErrorIs(t, err, config.ErrInvalidChainName)
 	assert.Empty(t, buf.String())
 }
