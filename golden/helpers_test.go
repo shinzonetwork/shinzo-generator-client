@@ -341,27 +341,30 @@ func gqlRows(raw any) []map[string]any {
 
 // stableJSON renders the read-back rows as the golden bytes: documents are
 // sorted by their compact JSON (Go marshals map keys sorted at every level,
-// so no per-collection sort key is needed) and pretty printed with a
-// trailing newline so diffs stay reviewable.
+// so no per-collection sort key is needed), duplicates kept, and pretty
+// printed with a trailing newline so diffs stay reviewable. Rows are frozen
+// verbatim because distinct documents can serialize identically once _docID
+// and relation fields are excluded: two transactions sharing an access-list
+// entry are stored twice and both must show up in the freeze, so a
+// regression that stores a document twice can no longer pass silently.
 func stableJSON(rows []map[string]any) ([]byte, error) {
-	compact := make([]string, 0, len(rows))
-	byCompact := make(map[string]map[string]any, len(rows))
+	type keyRow struct {
+		key string
+		row map[string]any
+	}
+	pairs := make([]keyRow, 0, len(rows))
 	for _, row := range rows {
 		b, err := json.Marshal(row)
 		if err != nil {
 			return nil, fmt.Errorf("serialize document: %w", err)
 		}
-		key := string(b)
-		if _, seen := byCompact[key]; !seen {
-			byCompact[key] = row
-			compact = append(compact, key)
-		}
+		pairs = append(pairs, keyRow{key: string(b), row: row})
 	}
-	sort.Strings(compact)
+	sort.Slice(pairs, func(i, j int) bool { return pairs[i].key < pairs[j].key })
 
-	docs := make([]map[string]any, 0, len(compact))
-	for _, key := range compact {
-		docs = append(docs, byCompact[key])
+	docs := make([]map[string]any, 0, len(pairs))
+	for _, pair := range pairs {
+		docs = append(docs, pair.row)
 	}
 
 	var buf bytes.Buffer
