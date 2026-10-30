@@ -19,6 +19,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -40,6 +41,9 @@ var (
 	// errNoClientAvailable reports that no RPC transport is connected: both the
 	// WebSocket and HTTP clients are unset, so the request cannot be served.
 	errNoClientAvailable = stderrors.New("no client available")
+	// errRootMismatch reports a transaction or receipt list whose rebuilt trie
+	// root differs from the root in the block header.
+	errRootMismatch = stderrors.New("rebuilt trie root does not match the block header")
 )
 
 // EthereumClient wraps both JSON-RPC and fallback HTTP client.
@@ -298,7 +302,8 @@ func (t *apiKeyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// GetBlockByNumber fetches a block by number.
+// GetBlockByNumber fetches a block by number. It returns errRootMismatch when
+// the block's transactions do not rebuild the header's transactions root.
 func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error) {
 	client := c.getPreferredClient()
 	if client == nil {
@@ -310,8 +315,21 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block %v: %w", blockNumber, utils.RedactHTTPError(err))
 	}
+	if err := checkRoot("transactions", gethBlock.Transactions(), gethBlock.TxHash()); err != nil {
+		return nil, fmt.Errorf("block %v: %w", blockNumber, err)
+	}
 
 	return c.convertGethBlock(gethBlock), nil
+}
+
+// checkRoot rebuilds the trie root of list and returns errRootMismatch when it
+// differs from want, the root the block header commits to. A dropped, extra,
+// reordered or altered entry changes the root.
+func checkRoot(name string, list ethtypes.DerivableList, want common.Hash) error {
+	if got := ethtypes.DeriveSha(list, trie.NewStackTrie(nil)); got != want {
+		return fmt.Errorf("%w: %s root %s, header has %s", errRootMismatch, name, got.Hex(), want.Hex())
+	}
+	return nil
 }
 
 // GetHeaderByHash fetches only the header of the block with the given
@@ -425,7 +443,7 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 }
 
 // GetTransactionReceipt fetches a transaction receipt by hash.
-func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error) {
+func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash string) (*ethtypes.Receipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, errNoClientAvailable
@@ -437,7 +455,7 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction receipt: %w", utils.RedactHTTPError(err))
 	}
-	return c.convertGethReceipt(receipt), nil
+	return receipt, nil
 }
 
 // GetBlockReceipts fetches all receipts for a block in a single RPC call,
@@ -445,7 +463,7 @@ func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash strin
 // on the same branch as the block the caller already holds: a reorg between
 // the block fetch and the receipt fetch can no longer serve receipts from
 // the new chain's differently numbered block.
-func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
+func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*ethtypes.Receipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, errNoClientAvailable
@@ -455,15 +473,20 @@ func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block receipts for block hash %s: %w", blockHash, utils.RedactHTTPError(err))
 	}
-	result := make([]*TransactionReceipt, len(receipts))
+	return receipts, nil
+}
+
+// convertGethReceipts converts receipts position by position; a nil entry stays nil.
+func convertGethReceipts(receipts []*ethtypes.Receipt) []*TransactionReceipt {
+	converted := make([]*TransactionReceipt, len(receipts))
 	for i, receipt := range receipts {
-		result[i] = c.convertGethReceipt(receipt)
+		converted[i] = convertGethReceipt(receipt)
 	}
-	return result, nil
+	return converted
 }
 
 // convertGethReceipt converts go-ethereum receipt to our custom receipt type.
-func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *TransactionReceipt {
+func convertGethReceipt(receipt *ethtypes.Receipt) *TransactionReceipt {
 	if receipt == nil {
 		return nil
 	}
@@ -471,7 +494,7 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *Transact
 	// Convert logs.
 	logs := make([]Log, len(receipt.Logs))
 	for i, log := range receipt.Logs {
-		logs[i] = c.convertGethLog(log)
+		logs[i] = convertGethLog(log)
 	}
 
 	return &TransactionReceipt{
@@ -488,7 +511,7 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *Transact
 }
 
 // convertGethLog converts go-ethereum log to our custom log type.
-func (c *EthereumClient) convertGethLog(log *ethtypes.Log) Log {
+func convertGethLog(log *ethtypes.Log) Log {
 	// Convert topics
 	topics := make([]string, len(log.Topics))
 	for i, topic := range log.Topics {

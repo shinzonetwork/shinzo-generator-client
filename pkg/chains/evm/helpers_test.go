@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/gorilla/websocket"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
@@ -91,10 +92,30 @@ func fakeTx(hash string) Transaction {
 	}
 }
 
+// fakeBlockWithTxs returns fakeBlock(num) holding txs. Its receipts root
+// commits to one fakeGethReceipt per transaction, as a real header would.
 func fakeBlockWithTxs(num int64, txs ...Transaction) *Block {
 	b := fakeBlock(num)
 	b.Transactions = txs
+	receipts := make(ethtypes.Receipts, len(txs))
+	for i, tx := range txs {
+		receipts[i] = fakeGethReceipt(tx.Hash, num)
+	}
+	b.ReceiptsRoot = ethtypes.DeriveSha(receipts, trie.NewStackTrie(nil)).Hex()
 	return b
+}
+
+// fakeGethReceipt is the receipt the RPC client serves for txHash in
+// fakeBlock(blockNum).
+func fakeGethReceipt(txHash string, blockNum int64) *ethtypes.Receipt {
+	return &ethtypes.Receipt{
+		Status:            ethtypes.ReceiptStatusSuccessful,
+		CumulativeGasUsed: 21000,
+		TxHash:            common.HexToHash(txHash),
+		BlockHash:         common.HexToHash(fakeHash("block-" + big.NewInt(blockNum).String())),
+		BlockNumber:       big.NewInt(blockNum),
+		GasUsed:           21000,
+	}
 }
 
 func fakeReceipt(txHash string, blockNum int64) *TransactionReceipt {
@@ -162,9 +183,9 @@ type fakeRPCClient struct {
 	latestErr      error
 	block          *Block
 	blockErr       error
-	receiptsByHash map[string][]*TransactionReceipt
+	receiptsByHash map[string][]*ethtypes.Receipt
 	batchErr       error
-	txReceipt      *TransactionReceipt
+	txReceipt      *ethtypes.Receipt
 	txErr          error
 	closed         bool
 
@@ -177,8 +198,8 @@ type fakeRPCClient struct {
 	finalizedFn  func(ctx context.Context) (int64, error)
 
 	blockFn     func(ctx context.Context, n *big.Int) (*Block, error)
-	batchFn     func(ctx context.Context, hash string) ([]*TransactionReceipt, error)
-	txReceiptFn func(ctx context.Context, hash string) (*TransactionReceipt, error)
+	batchFn     func(ctx context.Context, hash string) ([]*ethtypes.Receipt, error)
+	txReceiptFn func(ctx context.Context, hash string) (*ethtypes.Receipt, error)
 }
 
 func (f *fakeRPCClient) GetLatestBlockNumber(_ context.Context) (*big.Int, error) {
@@ -199,7 +220,7 @@ func (f *fakeRPCClient) GetHeaderByHash(ctx context.Context, hash string) (*etht
 	return f.headerByHash, f.headerByHashErr
 }
 
-func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
+func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*ethtypes.Receipt, error) {
 	if f.batchFn != nil {
 		return f.batchFn(ctx, blockHash)
 	}
@@ -210,7 +231,7 @@ func (f *fakeRPCClient) GetBlockReceipts(ctx context.Context, blockHash string) 
 	return receipts, f.batchErr
 }
 
-func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) (*TransactionReceipt, error) {
+func (f *fakeRPCClient) GetTransactionReceipt(ctx context.Context, hash string) (*ethtypes.Receipt, error) {
 	if f.txReceiptFn != nil {
 		return f.txReceiptFn(ctx, hash)
 	}

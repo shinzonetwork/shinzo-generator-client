@@ -14,6 +14,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -125,6 +128,52 @@ func TestGetBlockByNumber_Error(t *testing.T) {
 
 	_, err = client.GetBlockByNumber(context.Background(), big.NewInt(999999))
 	assert.Error(t, err)
+}
+
+func TestGetBlockByNumber_ChecksTransactionsRoot(t *testing.T) {
+	t.Parallel()
+	legacyTx := func(value int64) *ethtypes.Transaction {
+		to := common.HexToAddress("0x0000000000000000000000000000000000000002")
+		return ethtypes.NewTx(&ethtypes.LegacyTx{
+			Nonce: 1, GasPrice: big.NewInt(1), Gas: 21000, To: &to, Value: big.NewInt(value),
+			V: big.NewInt(27), R: big.NewInt(1), S: big.NewInt(2),
+		})
+	}
+	root := ethtypes.DeriveSha(ethtypes.Transactions{legacyTx(1)}, trie.NewStackTrie(nil))
+
+	cases := []struct {
+		name    string
+		served  *ethtypes.Transaction
+		wantErr error
+	}{
+		{name: "MatchingTransactions", served: legacyTx(1)},
+		{name: "AlteredTransaction", served: legacyTx(2), wantErr: errRootMismatch},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+				if method != ethGetBlockByNumber {
+					return "0x1", nil
+				}
+				block := fullBlockResponse(testBlockNumberHex, []any{tc.served})
+				block[TransactionsRootFieldName] = root.Hex()
+				return block, nil
+			})
+			defer server.Close()
+
+			client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+			require.NoError(t, err)
+			defer func() { _ = client.Close() }()
+
+			_, err = client.GetBlockByNumber(context.Background(), big.NewInt(testBlockNumber))
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
 }
 
 // --- GetHeaderByHash with mock server ---
@@ -343,7 +392,7 @@ func TestGetTransactionReceipt_Success(t *testing.T) {
 	receipt, err := client.GetTransactionReceipt(context.Background(), "0x0000000000000000000000000000000000000000000000000000000000000abc")
 	require.NoError(t, err)
 	require.NotNil(t, receipt)
-	assert.Equal(t, "1", receipt.Status)
+	assert.Equal(t, ethtypes.ReceiptStatusSuccessful, receipt.Status)
 }
 
 func TestGetTransactionReceipt_Error(t *testing.T) {
@@ -401,7 +450,7 @@ func TestGetBlockReceipts_Success(t *testing.T) {
 	receipts, err := client.GetBlockReceipts(context.Background(), fakeHash("pinned"))
 	require.NoError(t, err)
 	require.Len(t, receipts, 1)
-	assert.Equal(t, "1", receipts[0].Status)
+	assert.Equal(t, ethtypes.ReceiptStatusSuccessful, receipts[0].Status)
 }
 
 // TestGetBlockReceipts_RequestPinsBlockHash proves the wire shape: the

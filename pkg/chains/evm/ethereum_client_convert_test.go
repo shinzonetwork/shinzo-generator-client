@@ -188,8 +188,7 @@ func TestConvertTransaction_AccessList(t *testing.T) {
 
 func TestConvertGethReceipt_Nil(t *testing.T) {
 	t.Parallel()
-	client := &EthereumClient{}
-	result := client.convertGethReceipt(nil)
+	result := convertGethReceipt(nil)
 	assert.Nil(t, result)
 }
 
@@ -207,8 +206,7 @@ func TestConvertGethReceipt_Success(t *testing.T) {
 		Logs:              []*ethtypes.Log{},
 	}
 
-	client := &EthereumClient{}
-	result := client.convertGethReceipt(receipt)
+	result := convertGethReceipt(receipt)
 
 	require.NotNil(t, result)
 	assert.Equal(t, "1", result.Status)
@@ -225,8 +223,7 @@ func TestConvertGethReceipt_FailedStatus(t *testing.T) {
 		Logs:        []*ethtypes.Log{},
 	}
 
-	client := &EthereumClient{}
-	result := client.convertGethReceipt(receipt)
+	result := convertGethReceipt(receipt)
 
 	require.NotNil(t, result)
 	assert.Equal(t, "0", result.Status)
@@ -243,8 +240,7 @@ func TestConvertGethReceipt_ContractCreation(t *testing.T) {
 		Logs:            []*ethtypes.Log{},
 	}
 
-	client := &EthereumClient{}
-	result := client.convertGethReceipt(receipt)
+	result := convertGethReceipt(receipt)
 
 	require.NotNil(t, result)
 	assert.Equal(t, contractAddr.Hex(), result.ContractAddress)
@@ -271,8 +267,7 @@ func TestConvertGethReceipt_WithLogs(t *testing.T) {
 		},
 	}
 
-	client := &EthereumClient{}
-	result := client.convertGethReceipt(receipt)
+	result := convertGethReceipt(receipt)
 
 	require.NotNil(t, result)
 	assert.Len(t, result.Logs, 1)
@@ -295,8 +290,7 @@ func TestConvertGethLog(t *testing.T) {
 		Removed:     true,
 	}
 
-	client := &EthereumClient{}
-	result := client.convertGethLog(log)
+	result := convertGethLog(log)
 
 	assert.Equal(t, common.HexToAddress("0xcontract").Hex(), result.Address)
 	assert.Len(t, result.Topics, 2)

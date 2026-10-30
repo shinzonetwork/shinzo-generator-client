@@ -255,12 +255,12 @@ func TestFetcher_FetchBlock_BatchSuccess(t *testing.T) {
 	block := fakeBlockWithTxs(blockNum, fakeTx(txHash))
 	// The receipt must carry the served block's hash for the pinned batch
 	// path to accept it.
-	receipt := fakeReceipt(txHash, blockNum)
-	receipt.BlockHash = block.Hash
+	receipt := fakeGethReceipt(txHash, blockNum)
+	receipt.BlockHash = common.HexToHash(block.Hash)
 
 	client := &fakeRPCClient{
 		block:          block,
-		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {receipt}},
+		receiptsByHash: map[string][]*ethtypes.Receipt{block.Hash: {receipt}},
 	}
 	f := NewFetcher(client, 8)
 
@@ -273,7 +273,7 @@ func TestFetcher_FetchBlock_BatchSuccess(t *testing.T) {
 	assert.Len(t, bundle.Transactions, 1)
 	assert.Equal(t, txHash, bundle.Transactions[0].Hash)
 	assert.Len(t, bundle.Receipts, 1)
-	assert.Equal(t, receipt, bundle.Receipts[0])
+	assert.Equal(t, convertGethReceipt(receipt), bundle.Receipts[0])
 }
 
 func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
@@ -284,7 +284,7 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 
 	client := &fakeRPCClient{
 		block:          block,
-		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {}},
+		receiptsByHash: map[string][]*ethtypes.Receipt{block.Hash: {}},
 	}
 	f := NewFetcher(client, 8)
 
@@ -308,15 +308,15 @@ func TestFetcher_FetchBlock_ReceiptHashMismatchFallsBack(t *testing.T) {
 	// A receipt served for a different block than the one the fetcher
 	// holds: the pinned batch path must reject it instead of bundling
 	// cross-branch content, and the tx-pinned fallback must win.
-	foreignReceipt := fakeReceipt(txHash, blockNum)
-	foreignReceipt.BlockHash = fakeHash("foreign-block")
-	fallbackReceipt := fakeReceipt(txHash, blockNum)
-	fallbackReceipt.BlockHash = block.Hash
+	foreignReceipt := fakeGethReceipt(txHash, blockNum)
+	foreignReceipt.BlockHash = common.HexToHash(fakeHash("foreign-block"))
+	fallbackReceipt := fakeGethReceipt(txHash, blockNum)
+	fallbackReceipt.BlockHash = common.HexToHash(block.Hash)
 
 	client := &fakeRPCClient{
 		block:          block,
-		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {foreignReceipt}},
-		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+		receiptsByHash: map[string][]*ethtypes.Receipt{block.Hash: {foreignReceipt}},
+		txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
 			return fallbackReceipt, nil
 		},
 	}
@@ -327,7 +327,7 @@ func TestFetcher_FetchBlock_ReceiptHashMismatchFallsBack(t *testing.T) {
 
 	bundle, ok := raw.(*BlockBundle)
 	require.True(t, ok)
-	assert.Equal(t, []*TransactionReceipt{fallbackReceipt}, bundle.Receipts,
+	assert.Equal(t, []*TransactionReceipt{convertGethReceipt(fallbackReceipt)}, bundle.Receipts,
 		"receipts belonging to another block must not land in the bundle; the tx-pinned fallback serves them instead")
 }
 
@@ -340,12 +340,12 @@ func TestFetcher_FetchBlock_FallbackRejectsReceiptsFromAnotherBlock(t *testing.T
 
 	// Our block was orphaned and the tx re-included: both the pinned batch
 	// and the by-tx-hash lookup serve the canonical block's receipt.
-	canonical := fakeReceipt(txHash, blockNum)
-	canonical.BlockHash = fakeHash("canonical-block")
+	canonical := fakeGethReceipt(txHash, blockNum)
+	canonical.BlockHash = common.HexToHash(fakeHash("canonical-block"))
 	client := &fakeRPCClient{
 		block:          block,
-		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {canonical}},
-		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+		receiptsByHash: map[string][]*ethtypes.Receipt{block.Hash: {canonical}},
+		txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
 			return canonical, nil
 		},
 	}
@@ -353,6 +353,72 @@ func TestFetcher_FetchBlock_FallbackRejectsReceiptsFromAnotherBlock(t *testing.T
 
 	_, err := f.FetchBlock(context.Background(), blockNum)
 	require.Error(t, err, "receipts from another block must fail the fetch, not be bundled")
+}
+
+func TestFetcher_FetchBlock_ChecksReceiptsRoot(t *testing.T) {
+	t.Parallel()
+
+	hashA := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	hashB := "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	blockNum := int64(12345)
+	failedB := func() *ethtypes.Receipt {
+		r := fakeGethReceipt(hashB, blockNum)
+		r.Status = ethtypes.ReceiptStatusFailed
+		return r
+	}
+
+	cases := []struct {
+		name string
+		// batch is what eth_getBlockReceipts serves; nil means the call is unsupported.
+		batch   []*ethtypes.Receipt
+		byTx    map[string]*ethtypes.Receipt
+		wantErr error
+	}{
+		{
+			name:  "BatchDropsReceipt",
+			batch: []*ethtypes.Receipt{fakeGethReceipt(hashA, blockNum)},
+			byTx:  map[string]*ethtypes.Receipt{hashA: fakeGethReceipt(hashA, blockNum), hashB: fakeGethReceipt(hashB, blockNum)},
+		},
+		{
+			name:  "BatchAltersReceipt",
+			batch: []*ethtypes.Receipt{fakeGethReceipt(hashA, blockNum), failedB()},
+			byTx:  map[string]*ethtypes.Receipt{hashA: fakeGethReceipt(hashA, blockNum), hashB: fakeGethReceipt(hashB, blockNum)},
+		},
+		{
+			name:    "FallbackAltersReceipt",
+			byTx:    map[string]*ethtypes.Receipt{hashA: fakeGethReceipt(hashA, blockNum), hashB: failedB()},
+			wantErr: errRootMismatch,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			block := fakeBlockWithTxs(blockNum, fakeTx(hashA), fakeTx(hashB))
+			client := &fakeRPCClient{
+				block: block,
+				txReceiptFn: func(_ context.Context, hash string) (*ethtypes.Receipt, error) {
+					return tc.byTx[hash], nil
+				},
+			}
+			if tc.batch == nil {
+				client.batchErr = fmt.Errorf("eth_getBlockReceipts not supported")
+			} else {
+				client.receiptsByHash = map[string][]*ethtypes.Receipt{block.Hash: tc.batch}
+			}
+
+			raw, err := NewFetcher(client, 8).FetchBlock(context.Background(), blockNum)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			bundle, ok := raw.(*BlockBundle)
+			require.True(t, ok)
+			assert.Equal(t, convertGethReceipts([]*ethtypes.Receipt{tc.byTx[hashA], tc.byTx[hashB]}), bundle.Receipts,
+				"a batch that does not rebuild the receipts root must give way to the per-transaction receipts")
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -442,7 +508,7 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 		name           string
 		blockNum       int64
 		txs            []Transaction
-		txReceiptFn    func(_ context.Context, _ string) (*TransactionReceipt, error)
+		txReceiptFn    func(_ context.Context, _ string) (*ethtypes.Receipt, error)
 		wantErr        bool
 		wantErrContain string
 		wantReceipts   int
@@ -455,8 +521,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 			name:     "IndividualSuccess",
 			blockNum: 100000,
 			txs:      []Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
-				return fakeReceipt(txHash, 100000), nil
+			txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
+				return fakeGethReceipt(txHash, 100000), nil
 			},
 			wantReceipts: 1,
 		},
@@ -464,7 +530,7 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 			name:     "IndividualFail",
 			blockNum: 100001,
 			txs:      []Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+			txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
 				return nil, fmt.Errorf("receipt not available")
 			},
 			wantErr:        true,
@@ -474,8 +540,8 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 			name:     "IndividualReceiptSuccess",
 			blockNum: 0xccc0,
 			txs:      []Transaction{fakeTx(txHash)},
-			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
-				return fakeReceipt(txHash, 0xccc0), nil
+			txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
+				return fakeGethReceipt(txHash, 0xccc0), nil
 			},
 			wantReceipts: 1,
 		},
@@ -483,11 +549,11 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 			name:     "PartialFailure",
 			blockNum: 100003,
 			txs:      []Transaction{fakeTx(hashA), fakeTx(hashB), fakeTx(hashC)},
-			txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
+			txReceiptFn: func(_ context.Context, hash string) (*ethtypes.Receipt, error) {
 				if hash == hashB {
 					return nil, fmt.Errorf("receipt not available")
 				}
-				return fakeReceipt(hash, 100003), nil
+				return fakeGethReceipt(hash, 100003), nil
 			},
 			wantErr:        true,
 			wantErrContain: "1/3 transaction receipts could not be fetched",
@@ -496,7 +562,7 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 			name:     "FullFailure",
 			blockNum: 100004,
 			txs:      []Transaction{fakeTx(hashA), fakeTx(hashB)},
-			txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+			txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
 				return nil, fmt.Errorf("rpc error")
 			},
 			wantErr:        true,
@@ -553,11 +619,11 @@ func TestFetcher_ReceiptFallback_PreservesPositionalNils(t *testing.T) {
 	client := &fakeRPCClient{
 		block:    block,
 		batchErr: fmt.Errorf("eth_getBlockReceipts not supported"),
-		txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
+		txReceiptFn: func(_ context.Context, hash string) (*ethtypes.Receipt, error) {
 			if hash == hashB {
 				return nil, fmt.Errorf("receipt not available")
 			}
-			return fakeReceipt(hash, 100003), nil
+			return fakeGethReceipt(hash, 100003), nil
 		},
 	}
 	f := NewFetcher(client, 8)
@@ -613,12 +679,12 @@ func TestFetcher_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 			client := &fakeRPCClient{
 				block:    block,
 				batchErr: fmt.Errorf("not supported"),
-				txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+				txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
 					time.Sleep(tc.txSleep)
 					if tc.returnError {
 						return nil, fmt.Errorf("timeout")
 					}
-					return fakeReceipt(txHash, tc.blockNum), nil
+					return fakeGethReceipt(txHash, tc.blockNum), nil
 				},
 			}
 			f := NewFetcher(client, 8)
@@ -645,7 +711,7 @@ func TestFetcher_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) 
 	client := &fakeRPCClient{
 		block:    block,
 		batchErr: fmt.Errorf("not supported"),
-		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+		txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
 			select {
 			case firstReceiptCalled <- struct{}{}:
 			default:
@@ -715,11 +781,11 @@ func TestFetcher_FetchBlockHeaderByHash(t *testing.T) {
 	parentHash := common.HexToHash(fakeHash("walkback-parent"))
 	client := &fakeRPCClient{
 		headerByHash: &ethtypes.Header{Number: big.NewInt(50), ParentHash: parentHash},
-		batchFn: func(_ context.Context, _ string) ([]*TransactionReceipt, error) {
+		batchFn: func(_ context.Context, _ string) ([]*ethtypes.Receipt, error) {
 			batchReceiptCalls++
 			return nil, fmt.Errorf("batch receipts unavailable")
 		},
-		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
+		txReceiptFn: func(_ context.Context, _ string) (*ethtypes.Receipt, error) {
 			individualReceiptCalls++
 			return nil, fmt.Errorf("receipt unavailable")
 		},

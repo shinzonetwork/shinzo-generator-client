@@ -9,10 +9,10 @@ package indexer
 // orphan-only rollback): they encode what MUST happen and, on the branch's
 // current code, demonstrably do not. The scenario chain is defined locally
 // over mockChainHeader: because scenario blocks carry a transaction, their
-// headers must carry a non-empty transactionsRoot (ethclient cross-checks the
-// root against the tx list), so the canonical chain and its keccak-RLP hashes
-// are scenario-local (reorgChainHeader/reorgChainHash) rather than the shared
-// mockChainHash harness. Fork headers keep the scenario parent hash but
+// headers must carry that transaction's root (GetBlockByNumber rebuilds it),
+// so the canonical chain and its keccak-RLP hashes are scenario-local
+// (reorgChainHeader/reorgChainHash) rather than the shared mockChainHash
+// harness. Fork headers keep the scenario parent hash but
 // differ in content (gasUsed), so go-ethereum's re-derived hash is a distinct,
 // chain-consistent orphan hash per height.
 
@@ -50,12 +50,11 @@ const reorgHeight = int64(200)
 // its parentHash stays the canonical parent (chain-consistent fork).
 const forkGasUsed = 0x5310
 
-// reorgTxRootJSON is the non-empty transactionsRoot served on every scenario
-// block response: scenario blocks carry one transaction, and go-ethereum's
-// ethclient rejects a block whose header carries the empty trie root while
-// the transaction list is non-empty. The root is part of the header, so it
+// reorgTxRootJSON is the transactionsRoot served on every scenario block
+// response: the trie root of the block's one transaction (mockTxJSON), which
+// GetBlockByNumber rebuilds and compares. The root is part of the header, so it
 // must align with the scenario header generator below.
-const reorgTxRootJSON = "0x000000000000000000000000000000000000000000000000000000000000002a"
+const reorgTxRootJSON = "0x831e6a0b604a5b5fff492824f54cb59dffc6e009f8412b1bf36a64c16b4718a1"
 
 // reorgChainHeader builds the scenario chain's header at a height: the shared
 // mock header structure with the scenario transactionsRoot, so the served
