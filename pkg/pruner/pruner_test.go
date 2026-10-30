@@ -331,6 +331,11 @@ func TestStop_WithQueueSave(t *testing.T) {
 	require.NoError(t, err)
 	p.SetQueue(q)
 
+	// The entry must not be stale: startup cleanup discards queue entries for
+	// blocks the db does not hold, and a resulting removed-on-empty Save would
+	// erase the file before the persistence check below.
+	insertTestBlock(t, n, 1, 0)
+
 	ctx := t.Context()
 
 	err = p.Start(ctx)
@@ -620,6 +625,125 @@ func TestStartupCleanup_WithinLimit(t *testing.T) {
 	assert.Equal(t, int64(0), p.totalBlocksPruned)
 }
 
+// The empty-DB discard must run before the loop goroutine: pruneLoop races the
+// indexer's first block stores, so an in-loop empty-DB check could drop a
+// freshly tracked live entry. Nothing is tracked before Start returns, so the
+// synchronous discard there is race-free, and its persistence is observable
+// right away: a Save with no entries removes the file entirely.
+func TestStart_DiscardsStaleQueueWhenDBEmpty(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+
+	seedQueueFile(t, path, 1, 2)
+	q := NewIndexerQueue()
+	count, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false, IntervalSeconds: 3600}
+	p, _ := newTestPruner(cfg, n)
+	p.SetQueue(q)
+
+	// The discard is complete the moment Start returns.
+	require.NoError(t, p.Start(context.Background()))
+	t.Cleanup(p.Stop)
+
+	assert.Equal(t, 0, q.Len())
+	require.NoFileExists(t, path)
+
+	// A later restart cannot load the stale entries back.
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 0, persisted)
+}
+
+// Since the empty-DB discard moved to Start, the loop-side cleanup must not
+// drop entries when the DB appears empty: its getBlockRange can race the
+// indexer's first block stores, and a block stored between the query and a
+// discard would be dropped while logged as stale. Stale-entry handling for an
+// empty DB belongs to Start's synchronous discard, where nothing is tracked
+// yet and the DB state cannot have moved.
+func TestStartupCleanup_DoesNotDiscardWhenDBEmpty(t *testing.T) {
+	n := startTestNode(t)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
+
+	q := NewIndexerQueue()
+	for i := int64(1); i <= 2; i++ {
+		require.NoError(t, q.TrackBlockDocIDs(i, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, ""))
+	}
+	p.SetQueue(q)
+
+	require.NoError(t, p.startupCleanup(context.Background()))
+
+	assert.Equal(t, 2, q.Len())
+}
+
+// The within-limit early return is the path that would strand stale entries:
+// the db holds 3-5 (under retention) while the queue file predates the last
+// purge of blocks 1 and 2, so the next Drain would purge and count those
+// already-deleted blocks again.
+func TestStartupCleanup_DiscardsStaleQueueEntriesBelowDBMinimum(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+
+	for i := int64(3); i <= 5; i++ {
+		insertTestBlock(t, n, i, 0)
+	}
+	seedQueueFile(t, path, 1, 4)
+	p, q := loadPrunerWithQueue(t, n, path, 100, 4)
+
+	require.NoError(t, p.startupCleanup(context.Background()))
+
+	// Entries at or below the db's lowest block are gone; live entries survive.
+	assert.Equal(t, 2, q.Len())
+	for _, entry := range q.entries {
+		assert.Greater(t, entry.BlockNumber, int64(2))
+	}
+
+	// The cleanup is persisted, so a later restart cannot load the stale entries back.
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 2, persisted)
+}
+
+// The over-retention startup prune deletes blocks 1-3 and pruneBlockRange
+// discards the matching queue entries, but startupCleanup has no deferred
+// checkpoint the way the tick path does: the discard must reach the file here,
+// or a kill before the first tick leaves the file holding entries for blocks
+// that were just deleted.
+func TestStartupCleanup_PersistsQueueAfterPrune(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+
+	for i := int64(1); i <= 5; i++ {
+		insertTestBlock(t, n, i, 0)
+	}
+	seedQueueFile(t, path, 1, 5)
+	p, q := loadPrunerWithQueue(t, n, path, 2, 5)
+
+	require.NoError(t, p.startupCleanup(context.Background()))
+
+	assert.Equal(t, 2, q.Len())
+
+	// Blocks 4-5, the ones above the cutoff, remain in the db.
+	lowest, highest, err := p.getBlockRange(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), lowest)
+	assert.Equal(t, int64(5), highest)
+
+	// The discard survives a restart: the file holds only the live entries.
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 2, persisted)
+	for _, entry := range reloaded.entries {
+		assert.Greater(t, entry.BlockNumber, int64(3))
+	}
+}
+
 func TestPurgeFromDrainResult(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
@@ -709,6 +833,60 @@ func TestPurgeFromDrainResult_PurgeError(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "purge TestBlock")
 	})
+}
+
+// Regression test for the strategy race between the queue read and the DB
+// measurement: the queue sits at retention when the cycle picks the filter
+// path, but the DB has grown past it, so the filter path deletes a block
+// while its queue entry survives. A later Drain would purge that stale entry
+// a second time and double count the block.
+func TestPrunerDoesNotDoubleCountRangePrunedBlocks(t *testing.T) {
+	n := startTestNode(t)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 20, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
+	q := NewIndexerQueue()
+	p.SetQueue(q)
+	ctx := context.Background()
+
+	// DB holds blocks 1..21 (one over retention) while the queue tracks
+	// exactly 1..20: the queue read picks the filter path.
+	docIDs := make(map[int64]string)
+	for i := int64(1); i <= 21; i++ {
+		docIDs[i] = insertTestBlock(t, n, i, 0)
+	}
+	for i := int64(1); i <= 20; i++ {
+		err := q.TrackBlockDocIDs(i, docIDs[i], nil, "")
+		require.NoError(t, err)
+	}
+	require.Equal(t, 20, q.Len())
+
+	// The filter path prunes block 1 by DB range and must discard its queue
+	// entry, even though the queue length read chose the filter path.
+	require.NoError(t, p.runPrune(ctx))
+	assert.Equal(t, int64(1), p.totalBlocksPruned)
+
+	// New blocks arrive: the DB is again one over retention and the queue
+	// holds one more entry than a Drain needs to remove.
+	docIDs[22] = insertTestBlock(t, n, 22, 0)
+	for _, i := range []int64{21, 22} {
+		err := q.TrackBlockDocIDs(i, docIDs[i], nil, "")
+		require.NoError(t, err)
+	}
+	require.Equal(t, 21, q.Len())
+
+	// This cycle drains only the live block-2 entry. Without the discard,
+	// the stale block-1 entry is drained too, purged (the doc no longer
+	// exists) and counted again, pushing the counter to 3.
+	require.NoError(t, p.runPrune(ctx))
+
+	// The counter equals the distinct deleted blocks: 1 by range plus 2 by
+	// drain. No block was counted under both strategies.
+	assert.Equal(t, int64(2), p.totalBlocksPruned)
+
+	// The queue holds no entry at or below the old range-prune cutoff.
+	for _, entry := range q.entries {
+		assert.Greater(t, entry.BlockNumber, int64(1), "stale entry for block %d", entry.BlockNumber)
+	}
 }
 
 func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {

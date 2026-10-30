@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -127,6 +128,16 @@ func (p *Pruner) Start(ctx context.Context) error {
 
 	logger.Sugar.Debugf("Starting pruner (max_blocks=%d, docs_per_block=%d, max_docs=%d, interval=%ds)",
 		p.cfg.MaxBlocks, p.cfg.DocsPerBlock, p.cfg.MaxDocs(), p.cfg.IntervalSeconds)
+
+	// The empty-DB stale-entry discard must run here, not inside the loop's
+	// startup cleanup: pruneLoop races the indexer's first block stores, so
+	// an in-loop empty-DB check could drop a freshly tracked live entry.
+	// Before this point nothing has been tracked, so the discard is race-free.
+	if p.queue != nil {
+		if err := p.discardStaleQueueEntries(ctx); err != nil {
+			logger.Sugar.Warnf("Pruner started without stale-entry discard: %v", err)
+		}
+	}
 
 	p.wg.Add(1)
 	go p.pruneLoop(ctx)
@@ -308,15 +319,75 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 	return err
 }
 
+// discardStaleQueueEntries drops queue entries that cannot correspond to any
+// live document when the DB holds no blocks at all. It runs synchronously in
+// Start, before the loop goroutine and before anything is tracked: once
+// tracking exists, a query that observes an empty DB can be stale, because a
+// block stored between the query and the discard would be dropped while
+// logged as stale. The non-empty path (entries below the DB's lowest block)
+// is safe in the loop's startup cleanup, since blocks tracked after startup
+// sit above the DB's pre-existing highest block, hence above lowest-1.
+//
+// The discard is not instrumented through timedCycle: it purges nothing, so
+// its blocks/docs deltas are zero by definition, and the observer contract,
+// which includes running on the loop goroutine, is not bent to cover a
+// Start-time step.
+func (p *Pruner) discardStaleQueueEntries(ctx context.Context) error {
+	iq, ok := p.queue.(*IndexerQueue)
+	if !ok {
+		return nil
+	}
+
+	_, _, err := p.getBlockRange(ctx)
+	switch {
+	case err == nil:
+		// The DB holds blocks; entry age is startupCleanup's job.
+		return nil
+	case errors.Is(err, ErrNoBlocks):
+		// Nothing the queue tracks can still exist, so every entry is stale:
+		// the first Drain would purge and count documents that are gone.
+		if removed := iq.DiscardUpTo(math.MaxInt64); removed > 0 {
+			logger.Sugar.Infof("Discarded %d stale queue entries (DB has no blocks)", removed)
+			if err := iq.Save(); err != nil {
+				logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("check block range for stale queue entries: %w", err)
+	}
+}
+
 // startupCleanup removes blocks left over from previous runs that aren't in the queue.
+// It also drops stale queue entries at or below the DB's lowest block: on restart,
+// entries loaded from the queue file may sit at or below the DB's lowest block.
+// Those blocks are already gone, and pruning them again through a Drain would
+// double-count, so they are discarded here, in memory and on disk. This runs
+// before the retention check because the within-limit early return is exactly
+// the path that would otherwise strand the stale entries. Entries for an empty
+// DB are not handled here: a DB-observed emptiness is only trustworthy before
+// tracking exists, so that discard runs synchronously in
+// discardStaleQueueEntries instead.
 func (p *Pruner) startupCleanup(ctx context.Context) error {
 	lowest, highest, err := p.getBlockRange(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNoBlocks) {
-			logger.Sugar.Debugf("No existing blocks in database")
+			logger.Sugar.Debugf("Startup cleanup: no existing blocks in database")
 			return nil
 		}
 		return fmt.Errorf("startup cleanup: get block range: %w", err)
+	}
+
+	// Nothing at or below the DB's lowest block can still be live: those
+	// documents no longer exist, so queue entries for them cannot purge
+	// anything real but would be counted again by the next Drain.
+	if iq, ok := p.queue.(*IndexerQueue); ok {
+		if removed := iq.DiscardUpTo(lowest - 1); removed > 0 {
+			logger.Sugar.Infof("Startup cleanup: discarded %d stale queue entries at or below block %d", removed, lowest-1)
+			if err := iq.Save(); err != nil {
+				logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
+			}
+		}
 	}
 
 	currentCount := highest - lowest + 1
@@ -333,6 +404,17 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 		lowest, cutoffBlock, toPrune, cutoffBlock+1, highest)
 
 	totalPurged, err := p.pruneBlockRange(ctx, lowest, cutoffBlock)
+
+	// pruneBlockRange discards queue entries for the pruned range regardless of
+	// the purge outcome, but unlike the tick path there is no deferred checkpoint
+	// here: without a Save, a kill before the first tick leaves the file holding
+	// entries for blocks that were just deleted.
+	if iq, ok := p.queue.(*IndexerQueue); ok {
+		if err := iq.Save(); err != nil {
+			logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
+		}
+	}
+
 	if err != nil {
 		logger.Sugar.Errorf("Startup: failed to prune blocks %d-%d: %v", lowest, cutoffBlock, err)
 		return err
@@ -394,6 +476,13 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 // Queries docIDs from the chain, then purges each collection in sorted-name
 // order (DefraDB has no FK enforcement; any orphans are cleaned by the next
 // prune run).
+//
+// Queue entries at or below endBlock are discarded regardless of the purge
+// outcome. When the purge succeeded, keeping the entries is the double count:
+// the next Drain would purge and count those blocks again. When the purge
+// failed, dropping entries for possibly-still-existing blocks is safe: a later
+// filter pass deletes them by DB range and counts them once. Discarding here
+// covers both callers (filterBasedPrune and startupCleanup).
 func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64) (int64, error) {
 	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
 		startBlock, endBlock, endBlock-startBlock+1)
@@ -404,6 +493,12 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 	}
 
 	totalPurged, purgeErr := p.purgeByDocIDsByCollection(ctx, docIDsByCollection)
+
+	if iq, ok := p.queue.(*IndexerQueue); ok {
+		if removed := iq.DiscardUpTo(endBlock); removed > 0 {
+			logger.Sugar.Debugf("Discarded %d queue entries at or below block %d", removed, endBlock)
+		}
+	}
 
 	logger.Sugar.Infof("pruneBlockRange: purged %d docs for blocks %d-%d", totalPurged, startBlock, endBlock)
 	return totalPurged, purgeErr
