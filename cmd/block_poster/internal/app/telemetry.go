@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -51,6 +51,8 @@ func setupOTel(ctx context.Context, chain config.ChainConfig) (func(context.Cont
 	otel.SetMeterProvider(meterProvider)
 
 	start := time.Now()
+	// The meter scope keeps the old cmd/block_poster path so existing OTel
+	// dashboards keyed on it keep matching after the binary split.
 	_, err = meterProvider.Meter("github.com/shinzonetwork/shinzo-generator-client/cmd/block_poster").Float64ObservableGauge("process.uptime",
 		metric.WithDescription("Time since the process started."),
 		metric.WithUnit("s"),

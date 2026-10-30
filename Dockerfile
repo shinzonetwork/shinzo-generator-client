@@ -3,7 +3,7 @@
 # CGO must stay enabled: the binary pulls in lens/host-go's wasmtime runtime,
 # which is cgo-only. wasmtime-go vendors its own prebuilt static libraries, so
 # nothing WASM-related needs installing here — no wasmer, no wasmtime CLI, no
-# headers. Verified with `go list -deps ./cmd/block_poster`: wasmtime-go and
+# headers. Verified with `go list -deps ./cmd/block_poster/evm`: wasmtime-go and
 # wazero are in the graph, wasmer is not in go.mod at all.
 
 # Stage 1: build
@@ -25,7 +25,7 @@ COPY . .
 RUN CGO_ENABLED=1 go build \
         -ldflags="-w -s -X github.com/shinzonetwork/shinzo-generator-client/config.Version=${VERSION}" \
         ${BUILD_TAGS:+-tags="${BUILD_TAGS}"} \
-        -o /out/block_poster ./cmd/block_poster
+        -o /out/block_poster ./cmd/block_poster/evm
 
 # Stage 2: runtime
 # bookworm-slim matches the builder's glibc exactly, which a cgo binary needs.
