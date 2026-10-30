@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"maps"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -200,12 +202,40 @@ func TestStore_WithTransaction(t *testing.T) {
 
 	block := mockBlock("0xC8") // 200
 	tx := mockTransaction("0xabc1000000000000000000000000000000000000000000000000000000000001", "200")
+	// Outcome fields are hand-set to the post-merge state the bundle carries;
+	// the merge itself runs in the fetcher, upstream of this handler.
+	tx.GasUsed = "21000"
 	receipt := mockReceipt("0xabc1000000000000000000000000000000000000000000000000000000000001", "0xC8")
 
 	result := buildGroups(t, block, []*evm.Transaction{tx}, []*evm.TransactionReceipt{receipt})
 	res, err := handler.Store(context.Background(), result)
 	require.NoError(t, err)
 	assert.NotEmpty(t, res.BlockID)
+
+	// The pinned field must be the persisted value, not the in-memory map,
+	// so the transaction document is read back through a GraphQL query. The
+	// collection name comes from the conversion result itself: only the block
+	// and tx docs carry the hash key, and the block hash differs, so the
+	// match is unambiguous without hardcoding collection names.
+	txCol := ""
+	for i := range result.Groups {
+		for _, doc := range result.Groups[i].Docs {
+			if doc[constants.HashFieldName] == tx.Hash {
+				txCol = result.Groups[i].Collection
+			}
+		}
+	}
+	require.NotEmpty(t, txCol, "transaction group not found in conversion result")
+
+	query := fmt.Sprintf(`query { %s(filter: {%s: {_eq: %q}}) { %s } }`,
+		txCol, constants.HashFieldName, tx.Hash, evm.GasUsedFieldName)
+	gql := td.Node.DB.ExecRequest(context.Background(), query)
+	require.Empty(t, gql.GQL.Errors)
+	data, ok := gql.GQL.Data.(map[string]any)
+	require.True(t, ok, "unexpected GraphQL result shape")
+	rows := gqlRows(data[txCol])
+	require.Len(t, rows, 1)
+	assert.Equal(t, "21000", rows[0][evm.GasUsedFieldName])
 }
 
 func TestStore_WithAccessList(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -199,6 +200,70 @@ func blockTagOf(params json.RawMessage) (string, bool) {
 	return tag, true
 }
 
+// requestedBlockHash extracts the block hash a receipts call is pinned to:
+// ethclient sends rpc.BlockNumberOrHash as a {"blockHash": ...} object as
+// the sole param.
+func requestedBlockHash(params json.RawMessage) (string, bool) {
+	var rawParams []json.RawMessage
+	if err := json.Unmarshal(params, &rawParams); err != nil || len(rawParams) == 0 {
+		return "", false
+	}
+	var bh struct {
+		BlockHash string `json:"blockHash"`
+	}
+	if err := json.Unmarshal(rawParams[0], &bh); err != nil {
+		return "", false
+	}
+	if bh.BlockHash == "" {
+		return "", false
+	}
+	return bh.BlockHash, true
+}
+
+// reorgMockTx rebuilds the legacy transaction the mock serves inside every
+// block response, so anything re-derived from the wire content (the tx
+// hash) can reference the served tx. Mirrors mockTxJSON field for field:
+// nonce 1, gasPrice 1, gas 0x5208, value 0, empty input, and the dummy
+// canonical signature (v 27, r 1, s 2) that fails sender recovery.
+func reorgMockTx() *ethtypes.Transaction {
+	to := common.HexToAddress("0x0000000000000000000000000000000000000002")
+	return ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(1),
+		Gas:      0x5208,
+		To:       &to,
+		Value:    new(big.Int),
+		V:        big.NewInt(27),
+		R:        big.NewInt(1),
+		S:        big.NewInt(2),
+	})
+}
+
+// reorgMockTxHash is the hash go-ethereum derives from the served mock
+// transaction's RLP content: the key the fetcher's by-tx coverage check
+// matches batch receipts against.
+var reorgMockTxHash = reorgMockTx().Hash()
+
+// reorgReceiptResponse builds the receipt for the scenario block at height n
+// served under the requested block-hash variant (canonical or orphan, so a
+// receipt exists on both branches): one successful, zero-log receipt for the
+// mock transaction. canonicalBlockResponse carries one transaction, and the
+// fetcher's verified batch path requires one receipt per transaction, so the
+// scenario must serve them; zero logs keep the no-log-documents property.
+func reorgReceiptResponse(blockHashHex string, n int64) map[string]any {
+	return map[string]any{
+		"transactionHash":   reorgMockTxHash.Hex(),
+		"transactionIndex":  "0x0",
+		"blockHash":         blockHashHex,
+		"blockNumber":       fmt.Sprintf("0x%x", n),
+		"cumulativeGasUsed": "0x5208",
+		"gasUsed":           "0x5208",
+		"logsBloom":         "0x" + strings.Repeat("0", ethtypes.BloomByteLength*2),
+		"logs":              []any{},
+		"status":            "0x1",
+	}
+}
+
 // forkScript is the scripted chain RPC for the real-DefraDB reorg tests. When
 // armed, the FIRST fetch of every orphan height serves the orphan block;
 // every other fetch (and every re-fetch after a rollback) serves canonical.
@@ -282,7 +347,16 @@ func (s *forkScript) handle(method string, params json.RawMessage) (any, error) 
 		}
 		return s.responseFor(n, false), nil
 	case ethGetBlockReceipts:
-		return []any{}, nil
+		blockHashHex, ok := requestedBlockHash(params)
+		if !ok {
+			return nil, fmt.Errorf("bad eth_getBlockReceipts block hash param")
+		}
+		heightAny, ok := s.hashToNumber.Load(strings.ToLower(blockHashHex))
+		if !ok {
+			return nil, fmt.Errorf("block not found")
+		}
+		n := heightAny.(int64)
+		return []any{reorgReceiptResponse(blockHashHex, n)}, nil
 	case ethBlockNumber:
 		return fmt.Sprintf("0x%x", s.tip), nil
 	case ethChainID, netVersion:
