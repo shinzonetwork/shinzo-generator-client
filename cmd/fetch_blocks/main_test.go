@@ -528,3 +528,73 @@ func TestCaptureRangeInterruptWithZeroBlocksWritesNothing(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(defaultOutDir, "bsc_blocks_10_12"+fixtureExt))
 	assert.NoFileExists(t, filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt))
 }
+
+func TestCaptureRangeInterruptMidRunSavesPartialFixture(t *testing.T) {
+	// Not parallel: t.Chdir redirects the whole process's working directory.
+	t.Chdir(t.TempDir())
+
+	// The mock serves each block at its own number and cancels the run's
+	// context right after block 10's receipts have been served: a block
+	// only exists in the fixture once its block AND its receipts reply
+	// landed, so the interrupt must be scheduled behind the block's last
+	// RPC, not its first. Capture then interrupts with exactly that block
+	// in hand, and the partial fixture must rename itself to the range it
+	// actually holds (To 10) instead of promising the requested one.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Helper()
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "eth_getBlockReceipts":
+			var rawNum string
+			if err := json.Unmarshal(req.Params[0], &rawNum); err != nil {
+				t.Errorf("decode block number: %v", err)
+				return
+			}
+			if num, err := parseHexUint(rawNum); err == nil && num == 10 {
+				// The response is written first; the interrupt lands after
+				// block 10 is fully captured (block plus receipts), not
+				// mid-block.
+				defer cancel()
+			}
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[]}`))
+		case "eth_getBlockByNumber":
+			var rawNum string
+			if err := json.Unmarshal(req.Params[0], &rawNum); err != nil {
+				t.Errorf("decode block number: %v", err)
+				return
+			}
+			num, err := parseHexUint(rawNum)
+			if err != nil {
+				t.Errorf("parse block number: %v", err)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"number":"0x%x","transactions":[]}}`, num)
+		default:
+			t.Errorf("unexpected RPC method %s", req.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
+	require.NoError(t, captureRange(ctx, testEnv(server), opts, 10, 12))
+
+	data, err := os.ReadFile(filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt))
+	require.NoError(t, err)
+	var saved replayFixture
+	require.NoError(t, json.Unmarshal(data, &saved))
+	assert.True(t, saved.Meta.CapturePartial)
+	assert.Equal(t, uint64(10), saved.Meta.To, "To is the last captured block, not the requested range end")
+	assert.Equal(t, 1, saved.Meta.BlockCount)
+}

@@ -43,14 +43,13 @@ const (
 	// fixtureGlob matches this chain's captures so the newest complete
 	// fixture wins when no explicit path is given. resolveFixturePath skips
 	// _partial captures; they are still loadable via ETHEREUM_REPLAY_FIXTURE.
-	// resolveFixturePath skips _partial captures; they are still loadable
-	// via ETHEREUM_REPLAY_FIXTURE.
 	fixtureGlob = "ethereum_blocks_*.json"
 
-	// fixturePartialSuffix marks an interrupted capture's fixture, mirroring
-	// the constant in cmd/fetch_blocks (test packages cannot import a main
-	// package, so the on-disk naming is duplicated here).
+	// fixturePartialSuffix and fixtureExt mirror the constant pair in
+	// cmd/fetch_blocks (test packages cannot import a main package, so the
+	// on-disk naming is duplicated here).
 	fixturePartialSuffix = "_partial"
+	fixtureExt           = ".json"
 )
 
 // TestEthereumReplayAcceptance answers "can we index Ethereum blocks at the tip": it
@@ -262,7 +261,8 @@ func resolveFixturePath(t *testing.T) string {
 	newest := ""
 	var newestMod time.Time
 	for _, match := range matches {
-		if strings.Contains(match, fixturePartialSuffix) {
+		// Match the name's ending, not a substring anywhere in the path.
+		if strings.HasSuffix(filepath.Base(match), fixturePartialSuffix+fixtureExt) {
 			continue
 		}
 		info, err := os.Stat(match)

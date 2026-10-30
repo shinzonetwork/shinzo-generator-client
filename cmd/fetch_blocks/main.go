@@ -343,10 +343,10 @@ func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, 
 		return fmt.Errorf("interrupted before any block completed; no fixture written (requested %d..%d)", from, to)
 	}
 	if interrupted {
-		last := fx.Meta.From
-		if len(fx.Blocks) > 0 {
-			last, _ = parseHexUint(fx.Blocks[len(fx.Blocks)-1].Number)
-		}
+		// Runs with at least one block: a zero-block run returned above.
+		// To is rewritten to the block actually captured last so the
+		// fixture name never promises a range the file does not contain.
+		last, _ := parseHexUint(fx.Blocks[len(fx.Blocks)-1].Number)
 		fx.Meta.To = last
 		fx.Meta.CapturePartial = true
 		log.Printf("interrupted - saving partial fixture (%d blocks)", len(fx.Blocks))
