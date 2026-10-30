@@ -625,20 +625,59 @@ func TestStartupCleanup_WithinLimit(t *testing.T) {
 	assert.Equal(t, int64(0), p.totalBlocksPruned)
 }
 
-// With no blocks in the db nothing the queue tracks can still exist, so every
-// entry is stale: a Drain would purge and count documents that are gone.
-func TestStartupCleanup_DiscardsQueueWhenDBEmpty(t *testing.T) {
+// The empty-DB discard must run before the loop goroutine: pruneLoop races the
+// indexer's first block stores, so an in-loop empty-DB check could drop a
+// freshly tracked live entry. Nothing is tracked before Start returns, so the
+// synchronous discard there is race-free, and its persistence is observable
+// right away: a Save with no entries removes the file entirely.
+func TestStart_DiscardsStaleQueueWhenDBEmpty(t *testing.T) {
 	n := startTestNode(t)
 	path := t.TempDir() + "/prune_queue.gob"
 
 	seedQueueFile(t, path, 1, 2)
-	p, q := loadPrunerWithQueue(t, n, path, 100, 2)
+	q := NewIndexerQueue()
+	count, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false, IntervalSeconds: 3600}
+	p, _ := newTestPruner(cfg, n)
+	p.SetQueue(q)
+
+	// The discard is complete the moment Start returns.
+	require.NoError(t, p.Start(context.Background()))
+	t.Cleanup(p.Stop)
+
+	assert.Equal(t, 0, q.Len())
+	require.NoFileExists(t, path)
+
+	// A later restart cannot load the stale entries back.
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 0, persisted)
+}
+
+// Since the empty-DB discard moved to Start, the loop-side cleanup must not
+// drop entries when the DB appears empty: its getBlockRange can race the
+// indexer's first block stores, and a block stored between the query and a
+// discard would be dropped while logged as stale. Stale-entry handling for an
+// empty DB belongs to Start's synchronous discard, where nothing is tracked
+// yet and the DB state cannot have moved.
+func TestStartupCleanup_DoesNotDiscardWhenDBEmpty(t *testing.T) {
+	n := startTestNode(t)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
+
+	q := NewIndexerQueue()
+	for i := int64(1); i <= 2; i++ {
+		require.NoError(t, q.TrackBlockDocIDs(i, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, ""))
+	}
+	p.SetQueue(q)
 
 	require.NoError(t, p.startupCleanup(context.Background()))
 
-	assert.Equal(t, 0, q.Len())
-	// Save with no entries removes the file entirely.
-	require.NoFileExists(t, path)
+	assert.Equal(t, 2, q.Len())
 }
 
 // The within-limit early return is the path that would strand stale entries:
