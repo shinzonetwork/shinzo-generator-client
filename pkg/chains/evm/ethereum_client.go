@@ -517,7 +517,16 @@ func getContractAddress(receipt *ethtypes.Receipt) string {
 	return receipt.ContractAddress.Hex()
 }
 
+// getReceiptStatus maps the receipt's execution outcome to the converted
+// decimal "1"/"0" format. Pre-Byzantium receipts carry a post-state root
+// instead of a status field, and go-ethereum leaves Status at its zero
+// value for them, so a non-empty PostState would otherwise be read as
+// failed. Root-only receipts are indexed as successful, matching how
+// explorers report pre-Byzantium transactions.
 func getReceiptStatus(receipt *ethtypes.Receipt) string {
+	if len(receipt.PostState) > 0 {
+		return "1"
+	}
 	if receipt.Status == ethtypes.ReceiptStatusSuccessful {
 		return "1"
 	}
