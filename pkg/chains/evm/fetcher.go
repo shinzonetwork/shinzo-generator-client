@@ -214,10 +214,11 @@ func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error
 // always belong to the block the caller holds, whichever branch it sits on
 // (a by-number receipts call would race a reorg between the two reads).
 // The batch path is verified: every served receipt must carry the pinned
-// hash. Any failure, including a hash mismatch, degrades to the per-tx
-// fallback. eth_getTransactionReceipt resolves to the tx's canonical
-// inclusion, so each fallback receipt is verified against the pinned hash
-// too, and a mismatch fails the fetch instead of bundling cross-branch data.
+// hash AND cover every transaction in the block. Any failure, including a
+// hash mismatch or an incomplete batch, degrades to the per-tx fallback.
+// eth_getTransactionReceipt resolves to the tx's canonical inclusion, so
+// each fallback receipt is verified against the pinned hash too, and a
+// mismatch fails the fetch instead of bundling cross-branch data.
 func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt, error) {
 	transactions := make([]*Transaction, len(block.Transactions))
 	for i := range block.Transactions {
@@ -225,15 +226,21 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 	}
 
 	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, block.Hash)
-	if batchErr == nil && receiptHashesMatch(batchReceipts, block.Hash) {
+	if batchErr == nil && receiptHashesMatch(batchReceipts, block.Hash) && batchCoversTransactions(transactions, batchReceipts) {
 		mergeReceiptsOntoTransactions(transactions, batchReceipts)
 		return transactions, batchReceipts, nil
 	}
 	if batchErr == nil {
-		// The receipts came back for a different block than the one the
-		// caller holds: treat the batch result as failed and fall back
-		// rather than bundling cross-branch content.
-		batchErr = fmt.Errorf("served receipts do not belong to block hash %s", block.Hash)
+		// The batch result was rejected: either the receipts came back
+		// for a different block than the one the caller holds, or the
+		// node served only some of the block's transactions. Treat it as
+		// failed and fall back rather than bundling cross-branch content
+		// or letting an unseen outcome default to success.
+		if !receiptHashesMatch(batchReceipts, block.Hash) {
+			batchErr = fmt.Errorf("served receipts do not belong to block hash %s", block.Hash)
+		} else {
+			batchErr = fmt.Errorf("served %d receipts for %d transactions", len(batchReceipts), len(block.Transactions))
+		}
 	}
 
 	if ctx.Err() == nil {
@@ -291,9 +298,10 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 // mergeReceiptsOntoTransactions copies execution results from the receipts
 // onto their transactions so the bundle carries outcome data, not only the
 // signed payloads. Matching is by the transaction's own hash because both
-// receipt paths key receipts that way; a miss leaves the fields untouched
-// and is logged rather than failing the block, matching the lenient
-// handling of receiptless bundles.
+// receipt paths key receipts that way. The batch path is accepted only when
+// it covers every transaction, and a per-tx miss fails the fallback fetch,
+// so a miss here is a defensive no-op (logged, fields untouched) rather than
+// a behavior callers can rely on.
 func mergeReceiptsOntoTransactions(txs []*Transaction, receipts []*TransactionReceipt) {
 	byHash := make(map[string]*TransactionReceipt, len(receipts))
 	for _, r := range receipts {
@@ -328,6 +336,29 @@ func mergeReceiptsOntoTransactions(txs []*Transaction, receipts []*TransactionRe
 func receiptHashesMatch(receipts []*TransactionReceipt, blockHash string) bool {
 	for _, r := range receipts {
 		if r == nil || !strings.EqualFold(r.BlockHash, blockHash) {
+			return false
+		}
+	}
+	return true
+}
+
+// batchCoversTransactions reports whether every transaction has a receipt in
+// the batch result, matched by the transaction's own hash case-insensitively.
+// An incomplete batch must not be accepted: a transaction without a receipt
+// would keep the signed payload's conversion defaults and report success for
+// an execution outcome the node never told us about.
+func batchCoversTransactions(txs []*Transaction, receipts []*TransactionReceipt) bool {
+	served := make(map[string]struct{}, len(receipts))
+	for _, r := range receipts {
+		if r != nil {
+			served[strings.ToLower(r.TransactionHash)] = struct{}{}
+		}
+	}
+	for _, tx := range txs {
+		if tx == nil {
+			continue
+		}
+		if _, ok := served[strings.ToLower(tx.Hash)]; !ok {
 			return false
 		}
 	}

@@ -92,49 +92,60 @@ func TestFetcher_MergesReceiptOutcomeOntoTransactions(t *testing.T) {
 	}
 }
 
-// TestFetcher_Merge_MissingReceiptKeepsDefaults pins the lenient miss
-// behavior: a transaction whose receipt is absent keeps its conversion
-// defaults and the block still indexes, mirroring the lenient handling of
-// receiptless bundles. The batch path serves a receipt for only one of the
-// two transactions; the hash-pinned verification still accepts the result.
-func TestFetcher_Merge_MissingReceiptKeepsDefaults(t *testing.T) {
+// TestFetcher_Merge_ShortBatchFallsBackToPerTx proves an incomplete batch
+// result is rejected even when its receipts carry the pinned block hash: a
+// transaction whose outcome the node did not report must get its receipt
+// fetched individually, not keep the signed payload's success default. The
+// batch receipt serves GasUsed "111" while the per-tx fallback serves
+// "53000", so the merged values identify which path won.
+func TestFetcher_Merge_ShortBatchFallsBackToPerTx(t *testing.T) {
 	t.Parallel()
 
 	hashA := fakeHash("merge-miss-matched")
 	hashB := fakeHash("merge-miss-unmatched")
 	txA := fakeTx(hashA)
 	txB := fakeTx(hashB)
-	txB.Status = true // the conversion default, pre-set so "untouched" is observable
+	txB.Status = true // the conversion default, pre-set so the override is observable
 	block := fakeBlockWithTxs(12345, txA, txB)
 
-	receipt := fakeReceipt(hashA, 12345)
-	receipt.BlockHash = block.Hash
-	receipt.Status = "0"
-	receipt.GasUsed = "53000"
-	receipt.CumulativeGasUsed = "79000"
-	receipt.EffectiveGasPrice = "20000000000"
+	complete := func(hash string) *TransactionReceipt {
+		r := fakeReceipt(hash, 12345)
+		r.BlockHash = block.Hash
+		r.Status = "0"
+		r.GasUsed = "53000"
+		r.CumulativeGasUsed = "79000"
+		r.EffectiveGasPrice = "20000000000"
+		return r
+	}
+
+	// The batch result carries the pinned hash but serves a receipt for
+	// only one of the two transactions: incomplete coverage must not be
+	// accepted as an outcome for the whole block.
+	shortBatch := complete(hashA)
+	shortBatch.GasUsed = "111"
 
 	client := &fakeRPCClient{
 		block:          block,
-		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {receipt}},
+		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {shortBatch}},
+		txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
+			return complete(hash), nil
+		},
 	}
 	f := NewFetcher(client, 8)
 
 	raw, err := f.FetchBlock(context.Background(), 12345)
-	require.NoError(t, err, "a missing receipt is logged, not failed")
+	require.NoError(t, err)
 	bundle, ok := raw.(*BlockBundle)
 	require.True(t, ok)
 
 	require.Len(t, bundle.Transactions, 2)
-	assert.False(t, bundle.Transactions[0].Status)
-	assert.Equal(t, "53000", bundle.Transactions[0].GasUsed)
-	assert.Equal(t, "79000", bundle.Transactions[0].CumulativeGasUsed)
-	assert.Equal(t, "20000000000", bundle.Transactions[0].EffectiveGasPrice)
-
-	assert.True(t, bundle.Transactions[1].Status, "unmatched transaction keeps its conversion default")
-	assert.Empty(t, bundle.Transactions[1].GasUsed)
-	assert.Empty(t, bundle.Transactions[1].CumulativeGasUsed)
-	assert.Empty(t, bundle.Transactions[1].EffectiveGasPrice)
+	for _, tx := range bundle.Transactions {
+		assert.False(t, tx.Status, "an unseen execution outcome must not default to success")
+		assert.Equal(t, "53000", tx.GasUsed, "values must come from the per-tx fallback, not the short batch")
+		assert.Equal(t, "79000", tx.CumulativeGasUsed)
+		assert.Equal(t, "20000000000", tx.EffectiveGasPrice)
+	}
+	require.Len(t, bundle.Receipts, 2)
 }
 
 // TestMergeReceiptsOntoTransactions_NilRobustness exercises the helper

@@ -525,8 +525,8 @@ func getReceiptStatus(receipt *ethtypes.Receipt) string {
 }
 
 // getEffectiveGasPrice formats the receipt's effective gas price as a decimal
-// string, matching the GasUsed formatting. The field exists only on
-// post-EIP-1559 receipts, so a nil value yields an empty string.
+// string, matching the GasUsed formatting. Nodes that omit the field
+// (EffectiveGasPrice nil) yield an empty string.
 func getEffectiveGasPrice(receipt *ethtypes.Receipt) string {
 	if receipt.EffectiveGasPrice == nil {
 		return ""
