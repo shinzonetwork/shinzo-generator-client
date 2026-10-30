@@ -29,6 +29,7 @@ go.work.sum
 .defra-shinzohub/
 .defra-avalanche/
 .defra-celo/
+.defra-kaia/
 
 .claude/
 
