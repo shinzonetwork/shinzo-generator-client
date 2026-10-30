@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help
+.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test tron-live-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -10,6 +10,12 @@ endif
 GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
+
+# Tron wallet-API env vars for the tron live smoke (tron-live-test and the
+# TRON phase of integration-test).
+TRON_RPC_URL ?=
+TRON_SOLIDITY_RPC_URL ?=
+TRON_API_KEY ?=
 
 # Version injected into the binary at build time via -ldflags (git tag plus
 # commit offset and dirty state; falls back to "dev" outside a git repo).
@@ -90,13 +96,31 @@ integration-test:
 	@echo "🧪 Running integration tests..."
 	@echo "📦 Mock tests (fast):"
 	@go test -tags=integration -v ./integration/
+	@go test -tags=integration -v ./integration/tron/
 	@echo ""
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
 		go test -tags=live -v ./integration/live/ -timeout=20s; \
-	else \ 
+	else \
 		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
 	fi
+	@echo ""
+	@echo "🌅 Tron live smoke (requires environment variables):"
+	@if [ -n "$(TRON_RPC_URL)" ]; then \
+		go test -tags=live -v ./integration/live/tron/ -timeout=120s; \
+	else \
+		echo "⚠️  Skipping tron live smoke - TRON_RPC_URL not set"; \
+	fi
+
+tron-live-test:
+	@echo "🌅 Running tron live smoke test with your wallet-API endpoint..."
+	@if [ -z "$(TRON_RPC_URL)" ]; then \
+		echo "❌ TRON_RPC_URL not set. Please export it first:"; \
+		echo "   export TRON_RPC_URL=<your-wallet-api-url>  (for example https://nile.trongrid.io)"; \
+		exit 1; \
+	fi
+	@echo "✅ Using endpoint: $(TRON_RPC_URL)"
+	@go test -tags=live -v ./integration/live/tron/ -timeout=120s
 
 coverage:
 	go test ./... -coverprofile=coverage.out
@@ -163,6 +187,8 @@ help:
 	@echo "  test               - Run all tests with summary"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
+	@echo "  integration-test   - Run integration tests (mock always; tron live smoke gated on TRON_RPC_URL)"
+	@echo "  tron-live-test     - Run the tron live smoke against TRON_RPC_URL"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
@@ -185,7 +211,15 @@ help:
 	@echo "  GETH_WS_URL    - WebSocket endpoint (optional)"
 	@echo "  (GETH_* names are historical; any compatible JSON-RPC/WS endpoint works)"
 	@echo ""
+	@echo "🔧 Environment Variables for tron-live-test:"
+	@echo "  TRON_RPC_URL          - Wallet-API base URL (required, e.g. https://nile.trongrid.io)"
+	@echo "  TRON_SOLIDITY_RPC_URL - SolidityNode base URL (optional; defaults to the NodeURL host)"
+	@echo "  TRON_API_KEY          - TronGrid API key (optional)"
+	@echo ""
 	@echo "💡 Example Usage:"
 	@echo "  export GETH_RPC_URL=http://xx.xx.xx.xx:port"
 	@echo "  export GETH_API_KEY=your-api-key-here"
 	@echo "  make node-status"
+	@echo ""
+	@echo "  export TRON_RPC_URL=https://nile.trongrid.io"
+	@echo "  make tron-live-test"

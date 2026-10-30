@@ -1,0 +1,16 @@
+type Tron__Mainnet__Log {
+    address: String
+    topics: [String]
+    data: String
+    transactionHash: String
+    blockHash: String
+    blockNumber: Int @index
+    transactionIndex: Int
+    # logIndex is a synthetic ordinal within the parent transaction: repeated
+    # identical events are distinct documents only because of it, so
+    # content-addressed docIDs never collide.
+    logIndex: Int
+    # Relationships
+    block: Tron__Mainnet__Block @relation(name: "block_logs")
+    transaction: Tron__Mainnet__Transaction @relation(name: "transaction_logs")
+}

@@ -1,0 +1,13 @@
+type Tron__Mainnet__Block {
+    hash: String
+    number: Int @index
+    timestamp: Int
+    parentHash: String
+    witnessAddress: String
+    version: Int
+    txTrieRoot: String
+    witnessSignature: String
+    transactionCount: Int
+    # Relationships
+    transactions: [Tron__Mainnet__Transaction] @relation(name: "block_transactions")
+}

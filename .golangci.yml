@@ -56,6 +56,15 @@ linters:
           deny:
             - pkg: github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm
               desc: production code must consume the pkg/chains interfaces; the evm adapter is wired only by cmd/ binaries and imported only by tests
+        tron-boundary:
+          files:
+            - "$all"
+            - "!$test"
+            - "!**/pkg/chains/tron/**"
+            - "!**/cmd/**"
+          deny:
+            - pkg: github.com/shinzonetwork/shinzo-generator-client/pkg/chains/tron
+              desc: production code must consume the pkg/chains interfaces; the tron adapter is wired only by cmd/ binaries and imported only by tests
     funlen:
       lines: 100
     revive:
