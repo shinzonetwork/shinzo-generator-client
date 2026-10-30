@@ -307,6 +307,10 @@ func (q *IndexerQueue) DiscardUpTo(blockNumber int64) int {
 		}
 		kept = append(kept, entry)
 	}
+	// In-place filtering leaves the dropped entries in the backing array past
+	// len(kept); clearing them releases their OtherDocIDs maps immediately
+	// instead of keeping them reachable until later appends overwrite.
+	clear(q.entries[len(kept):])
 	q.entries = kept
 	return removed
 }

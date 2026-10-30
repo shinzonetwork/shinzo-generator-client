@@ -435,7 +435,9 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 	totalPurged, purgeErr := p.purgeByDocIDsByCollection(ctx, docIDsByCollection)
 
 	if iq, ok := p.queue.(*IndexerQueue); ok {
-		iq.DiscardUpTo(endBlock)
+		if removed := iq.DiscardUpTo(endBlock); removed > 0 {
+			logger.Sugar.Debugf("Discarded %d queue entries at or below block %d", removed, endBlock)
+		}
 	}
 
 	logger.Sugar.Infof("pruneBlockRange: purged %d docs for blocks %d-%d", totalPurged, startBlock, endBlock)
