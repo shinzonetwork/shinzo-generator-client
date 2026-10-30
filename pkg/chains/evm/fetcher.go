@@ -214,8 +214,11 @@ func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error
 // always belong to the block the caller holds, whichever branch it sits on
 // (a by-number receipts call would race a reorg between the two reads).
 // The batch path is verified: every served receipt must carry the pinned
-// hash. Any failure, including a hash mismatch, degrades to the per-tx
-// fallback. eth_getTransactionReceipt resolves to the tx's canonical
+// hash. The per-tx fallback runs only when the node does not implement
+// eth_getBlockReceipts or serves receipts of another block. Any other batch
+// error is returned so the caller retries the block: one request per
+// transaction would multiply the load on a node that is already failing or
+// rate limiting. eth_getTransactionReceipt resolves to the tx's canonical
 // inclusion, so each fallback receipt is verified against the pinned hash
 // too, and a mismatch fails the fetch instead of bundling cross-branch data.
 func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt, error) {
@@ -227,6 +230,9 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, block.Hash)
 	if batchErr == nil && receiptHashesMatch(batchReceipts, block.Hash) {
 		return transactions, batchReceipts, nil
+	}
+	if batchErr != nil && !isMethodNotFound(batchErr) {
+		return transactions, nil, batchErr
 	}
 	if batchErr == nil {
 		// The receipts came back for a different block than the one the

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -355,6 +356,40 @@ func TestFetcher_FetchBlock_FallbackRejectsReceiptsFromAnotherBlock(t *testing.T
 	require.Error(t, err, "receipts from another block must fail the fetch, not be bundled")
 }
 
+func TestFetcher_FetchBlock_BatchErrorSkipsFallback(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		batchErr error
+	}{
+		{"rpc error", codedRPCError(-32005)},
+		{"connection closed", fmt.Errorf("websocket: close 1006 (abnormal closure): unexpected EOF")},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			block := fakeBlockWithTxs(12345, fakeTx("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+			var perTxCalls atomic.Int32
+			client := &fakeRPCClient{
+				block:    block,
+				batchErr: tc.batchErr,
+				txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
+					perTxCalls.Add(1)
+					return fakeReceipt(hash, 12345), nil
+				},
+			}
+			f := NewFetcher(client, 8)
+
+			_, err := f.FetchBlock(context.Background(), 12345)
+			require.ErrorIs(t, err, tc.batchErr)
+			assert.Zero(t, perTxCalls.Load(), "a failing batch call must not turn into one request per transaction")
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // FetchBlock: block not found (no retry, error passed through unwrapped)
 // ---------------------------------------------------------------------------
@@ -515,7 +550,7 @@ func TestFetcher_ReceiptFallback(t *testing.T) {
 
 			client := &fakeRPCClient{
 				block:       block,
-				batchErr:    fmt.Errorf("eth_getBlockReceipts not supported"),
+				batchErr:    codedRPCError(jsonRPCMethodNotFound),
 				txReceiptFn: tc.txReceiptFn,
 			}
 			f := NewFetcher(client, 8)
@@ -552,7 +587,7 @@ func TestFetcher_ReceiptFallback_PreservesPositionalNils(t *testing.T) {
 
 	client := &fakeRPCClient{
 		block:    block,
-		batchErr: fmt.Errorf("eth_getBlockReceipts not supported"),
+		batchErr: codedRPCError(jsonRPCMethodNotFound),
 		txReceiptFn: func(_ context.Context, hash string) (*TransactionReceipt, error) {
 			if hash == hashB {
 				return nil, fmt.Errorf("receipt not available")
@@ -612,7 +647,7 @@ func TestFetcher_ReceiptFallback_ContextCancelTiming(t *testing.T) {
 			block := fakeBlockWithTxs(tc.blockNum, fakeTx(txHash))
 			client := &fakeRPCClient{
 				block:    block,
-				batchErr: fmt.Errorf("not supported"),
+				batchErr: codedRPCError(jsonRPCMethodNotFound),
 				txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 					time.Sleep(tc.txSleep)
 					if tc.returnError {
@@ -644,7 +679,7 @@ func TestFetcher_ReceiptFallback_ContextCancelDuringSemaphoreWait(t *testing.T) 
 	firstReceiptCalled := make(chan struct{})
 	client := &fakeRPCClient{
 		block:    block,
-		batchErr: fmt.Errorf("not supported"),
+		batchErr: codedRPCError(jsonRPCMethodNotFound),
 		txReceiptFn: func(_ context.Context, _ string) (*TransactionReceipt, error) {
 			select {
 			case firstReceiptCalled <- struct{}{}:
