@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/sourcenetwork/defradb/node"
 )
 
 // RPC method names the fixture server answers. Any other method is rejected
@@ -146,21 +147,25 @@ func decodeReceipts(raw json.RawMessage) (map[string]json.RawMessage, error) {
 
 // fixtureRPCServer replays captured fixtures over JSON-RPC: block bodies are
 // addressed by the requested hex height, receipts by the block's content
-// hash, mirroring how the real endpoints are addressed.
+// hash, mirroring how the real endpoints are addressed. failBatchReceipts
+// makes every eth_getBlockReceipts call fail: with a healthy fixture the
+// batch call always succeeds, so the per-tx eth_getTransactionReceipt
+// fallback the fetcher degrades to would never run without the flag.
 type fixtureRPCServer struct {
 	*httptest.Server
-	byHeight map[int64]*blockFixture
-	byHash   map[string]*blockFixture
+	byHeight          map[int64]*blockFixture
+	byHash            map[string]*blockFixture
+	failBatchReceipts bool
 }
 
-func newFixtureRPCServer(fixtures []*blockFixture) *fixtureRPCServer {
+func newFixtureRPCServer(fixtures []*blockFixture, failBatchReceipts bool) *fixtureRPCServer {
 	byHeight := make(map[int64]*blockFixture, len(fixtures))
 	byHash := make(map[string]*blockFixture, len(fixtures))
 	for _, fixture := range fixtures {
 		byHeight[fixture.height] = fixture
 		byHash[fixture.hash] = fixture
 	}
-	s := &fixtureRPCServer{byHeight: byHeight, byHash: byHash}
+	s := &fixtureRPCServer{byHeight: byHeight, byHash: byHash, failBatchReceipts: failBatchReceipts}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
 	return s
 }
@@ -224,6 +229,12 @@ func (s *fixtureRPCServer) serve(method string, params json.RawMessage) (json.Ra
 		return fixture.blockRaw, nil
 
 	case methodGetBlockReceipts:
+		// Forced batch failure: a JSON-RPC error response makes the client
+		// fail the call, which is what sends the fetcher into its per-tx
+		// receipt fallback for the fallback run.
+		if s.failBatchReceipts {
+			return nil, fmt.Errorf("batch receipts unavailable: this run exercises the per-tx receipt fallback")
+		}
 		// The receipts selector is an object (blockHash or blockNumber
 		// field), not a bare string.
 		var arg struct {
@@ -307,8 +318,8 @@ var goldenCollections = []collectionFields{
 const readBackLimit = 100000
 
 // readCollectionDocs queries every stored row of one collection through the
-// node's in-process DB API, selecting exactly the golden field list.
-func readCollectionDocs(ctx context.Context, t *testing.T, collection string, fields []string) []map[string]any {
+// run's node's in-process DB API, selecting exactly the golden field list.
+func readCollectionDocs(ctx context.Context, t *testing.T, defraNode *node.Node, collection string, fields []string) []map[string]any {
 	t.Helper()
 
 	query := fmt.Sprintf(`query { %s(limit: %d) { %s } }`, collection, readBackLimit, strings.Join(fields, " "))
@@ -378,12 +389,15 @@ func stableJSON(rows []map[string]any) ([]byte, error) {
 }
 
 // compareOrUpdateGolden compares the stored output with the committed golden
-// file, or rewrites it under -golden-update. Missing goldens without the flag
-// are a hard failure pointing at the regeneration command.
-func compareOrUpdateGolden(t *testing.T, path string, actual []byte) {
+// file, or rewrites it when allowUpdate is set. Only the batch run passes
+// -golden-update through, so regeneration always freezes the primary receipt
+// path and the fallback run can never overwrite the goldens with diverging
+// bytes. Missing goldens without the flag are a hard failure pointing at the
+// regeneration command.
+func compareOrUpdateGolden(t *testing.T, path string, actual []byte, allowUpdate bool) {
 	t.Helper()
 
-	if *update {
+	if allowUpdate {
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, actual, 0o644))
 		t.Logf("golden updated: %s", path)

@@ -15,6 +15,16 @@ files, and it serves exactly the three methods the pipeline calls
 Any other method fails loudly, so unexpected RPC traffic cannot pass
 silently.
 
+Both receipt paths the fetcher supports are exercised: every chain case runs
+once against the batch `eth_getBlockReceipts` response and once with that
+method failing on the mock server, which forces the fetcher's per-tx
+`eth_getTransactionReceipt` fallback. The two runs must store identical
+documents: the committed goldens are generated from the batch path, and the
+fallback run compares against the same bytes, so a divergence between the
+paths fails the freeze instead of landing silently. Each of the two runs
+gets its own embedded DefraDB store, because the freeze reads the whole
+store back.
+
 ## Running
 
 ```bash
@@ -40,8 +50,8 @@ diff, and commit the goldens together with the change that caused it.
 
 ```
 golden/
-  golden_test.go      suite entry: node startup, chain cases, per-chain flow
-  helpers_test.go     mock RPC server, fixture loading, read-back, goldens
+  golden_test.go      suite entry: chain cases, per-run node boot, per-chain flow
+  helpers_test.go     mock RPC server (with batch-failure mode), fixture loading, read-back, goldens
   ethereum/
     testdata/
       blocks/26293563.json     eth_getBlockByNumber response
