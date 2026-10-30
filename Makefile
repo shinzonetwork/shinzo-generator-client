@@ -89,7 +89,7 @@ test-local:
 integration-test:
 	@echo "🧪 Running integration tests..."
 	@echo "📦 Mock tests (fast):"
-	@go test -tags=integration -v ./integration/
+	@go test -tags=integration -v ./integration/ ./golden/
 	@echo ""
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
