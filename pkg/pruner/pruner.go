@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -314,12 +315,24 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 // already gone, and pruning them again through a Drain would double-count, so they
 // are discarded here, in memory and on disk. This runs before the retention check
 // because the within-limit early return is exactly the path that would otherwise
-// strand the stale entries.
+// strand the stale entries. An empty DB is the widest case: nothing tracked can
+// exist, so every entry is dropped.
 func (p *Pruner) startupCleanup(ctx context.Context) error {
 	lowest, highest, err := p.getBlockRange(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNoBlocks) {
 			logger.Sugar.Debugf("No existing blocks in database")
+			// With no blocks in the DB nothing the queue tracks can still exist,
+			// so every entry is stale: the first Drain would purge and count
+			// documents that are already gone.
+			if iq, ok := p.queue.(*IndexerQueue); ok {
+				if removed := iq.DiscardUpTo(math.MaxInt64); removed > 0 {
+					logger.Sugar.Infof("Startup cleanup: discarded %d stale queue entries (DB has no blocks)", removed)
+					if err := iq.Save(); err != nil {
+						logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
+					}
+				}
+			}
 			return nil
 		}
 		return fmt.Errorf("startup cleanup: get block range: %w", err)
@@ -351,6 +364,17 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 		lowest, cutoffBlock, toPrune, cutoffBlock+1, highest)
 
 	totalPurged, err := p.pruneBlockRange(ctx, lowest, cutoffBlock)
+
+	// pruneBlockRange discards queue entries for the pruned range regardless of
+	// the purge outcome, but unlike the tick path there is no deferred checkpoint
+	// here: without a Save, a kill before the first tick leaves the file holding
+	// entries for blocks that were just deleted.
+	if iq, ok := p.queue.(*IndexerQueue); ok {
+		if err := iq.Save(); err != nil {
+			logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
+		}
+	}
+
 	if err != nil {
 		logger.Sugar.Errorf("Startup: failed to prune blocks %d-%d: %v", lowest, cutoffBlock, err)
 		return err

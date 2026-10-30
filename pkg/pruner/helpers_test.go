@@ -3,6 +3,7 @@ package pruner
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -245,4 +246,36 @@ func countDocs(t *testing.T, n *node.Node, collectionName string) int {
 		return len(docs)
 	}
 	return 0
+}
+
+// seedQueueFile writes a queue file at path with entries for blocks from..to,
+// the way a previous run would have checkpointed it.
+func seedQueueFile(t *testing.T, path string, from, to int64) {
+	t.Helper()
+	// LoadFromFile both binds the queue to the path and loads whatever the
+	// file holds onto it, so the seed must not build on an existing file.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		require.NoError(t, err)
+	}
+	q := NewIndexerQueue()
+	_, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	for i := from; i <= to; i++ {
+		require.NoError(t, q.TrackBlockDocIDs(i, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, ""))
+	}
+	require.NoError(t, q.Save())
+}
+
+// loadPrunerWithQueue simulates a fresh process: a new pruner with a queue
+// reloaded from the file at path. wantCount guards that the restart saw the
+// expected snapshot.
+func loadPrunerWithQueue(t *testing.T, n *node.Node, path string, maxBlocks int64, wantCount int) (*Pruner, *IndexerQueue) {
+	t.Helper()
+	p, _ := newTestPruner(&config.PrunerConfig{Enabled: true, MaxBlocks: maxBlocks, PruneHistory: false}, n)
+	q := NewIndexerQueue()
+	count, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	require.Equal(t, wantCount, count)
+	p.SetQueue(q)
+	return p, q
 }
