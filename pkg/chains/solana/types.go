@@ -1,5 +1,7 @@
 package solana
 
+import "errors"
+
 // Local JSON-shaped types mirroring the Solana JSON-RPC getBlock response.
 // They are the boundary contract of the adapter: solana-go SDK types are
 // converted into these at the RPC layer (solana_client.go) and never escape
@@ -18,7 +20,7 @@ package solana
 // Block is a Solana block as returned by a full-fidelity getBlock call. Slot
 // doubles as the fetch height across the adapter; not every slot produces a
 // block (a leader may skip it), which the fetcher surfaces as
-// chains.ErrHeightSkipped.
+// ErrHeightSkipped.
 type Block struct {
 	Slot              uint64        `json:"slot"`
 	Blockhash         string        `json:"blockhash"`
@@ -94,3 +96,12 @@ type Reward struct {
 	RewardType  string `json:"rewardType,omitempty"`
 	Commission  *uint8 `json:"commission,omitempty"`
 }
+
+// ErrHeightSkipped reports a fetch height the chain will never fill: the
+// chain (e.g. a skipped Solana slot) validated no block there, so the
+// processor must advance past the height without storing or signing
+// anything. Only chain fetchers that can classify such heights return it;
+// EVM never does, keeping EVM behavior unchanged. Its message deliberately
+// does not contain "not found", so the processor's transient not-found
+// retry loop can never conflate the two conditions.
+var ErrHeightSkipped = errors.New("permanently skipped: no block will exist at this height")

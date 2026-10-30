@@ -349,6 +349,25 @@ func (c *Client) GetSlot(ctx context.Context) (uint64, error) {
 	return slot, nil
 }
 
+// commitmentFinalized is the finalized commitment passed to the tip getSlot
+// query serving FetchFinalizedBlockNumber: finalized slots never reorg, so
+// the finalized tip is the generic walk-back floor. Sent as a raw string
+// rather than through a library constant keeps the SDK surface used here
+// unchanged from the spike-verified shape.
+const commitmentFinalized = rpc.CommitmentType("finalized")
+
+// GetFinalizedSlot returns the finalized tip. It is the fetcher-side floor
+// of the reorg walk-back: finalized slots are never reorged, so no slot
+// below it can be rolled back from under the walk.
+func (c *Client) GetFinalizedSlot(ctx context.Context) (uint64, error) {
+	slot, err := c.client.GetSlot(ctx, commitmentFinalized)
+	c.countRPCError(ctx, "getSlotFinalized", err)
+	if err != nil {
+		return 0, fmt.Errorf("getSlot (finalized) failed: %w", utils.RedactHTTPError(err))
+	}
+	return slot, nil
+}
+
 // GetFirstAvailableBlock returns the slot of the lowest confirmed block the
 // endpoint has not purged. Full nodes hold only days of ledger, so this
 // documents the archive floor behind the archive_rpc_url routing: once
