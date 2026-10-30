@@ -512,6 +512,14 @@ func TestGetReceiptStatus(t *testing.T) {
 	}{
 		{name: "Success", receipt: &ethtypes.Receipt{Status: ethtypes.ReceiptStatusSuccessful}, want: "1"},
 		{name: "Failed", receipt: &ethtypes.Receipt{Status: ethtypes.ReceiptStatusFailed}, want: "0"},
+		{
+			name: "PreByzantiumRootReceiptIsSuccess",
+			// Status left at its zero value: geth populates PostState
+			// only for pre-Byzantium blocks, where the RLP encoding
+			// carries the post-state root instead of a status field.
+			receipt: &ethtypes.Receipt{PostState: make([]byte, common.HashLength)},
+			want:    "1",
+		},
 	}
 
 	for _, tc := range cases {

@@ -247,6 +247,32 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 		logger.Sugar.Debugf("Block %d: pinned eth_getBlockReceipts not usable, falling back to individual fetches: %v", blockNum, batchErr)
 	}
 
+	receipts := f.fetchReceiptsIndividually(ctx, block)
+
+	var failed int
+	for _, r := range receipts {
+		if r == nil {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return transactions, receipts, fmt.Errorf("block %d: %d/%d transaction receipts could not be fetched", blockNum, failed, len(receipts))
+	}
+
+	mergeReceiptsOntoTransactions(transactions, receipts)
+	return transactions, receipts, nil
+}
+
+// fetchReceiptsIndividually fetches one receipt per transaction, so the
+// result slice is positional with len(block.Transactions) slots and nil
+// slots mark transactions whose receipt could not be fetched. Receipts
+// fetch concurrently, bounded by the configured worker count, and failures
+// are only warned, never aborted, so every tx always gets its own attempt.
+// eth_getTransactionReceipt resolves to the tx's canonical inclusion, so
+// each receipt is verified against the pinned hash too, and a mismatch
+// leaves the slot nil for the caller to fail on instead of bundling
+// cross-branch data.
+func (f *Fetcher) fetchReceiptsIndividually(ctx context.Context, block *Block) []*TransactionReceipt {
 	receipts := make([]*TransactionReceipt, len(block.Transactions))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.receiptWorkers)
@@ -269,8 +295,9 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 				return
 			}
 			if receipt == nil || !strings.EqualFold(receipt.BlockHash, block.Hash) {
-				// The node resolved the tx to another block: ours is no longer
-				// canonical. Leave the slot nil so the fetch fails and retries.
+				// The node resolved the tx to another block: ours is no
+				// longer canonical. Leave the slot nil so the fetch fails
+				// and retries.
 				if ctx.Err() == nil && logger.Sugar != nil {
 					logger.Sugar.Warnf("Receipt for tx %s does not belong to block %s; the block is no longer canonical", txHash, block.Hash)
 				}
@@ -281,18 +308,7 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 	}
 	wg.Wait()
 
-	var failed int
-	for _, r := range receipts {
-		if r == nil {
-			failed++
-		}
-	}
-	if failed > 0 {
-		return transactions, receipts, fmt.Errorf("block %d: %d/%d transaction receipts could not be fetched", blockNum, failed, len(receipts))
-	}
-
-	mergeReceiptsOntoTransactions(transactions, receipts)
-	return transactions, receipts, nil
+	return receipts
 }
 
 // mergeReceiptsOntoTransactions copies execution results from the receipts
