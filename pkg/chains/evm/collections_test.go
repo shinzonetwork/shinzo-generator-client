@@ -1,8 +1,10 @@
 package evm
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,5 +106,51 @@ func TestBlockAndSignatureCollections(t *testing.T) {
 			assert.Equal(t, tt.expectedBlockSigCol, c.BlockSignatureCollection())
 			assert.Equal(t, tt.expectedSnapshotSigCol, c.SnapshotSignatureCollection())
 		})
+	}
+}
+
+func TestNewTokenCollectionNames(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewTokenCollectionNames("Bsc__Mainnet", []string{
+		"0xBB00000000000000000000000000000000000002",
+		"aa00000000000000000000000000000000000001",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"Bsc__Mainnet__Header",
+		"Bsc__Mainnet__BlockSignature",
+		"Bsc__Mainnet__ContractLog_aa00000000000000000000000000000000000001",
+		"Bsc__Mainnet__ContractLog_bb00000000000000000000000000000000000002",
+	}, c.AllCollections())
+	assert.Equal(t, "Bsc__Mainnet__Header", c.BlockCollection())
+	assert.Equal(t, "Bsc__Mainnet__BlockSignature", c.BlockSignatureCollection())
+	assert.Empty(t, c.SnapshotSignatureCollection())
+
+	_, err = NewTokenCollectionNames("Bsc__Mainnet", []string{"0xbb"})
+	require.ErrorIs(t, err, config.ErrInvalidContractAddress)
+}
+
+// DefraDB finds a collection's schema history by scanning keys that start with the collection
+// name, with no separator after it (defradb internal/keys/headstore_collection_definition.go). A
+// table whose name begins another's also reads that table's history, so its collection ID depends
+// on which of the two was created first. No tokens-mode table name may begin another.
+func TestTokenCollectionNames_NoNameBeginsAnother(t *testing.T) {
+	t.Parallel()
+
+	c, err := NewTokenCollectionNames("Bsc__Mainnet", []string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2",
+	})
+	require.NoError(t, err)
+
+	names := c.AllCollections()
+	for _, a := range names {
+		for _, b := range names {
+			if a != b {
+				assert.False(t, strings.HasPrefix(b, a), "%s begins %s", a, b)
+			}
+		}
 	}
 }

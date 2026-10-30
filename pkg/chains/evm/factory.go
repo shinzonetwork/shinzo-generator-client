@@ -26,11 +26,11 @@ func init() {
 			return c, nil
 		},
 		Collections: func(cfg *config.Config) (chains.Collections, error) {
-			prefix, err := chainPrefixFromConfig(cfg)
+			c, err := collectionNamesFromConfig(cfg)
 			if err != nil {
 				return nil, err
 			}
-			return NewCollectionNames(prefix), nil
+			return c, nil
 		},
 	})
 }

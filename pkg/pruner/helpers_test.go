@@ -63,6 +63,10 @@ func (tc *testChain) GetHighestStoredBlockNumber(ctx context.Context, _ *node.No
 	return tc.queryBlockNumber(ctx, query)
 }
 
+func (tc *testChain) GetStoredBlockNumbers(_ context.Context, _ *node.Node) ([]int64, error) {
+	return nil, nil
+}
+
 func (tc *testChain) GetDocIDsByBlockRange(ctx context.Context, _ *node.Node, from, to int64) (map[string][]string, error) {
 	result := make(map[string][]string)
 

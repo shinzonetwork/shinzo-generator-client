@@ -37,6 +37,7 @@ type MockConverter struct {
 	CollectionsFn                 func() chains.Collections
 	GetHighestStoredBlockNumberFn func(ctx context.Context, n *node.Node) (int64, error)
 	GetLowestStoredBlockNumberFn  func(ctx context.Context, n *node.Node) (int64, error)
+	GetStoredBlockNumbersFn       func(ctx context.Context, n *node.Node) ([]int64, error)
 	GetDocIDsByBlockRangeFn       func(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error)
 
 	// Call recording.
@@ -46,6 +47,7 @@ type MockConverter struct {
 	CollectionsCalls                 int
 	GetHighestStoredBlockNumberCalls int
 	GetLowestStoredBlockNumberCalls  int
+	GetStoredBlockNumbersCalls       int
 	GetDocIDsByBlockRangeCalls       []BlockRange
 }
 
@@ -121,6 +123,17 @@ func (m *MockConverter) GetLowestStoredBlockNumber(ctx context.Context, n *node.
 		return m.GetLowestStoredBlockNumberFn(ctx, n)
 	}
 	return 0, nil
+}
+
+// GetStoredBlockNumbers records the call and delegates to GetStoredBlockNumbersFn.
+func (m *MockConverter) GetStoredBlockNumbers(ctx context.Context, n *node.Node) ([]int64, error) {
+	m.mu.Lock()
+	m.GetStoredBlockNumbersCalls++
+	m.mu.Unlock()
+	if m.GetStoredBlockNumbersFn != nil {
+		return m.GetStoredBlockNumbersFn(ctx, n)
+	}
+	return nil, nil
 }
 
 // GetDocIDsByBlockRange records the range and delegates to GetDocIDsByBlockRangeFn.

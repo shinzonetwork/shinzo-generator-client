@@ -176,6 +176,9 @@ type fakeRPCClient struct {
 	finalizedErr error
 	finalizedFn  func(ctx context.Context) (int64, error)
 
+	finalizedHeight    int64
+	finalizedHeightErr error
+
 	blockFn     func(ctx context.Context, n *big.Int) (*Block, error)
 	batchFn     func(ctx context.Context, hash string) ([]*TransactionReceipt, error)
 	txReceiptFn func(ctx context.Context, hash string) (*TransactionReceipt, error)
@@ -222,6 +225,10 @@ func (f *fakeRPCClient) GetFinalizedBlockNumber(ctx context.Context) (int64, err
 		return f.finalizedFn(ctx)
 	}
 	return f.finalizedNum, f.finalizedErr
+}
+
+func (f *fakeRPCClient) GetFinalizedHeight(_ context.Context) (int64, error) {
+	return f.finalizedHeight, f.finalizedHeightErr
 }
 
 func (f *fakeRPCClient) Close() error {

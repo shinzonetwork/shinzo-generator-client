@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
@@ -345,6 +346,28 @@ func TestFetcher_FetchBlock_NoTransactions(t *testing.T) {
 	assert.Equal(t, block, bundle.Block)
 	assert.Empty(t, bundle.Transactions)
 	assert.Empty(t, bundle.Receipts)
+}
+
+// A block without transactions has no receipts to tie its hash to the node, so the node must
+// know the block by that hash.
+func TestFetcher_FetchBlock_NoTransactionsUnknownHash(t *testing.T) {
+	t.Parallel()
+
+	blockNum := int64(100)
+	block := fakeBlock(blockNum)
+	var asked string
+	client := &fakeRPCClient{
+		block:          block,
+		receiptsByHash: map[string][]*TransactionReceipt{block.Hash: {}},
+		headerByHashFn: func(_ context.Context, hash string) (*ethtypes.Header, error) {
+			asked = hash
+			return nil, ethereum.NotFound
+		},
+	}
+
+	_, err := NewFetcher(client, 8).FetchBlock(context.Background(), blockNum)
+	require.ErrorIs(t, err, ethereum.NotFound)
+	assert.Equal(t, block.Hash, asked)
 }
 
 func TestFetcher_FetchBlock_ReceiptHashMismatchFallsBack(t *testing.T) {
@@ -881,6 +904,29 @@ func TestFetcher_FetchFinalizedBlockNumber(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantHeight, height)
+		})
+	}
+}
+
+// In tokens mode the fetcher reports only the finalized tag; otherwise it takes the client's
+// finalized-or-safe height.
+func TestFetcher_FetchFinalizedBlockNumber_TokensModeHasNoFallback(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{config.ChainModeFull, config.ChainModeTokens} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Chain: config.ChainConfig{Mode: mode}}
+			f, err := NewFetcherFromConfig(cfg)
+			require.NoError(t, err)
+			f.client = &fakeRPCClient{finalizedNum: 90, finalizedHeightErr: errors.New("finalized tag not served")}
+
+			n, err := f.FetchFinalizedBlockNumber(context.Background())
+			if mode == config.ChainModeTokens {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, int64(90), n)
 		})
 	}
 }

@@ -1,0 +1,11 @@
+type Ethereum__Mainnet__ContractLog_0000000000000000000000000000000000000000 {
+    address: String
+    topics: [String]
+    data: String
+    transactionHash: String
+    blockHash: String
+    blockNumber: Int @index
+    transactionIndex: Int
+    logIndex: Int
+    removed: String
+}

@@ -2,10 +2,12 @@ package evm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -49,15 +51,15 @@ type Converter struct {
 // Compile-time guarantee that Converter implements chains.Converter.
 var _ chains.Converter = (*Converter)(nil)
 
-// NewConverter creates a Converter for the chain cfg names. It returns
-// config.ErrChainUnset when cfg is nil or has no chain name or network.
+// NewConverter creates a Converter for the chain and mode cfg names. It
+// returns config.ErrChainUnset when cfg is nil or has no chain name or network.
 func NewConverter(cfg *config.Config) (*Converter, error) {
-	prefix, err := chainPrefixFromConfig(cfg)
+	collections, err := collectionNamesFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 	return &Converter{
-		collections: NewCollectionNames(prefix),
+		collections: collections,
 		cfg:         cfg,
 	}, nil
 }
@@ -74,6 +76,9 @@ func NewConverter(cfg *config.Config) (*Converter, error) {
 // field name holding the block number in each doc map). The signature
 // collection name is returned inside the ConversionResult; the signature
 // document itself is built later by BlockHandler during signing.
+//
+// In tokens mode it builds the header and the listed contracts' logs instead
+// (convertTokens).
 func (c *Converter) Convert(
 	_ context.Context,
 	rawBlock any,
@@ -89,6 +94,9 @@ func (c *Converter) Convert(
 	blockInt, err := utils.HexToInt(bundle.Block.Number)
 	if err != nil {
 		return chains.ConversionResult{}, fmt.Errorf("converter: parse block number: %w", err)
+	}
+	if c.collections.tokenMode() {
+		return c.convertTokens(bundle, blockInt)
 	}
 
 	blockData := c.buildBlockData(bundle.Block, blockInt)
@@ -141,6 +149,78 @@ func (c *Converter) Convert(
 		SignatureCollection: c.collections.BlockSignature,
 		LinkStamper:         stamper,
 	}, nil
+}
+
+// convertTokens builds the tokens-mode groups: the block's Header, then one
+// group per listed contract with logs in the block, in address order. Token
+// documents carry no links, so the result has no LinkStamper, and the header
+// can be written last as the block's commit.
+func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.ConversionResult, error) {
+	if bundle.Block.Header == nil {
+		return chains.ConversionResult{}, fmt.Errorf("converter: block %d has no decoded header", blockInt)
+	}
+	headerData, err := buildHeaderData(bundle.Block.Header)
+	if err != nil {
+		return chains.ConversionResult{}, fmt.Errorf("converter: block %d header: %w", blockInt, err)
+	}
+
+	defaultBatch := c.maxDocsPerTxn()
+	groups := []chains.DocumentGroup{{
+		Collection:      c.collections.Header,
+		Docs:            []map[string]any{headerData},
+		BatchSize:       defaultBatch,
+		BlockNumField:   constants.NumberFieldName,
+		BlockHashField:  constants.HashFieldName,
+		ParentHashField: ParentHashFieldName,
+	}}
+
+	logs := make(map[string][]map[string]any, len(c.collections.ContractLogs))
+	for _, cl := range c.collections.ContractLogs {
+		logs[cl.Address] = nil
+	}
+	for _, doc := range c.buildLogDocs(bundle.Transactions, c.buildReceiptMap(bundle.Receipts)) {
+		raw, _ := doc[AddressFieldName].(string)
+		addr, err := config.ContractAddress(raw)
+		if err != nil {
+			continue // not a 20-byte address, so not a listed contract
+		}
+		if docs, listed := logs[addr]; listed {
+			logs[addr] = append(docs, doc)
+		}
+	}
+	for _, cl := range c.collections.ContractLogs {
+		if len(logs[cl.Address]) > 0 {
+			groups = append(groups, chains.DocumentGroup{
+				Collection:    cl.Name,
+				Docs:          logs[cl.Address],
+				BatchSize:     c.logBatchSize(defaultBatch),
+				BlockNumField: constants.BlockNumberFieldName,
+			})
+		}
+	}
+
+	return chains.ConversionResult{
+		Groups:              groups,
+		SignatureCollection: c.collections.BlockSignature,
+		BlockLast:           true,
+	}, nil
+}
+
+// buildHeaderData builds the Header document: every field of h under the name
+// and in the encoding go-ethereum's JSON gives it, so the document decodes back
+// into a header that hashes to the block hash. The number is stored as an Int
+// for the height index.
+func buildHeaderData(h *ethtypes.Header) (map[string]any, error) {
+	raw, err := json.Marshal(h)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, err
+	}
+	data[constants.NumberFieldName] = h.Number.Int64()
+	return data, nil
 }
 
 // maxDocsPerTxn returns the configured default batch size for BlockHandler.
@@ -300,20 +380,64 @@ func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node
 	return c.queryBlockNumber(ctx, n, "ASC", "GetLowestStoredBlockNumber", c.lowestBlockQueryLimit())
 }
 
+// GetStoredBlockNumbers implements chains.Converter. Like queryBlockNumber, it
+// filters on `_geq: 0` so rows a purge left without a number are not listed; a
+// listed row whose number does not parse is reported as
+// chains.ErrBlockNumberCorrupt.
+func (c *Converter) GetStoredBlockNumbers(ctx context.Context, n *node.Node) ([]int64, error) {
+	blockCol := c.collections.BlockCollection()
+	field := constants.NumberFieldName
+	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ASC}) { ` + field + ` }}`
+
+	result := n.DB.ExecRequest(ctx, query)
+	if len(result.GQL.Errors) > 0 {
+		return nil, errors.NewQueryFailed("defra", "GetStoredBlockNumbers", query, result.GQL.Errors[0])
+	}
+
+	data, _ := result.GQL.Data.(map[string]any)
+	var rows []map[string]any
+	switch typed := data[blockCol].(type) {
+	case []map[string]any:
+		rows = typed
+	case []any:
+		for _, r := range typed {
+			row, _ := r.(map[string]any)
+			rows = append(rows, row)
+		}
+	}
+
+	numbers := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		num, ok := parseBlockNumberRow(row)
+		if !ok {
+			return nil, fmt.Errorf("GetStoredBlockNumbers: %w (row %v)", chains.ErrBlockNumberCorrupt, row)
+		}
+		numbers = append(numbers, num)
+	}
+	return numbers, nil
+}
+
 // GetDocIDsByBlockRange implements chains.Converter. It returns document IDs
 // for every relevant collection whose block-number field falls in [from, to]
 // inclusive. SnapshotSignature is excluded; BlockSignature is included.
 func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
-	cols := []struct {
+	type rangeCollection struct {
 		name  string
 		field string
-	}{
+	}
+	cols := []rangeCollection{
 		{c.collections.Block, constants.NumberFieldName},
 		{c.collections.Transaction, constants.BlockNumberFieldName},
 		{c.collections.Log, constants.BlockNumberFieldName},
 		{c.collections.AccessListEntry, constants.BlockNumberFieldName},
-		{c.collections.BlockSignature, constants.BlockNumberFieldName},
 	}
+	if c.collections.tokenMode() {
+		cols = []rangeCollection{{c.collections.Header, constants.NumberFieldName}}
+		for _, cl := range c.collections.ContractLogs {
+			cols = append(cols, rangeCollection{cl.Name, constants.BlockNumberFieldName})
+		}
+	}
+	cols = append(cols, rangeCollection{c.collections.BlockSignature, constants.BlockNumberFieldName})
 
 	result := make(map[string][]string)
 	for _, col := range cols {
@@ -427,7 +551,7 @@ func (c *Converter) buildALEData(ale *AccessListEntry, blockNumber int64) map[st
 // Rows that still arrive unparseable are skipped and reported; all errors
 // are tagged with opName.
 func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
-	blockCol := c.collections.Block
+	blockCol := c.collections.BlockCollection()
 	field := constants.NumberFieldName
 	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { ` + field + ` _docID }}`
 

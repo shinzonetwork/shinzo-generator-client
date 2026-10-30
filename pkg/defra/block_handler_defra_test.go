@@ -4,9 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"maps"
+	"math/big"
+	"slices"
 	"testing"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	cid "github.com/ipfs/go-cid"
 	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
@@ -15,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -1530,4 +1536,178 @@ func TestStore_Rearrival_SignsOverStoredCIDs(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, sortedCIDStrings(queriedCIDs), sortedCIDStrings(signedCIDs),
 		"re-arrival signature must attest exactly the stored document CIDs (no misaligned links)")
+}
+
+// ---------------------------------------------------------------------------
+// Store in tokens mode
+// ---------------------------------------------------------------------------
+
+// tokenNode starts a node with a node identity of its own, as a generator's node runs, holding the
+// tokens-mode schema for mockReceipt's log contract, and returns it with the matching converter.
+func tokenNode(t *testing.T) (*testutils.TestDefraDB, *evm.Converter) {
+	t.Helper()
+	conv, err := evm.NewConverter(&config.Config{Chain: config.ChainConfig{
+		Name: "Bsc", Network: "Mainnet",
+		Mode: config.ChainModeTokens, Contracts: []string{"0x0000000000000000000000000000000000000003"},
+	}})
+	require.NoError(t, err)
+	sdl, err := conv.GetSchema()
+	require.NoError(t, err)
+	ident, err := identity.Generate(crypto.KeyTypeSecp256k1)
+	require.NoError(t, err)
+	return testutils.SetupTestDefraDBWithNodeIdentity(t, sdl, ident), conv
+}
+
+// convertTokenBlock converts mockReceipt's block in tokens mode.
+func convertTokenBlock(t *testing.T, conv *evm.Converter) chains.ConversionResult {
+	t.Helper()
+	const txHash = "0xddd1000000000000000000000000000000000000000000000000000000000001"
+	block := mockBlock("0x7D0") // 2000
+	block.Header = &ethtypes.Header{Number: big.NewInt(2000), Difficulty: big.NewInt(0)}
+	result, err := conv.Convert(context.Background(), &evm.BlockBundle{
+		Block:        block,
+		Transactions: []*evm.Transaction{mockTransaction(txHash, "2000")},
+		Receipts:     []*evm.TransactionReceipt{mockReceipt(txHash, "0x7D0")},
+	})
+	require.NoError(t, err)
+	return result
+}
+
+// storeTokenBlock stores mockReceipt's block in tokens mode, signed, and returns the IDs of the
+// documents it wrote with the CIDs the block signature covers.
+func storeTokenBlock(t *testing.T, td *testutils.TestDefraDB, conv *evm.Converter) (docIDs []string, signed []cid.Cid) {
+	t.Helper()
+	result := convertTokenBlock(t, conv)
+
+	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	inner := handler.signBatchFn
+	handler.signBatchFn = func(ctx context.Context, blockNumber int64, blockHash string, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		signed = collector.GetCIDs()
+		return inner(ctx, blockNumber, blockHash, collector)
+	}
+	res, err := handler.Store(ctxWithIdentity(t), result)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.BlockSignatureID)
+
+	docIDs = []string{res.BlockID}
+	for _, ids := range res.OtherDocIDs {
+		docIDs = append(docIDs, ids...)
+	}
+	return docIDs, signed
+}
+
+func TestStore_TokenModeSignsHeaderAndContractLogs(t *testing.T) {
+	t.Parallel()
+	td, conv := tokenNode(t)
+	docIDs, signed := storeTokenBlock(t, td, conv)
+	require.Len(t, docIDs, 2, "the header and the contract's one log")
+
+	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	stored, err := handler.defaultCollectDocCIDs(context.Background(), docIDs, conv.GetCollections())
+	require.NoError(t, err)
+	assert.Equal(t, sortedCIDStrings(stored), sortedCIDStrings(signed))
+}
+
+func TestStore_TokenDocumentsIdenticalAcrossNodes(t *testing.T) {
+	t.Parallel()
+	var docIDs, signed [2][]string
+	for i := range 2 {
+		td, conv := tokenNode(t)
+		ids, cids := storeTokenBlock(t, td, conv)
+		slices.Sort(ids)
+		docIDs[i], signed[i] = ids, sortedCIDStrings(cids)
+	}
+	assert.Equal(t, docIDs[0], docIDs[1])
+	assert.Equal(t, signed[0], signed[1], "generators with different node identities must sign the same documents")
+}
+
+// transferLogs returns n copies of template shaped like ERC-20 Transfer logs, each with its own
+// log index, sender, recipient and amount.
+func transferLogs(template map[string]any, n int) []map[string]any {
+	docs := make([]map[string]any, n)
+	for i := range n {
+		doc := maps.Clone(template)
+		doc["logIndex"] = i
+		doc["topics"] = []string{
+			"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+			fmt.Sprintf("0x%064x", i),
+			fmt.Sprintf("0x%064x", i+1),
+		}
+		doc["data"] = fmt.Sprintf("0x%064x", i*1000)
+		docs[i] = doc
+	}
+	return docs
+}
+
+// countDocs returns how many documents collection holds.
+func countDocs(t *testing.T, td *testutils.TestDefraDB, collection string) int {
+	t.Helper()
+	res := td.Node.DB.ExecRequest(context.Background(), "query { "+collection+" { _docID } }")
+	require.Empty(t, res.GQL.Errors)
+	switch docs := res.GQL.Data.(map[string]any)[collection].(type) {
+	case []map[string]any:
+		return len(docs)
+	case []any:
+		return len(docs)
+	}
+	return 0
+}
+
+func TestStore_TokenModeRetryAfterUnsignedAttempt(t *testing.T) {
+	t.Parallel()
+	td, conv := tokenNode(t)
+	cols := conv.GetCollections() // Header, BlockSignature, then the contract's log table
+	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	sign := handler.signBatchFn
+	handler.signBatchFn = func(context.Context, int64, string, *node.BatchCIDCollector) (*node.BatchSignature, error) {
+		return nil, errors.New("signer unavailable")
+	}
+	_, err = handler.Store(ctxWithIdentity(t), convertTokenBlock(t, conv))
+	require.Error(t, err)
+	assert.Zero(t, countDocs(t, td, cols[0]), "no header without a signature")
+	assert.Zero(t, countDocs(t, td, cols[1]))
+
+	handler.signBatchFn = sign
+	_, err = handler.Store(ctxWithIdentity(t), convertTokenBlock(t, conv))
+	require.NoError(t, err)
+	for _, name := range cols {
+		assert.Equal(t, 1, countDocs(t, td, name), name)
+	}
+}
+
+func TestStore_TokenModeStoredBlockIsLeftIntact(t *testing.T) {
+	t.Parallel()
+	td, conv := tokenNode(t)
+	storeTokenBlock(t, td, conv)
+
+	// A second attempt at the stored height, with one more log, must change nothing.
+	again := convertTokenBlock(t, conv)
+	again.Groups[1].Docs = transferLogs(again.Groups[1].Docs[0], 2)
+	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	_, err = handler.Store(ctxWithIdentity(t), again)
+	require.ErrorContains(t, err, "already exists")
+	for _, name := range conv.GetCollections() {
+		assert.Equal(t, 1, countDocs(t, td, name), name)
+	}
+}
+
+// One transaction refuses 1,500 Transfer logs, so this block only stores if its logs are not
+// written in one transaction.
+func TestStore_TokenModeBlockLargerThanOneTransaction(t *testing.T) {
+	t.Parallel()
+	td, conv := tokenNode(t)
+	result := convertTokenBlock(t, conv)
+	logs := result.Groups[1]
+	result.Groups[1].Docs = transferLogs(logs.Docs[0], 1500)
+
+	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	res, err := handler.Store(ctxWithIdentity(t), result)
+	require.NoError(t, err)
+	require.NotEmpty(t, res.BlockSignatureID)
+	assert.Equal(t, 1500, countDocs(t, td, logs.Collection))
 }

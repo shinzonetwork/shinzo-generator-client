@@ -93,8 +93,9 @@ type Collections interface {
 	// or silently skipped entry.
 	CollectionFiles() ([]CollectionFile, error)
 
-	// BlockCollection returns the collection name that stores block documents
-	// (the chain prefix suffixed with "__Block").
+	// BlockCollection returns the collection name that stores one document per
+	// block, holding its number and hash (for EVM chains "<prefix>__Block", or
+	// "<prefix>__Header" in tokens mode).
 	BlockCollection() string
 
 	// BlockSignatureCollection returns the collection name that stores block
@@ -103,7 +104,7 @@ type Collections interface {
 
 	// SnapshotSignatureCollection returns the collection name that stores
 	// snapshot signature documents (the chain prefix suffixed with
-	// "__SnapshotSignature").
+	// "__SnapshotSignature"), or "" when the chain has no snapshots.
 	SnapshotSignatureCollection() string
 }
 
@@ -154,7 +155,8 @@ type Fetcher interface {
 	// FetchFinalizedBlockNumber returns the finalized block height known to
 	// the chain, with the safe height as the implementation-level fallback
 	// when the finalized tag is unsupported. Used as the lower floor of the
-	// reorg walk-back.
+	// reorg walk-back. In tokens mode it is also the dispatch ceiling, so an
+	// implementation must not fall back there.
 	FetchFinalizedBlockNumber(ctx context.Context) (int64, error)
 
 	// Close releases the underlying RPC connection.
@@ -193,6 +195,10 @@ type Converter interface {
 	// GetLowestStoredBlockNumber returns the lowest block number currently
 	// persisted in DefraDB. Useful for pruning windows.
 	GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
+
+	// GetStoredBlockNumbers returns the number of every block persisted in
+	// DefraDB, in ascending order.
+	GetStoredBlockNumbers(ctx context.Context, n *node.Node) ([]int64, error)
 
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
@@ -268,6 +274,10 @@ type ConversionResult struct {
 	Groups              []DocumentGroup
 	SignatureCollection string
 	LinkStamper         LinkStamper
+	// BlockLast asks BlockHandler.Store to write the other groups first and the block document
+	// last, in one transaction with the block signature, so a stored block document always means
+	// a complete, signed block. Only for groups that do not link to the block document.
+	BlockLast bool
 }
 
 // ChainFactories bundles all chain-specific factory functions for a single

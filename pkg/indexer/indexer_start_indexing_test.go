@@ -718,6 +718,56 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	assert.True(t, indexer.shouldIndex)
 }
 
+// newTokensModeIndexer returns a tokens-mode indexer over fetcher, with a test DefraDB.
+func newTokensModeIndexer(t *testing.T, fetcher *testutils.MockFetcher) *ChainIndexer {
+	t.Helper()
+	td := testutils.SetupTestDefraDB(t)
+	converter := chainConverter()
+	handler, err := defra.NewBlockHandler(td.Node, 1000, converter.Collections().Prefix(), testChainID)
+	require.NoError(t, err)
+	return &ChainIndexer{
+		cfg: &config.Config{
+			Chain:   config.ChainConfig{Mode: config.ChainModeTokens},
+			Indexer: config.IndexerConfig{ConcurrentBlocks: 2},
+		},
+		fetcher:      fetcher,
+		converter:    converter,
+		blockHandler: handler,
+		defraNode:    td.Node,
+	}
+}
+
+// In tokens mode the indexer fetches no block above the finalized height.
+func TestRunConcurrentIndexing_TokensModeDispatchesFinalizedOnly(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+	fetcher := &testutils.MockFetcher{
+		FetchFinalizedBlockNumberFn: func(context.Context) (int64, error) { return 5000, nil },
+	}
+	indexer := newTokensModeIndexer(t, fetcher)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg), context.DeadlineExceeded)
+	assert.Empty(t, fetcher.FetchBlockCalls)
+}
+
+// In tokens mode the indexer keeps fetching a height whose fetch fails, instead of passing it.
+func TestRunConcurrentIndexing_TokensModeRetriesFailedHeights(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn:                func(context.Context, int64) (any, error) { return nil, errors.New("fetch failed") },
+		FetchFinalizedBlockNumberFn: func(context.Context) (int64, error) { return 5001, nil },
+	}
+	indexer := newTokensModeIndexer(t, fetcher)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg), context.DeadlineExceeded)
+	assert.Greater(t, len(fetcher.FetchBlockCalls), MaxRPCRetries)
+}
+
 // ---------------------------------------------------------------------------
 // StartIndexing — GetHighestStoredBlockNumber succeeds with pre-populated DB.
 // Strategy: Run one indexer to populate a block, stop it, then create a new,
@@ -886,6 +936,46 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	indexer2.StopIndexing()
 	stopped2 = true
 	t.Log("Phase 2 indexer resumed successfully from existing blocks")
+}
+
+// A tokens-mode restart resumes at the lowest unstored height and never skips ahead; full mode
+// skips ahead when the gap to the tip exceeds the start buffer.
+func TestResolveStartHeight(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		mode   string
+		stored []int64
+		want   int64
+	}{
+		{"tokens mode, gap below the highest", config.ChainModeTokens, []int64{100, 101, 103, 104}, 102},
+		{"tokens mode, no gap", config.ChainModeTokens, []int64{100, 101, 102}, 103},
+		{"full mode", config.ChainModeFull, []int64{100, 101, 102}, 990},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			indexer := &ChainIndexer{
+				converter: &testutils.MockConverter{
+					GetHighestStoredBlockNumberFn: func(context.Context, *node.Node) (int64, error) {
+						return tc.stored[len(tc.stored)-1], nil
+					},
+					GetStoredBlockNumbersFn: func(context.Context, *node.Node) ([]int64, error) { return tc.stored, nil },
+				},
+				fetcher: &testutils.MockFetcher{
+					FetchHighestBlockNumberFn: func(context.Context) (int64, error) { return 1000, nil },
+				},
+			}
+			cfg := &config.Config{
+				Chain:   config.ChainConfig{Mode: tc.mode},
+				Indexer: config.IndexerConfig{StartBuffer: 10},
+			}
+
+			got, err := indexer.resolveStartHeight(context.Background(), cfg)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------.

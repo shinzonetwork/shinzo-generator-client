@@ -2,10 +2,18 @@ package evm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
+	"math/big"
+	"os"
 	"reflect"
+	"slices"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -571,6 +579,100 @@ func TestConvert_ALEGroupHasNoContentIdenticalDocsPerTx(t *testing.T) {
 // Progress queries (require real DefraDB)
 // ---------------------------------------------------------------------------
 
+func TestConvert_TokenMode(t *testing.T) {
+	t.Parallel()
+	const (
+		listedA  = "0xaa00000000000000000000000000000000000001"
+		listedB  = "0xbb00000000000000000000000000000000000002"
+		unlisted = "0xcc00000000000000000000000000000000000003"
+	)
+	cfg := testConfig()
+	cfg.Chain.Name = "Bsc"
+	cfg.Chain.Mode = config.ChainModeTokens
+	cfg.Chain.Contracts = []string{listedB, "0xAA00000000000000000000000000000000000001"}
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
+
+	txHash := fakeHash("tx-1")
+	tx := fakeTx(txHash)
+	block := fakeBlockWithTxs(42, tx)
+	block.Header = &ethtypes.Header{Number: big.NewInt(42), Difficulty: big.NewInt(0)}
+	receipt := fakeReceipt(txHash, 42)
+	for i, addr := range []string{listedA, unlisted, listedB, listedA} {
+		receipt.Logs = append(receipt.Logs, Log{Address: addr, BlockNumber: "0x2a", BlockHash: block.Hash, TransactionHash: txHash, LogIndex: i})
+	}
+	bundle := &BlockBundle{Block: block, Transactions: []*Transaction{&tx}, Receipts: []*TransactionReceipt{receipt}}
+
+	result, err := c.Convert(context.Background(), bundle)
+	require.NoError(t, err)
+	assert.Equal(t, "Bsc__Mainnet__BlockSignature", result.SignatureCollection)
+	assert.Nil(t, result.LinkStamper)
+
+	require.Len(t, result.Groups, 3)
+	assert.Equal(t, "Bsc__Mainnet__Header", result.Groups[0].Collection)
+	headerData, err := buildHeaderData(block.Header)
+	require.NoError(t, err)
+	assert.Equal(t, []map[string]any{headerData}, result.Groups[0].Docs)
+	assert.Equal(t, "Bsc__Mainnet__ContractLog_aa00000000000000000000000000000000000001", result.Groups[1].Collection)
+	assert.Equal(t, []map[string]any{c.buildLogData(&receipt.Logs[0]), c.buildLogData(&receipt.Logs[3])}, result.Groups[1].Docs)
+	assert.Equal(t, "Bsc__Mainnet__ContractLog_bb00000000000000000000000000000000000002", result.Groups[2].Collection)
+	assert.Equal(t, []map[string]any{c.buildLogData(&receipt.Logs[2])}, result.Groups[2].Docs)
+
+	// A block with no listed contract's logs has only its header.
+	receipt.Logs = receipt.Logs[1:2]
+	result, err = c.Convert(context.Background(), bundle)
+	require.NoError(t, err)
+	require.Len(t, result.Groups, 1)
+
+	block.Header = nil
+	_, err = c.Convert(context.Background(), bundle)
+	require.Error(t, err)
+}
+
+// The Header document must hold every field the block hash covers, in a form that decodes back
+// into the header. Each fixture is a node's eth_getBlockByNumber result without its transaction
+// and withdrawal lists.
+func TestBuildHeaderData_DecodesToTheBlockHash(t *testing.T) {
+	t.Parallel()
+	for _, file := range []string{"testdata/ethereum_mainnet_header.json", "testdata/bsc_mainnet_header.json"} {
+		t.Run(file, func(t *testing.T) {
+			t.Parallel()
+			raw, err := os.ReadFile(file)
+			require.NoError(t, err)
+			var node struct {
+				Hash common.Hash `json:"hash"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &node))
+			var header ethtypes.Header
+			require.NoError(t, json.Unmarshal(raw, &header))
+			require.Equal(t, node.Hash, header.Hash(), "the fixture decodes to the node's hash")
+
+			doc, err := buildHeaderData(&header)
+			require.NoError(t, err)
+			assert.Equal(t, node.Hash.Hex(), doc[constants.HashFieldName])
+			assert.Equal(t, node.Hash, decodeHeaderDoc(t, doc).Hash())
+
+			doc["stateRoot"] = common.Hash{}.Hex()
+			assert.NotEqual(t, node.Hash, decodeHeaderDoc(t, doc).Hash(), "an altered field changes the hash")
+		})
+	}
+}
+
+// decodeHeaderDoc decodes a Header document back into a header, as a reader of the table does:
+// number is stored as an Int and go-ethereum reads it as a hex quantity.
+func decodeHeaderDoc(t *testing.T, doc map[string]any) *ethtypes.Header {
+	t.Helper()
+	fields := maps.Clone(doc)
+	n, ok := fields[constants.NumberFieldName].(int64)
+	require.True(t, ok)
+	fields[constants.NumberFieldName] = hexutil.EncodeUint64(uint64(n))
+	raw, err := json.Marshal(fields)
+	require.NoError(t, err)
+	var header ethtypes.Header
+	require.NoError(t, json.Unmarshal(raw, &header))
+	return &header
+}
+
 func TestGetHighestStoredBlockNumber_NoBlocks(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
@@ -684,11 +786,12 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter)
-		wantLow  int64
-		wantHigh int64
-		wantErr  bool
+		name       string
+		setup      func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter)
+		wantLow    int64
+		wantHigh   int64
+		wantStored []int64
+		wantErr    bool
 	}{
 		{
 			name: "residue rows around valid blocks are skipped",
@@ -699,8 +802,9 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 				}
 				storeResidueBlockDoc(ctx, t, td, c, 2)
 			},
-			wantLow:  100,
-			wantHigh: 102,
+			wantLow:    100,
+			wantHigh:   102,
+			wantStored: []int64{100, 101, 102},
 		},
 		{
 			name: "only numberless rows yields the corruption sentinel",
@@ -738,7 +842,52 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 			assert.Equal(t, tc.wantLow, lowest)
 			require.NoError(t, errHigh)
 			assert.Equal(t, tc.wantHigh, highest)
+			stored, err := c.GetStoredBlockNumbers(ctx, td.Node)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantStored, stored)
 		})
+	}
+}
+
+func TestTokenMode_ReadsTokenTables(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Chain.Name = "Bsc"
+	cfg.Chain.Mode = config.ChainModeTokens
+	cfg.Chain.Contracts = []string{"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"}
+	c, err := NewConverter(cfg)
+	require.NoError(t, err)
+	sdl, err := c.GetSchema()
+	require.NoError(t, err)
+	td := testutils.SetupTestDefraDBWithSchema(t, sdl)
+	ctx := context.Background()
+
+	contractLog := c.collections.ContractLogs[0].Name
+	for _, add := range []string{
+		fmt.Sprintf(`%s(input: {number: 7, hash: "0x07"})`, c.collections.Header),
+		fmt.Sprintf(`%s(input: {number: 9, hash: "0x09"})`, c.collections.Header),
+		fmt.Sprintf(`%s(input: {blockNumber: 7, logIndex: 0})`, contractLog),
+		fmt.Sprintf(`%s(input: {blockNumber: 7})`, c.collections.BlockSignature),
+	} {
+		res := td.Node.DB.ExecRequest(ctx, "mutation { add_"+add+" { _docID } }")
+		require.Empty(t, res.GQL.Errors)
+	}
+
+	lowest, err := c.GetLowestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), lowest)
+	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, int64(9), highest)
+	stored, err := c.GetStoredBlockNumbers(ctx, td.Node)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{7, 9}, stored)
+
+	docIDs, err := c.GetDocIDsByBlockRange(ctx, td.Node, 7, 7)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{c.collections.Header, contractLog, c.collections.BlockSignature}, slices.Collect(maps.Keys(docIDs)))
+	for name, ids := range docIDs {
+		assert.Len(t, ids, 1, name)
 	}
 }
 

@@ -29,6 +29,27 @@ var ErrInvalidChainName = errors.New("chain name and network must each be an upp
 // ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
 var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
 
+// ErrInvalidChainMode is returned when chain.mode is neither ChainModeFull nor ChainModeTokens.
+var ErrInvalidChainMode = errors.New("chain.mode must be full or tokens")
+
+// ErrInvalidContracts is returned when chain.contracts does not suit chain.mode.
+var ErrInvalidContracts = errors.New("chain.contracts must list at least one contract in tokens mode and none in full mode")
+
+// ErrInvalidContractAddress is returned for a contract that is not a 20-byte hex address or is
+// listed twice.
+var ErrInvalidContractAddress = errors.New("chain.contracts must hold distinct 20-byte hex addresses")
+
+// ErrSnapshotsInTokensMode is returned when snapshots are enabled in tokens mode, whose schema has
+// no SnapshotSignature table to sign them in.
+var ErrSnapshotsInTokensMode = errors.New("snapshot.enabled must be false in tokens mode")
+
+// Chain modes. Full mode indexes every block, transaction, log and access-list entry. Tokens mode
+// indexes block headers and the logs of chain.contracts only.
+const (
+	ChainModeFull   = "full"
+	ChainModeTokens = "tokens"
+)
+
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
 // lets the query skip purge residue with a missing or unparsable number.
@@ -99,6 +120,9 @@ type ChainConfig struct {
 	ChainID uint64 `yaml:"chain_id"` // EVM chain ID the RPC must report from eth_chainId, e.g. 1 for Ethereum mainnet (env: CHAIN_ID)
 	Hub     string `yaml:"hub"`      // ShinzoHub hostname only: no scheme, no port (e.g. "testnet.shinzo.network")
 	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+
+	Mode      string   `yaml:"mode"`      // ChainModeFull (the default when empty) or ChainModeTokens (env: CHAIN_MODE)
+	Contracts []string `yaml:"contracts"` // tokens mode: the 20-byte hex addresses whose logs are indexed (env: CHAIN_CONTRACTS, comma-separated)
 }
 
 // GethConfig represents Geth node configuration.
@@ -314,6 +338,12 @@ func validateConfig(cfg *Config) error {
 	if cfg.Chain.Adapter == DefaultChainAdapter && cfg.Chain.ChainID == 0 {
 		return ErrChainIDUnset
 	}
+	if err := validateChainMode(cfg.Chain); err != nil {
+		return err
+	}
+	if cfg.Chain.Mode == ChainModeTokens && cfg.Snapshot.Enabled {
+		return ErrSnapshotsInTokensMode
+	}
 
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
@@ -364,6 +394,46 @@ func ValidateChainNames(name, network string) error {
 		return fmt.Errorf("%w: got %q and %q", ErrInvalidChainName, name, network)
 	}
 	return nil
+}
+
+// validateChainMode checks chain.mode, and that chain.contracts holds distinct addresses in tokens
+// mode and nothing in full mode, where it would have no effect.
+func validateChainMode(c ChainConfig) error {
+	switch c.Mode {
+	case "", ChainModeFull:
+		if len(c.Contracts) > 0 {
+			return ErrInvalidContracts
+		}
+	case ChainModeTokens:
+		if len(c.Contracts) == 0 {
+			return ErrInvalidContracts
+		}
+		seen := make(map[string]bool, len(c.Contracts))
+		for _, raw := range c.Contracts {
+			addr, err := ContractAddress(raw)
+			if err != nil {
+				return err
+			}
+			if seen[addr] {
+				return fmt.Errorf("%w: %q is listed twice", ErrInvalidContractAddress, raw)
+			}
+			seen[addr] = true
+		}
+	default:
+		return fmt.Errorf("%w: got %q", ErrInvalidChainMode, c.Mode)
+	}
+	return nil
+}
+
+// ContractAddress returns a contract address as 40 lower-case hex digits without 0x, the form
+// table names and log matching use. It accepts either letter case, with or without 0x, and returns
+// ErrInvalidContractAddress for anything that is not 20 bytes of hex.
+func ContractAddress(raw string) (string, error) {
+	addr := strings.TrimPrefix(strings.ToLower(raw), "0x")
+	if len(addr) != 40 || strings.Trim(addr, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("%w: got %q", ErrInvalidContractAddress, raw)
+	}
+	return addr, nil
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.
@@ -508,6 +578,15 @@ func applyChainEnvOverrides(cfg *Config) error {
 	}
 	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
 		cfg.Chain.Adapter = chainAdapter
+	}
+	if mode := os.Getenv("CHAIN_MODE"); mode != "" {
+		cfg.Chain.Mode = mode
+	}
+	if contracts := os.Getenv("CHAIN_CONTRACTS"); contracts != "" {
+		cfg.Chain.Contracts = strings.Split(contracts, ",")
+		for i := range cfg.Chain.Contracts {
+			cfg.Chain.Contracts[i] = strings.TrimSpace(cfg.Chain.Contracts[i])
+		}
 	}
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL

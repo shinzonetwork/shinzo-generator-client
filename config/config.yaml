@@ -8,6 +8,8 @@ chain:
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
   chain_id: 1            # EVM chain ID the RPC must report; the generator refuses to start otherwise (env: CHAIN_ID)
   adapter: "evm"         # Chain adapter: "evm" (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+  mode: "full"           # full: blocks, transactions, logs and access-list entries; tokens: block headers and the contracts' logs only (env: CHAIN_MODE)
+  # contracts: []        # tokens mode: the contract addresses whose logs are indexed (env: CHAIN_CONTRACTS, comma-separated)
   hub: "testnet.shinzo.network"
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
