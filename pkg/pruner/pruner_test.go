@@ -620,6 +620,58 @@ func TestStartupCleanup_WithinLimit(t *testing.T) {
 	assert.Equal(t, int64(0), p.totalBlocksPruned)
 }
 
+// Stale queue entries at or below the DB's lowest block must not survive startup
+// cleanup. The within-limit early return is the path that would strand them, so
+// this test runs startupCleanup with the DB under retention and a queue file that
+// predates the last purge: the next Drain would purge and count those already
+// deleted blocks again.
+func TestStartupCleanup_DiscardsStaleQueueEntriesBelowDBMinimum(t *testing.T) {
+	n := startTestNode(t)
+	ctx := context.Background()
+	path := t.TempDir() + "/prune_queue.gob"
+
+	// Blocks 1 and 2 were purged in a previous run; blocks 3 and 4 are still live.
+	old := NewIndexerQueue()
+	_, err := old.LoadFromFile(path) // LoadFromFile binds the queue to the path Save writes to.
+	require.NoError(t, err)
+	require.NoError(t, old.TrackBlockDocIDs(1, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, ""))
+	require.NoError(t, old.TrackBlockDocIDs(2, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, ""))
+	require.NoError(t, old.TrackBlockDocIDs(3, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, ""))
+	require.NoError(t, old.TrackBlockDocIDs(4, docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000", nil, ""))
+	require.NoError(t, old.Save())
+
+	// Restart: the DB holds 3-5 (under retention, max_blocks=100) and the queue
+	// file is reloaded with all four entries, including the stale 1 and 2.
+	for i := int64(3); i <= 5; i++ {
+		insertTestBlock(t, n, i, 0)
+	}
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
+	p, _ := newTestPruner(cfg, n)
+	q := NewIndexerQueue()
+	count, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	require.Equal(t, 4, count)
+	p.SetQueue(q)
+
+	require.NoError(t, p.startupCleanup(ctx))
+
+	// Entries at or below the DB's lowest block are gone; live entries survive.
+	assert.Equal(t, 2, q.Len())
+	lowest, highest, err := p.getBlockRange(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), lowest)
+	assert.Equal(t, int64(5), highest)
+	for _, entry := range q.entries {
+		assert.Greater(t, entry.BlockNumber, int64(2))
+	}
+
+	// The cleanup is persisted, so a later restart cannot load the stale entries back.
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 2, persisted)
+}
+
 func TestPurgeFromDrainResult(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
