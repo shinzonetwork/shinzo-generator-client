@@ -315,8 +315,11 @@ func mergeReceiptsOntoTransactions(txs []*Transaction, receipts []*TransactionRe
 		}
 		r, ok := byHash[tx.Hash]
 		if !ok || r == nil {
+			// Both callers verify full coverage before merging, so a miss
+			// means verified data and the receipt set disagree: surface it
+			// instead of silently persisting conversion defaults.
 			if logger.Sugar != nil {
-				logger.Sugar.Debugf("No receipt matched transaction %s; keeping conversion defaults", tx.Hash)
+				logger.Sugar.Warnf("No receipt matched transaction %s; keeping conversion defaults", tx.Hash)
 			}
 			continue
 		}
