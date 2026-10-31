@@ -834,3 +834,78 @@ func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
 	// Just verify no panic/race occurred.
 	assert.True(t, indexer.GetCurrentBlock() >= 0)
 }
+
+// TestGetSourceChainInfo pins the ShinzoHub registration identity: chain IDs
+// are EVM-only (EIP-155), so non-EVM chain families register with the hub
+// using ID 0, and only mainnet combinations report a chain name (a testnet
+// or unknown combination reports an empty name, the same treatment as
+// ethereum + sepolia). The chain family comes from chain.adapter, not
+// chain.name, so a custom chain name cannot masquerade as a hub identity.
+func TestGetSourceChainInfo(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		adapter   string
+		chainName string
+		network   string
+		wantChain string
+		wantID    uint64
+	}{
+		{
+			name:      "SolanaMainnet",
+			adapter:   config.SolanaAdapter,
+			chainName: "Solana",
+			network:   "mainnet",
+			wantChain: "solana",
+			wantID:    0,
+		},
+		{
+			name:      "SolanaTestnetUnknown",
+			adapter:   config.SolanaAdapter,
+			chainName: "Solana",
+			network:   "devnet",
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name:      "NameAloneIsNotASolanaIdentity",
+			chainName: "solana",
+			network:   "mainnet",
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name:      "EthereumDefault",
+			adapter:   config.DefaultChainAdapter,
+			network:   "mainnet",
+			wantChain: "ethereum",
+			wantID:    1,
+		},
+		{
+			name:      "EthereumSepoliaUnknown",
+			adapter:   config.DefaultChainAdapter,
+			network:   "sepolia",
+			wantChain: "",
+			wantID:    0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			idx := &ChainIndexer{cfg: &config.Config{
+				Chain: config.ChainConfig{
+					Name:    tc.chainName,
+					Network: tc.network,
+					Adapter: tc.adapter,
+				},
+			}}
+
+			chain, id := idx.GetSourceChainInfo()
+			assert.Equal(t, tc.wantChain, chain)
+			assert.Equal(t, tc.wantID, id)
+		})
+	}
+}

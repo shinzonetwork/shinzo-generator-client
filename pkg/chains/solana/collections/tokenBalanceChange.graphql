@@ -1,0 +1,22 @@
+# A token balance change (one pre/postTokenBalances diff entry). Amounts are
+# stored as strings: token amounts can exceed int64 for zero-decimal
+# large-supply mints.
+type Solana__Mainnet__TokenBalanceChange {
+    # Parent transaction's signature, for the same duplicate-content reason as
+    # the Instruction collection: identical token transfers in different
+    # transactions of one slot would otherwise collide on their content-hash
+    # docID. Within one transaction the diff yields one entry per token
+    # account, whose pubkey keeps the entries distinct.
+    transactionSignature: String
+    mint: String
+    owner: String
+    tokenAccount: String
+    preAmount: String
+    postAmount: String
+    programId: String
+    blockHash: String
+    blockNumber: Int @index
+    # Relationships
+    block: Solana__Mainnet__Block @relation(name: "solana_block_tokenBalanceChanges")
+    transaction: Solana__Mainnet__Transaction @relation(name: "solana_transaction_tokenBalances")
+}
