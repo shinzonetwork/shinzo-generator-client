@@ -284,6 +284,14 @@ func toI64Slice(values []uint64) []int64 {
 // stackHeight key-presence invariant (the stamper's inner/outer
 // discriminator): outer docs never contain the stackHeight key, while inner
 // docs always set it, even when the node sent no value (then nil).
+//
+// Ordinal uniqueness: DefraDB docIDs are content hashes, so documents must
+// never repeat within a block. Outer docs carry their position in the
+// transaction's instruction list, inner docs their parent outer position
+// plus their position within the CPI group; mainnet transactions routinely
+// repeat byte-identical instructions (memo transfers, idempotent calls,
+// identical CPIs), and the transactionSignature join field alone cannot
+// split instructions of one transaction.
 func (c *Converter) buildInstructionDocs(block *Block) (
 	[]map[string]any, []map[string]any, []instructionKey, []innerParentRef,
 ) {
@@ -299,6 +307,7 @@ func (c *Converter) buildInstructionDocs(block *Block) (
 				ProgramIDFieldName:             instr.ProgramID,
 				AccountsFieldName:              instr.Accounts,
 				DataFieldName:                  instr.Data,
+				InstructionIndexFieldName:      int64(k), //nolint:gosec // wire instruction counts are small ordinals
 				TransactionSignatureFieldName:  tx.Signature,
 				constants.BlockHashFieldName:   block.Blockhash,
 				constants.BlockNumberFieldName: i64(block.Slot),
@@ -319,6 +328,8 @@ func (c *Converter) buildInstructionDocs(block *Block) (
 					ProgramIDFieldName:             instr.ProgramID,
 					AccountsFieldName:              instr.Accounts,
 					DataFieldName:                  instr.Data,
+					InstructionIndexFieldName:      int64(group.Index), //nolint:gosec // wire group indexes are small ordinals
+					InnerIndexFieldName:            int64(j),           //nolint:gosec // wire group lengths are small ordinals
 					StackHeightFieldName:           stackHeight,
 					TransactionSignatureFieldName:  tx.Signature,
 					constants.BlockHashFieldName:   block.Blockhash,

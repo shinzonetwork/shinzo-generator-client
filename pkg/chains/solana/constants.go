@@ -17,10 +17,14 @@ package solana
 // TransactionSignatureFieldName is the document join field carrying the
 // parent transaction's signature on instruction and token-balance-change
 // documents. DefraDB docIDs are content hashes, so without it two
-// byte-identical documents in one slot (identical memo transfers are routine
-// on mainnet) collide on one docID and the batch write drops the batch's
-// docIDs, leaving the block unsigned. It is a data field, not a link field:
-// the LinkStamper resolves _transactionID from the document's own value.
+// byte-identical documents in different transactions of one slot (identical
+// memo transfers are routine on mainnet) collide on one docID and the batch
+// write drops the batch's docIDs, leaving the block unsigned. It is
+// necessary but not sufficient for instruction uniqueness: byte-identical
+// instructions inside ONE transaction also collide, which the
+// instructionIndex/innerIndex ordinals separate. It is a data field, not a
+// link field: the LinkStamper resolves _transactionID from the document's
+// own value.
 const TransactionSignatureFieldName = "transactionSignature"
 
 // Block document field names, carried through from the Solana getBlock
@@ -50,12 +54,19 @@ const (
 )
 
 // Instruction document field names, carried through from the compiled and
-// inner instruction shapes of the getBlock response.
+// inner instruction shapes of the getBlock response. The ordinals are
+// positional, not wire fields: the converter derives them from loop
+// positions and the inner instruction group's index. stackHeight is set
+// only on inner documents (key presence is the stamper's inner/outer
+// discriminator); instructionIndex is set on both kinds, innerIndex only
+// on inner documents.
 const (
-	ProgramIDFieldName   = "programId"
-	AccountsFieldName    = "accounts"
-	DataFieldName        = "data"
-	StackHeightFieldName = "stackHeight"
+	ProgramIDFieldName        = "programId"
+	AccountsFieldName         = "accounts"
+	DataFieldName             = "data"
+	StackHeightFieldName      = "stackHeight"
+	InstructionIndexFieldName = "instructionIndex"
+	InnerIndexFieldName       = "innerIndex"
 )
 
 // TokenBalanceChange document field names, carried through from the

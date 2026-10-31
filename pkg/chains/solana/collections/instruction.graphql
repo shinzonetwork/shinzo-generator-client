@@ -4,10 +4,20 @@
 # outer documents.
 type Solana__Mainnet__Instruction {
     # Parent transaction's signature. DefraDB docIDs are content hashes, so two
-    # byte-identical instructions (identical memo transfers are routine on
-    # mainnet) would otherwise collide on one document; this field keeps every
-    # instruction's content unique.
+    # byte-identical instructions in different transactions (identical memo
+    # transfers are routine on mainnet) would otherwise collide on one
+    # document; this field separates instructions of different transactions.
     transactionSignature: String
+    # Positional ordinals that keep instructions of one transaction distinct.
+    # Outers set instructionIndex to their position in the parent transaction
+    # and leave innerIndex unset; inners set instructionIndex to their parent
+    # outer instruction's position and innerIndex to their position within
+    # that outer's CPI group. Without them, two byte-identical instructions
+    # inside the same transaction (repeated idempotent calls, identical CPIs)
+    # are content-identical documents and collide on one docID, leaving the
+    # block unsigned.
+    instructionIndex: Int
+    innerIndex: Int
     programId: String
     accounts: [String]
     data: String

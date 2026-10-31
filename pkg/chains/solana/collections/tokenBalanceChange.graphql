@@ -3,8 +3,10 @@
 # large-supply mints.
 type Solana__Mainnet__TokenBalanceChange {
     # Parent transaction's signature, for the same duplicate-content reason as
-    # the Instruction collection: identical token transfers in one slot would
-    # otherwise collide on their content-hash docID.
+    # the Instruction collection: identical token transfers in different
+    # transactions of one slot would otherwise collide on their content-hash
+    # docID. Within one transaction the diff yields one entry per token
+    # account, whose pubkey keeps the entries distinct.
     transactionSignature: String
     mint: String
     owner: String

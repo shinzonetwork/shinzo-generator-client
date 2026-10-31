@@ -55,6 +55,8 @@ func TestSolanaFieldNamesMatchCollectionSDL(t *testing.T) {
 
 		// Instruction document.
 		{file: instructionCollectionFile, field: TransactionSignatureFieldName},
+		{file: instructionCollectionFile, field: InstructionIndexFieldName},
+		{file: instructionCollectionFile, field: InnerIndexFieldName},
 		{file: instructionCollectionFile, field: ProgramIDFieldName},
 		{file: instructionCollectionFile, field: AccountsFieldName},
 		{file: instructionCollectionFile, field: DataFieldName},

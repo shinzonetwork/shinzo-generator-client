@@ -40,12 +40,12 @@ type innerParentRef struct {
 // docs before they are written.
 //
 // _transactionID comes from each doc's own transactionSignature join field
-// (the contract that keeps duplicate-content docs on distinct docIDs), not
-// from a second parallel ref, so the stamper stays independent of a
-// converter-side list for that link. _parentInstructionID uses the
-// converter's parallel innerRefs because the parent's docID is keyed by
-// (txSignature, outerIndex), information no doc carries after the index
-// fields were dropped from the schema.
+// (one half of the duplicate-content uniqueness contract, the ordinals in
+// the schema being the other), not from a second parallel ref, so the
+// stamper stays independent of a converter-side list for that link.
+// _parentInstructionID uses the converter's parallel innerRefs because the
+// parent's docID is keyed by (txSignature, outerIndex); the parallel ref
+// carries that parentage without re-deriving it from doc content.
 type solanaLinkStamper struct {
 	outerKeys []instructionKey // per outer instruction doc: parent tx sig + outer index
 	innerRefs []innerParentRef // per inner instruction doc: parent tx sig + outer index

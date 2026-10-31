@@ -350,6 +350,10 @@ func TestConvert_InstructionData(t *testing.T) {
 	assert.Equal(t, tx.Instructions[0].ProgramID, outer[ProgramIDFieldName])
 	assert.Equal(t, tx.Instructions[0].Accounts, outer[AccountsFieldName])
 	assert.Equal(t, tx.Instructions[0].Data, outer[DataFieldName])
+	assert.Equal(t, int64(0), outer[InstructionIndexFieldName],
+		"outer docs carry their position in the transaction's instruction list")
+	assert.NotContains(t, outer, InnerIndexFieldName,
+		"outer docs must not carry an innerIndex key")
 	assert.Equal(t, tx.Signature, outer[TransactionSignatureFieldName],
 		"outer docs carry the parent tx signature (duplicate-content join field)")
 	assert.Equal(t, int64(slot), outer[constants.BlockNumberFieldName])
@@ -360,6 +364,10 @@ func TestConvert_InstructionData(t *testing.T) {
 	inner := result.Groups[3].Docs[0]
 	assert.Equal(t, tx.InnerInstructions[0].Instructions[0].ProgramID, inner[ProgramIDFieldName])
 	assert.Equal(t, int64(2), inner[StackHeightFieldName], "inner docs always carry the stackHeight key")
+	assert.Equal(t, int64(0), inner[InstructionIndexFieldName],
+		"inner docs carry their parent outer instruction's position")
+	assert.Equal(t, int64(0), inner[InnerIndexFieldName],
+		"inner docs carry their position within the parent's CPI group")
 	assert.Equal(t, tx.Signature, inner[TransactionSignatureFieldName],
 		"inner docs carry the parent tx signature (duplicate-content join field)")
 }
@@ -513,11 +521,13 @@ func TestConvert_RewardData(t *testing.T) {
 }
 
 // TestConvert_DuplicateInstructionContent_UniqueDocs pins the risk-#7 join
-// field against DefraDB content-hash docIDs: two transactions in one slot
-// carrying byte-identical instruction data (identical memo transfers) and
-// identical token balances must produce instruction and token-balance-change
-// docs that differ, otherwise AddManyDocuments collides them on one docID
-// and the block never signs.
+// field plus the positional ordinals against DefraDB content-hash docIDs:
+// two transactions in one slot carrying byte-identical instruction data
+// (identical memo transfers) must produce instruction docs that differ via
+// the join field, and byte-identical instructions repeated inside the SAME
+// transaction (routine on mainnet: idempotent calls, identical CPIs) must
+// differ via the instructionIndex/innerIndex ordinals, otherwise
+// AddManyDocuments collides them on one docID and the block never signs.
 func TestConvert_DuplicateInstructionContent_UniqueDocs(t *testing.T) {
 	t.Parallel()
 	c := NewConverter(testConfig())
@@ -563,6 +573,43 @@ func TestConvert_DuplicateInstructionContent_UniqueDocs(t *testing.T) {
 	delete(strippedA, TransactionSignatureFieldName)
 	delete(strippedB, TransactionSignatureFieldName)
 	assert.Equal(t, strippedA, strippedB, "payloads must be genuinely identical; only the join field differentiates")
+
+	// The cross-transaction join field cannot split duplicates inside ONE
+	// transaction: same signature, so the docs collide unless the positional
+	// ordinals differ. One tx with two byte-identical outer instructions and
+	// one CPI group with two byte-identical inner instructions covers both
+	// kinds.
+	dupTx := fakeTransaction("dup-sametx")
+	dupTx.Instructions = []Instruction{sharedOuter, sharedOuter}
+	dupTx.InnerInstructions = []InnerInstructionGroup{
+		{Index: 0, Instructions: []Instruction{sharedInner, sharedInner}},
+	}
+	sameResult, err := c.Convert(context.Background(), fakeBlockWithTxs(516, dupTx))
+	require.NoError(t, err)
+
+	sameOuter, sameInner := sameResult.Groups[2].Docs, sameResult.Groups[3].Docs
+	require.Len(t, sameOuter, 2)
+	require.Len(t, sameInner, 2)
+
+	assert.Equal(t, int64(0), sameOuter[0][InstructionIndexFieldName])
+	assert.Equal(t, int64(1), sameOuter[1][InstructionIndexFieldName])
+	assert.Equal(t, int64(0), sameInner[0][InstructionIndexFieldName],
+		"inner docs carry their parent outer instruction's position")
+	assert.Equal(t, int64(0), sameInner[0][InnerIndexFieldName])
+	assert.Equal(t, int64(0), sameInner[1][InstructionIndexFieldName])
+	assert.Equal(t, int64(1), sameInner[1][InnerIndexFieldName])
+	assert.NotEqual(t, sameOuter[0], sameOuter[1],
+		"outer duplicates of one transaction must differ by the ordinal")
+	assert.NotEqual(t, sameInner[0], sameInner[1],
+		"inner duplicates of one transaction must differ by the ordinal")
+
+	// Strip the ordinals: the payloads must be genuinely identical, so the
+	// collision twins differ only by the instructionIndex.
+	sameStrippedA, sameStrippedB := maps.Clone(sameOuter[0]), maps.Clone(sameOuter[1])
+	delete(sameStrippedA, InstructionIndexFieldName)
+	delete(sameStrippedB, InstructionIndexFieldName)
+	assert.Equal(t, sameStrippedA, sameStrippedB,
+		"outer duplicates must be payload-identical; only the ordinal differentiates")
 }
 
 // ---------------------------------------------------------------------------
