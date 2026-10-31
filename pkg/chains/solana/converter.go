@@ -238,19 +238,20 @@ func (c *Converter) buildTransactionDocs(block *Block) []map[string]any {
 
 // buildTransactionData builds the data map for a transaction document.
 // Nullable metadata (computeUnitsConsumed, logMessages) flows through as nil
-// when absent; failed transactions carry the raw JSON error string in err.
-// Unsigned lamport values (fee, pre/postBalances) are widened to int64.
+// when absent; failed transactions carry the raw JSON error string in err,
+// and a successful transaction leaves the err key out entirely (key
+// presence, not value, expresses failure). Unsigned lamport values (fee,
+// pre/postBalances) are widened to int64.
 func (c *Converter) buildTransactionData(tx *Transaction, block *Block) map[string]any {
 	var computeUnits any
 	if tx.ComputeUnitsConsumed != nil {
 		computeUnits = i64(*tx.ComputeUnitsConsumed)
 	}
-	return map[string]any{
+	doc := map[string]any{
 		SignatureFieldName:             tx.Signature,
 		constants.BlockHashFieldName:   block.Blockhash,
 		constants.BlockNumberFieldName: i64(block.Slot),
 		VersionFieldName:               tx.Version,
-		ErrFieldName:                   tx.Err,
 		FeeFieldName:                   i64(tx.Fee),
 		ComputeUnitsConsumedFieldName:  computeUnits,
 		LogMessagesFieldName:           tx.LogMessages,
@@ -260,6 +261,10 @@ func (c *Converter) buildTransactionData(tx *Transaction, block *Block) map[stri
 		AccountKeysFieldName:           tx.AccountKeys,
 		LoadedAddressesFieldName:       tx.LoadedAddresses,
 	}
+	if tx.Err != "" {
+		doc[ErrFieldName] = tx.Err
+	}
+	return doc
 }
 
 // toI64Slice widens unsigned lamport values for document maps.

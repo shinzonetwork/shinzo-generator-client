@@ -320,7 +320,7 @@ func TestConvert_TransactionData(t *testing.T) {
 	assert.Equal(t, int64(slot), success[constants.BlockNumberFieldName])
 	assert.Equal(t, block.Blockhash, success[constants.BlockHashFieldName])
 	assert.Equal(t, "legacy", success[VersionFieldName])
-	assert.Empty(t, success[ErrFieldName])
+	assert.NotContains(t, success, ErrFieldName, "a successful transaction leaves the err key out entirely; key presence expresses failure")
 	assert.Equal(t, int64(5000), success[FeeFieldName])
 	assert.Nil(t, success[ComputeUnitsConsumedFieldName])
 	assert.Equal(t, successTx.LogMessages, success[LogMessagesFieldName])
