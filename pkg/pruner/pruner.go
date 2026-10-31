@@ -176,9 +176,31 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 		case <-p.stopChan:
 			return
 		case <-ticker.C:
-			if err := p.runPrune(ctx); err != nil {
-				logger.Sugar.Errorf("Prune failed: %v", err)
-			}
+			p.pruneToTarget(ctx)
+		}
+	}
+}
+
+// pruneToTarget runs prune cycles back to back until the queue is within the retention target. One
+// cycle deletes at most MaxBlocksPerCycle blocks, so a chain that adds more blocks than that per
+// interval would never get back to its target at one cycle per tick. It stops at the first error,
+// leaving the rest to the next tick, and between cycles once the pruner is stopping.
+func (p *Pruner) pruneToTarget(ctx context.Context) {
+	for {
+		if err := p.runPrune(ctx); err != nil {
+			logger.Sugar.Errorf("Prune failed: %v", err)
+			return
+		}
+		q, ok := p.queue.(*IndexerQueue)
+		if !ok || int64(q.Len()) <= p.cfg.MaxBlocks {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-p.stopChan:
+			return
+		default:
 		}
 	}
 }

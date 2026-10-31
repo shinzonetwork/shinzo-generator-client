@@ -223,6 +223,42 @@ func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
 	assert.Equal(t, q.Len(), count)
 }
 
+// A backlog larger than one cycle may delete is pruned to the retention target within one tick,
+// unless the pruner is stopping or a cycle fails.
+func TestPruneToTarget(t *testing.T) {
+	cases := []struct {
+		name     string
+		stopping bool
+		failing  bool
+		want     int
+	}{
+		{name: "drains the backlog", want: 1},
+		{name: "stops between cycles", stopping: true, want: 8},
+		{name: "stops after a failed cycle", failing: true, want: 8},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := startTestNode(t)
+			cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+			p := NewPruner(cfg, n, nil)
+			q := NewIndexerQueue()
+			p.SetQueue(q)
+			queueBlocks(t, q, 10)
+			if tc.stopping {
+				close(p.stopChan)
+			}
+			if tc.failing {
+				// Purging from a collection that does not exist fails the cycle.
+				p.blockCollection = "MissingBlock"
+			}
+
+			p.pruneToTarget(context.Background())
+
+			assert.Equal(t, tc.want, q.Len())
+		})
+	}
+}
+
 func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
