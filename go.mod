@@ -11,7 +11,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/multiformats/go-multihash v0.2.3
-	github.com/sourcenetwork/defradb v1.0.1-0.20261026140438-2a899b860df3
+	github.com/sourcenetwork/defradb v1.0.1-0.20261031181049-30c5f41e1ef7
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/contrib/exporters/autoexport v0.72.0
@@ -348,7 +348,7 @@ require (
 	github.com/sourcenetwork/corekv/namespace v0.3.1 // indirect
 	github.com/sourcenetwork/corelog v0.0.9 // indirect
 	github.com/sourcenetwork/go-libp2p-pubsub-rpc v0.0.14 // indirect
-	github.com/sourcenetwork/go-p2p v0.1.11 // indirect
+	github.com/sourcenetwork/go-p2p v0.1.12 // indirect
 	github.com/sourcenetwork/goji v0.0.10 // indirect
 	github.com/sourcenetwork/goleveldb v0.0.0-20251217012629-27249d06b81b // indirect
 	github.com/sourcenetwork/graphql-go v0.7.10-0.20261013230339-4e0c76e8ecf0 // indirect
