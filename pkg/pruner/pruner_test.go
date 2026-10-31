@@ -223,6 +223,42 @@ func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
 	assert.Equal(t, q.Len(), count)
 }
 
+// A backlog larger than one cycle may delete is pruned to the retention target within one tick,
+// unless the pruner is stopping or a cycle fails.
+func TestPruneToTarget(t *testing.T) {
+	cases := []struct {
+		name     string
+		stopping bool
+		failing  bool
+		want     int
+	}{
+		{name: "drains the backlog", want: 1},
+		{name: "stops between cycles", stopping: true, want: 8},
+		{name: "stops after a failed cycle", failing: true, want: 8},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := startTestNode(t)
+			cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+			p := NewPruner(cfg, n, nil)
+			q := NewIndexerQueue()
+			p.SetQueue(q)
+			queueBlocks(t, q, 10)
+			if tc.stopping {
+				close(p.stopChan)
+			}
+			if tc.failing {
+				// Purging from a collection that does not exist fails the cycle.
+				p.blockCollection = "MissingBlock"
+			}
+
+			p.pruneToTarget(context.Background())
+
+			assert.Equal(t, tc.want, q.Len())
+		})
+	}
+}
+
 func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
@@ -486,6 +522,29 @@ func TestPruneBlockRange(t *testing.T) {
 
 	// Block 3 should remain
 	assert.Equal(t, 1, countDocs(t, n, "TestBlock"))
+}
+
+// A range delete drops the deleted blocks from the queue, which would otherwise keep listing
+// documents that no longer exist.
+func TestPruneBlockRange_RemovesQueuedBlocks(t *testing.T) {
+	n := startTestNode(t)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
+	q := NewIndexerQueue()
+	p.SetQueue(q)
+	for i := int64(1); i <= 4; i++ {
+		insertTestBlock(t, n, i, 0)
+	}
+	queueBlocks(t, q, 4)
+
+	_, err := p.pruneBlockRange(context.Background(), 2, 3)
+	require.NoError(t, err)
+
+	var queued []int64
+	for _, entry := range q.entries {
+		queued = append(queued, entry.BlockNumber)
+	}
+	assert.Equal(t, []int64{1, 4}, queued)
 }
 
 func TestFilterBasedPrune(t *testing.T) {

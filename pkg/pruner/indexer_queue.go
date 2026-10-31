@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -288,6 +289,16 @@ func (q *IndexerQueue) Drain(keep int, blockCollectionName, blockSigCollectionNa
 	q.entries = remaining
 
 	return q.buildDrainResult(drained, drainCount, blockCollectionName, blockSigCollectionName)
+}
+
+// RemoveBlockRange drops the entries for blocks from through to, for documents deleted by block
+// range instead of drained from the queue.
+func (q *IndexerQueue) RemoveBlockRange(from, to int64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.entries = slices.DeleteFunc(q.entries, func(entry BlockEntry) bool {
+		return entry.BlockNumber >= from && entry.BlockNumber <= to
+	})
 }
 
 // buildDrainResult rebuilds DocIDsByCollection from the drained entries:
