@@ -1,6 +1,6 @@
 package solana
 
-import "errors"
+import "github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 
 // Local JSON-shaped types mirroring the Solana JSON-RPC getBlock response.
 // They are the boundary contract of the adapter: solana-go SDK types are
@@ -97,11 +97,10 @@ type Reward struct {
 	Commission  *uint8 `json:"commission,omitempty"`
 }
 
-// ErrHeightSkipped reports a fetch height the chain will never fill: the
-// chain (e.g. a skipped Solana slot) validated no block there, so the
-// processor must advance past the height without storing or signing
-// anything. Only chain fetchers that can classify such heights return it;
-// EVM never does, keeping EVM behavior unchanged. Its message deliberately
-// does not contain "not found", so the processor's transient not-found
-// retry loop can never conflate the two conditions.
-var ErrHeightSkipped = errors.New("permanently skipped: no block will exist at this height")
+// ErrHeightSkipped aliases chains.ErrHeightSkipped, the chain-agnostic
+// sentinel the generic processor classifies (a fetch height the chain will
+// never fill). The adapter keeps the local name so its docs and tests read
+// in adapter vocabulary; errors.Is treats both names as the same sentinel
+// because they are the same error value. EVM never returns the sentinel, so
+// EVM behavior is unchanged.
+var ErrHeightSkipped = chains.ErrHeightSkipped

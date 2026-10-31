@@ -765,16 +765,30 @@ func (p *ConcurrentBlockProcessor) collectResults(ctx context.Context, onBlockPr
 // confirmation-wait episode instead of storing.
 func (p *ConcurrentBlockProcessor) checkedForDispatch(ctx context.Context, next *BlockResult) *BlockResult {
 	// A failed fetch/convert result is never stored (the old hole path):
-	// warn, mark the check chain unusable for this height, and let the
-	// next usable pop adopt the gap verification for the hole. The height
-	// can never produce a store completion, so the apply cursor must be
-	// able to skip it: record the hole for the ordered collect. Dispatch
-	// continues above the hole (the pop cursor already moved past it at
-	// pop time and the throttle keys off it), so the next completion to
-	// arrive pulls the cursor past the hole and drains parked successors.
+	// log, mark the check chain unusable for this height, and let the
+	// next usable pop adopt the gap verification for the hole. A skipped
+	// height rides the same hole record with an info log instead of a
+	// failure (see the branch below). The height can never produce a store
+	// completion, so the apply cursor must be able to skip it: record the
+	// hole for the ordered collect. Dispatch continues above the hole (the
+	// pop cursor already moved past it at pop time and the throttle keys
+	// off it), so the next completion to arrive pulls the cursor past the
+	// hole and drains parked successors.
 	if !next.Success {
-		p.metrics.blocks.Add(ctx, 1, p.metrics.failure)
-		logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
+		if stderrors.Is(next.Error, chains.ErrHeightSkipped) {
+			// A permanently skipped height is not a failure: the chain
+			// validated nothing there, so the hole record gives the height
+			// its cursor advance with no store, no signature, and no in-run
+			// refetch (only a later run re-classifies the height and skips
+			// it again). The check chain stays unusable exactly like a
+			// failed fetch: the next usable pop verifies through the gap
+			// fallback, whose stored-hash query is empty at the skipped
+			// height (nothing was ever stored) and skips.
+			logger.Sugar.Infof("Height %d skipped (no block produced); advancing without storing", next.BlockNum)
+		} else {
+			p.metrics.blocks.Add(ctx, 1, p.metrics.failure)
+			logger.Sugar.Warnf("Block %d failed: %v", next.BlockNum, next.Error)
+		}
 		p.pendingMu.Lock()
 		p.lastCheckedNum = next.BlockNum
 		p.lastCheckedHash = ""
@@ -1171,14 +1185,28 @@ func (p *ConcurrentBlockProcessor) startReorgEpisode(signal reorgSignal, parked 
 // resolveEpisodeItem applies the confirmation-wait rules to one parked item:
 // a chained in-order successor confirms the episode (the walk-back
 // finalizes it), a chained item that breaks the verified segment re-anchors
-// it on the newest chain, and an unusable item (worker failure or a result
+// it on the newest chain, an unusable item (worker failure or a result
 // without usable hashes) is re-fetched by height so the wait can continue
-// past the gap. Nothing here is ever stored.
+// past the gap, and a skipped height (chains.ErrHeightSkipped) bridges the
+// gap without touching the episode state: the first block above the gap
+// still chains to the pre-skip hash. Nothing here is ever stored.
 func (p *ConcurrentBlockProcessor) resolveEpisodeItem(ctx context.Context, item *BlockResult, onBlockProcessed func(blockNum int64)) {
 	for {
 		p.pendingMu.Lock()
 		ep := p.episode
 		if ep == nil || p.rollbackPoint != nil || ctx.Err() != nil {
+			p.pendingMu.Unlock()
+			return
+		}
+
+		if !item.Success && stderrors.Is(item.Error, chains.ErrHeightSkipped) {
+			// A skipped height inside the wait is permanently empty: there
+			// is nothing to chain from and nothing parked against it. The
+			// wait continues against the unchanged lastParkedHash because
+			// the first block above the gap points its parentHash at the
+			// last real parent, so the bridged gap can never re-anchor a
+			// healthy wait on a skip.
+			logger.Sugar.Infof("Episode wait: height %d skipped (no block produced); the wait bridges the gap", item.BlockNum)
 			p.pendingMu.Unlock()
 			return
 		}
@@ -1241,8 +1269,10 @@ func (p *ConcurrentBlockProcessor) reanchorEpisodeLocked(ep *reorgEpisode, item 
 // bounded; exceeding it is fatal. A shutdown mid-wait abandons the episode
 // silently (nothing was stored or deleted, so nothing is lost - the next
 // run's seed and gap checks re-detect the mismatch), while any other
-// re-fetch failure is fatal. Called with pendingMu held; always returns
-// with it released.
+// re-fetch failure is fatal. A skipped verification point (a height that is
+// permanently empty) hands its verdict back instead, so the episode rules
+// can bridge the wait past the gap. Called with pendingMu held; always
+// returns with it released.
 func (p *ConcurrentBlockProcessor) refillEpisodeGap(ctx context.Context, ep *reorgEpisode, item *BlockResult) (fresh *BlockResult, stop, fatal bool) {
 	if ep.gapRefills >= maxGapRefillsPerWait {
 		p.episode = nil
@@ -1257,6 +1287,15 @@ func (p *ConcurrentBlockProcessor) refillEpisodeGap(ctx context.Context, ep *reo
 
 	refetched := p.fetchAndConvertBlock(ctx, target)
 	if refetched.Error != nil {
+		// A re-filled verification point on a permanently skipped height is
+		// not a wait failure: handing the skipped result back re-enters the
+		// episode rules, which bridge the wait past the gap without
+		// touching the anchor. The refill still ticks its budget above: a
+		// pathological all-skips window stays bounded like any other
+		// refetch churn.
+		if stderrors.Is(refetched.Error, chains.ErrHeightSkipped) {
+			return refetched, false, false
+		}
 		if ctx.Err() != nil {
 			return nil, true, false
 		}
@@ -1472,6 +1511,9 @@ func (p *ConcurrentBlockProcessor) fetchAndConvertBlock(ctx context.Context, blo
 
 // fetchBlockWithRetry fetches a block from the fetcher with retry
 // classification:
+//   - skipped-height (chains.ErrHeightSkipped): no retry - the height is
+//     permanently empty, so neither the not-found loop nor the error
+//     backoff can ever succeed
 //   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
 //   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
 func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
@@ -1484,6 +1526,13 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 		raw, err := p.fetcher.FetchBlock(ctx, blockNum)
 		if err == nil {
 			return raw, nil
+		}
+
+		// A permanently skipped height resolves for no one: the retry
+		// machinery has no way to succeed, so the sentinel returns
+		// immediately and the callers advance past the height.
+		if stderrors.Is(err, chains.ErrHeightSkipped) {
+			return nil, err
 		}
 
 		if errors.IsErrNotFound(err) {

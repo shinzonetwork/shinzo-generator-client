@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help
+.PHONY: deps env build evm-start solana-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -10,6 +10,11 @@ endif
 GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
+
+# Solana JSON-RPC endpoints
+SOLANA_RPC_URL ?=
+SOLANA_WS_URL ?=
+SOLANA_API_KEY ?=
 
 # Version injected into the binary at build time via -ldflags (git tag plus
 # commit offset and dirty state; falls back to "dev" outside a git repo).
@@ -25,8 +30,11 @@ build:
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
 	fi
 
-start:
+evm-start:
 	./bin/block_poster
+
+solana-start:
+	./bin/block_poster -config config/config-solana.yaml
 
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
