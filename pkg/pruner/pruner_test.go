@@ -524,6 +524,29 @@ func TestPruneBlockRange(t *testing.T) {
 	assert.Equal(t, 1, countDocs(t, n, "TestBlock"))
 }
 
+// A range delete drops the deleted blocks from the queue, which would otherwise keep listing
+// documents that no longer exist.
+func TestPruneBlockRange_RemovesQueuedBlocks(t *testing.T) {
+	n := startTestNode(t)
+	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}
+	p, _ := newTestPruner(cfg, n)
+	q := NewIndexerQueue()
+	p.SetQueue(q)
+	for i := int64(1); i <= 4; i++ {
+		insertTestBlock(t, n, i, 0)
+	}
+	queueBlocks(t, q, 4)
+
+	_, err := p.pruneBlockRange(context.Background(), 2, 3)
+	require.NoError(t, err)
+
+	var queued []int64
+	for _, entry := range q.entries {
+		queued = append(queued, entry.BlockNumber)
+	}
+	assert.Equal(t, []int64{1, 4}, queued)
+}
+
 func TestFilterBasedPrune(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}

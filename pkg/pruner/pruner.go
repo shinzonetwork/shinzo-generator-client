@@ -277,7 +277,8 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 	return err
 }
 
-// startupCleanup removes blocks left over from previous runs that aren't in the queue.
+// startupCleanup deletes the oldest stored blocks beyond the retention target, whether or not the
+// queue lists them.
 func (p *Pruner) startupCleanup(ctx context.Context) error {
 	lowest, highest, err := p.getBlockRange(ctx)
 	if err != nil {
@@ -362,7 +363,8 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 // pruneBlockRange removes all documents for blocks in [startBlock, endBlock].
 // Queries docIDs from the chain, then purges each collection in sorted-name
 // order (DefraDB has no FK enforcement; any orphans are cleaned by the next
-// prune run).
+// prune run). Once every purge succeeds it drops those blocks from the queue
+// too; after a failure their entries stay so a later cycle deletes the rest.
 func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64) (int64, error) {
 	logger.Sugar.Infof("pruneBlockRange: deleting blocks %d-%d (%d blocks)",
 		startBlock, endBlock, endBlock-startBlock+1)
@@ -373,6 +375,9 @@ func (p *Pruner) pruneBlockRange(ctx context.Context, startBlock, endBlock int64
 	}
 
 	totalPurged, purgeErr := p.purgeByDocIDsByCollection(ctx, docIDsByCollection)
+	if q, ok := p.queue.(*IndexerQueue); ok && purgeErr == nil {
+		q.RemoveBlockRange(startBlock, endBlock)
+	}
 
 	logger.Sugar.Infof("pruneBlockRange: purged %d docs for blocks %d-%d", totalPurged, startBlock, endBlock)
 	return totalPurged, purgeErr
