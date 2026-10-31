@@ -23,9 +23,11 @@ The compiled binary goes into `./bin`.
 | Command | What it does |
 | --- | --- |
 | `make build` | Build the generator binary (standard mode). |
-| `make start` | Run the compiled binary. |
+| `make evm-start` | Run the compiled binary for EVM chains. |
+| `make solana-start` | Run the compiled binary for Solana. |
 | `make test` | Run all tests with a summary. |
-| `make integration-test` | Run mock and live integration tests. |
+| `make integration-test` | Run mock and live integration tests for the EVM and Solana suites; the Solana live smoke runs when `SOLANA_RPC_URL` is set. |
+| `make solana-live-test` | Run the Solana live smoke against a real JSON-RPC endpoint (e.g. `https://api.devnet.solana.com`). Optional env: `SOLANA_WS_URL` (slot hints), `SOLANA_API_KEY`. Fails fast with a setup hint when `SOLANA_RPC_URL` is unset. |
 | `make coverage` | Generate an HTML coverage report. |
 | `make node-status` | Check connectivity and current block number for a blockchain node. Probes Ethereum-compatible JSON-RPC endpoints via `eth_blockNumber`; the Generator itself is chain-agnostic and accepts any compatible JSON-RPC/WebSocket endpoint. |
 | `make clean` | Remove build artifacts. |

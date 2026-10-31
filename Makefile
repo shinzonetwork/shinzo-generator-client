@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-start solana-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help
+.PHONY: deps env build evm-start solana-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help solana-live-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -27,7 +27,7 @@ build:
 	elif grep -aFq "$(VERSION)" bin/block_poster; then \
 		echo "✅ version injected: $(VERSION)"; \
 	else \
-		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)'; check the -X symbol path"; exit 1; \
 	fi
 
 evm-start:
@@ -98,13 +98,32 @@ integration-test:
 	@echo "🧪 Running integration tests..."
 	@echo "📦 Mock tests (fast):"
 	@go test -tags=integration -v ./integration/
+	@go test -tags=integration -v ./integration/solana/
 	@echo ""
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
 		go test -tags=live -v ./integration/live/ -timeout=20s; \
-	else \ 
-		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
+	else \
+		echo "⚠️  Skipping EVM live tests - GETH_RPC_URL not set"; \
 	fi
+	@if [ -n "$(SOLANA_RPC_URL)" ]; then \
+		go test -tags=live -v ./integration/live/solana/ -timeout=120s; \
+	else \
+		echo "⚠️  Skipping Solana live smoke - SOLANA_RPC_URL not set"; \
+	fi
+
+# Solana live smoke against a real JSON-RPC endpoint (a paid endpoint, or the
+# suggested public devnet for a quick wiring check). The package skips with
+# exit 0 when SOLANA_RPC_URL is unset; the gate here enforces the setup hint
+# for explicit runs.
+solana-live-test:
+	@echo "🧪 Running solana live integration tests..."
+	@if [ -z "$(SOLANA_RPC_URL)" ]; then \
+		echo "❌ SOLANA_RPC_URL not set. Please export it first:"; \
+		echo "   export SOLANA_RPC_URL=<your-json-rpc-url>  (for example https://api.devnet.solana.com)"; \
+		exit 1; \
+	fi
+	@go test -tags=live -v ./integration/live/solana/ -timeout=120s
 
 coverage:
 	go test ./... -coverprofile=coverage.out
@@ -183,8 +202,8 @@ help:
 	@echo "  defra-status       - Check DefraDB status"
 	@echo ""
 	@echo "🏃 Services:"
-	@echo "  defra-start        - Start DefraDB"
-	@echo "  start              - Start the generator"
+	@echo "  evm-start          - Start the generator (EVM config)"
+	@echo "  solana-start       - Start the generator (Solana config)"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
@@ -192,6 +211,12 @@ help:
 	@echo "  GETH_API_KEY   - API key for authentication (optional)"
 	@echo "  GETH_WS_URL    - WebSocket endpoint (optional)"
 	@echo "  (GETH_* names are historical; any compatible JSON-RPC/WS endpoint works)"
+	@echo ""
+	@echo "🔧 Environment Variables for solana-live-test:"
+	@echo "  SOLANA_RPC_URL          - Solana JSON-RPC endpoint (required; public devnet example https://api.devnet.solana.com)"
+	@echo "  SOLANA_WS_URL           - WebSocket endpoint for slot hints (optional)"
+	@echo "  SOLANA_API_KEY          - API key sent on every request (optional)"
+	@echo "  SOLANA_LIVE_NETWORK     - Chain network segment, Devnet default (optional)"
 	@echo ""
 	@echo "💡 Example Usage:"
 	@echo "  export GETH_RPC_URL=http://xx.xx.xx.xx:port"
