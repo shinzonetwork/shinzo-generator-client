@@ -346,11 +346,7 @@ func checkRoots(block *Block, receipts []*TransactionReceipt) error {
 	if root := ethtypes.DeriveSha(block.GethTransactions, trie.NewStackTrie(nil)); root != block.Header.TxHash {
 		return fmt.Errorf("%w: transactions root %s, header %s", errRootMismatch, root, block.Header.TxHash)
 	}
-	gethReceipts := make(ethtypes.Receipts, len(receipts))
-	for i, r := range receipts {
-		gethReceipts[i] = r.GethReceipt
-	}
-	if root := ethtypes.DeriveSha(gethReceipts, trie.NewStackTrie(nil)); root != block.Header.ReceiptHash {
+	if root := ethtypes.DeriveSha(gethReceipts(receipts), trie.NewStackTrie(nil)); root != block.Header.ReceiptHash {
 		return fmt.Errorf("%w: receipts root %s, header %s", errRootMismatch, root, block.Header.ReceiptHash)
 	}
 	return nil

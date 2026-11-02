@@ -29,7 +29,7 @@ const (
 // It implements chains.Collections for the generic schema loader and future
 // generic BlockHandler.
 //
-// In tokens mode only Header, BlockSignature and ContractLogs are set, and
+// In tokens mode only Header, BlockSignature, ReceiptProof and ContractLogs are set, and
 // Header takes Block's place as the table the chain's heights are read from.
 //
 // Every collection except SnapshotSignature must declare an @index on its
@@ -46,6 +46,7 @@ type CollectionNames struct {
 	Log               string
 
 	Header       string
+	ReceiptProof string
 	ContractLogs []ContractLogCollection
 }
 
@@ -73,7 +74,7 @@ func NewCollectionNames(prefix string) *CollectionNames {
 }
 
 // NewTokenCollectionNames creates the tokens-mode collection names: Header,
-// BlockSignature and one ContractLog table per contract. The tables are sorted
+// BlockSignature, ReceiptProof and one ContractLog table per contract. The tables are sorted
 // by address, so the schema does not depend on the order the contracts are
 // listed in. It returns config.ErrInvalidContractAddress for an address that
 // is not 20 bytes of hex.
@@ -82,6 +83,7 @@ func NewTokenCollectionNames(prefix string, contracts []string) (*CollectionName
 		prefix:         prefix,
 		Header:         fmt.Sprintf("%s__Header", prefix),
 		BlockSignature: fmt.Sprintf("%s__BlockSignature", prefix),
+		ReceiptProof:   fmt.Sprintf("%s__ReceiptProof", prefix),
 	}
 	for _, raw := range contracts {
 		addr, err := config.ContractAddress(raw)
@@ -123,7 +125,7 @@ func (c *CollectionNames) Prefix() string {
 // AllCollections returns all collection names as a slice in P2P filter order.
 func (c *CollectionNames) AllCollections() []string {
 	if c.tokenMode() {
-		names := []string{c.Header, c.BlockSignature}
+		names := []string{c.Header, c.BlockSignature, c.ReceiptProof}
 		for _, cl := range c.ContractLogs {
 			names = append(names, cl.Name)
 		}

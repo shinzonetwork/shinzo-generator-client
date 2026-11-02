@@ -27,6 +27,15 @@ type TransactionReceipt struct {
 	GethReceipt *ethtypes.Receipt `json:"-"`
 }
 
+// gethReceipts returns the receipts as go-ethereum decoded them, in the order given.
+func gethReceipts(receipts []*TransactionReceipt) ethtypes.Receipts {
+	geth := make(ethtypes.Receipts, len(receipts))
+	for i, r := range receipts {
+		geth[i] = r.GethReceipt
+	}
+	return geth
+}
+
 // Block represents an Ethereum block.
 type Block struct {
 	Hash             string        `json:"hash"`

@@ -158,5 +158,5 @@ func TestCollectionFiles_TokenMode(t *testing.T) {
 		assert.NotContains(t, f.SDL, DefaultCollectionPrefix)
 	}
 	assert.Equal(t, c.AllCollections(), typeNames)
-	assert.Equal(t, []string{"header", "blockSignature", "contractLog_8d0d000ee44948fc98c9b98a4fa4921476f08b0d"}, stems)
+	assert.Equal(t, []string{"header", "blockSignature", "receiptProof", "contractLog_8d0d000ee44948fc98c9b98a4fa4921476f08b0d"}, stems)
 }

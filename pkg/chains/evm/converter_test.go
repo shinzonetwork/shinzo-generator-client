@@ -1,11 +1,11 @@
 package evm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
-	"math/big"
 	"os"
 	"reflect"
 	"slices"
@@ -14,6 +14,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/trie"
+	"github.com/ethereum/go-ethereum/trie/trienode"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -581,52 +584,86 @@ func TestConvert_ALEGroupHasNoContentIdenticalDocsPerTx(t *testing.T) {
 
 func TestConvert_TokenMode(t *testing.T) {
 	t.Parallel()
-	const (
-		listedA  = "0xaa00000000000000000000000000000000000001"
-		listedB  = "0xbb00000000000000000000000000000000000002"
-		unlisted = "0xcc00000000000000000000000000000000000003"
-	)
+	listedA := common.HexToAddress("0xaa00000000000000000000000000000000000001")
+	listedB := common.HexToAddress("0xbb00000000000000000000000000000000000002")
+	unlisted := common.HexToAddress("0xcc00000000000000000000000000000000000003")
 	cfg := testConfig()
 	cfg.Chain.Name = "Bsc"
 	cfg.Chain.Mode = config.ChainModeTokens
-	cfg.Chain.Contracts = []string{listedB, "0xAA00000000000000000000000000000000000001"}
+	cfg.Chain.Contracts = []string{listedB.Hex(), "0xAA00000000000000000000000000000000000001"}
 	c, err := NewConverter(cfg)
 	require.NoError(t, err)
 
-	txHash := fakeHash("tx-1")
-	tx := fakeTx(txHash)
-	block := fakeBlockWithTxs(42, tx)
-	block.Header = &ethtypes.Header{Number: big.NewInt(42), Difficulty: big.NewInt(0)}
-	receipt := fakeReceipt(txHash, 42)
-	for i, addr := range []string{listedA, unlisted, listedB, listedA} {
-		receipt.Logs = append(receipt.Logs, Log{Address: addr, BlockNumber: "0x2a", BlockHash: block.Hash, TransactionHash: txHash, LogIndex: i})
+	logs := func(addrs ...common.Address) []*ethtypes.Log {
+		out := make([]*ethtypes.Log, len(addrs))
+		for i, addr := range addrs {
+			out[i] = &ethtypes.Log{Address: addr, Topics: []common.Hash{{byte(i)}}, Data: []byte{byte(i)}}
+		}
+		return out
 	}
-	bundle := &BlockBundle{Block: block, Transactions: []*Transaction{&tx}, Receipts: []*TransactionReceipt{receipt}}
+	// Transactions 0 and 2 emit listed contracts' logs; transaction 1 only an unlisted one.
+	bundle := gethBundle(t, 42, logs(listedA, unlisted, listedB), logs(unlisted), logs(listedA))
 
 	result, err := c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
 	assert.Equal(t, "Bsc__Mainnet__BlockSignature", result.SignatureCollection)
 	assert.Nil(t, result.LinkStamper)
 
-	require.Len(t, result.Groups, 3)
+	require.Len(t, result.Groups, 4)
 	assert.Equal(t, "Bsc__Mainnet__Header", result.Groups[0].Collection)
-	headerData, err := buildHeaderData(block.Header)
+	headerData, err := buildHeaderData(bundle.Block.Header)
 	require.NoError(t, err)
 	assert.Equal(t, []map[string]any{headerData}, result.Groups[0].Docs)
+	first, third := bundle.Receipts[0], bundle.Receipts[2]
 	assert.Equal(t, "Bsc__Mainnet__ContractLog_aa00000000000000000000000000000000000001", result.Groups[1].Collection)
-	assert.Equal(t, []map[string]any{c.buildLogData(&receipt.Logs[0]), c.buildLogData(&receipt.Logs[3])}, result.Groups[1].Docs)
+	assert.Equal(t, []map[string]any{c.buildLogData(&first.Logs[0]), c.buildLogData(&third.Logs[0])}, result.Groups[1].Docs)
 	assert.Equal(t, "Bsc__Mainnet__ContractLog_bb00000000000000000000000000000000000002", result.Groups[2].Collection)
-	assert.Equal(t, []map[string]any{c.buildLogData(&receipt.Logs[2])}, result.Groups[2].Docs)
+	assert.Equal(t, []map[string]any{c.buildLogData(&first.Logs[2])}, result.Groups[2].Docs)
+
+	assert.Equal(t, "Bsc__Mainnet__ReceiptProof", result.Groups[3].Collection)
+	header := bundle.Block.Header
+	var proven []int
+	for _, doc := range result.Groups[3].Docs {
+		i, ok := doc[TransactionIndexFieldName].(int)
+		require.True(t, ok)
+		proven = append(proven, i)
+		assert.Equal(t, int64(42), doc[constants.BlockNumberFieldName])
+		assert.Equal(t, bundle.Block.Hash, doc[constants.BlockHashFieldName])
+		assert.Equal(t, bundle.Block.GethTransactions[i].Hash().Hex(), doc[TransactionHashFieldName])
+
+		var want bytes.Buffer
+		gethReceipts(bundle.Receipts).EncodeIndex(i, &want)
+		assert.Equal(t, want.Bytes(), provenValue(t, header.ReceiptHash, i, doc["receiptProof"]))
+		want.Reset()
+		bundle.Block.GethTransactions.EncodeIndex(i, &want)
+		assert.Equal(t, want.Bytes(), provenValue(t, header.TxHash, i, doc["transactionProof"]))
+	}
+	assert.Equal(t, []int{0, 2}, proven)
 
 	// A block with no listed contract's logs has only its header.
-	receipt.Logs = receipt.Logs[1:2]
+	bundle = gethBundle(t, 43, logs(unlisted))
 	result, err = c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
 	require.Len(t, result.Groups, 1)
 
-	block.Header = nil
+	bundle.Block.Header = nil
 	_, err = c.Convert(context.Background(), bundle)
 	require.Error(t, err)
+}
+
+// provenValue checks a ReceiptProof document's proof against root for the transaction at index
+// and returns the value the proof holds.
+func provenValue(t *testing.T, root common.Hash, index int, proof any) []byte {
+	t.Helper()
+	nodes, ok := proof.([]string)
+	require.True(t, ok)
+	var list trienode.ProofList
+	for _, node := range nodes {
+		list = append(list, hexutil.MustDecode(node))
+	}
+	value, err := trie.VerifyProof(root, rlp.AppendUint64(nil, uint64(index)), list.Set())
+	require.NoError(t, err)
+	return value
 }
 
 // The Header document must hold every field the block hash covers, in a form that decodes back
@@ -868,6 +905,7 @@ func TestTokenMode_ReadsTokenTables(t *testing.T) {
 		fmt.Sprintf(`%s(input: {number: 9, hash: "0x09"})`, c.collections.Header),
 		fmt.Sprintf(`%s(input: {blockNumber: 7, logIndex: 0})`, contractLog),
 		fmt.Sprintf(`%s(input: {blockNumber: 7})`, c.collections.BlockSignature),
+		fmt.Sprintf(`%s(input: {blockNumber: 7, transactionIndex: 0})`, c.collections.ReceiptProof),
 	} {
 		res := td.Node.DB.ExecRequest(ctx, "mutation { add_"+add+" { _docID } }")
 		require.Empty(t, res.GQL.Errors)
@@ -885,7 +923,7 @@ func TestTokenMode_ReadsTokenTables(t *testing.T) {
 
 	docIDs, err := c.GetDocIDsByBlockRange(ctx, td.Node, 7, 7)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{c.collections.Header, contractLog, c.collections.BlockSignature}, slices.Collect(maps.Keys(docIDs)))
+	assert.ElementsMatch(t, []string{c.collections.Header, contractLog, c.collections.BlockSignature, c.collections.ReceiptProof}, slices.Collect(maps.Keys(docIDs)))
 	for name, ids := range docIDs {
 		assert.Len(t, ids, 1, name)
 	}
