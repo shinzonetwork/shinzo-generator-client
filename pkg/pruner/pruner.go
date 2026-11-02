@@ -47,6 +47,12 @@ type Pruner struct {
 	totalBlocksPruned int64
 	totalDocsPruned   int64
 	isRunning         bool
+
+	// cycleObserver, when set, is fired after every completed prune cycle
+	// with the cycle's raw facts. Guarded by mu. Bench aggregation stays out
+	// of the package: the consumer decides which cycles count as work and
+	// how the durations roll up.
+	cycleObserver func(CycleEvent)
 }
 
 // Metrics holds pruning statistics.
@@ -78,6 +84,25 @@ func NewPruner(cfg *config.PrunerConfig, defraNode *node.Node, converter chains.
 // SetQueue sets the queue implementation for queue-based pruning.
 func (p *Pruner) SetQueue(queue Queue) {
 	p.queue = queue
+}
+
+// CycleEvent reports one completed prune cycle, startup cleanup included:
+// the block/doc deltas it produced and its wall time. Raw facts only, so the
+// consumer owns which cycles count as work and how the durations aggregate.
+type CycleEvent struct {
+	Blocks   int64
+	Docs     int64
+	Duration time.Duration
+}
+
+// SetCycleObserver registers a callback fired after every completed prune
+// cycle, zeros included. It runs on the pruner's loop goroutine and must
+// stay cheap. Set it before Start: the loop's startup cleanup is itself a
+// prune cycle, and its facts would otherwise be missed.
+func (p *Pruner) SetCycleObserver(fn func(CycleEvent)) {
+	p.mu.Lock()
+	p.cycleObserver = fn
+	p.mu.Unlock()
 }
 
 // Start begins the pruning loop in a background goroutine.
@@ -162,7 +187,7 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 	// Only queue-tracked data gets pruned.
 
 	logger.Sugar.Debugf("Running startup cleanup for pre-existing blocks...")
-	if err := p.startupCleanup(ctx); err != nil {
+	if err := p.timedCycle(ctx, p.startupCleanup); err != nil {
 		logger.Sugar.Errorf("Startup cleanup failed: %v", err)
 	}
 
@@ -176,11 +201,39 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 		case <-p.stopChan:
 			return
 		case <-ticker.C:
-			if err := p.runPrune(ctx); err != nil {
+			if err := p.timedCycle(ctx, p.runPrune); err != nil {
 				logger.Sugar.Errorf("Prune failed: %v", err)
 			}
 		}
 	}
+}
+
+// timedCycle runs one prune operation and reports its raw facts to the
+// cycle observer. Every cycle passes through here, startup cleanup included,
+// so the reported duration covers everything the node spends on a prune:
+// the block range queries, the docID lookups and the purge itself. Every
+// cycle fires, zeros included; deciding that only delete cycles count is
+// the consumer's policy, not the package's.
+func (p *Pruner) timedCycle(ctx context.Context, run func(context.Context) error) error {
+	p.mu.RLock()
+	blocksBefore := p.totalBlocksPruned
+	docsBefore := p.totalDocsPruned
+	p.mu.RUnlock()
+
+	start := time.Now()
+	err := run(ctx)
+	elapsed := time.Since(start)
+
+	p.mu.RLock()
+	blocksDelta := p.totalBlocksPruned - blocksBefore
+	docsDelta := p.totalDocsPruned - docsBefore
+	observer := p.cycleObserver
+	p.mu.RUnlock()
+
+	if observer != nil {
+		observer(CycleEvent{Blocks: blocksDelta, Docs: docsDelta, Duration: elapsed})
+	}
+	return err
 }
 
 // runPrune executes the appropriate pruning strategy based on queue type and state.

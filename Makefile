@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help
+.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -11,12 +11,21 @@ GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
 
+
+# Capture range for replay-fetch. 0 = auto: latest 100 blocks from the
+# current chain tip. Without these defaults a bare `make replay-fetch`
+# would expand to a bare `--from --to` and the flag package would eat the
+# next token as the value, failing the run.
+FROM ?= 0
+TO ?= 0
+
 # Version injected into the binary at build time via -ldflags (git tag plus
 # commit offset and dirty state; falls back to "dev" outside a git repo).
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
 	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
+	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
 	elif grep -aFq "$(VERSION)" bin/block_poster; then \
@@ -153,6 +162,30 @@ stop:
 	  echo "No block_poster processes found"; \
 	fi; \
 	rm -f .defra/block_poster.pid;
+
+# replay-fetch captures a raw replay fixture via the chain-agnostic
+# cmd/fetch_blocks CLI (one-time; needs a real endpoint). FROM/TO are
+# overridable block numbers; the default captures 100 blocks ending at the
+# current tip. Fixtures land in replay/testdata/ (gitignored) as
+# ethereum_blocks_<from>_<to>.json.
+replay-fetch:
+	@if [ -z "$(GETH_RPC_URL)" ]; then \
+		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p replay/testdata
+	go run ./cmd/fetch_blocks --chain ethereum --network mainnet --from $(FROM) --to $(TO)
+
+# ethereum-acceptance-test replays the newest captured fixture through the full
+# production pipeline (mock JSON-RPC → Fetcher → Converter → BlockHandler.Store)
+# and hard-asserts the average per-block processing time stays within the
+# chain's block interval. ETHEREUM_TARGET_BLOCK_TIME overrides the target; a
+# missing fixture skips with regeneration instructions. -count=1 forces the
+# run every time: Go's test cache key ignores runtime inputs (fixture files,
+# ETHEREUM_* env vars), and unlike `go clean -testcache` it leaves the rest of the
+# project's test results cached.
+ethereum-acceptance-test:
+	go test -tags=acceptance ./replay/ethereum -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
 
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
