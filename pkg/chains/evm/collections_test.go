@@ -121,6 +121,7 @@ func TestNewTokenCollectionNames(t *testing.T) {
 	assert.Equal(t, []string{
 		"Bsc__Mainnet__Header",
 		"Bsc__Mainnet__BlockSignature",
+		"Bsc__Mainnet__ReceiptProof",
 		"Bsc__Mainnet__ContractLog_aa00000000000000000000000000000000000001",
 		"Bsc__Mainnet__ContractLog_bb00000000000000000000000000000000000002",
 	}, c.AllCollections())

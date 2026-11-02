@@ -11,6 +11,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	cid "github.com/ipfs/go-cid"
 	"github.com/sourcenetwork/defradb/acp/identity"
@@ -1558,16 +1559,24 @@ func tokenNode(t *testing.T) (*testutils.TestDefraDB, *evm.Converter) {
 	return testutils.SetupTestDefraDBWithNodeIdentity(t, sdl, ident), conv
 }
 
-// convertTokenBlock converts mockReceipt's block in tokens mode.
+// convertTokenBlock converts mockReceipt's block in tokens mode. The block and receipt carry the
+// go-ethereum transaction and receipt the receipt proof is built from.
 func convertTokenBlock(t *testing.T, conv *evm.Converter) chains.ConversionResult {
 	t.Helper()
-	const txHash = "0xddd1000000000000000000000000000000000000000000000000000000000001"
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{Nonce: 1, Gas: 21000, GasPrice: big.NewInt(1), Value: big.NewInt(1)})
+	txHash := tx.Hash().Hex()
 	block := mockBlock("0x7D0") // 2000
 	block.Header = &ethtypes.Header{Number: big.NewInt(2000), Difficulty: big.NewInt(0)}
+	block.GethTransactions = ethtypes.Transactions{tx}
+	receipt := mockReceipt(txHash, "0x7D0")
+	receipt.GethReceipt = &ethtypes.Receipt{
+		Status: ethtypes.ReceiptStatusSuccessful, CumulativeGasUsed: 21000,
+		Logs: []*ethtypes.Log{{Address: common.HexToAddress(receipt.Logs[0].Address)}},
+	}
 	result, err := conv.Convert(context.Background(), &evm.BlockBundle{
 		Block:        block,
 		Transactions: []*evm.Transaction{mockTransaction(txHash, "2000")},
-		Receipts:     []*evm.TransactionReceipt{mockReceipt(txHash, "0x7D0")},
+		Receipts:     []*evm.TransactionReceipt{receipt},
 	})
 	require.NoError(t, err)
 	return result
@@ -1597,11 +1606,11 @@ func storeTokenBlock(t *testing.T, td *testutils.TestDefraDB, conv *evm.Converte
 	return docIDs, signed
 }
 
-func TestStore_TokenModeSignsHeaderAndContractLogs(t *testing.T) {
+func TestStore_TokenModeSignsEveryDocument(t *testing.T) {
 	t.Parallel()
 	td, conv := tokenNode(t)
 	docIDs, signed := storeTokenBlock(t, td, conv)
-	require.Len(t, docIDs, 2, "the header and the contract's one log")
+	require.Len(t, docIDs, 3, "the header, the contract's one log and its transaction's receipt proof")
 
 	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
 	require.NoError(t, err)
@@ -1658,7 +1667,7 @@ func countDocs(t *testing.T, td *testutils.TestDefraDB, collection string) int {
 func TestStore_TokenModeRetryAfterUnsignedAttempt(t *testing.T) {
 	t.Parallel()
 	td, conv := tokenNode(t)
-	cols := conv.GetCollections() // Header, BlockSignature, then the contract's log table
+	cols := conv.GetCollections() // Header, BlockSignature, ReceiptProof, then the contract's log table
 	handler, err := NewBlockHandler(td.Node, 1000, conv.Collections().Prefix(), testChainID)
 	require.NoError(t, err)
 	sign := handler.signBatchFn

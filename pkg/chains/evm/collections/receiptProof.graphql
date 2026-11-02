@@ -1,0 +1,11 @@
+# A transaction that emitted a listed contract's log, with Merkle proofs of its receipt and of the
+# transaction against the header's roots, keyed by transactionIndex. Each proof is the trie nodes
+# from the root down, hex-encoded; the last node holds the encoded receipt or transaction.
+type Ethereum__Mainnet__ReceiptProof {
+    blockNumber: Int @index
+    blockHash: String
+    transactionIndex: Int
+    transactionHash: String
+    receiptProof: [String]
+    transactionProof: [String]
+}

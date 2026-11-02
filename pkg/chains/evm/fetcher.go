@@ -10,6 +10,7 @@ import (
 	"time"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -74,6 +75,9 @@ type Fetcher struct {
 	// finalizedOnly makes FetchFinalizedBlockNumber report the finalized tag only, without the
 	// safe fallback.
 	finalizedOnly bool
+	// checkRoots makes FetchBlock check the block's transactions and receipts against the header's
+	// roots.
+	checkRoots bool
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -109,6 +113,7 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		chainID:        cfg.Chain.ChainID,
 		receiptWorkers: receiptWorkers,
 		finalizedOnly:  cfg.Chain.Mode == config.ChainModeTokens,
+		checkRoots:     cfg.Chain.Mode == config.ChainModeTokens,
 	}, nil
 }
 
@@ -147,7 +152,9 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 // height along with its transactions and receipts, returning them bundled in a
 // *BlockBundle (typed as any per the interface). The receipts are pinned to
 // the fetched block's own hash, so a reorg between the block fetch and the
-// receipt fetch cannot serve receipts from the new chain's block.
+// receipt fetch cannot serve receipts from the new chain's block. In tokens mode
+// it also checks the block's transactions and receipts against the header's
+// roots.
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
@@ -167,6 +174,11 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if len(block.Transactions) == 0 {
 		if _, err := f.client.GetHeaderByHash(ctx, block.Hash); err != nil {
 			return nil, fmt.Errorf("block %d: node has no header with hash %s: %w", height, block.Hash, err)
+		}
+	}
+	if f.checkRoots {
+		if err := checkRoots(block, receipts); err != nil {
+			return nil, fmt.Errorf("block %d: %w", height, err)
 		}
 	}
 	return &BlockBundle{
@@ -321,6 +333,23 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 	}
 
 	return transactions, receipts, nil
+}
+
+// errRootMismatch reports that the node's transactions or receipts for a block do not rebuild
+// the root its header commits to.
+var errRootMismatch = errors.New("node's answer does not match the header's root")
+
+// checkRoots rebuilds the block's transactions and receipts roots from the node's answers and
+// returns errRootMismatch when either differs from the header's, so a missing, extra or altered
+// transaction or receipt fails the fetch.
+func checkRoots(block *Block, receipts []*TransactionReceipt) error {
+	if root := ethtypes.DeriveSha(block.GethTransactions, trie.NewStackTrie(nil)); root != block.Header.TxHash {
+		return fmt.Errorf("%w: transactions root %s, header %s", errRootMismatch, root, block.Header.TxHash)
+	}
+	if root := ethtypes.DeriveSha(gethReceipts(receipts), trie.NewStackTrie(nil)); root != block.Header.ReceiptHash {
+		return fmt.Errorf("%w: receipts root %s, header %s", errRootMismatch, root, block.Header.ReceiptHash)
+	}
+	return nil
 }
 
 // receiptHashesMatch reports whether every receipt belongs to the pinned

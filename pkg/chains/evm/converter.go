@@ -1,13 +1,20 @@
 package evm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/trie"
+	"github.com/ethereum/go-ethereum/trie/trienode"
+	"github.com/ethereum/go-ethereum/triedb"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -199,6 +206,31 @@ func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.C
 		}
 	}
 
+	// Proofs are keyed by the receipt's position in the block, which the receipts root covers. A
+	// log's transactionIndex is not covered by any root.
+	var proven []int
+	for i, receipt := range bundle.Receipts {
+		for _, l := range receipt.Logs {
+			addr, err := config.ContractAddress(l.Address)
+			if _, listed := logs[addr]; err == nil && listed {
+				proven = append(proven, i)
+				break
+			}
+		}
+	}
+	if len(proven) > 0 {
+		proofs, err := buildReceiptProofDocs(bundle, blockInt, proven)
+		if err != nil {
+			return chains.ConversionResult{}, fmt.Errorf("converter: block %d receipt proofs: %w", blockInt, err)
+		}
+		groups = append(groups, chains.DocumentGroup{
+			Collection:    c.collections.ReceiptProof,
+			Docs:          proofs,
+			BatchSize:     defaultBatch,
+			BlockNumField: constants.BlockNumberFieldName,
+		})
+	}
+
 	return chains.ConversionResult{
 		Groups:              groups,
 		SignatureCollection: c.collections.BlockSignature,
@@ -221,6 +253,63 @@ func buildHeaderData(h *ethtypes.Header) (map[string]any, error) {
 	}
 	data[constants.NumberFieldName] = h.Number.Int64()
 	return data, nil
+}
+
+// buildReceiptProofDocs returns a ReceiptProof document for the transaction at each of positions,
+// holding the proofs of its receipt and of the transaction against the header's roots.
+func buildReceiptProofDocs(bundle *BlockBundle, blockNumber int64, positions []int) ([]map[string]any, error) {
+	txTrie, err := listTrie(bundle.Block.GethTransactions)
+	if err != nil {
+		return nil, fmt.Errorf("transactions trie: %w", err)
+	}
+	receiptTrie, err := listTrie(gethReceipts(bundle.Receipts))
+	if err != nil {
+		return nil, fmt.Errorf("receipts trie: %w", err)
+	}
+	docs := make([]map[string]any, 0, len(positions))
+	for _, i := range positions {
+		key := rlp.AppendUint64(nil, uint64(i)) //nolint:gosec // a position in the block, never negative
+		var receiptProof, txProof trienode.ProofList
+		if err := receiptTrie.Prove(key, &receiptProof); err != nil {
+			return nil, fmt.Errorf("prove receipt %d: %w", i, err)
+		}
+		if err := txTrie.Prove(key, &txProof); err != nil {
+			return nil, fmt.Errorf("prove transaction %d: %w", i, err)
+		}
+		docs = append(docs, map[string]any{
+			constants.BlockNumberFieldName: blockNumber,
+			constants.BlockHashFieldName:   bundle.Block.Hash,
+			TransactionIndexFieldName:      i,
+			TransactionHashFieldName:       bundle.Block.GethTransactions[i].Hash().Hex(),
+			"receiptProof":                 hexNodes(receiptProof),
+			"transactionProof":             hexNodes(txProof),
+		})
+	}
+	return docs, nil
+}
+
+// listTrie returns the trie a header's transactions or receipts root is computed over: each item
+// of list under its RLP-encoded position.
+func listTrie(list ethtypes.DerivableList) (*trie.Trie, error) {
+	t := trie.NewEmpty(triedb.NewDatabase(rawdb.NewMemoryDatabase(), nil))
+	var buf bytes.Buffer
+	for i := range list.Len() {
+		buf.Reset()
+		list.EncodeIndex(i, &buf)
+		if err := t.Update(rlp.AppendUint64(nil, uint64(i)), bytes.Clone(buf.Bytes())); err != nil {
+			return nil, err
+		}
+	}
+	return t, nil
+}
+
+// hexNodes returns a proof's nodes, root first, hex-encoded.
+func hexNodes(proof trienode.ProofList) []string {
+	nodes := make([]string, len(proof))
+	for i, node := range proof {
+		nodes[i] = hexutil.Encode(node)
+	}
+	return nodes
 }
 
 // maxDocsPerTxn returns the configured default batch size for BlockHandler.
@@ -432,7 +521,10 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 		{c.collections.AccessListEntry, constants.BlockNumberFieldName},
 	}
 	if c.collections.tokenMode() {
-		cols = []rangeCollection{{c.collections.Header, constants.NumberFieldName}}
+		cols = []rangeCollection{
+			{c.collections.Header, constants.NumberFieldName},
+			{c.collections.ReceiptProof, constants.BlockNumberFieldName},
+		}
 		for _, cl := range c.collections.ContractLogs {
 			cols = append(cols, rangeCollection{cl.Name, constants.BlockNumberFieldName})
 		}

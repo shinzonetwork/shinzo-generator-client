@@ -42,6 +42,7 @@ const (
 	accessListEntryCollectionFile   = "accessListEntry.graphql"
 	logCollectionFile               = "log.graphql"
 	headerCollectionFile            = "header.graphql"
+	receiptProofCollectionFile      = "receiptProof.graphql"
 	contractLogCollectionFile       = "contractLog.graphql"
 
 	blockCollectionStem             = "block"
@@ -51,6 +52,7 @@ const (
 	accessListEntryCollectionStem   = "accessListEntry"
 	logCollectionStem               = "log"
 	headerCollectionStem            = "header"
+	receiptProofCollectionStem      = "receiptProof"
 	contractLogCollectionStemPrefix = "contractLog_"
 )
 
@@ -76,6 +78,7 @@ func (c *CollectionNames) CollectionFiles() ([]chains.CollectionFile, error) {
 		specs = []collectionSpec{
 			{c.Header, headerCollectionStem, headerCollectionFile},
 			{c.BlockSignature, blockSignatureCollectionStem, blockSignatureCollectionFile},
+			{c.ReceiptProof, receiptProofCollectionStem, receiptProofCollectionFile},
 		}
 	}
 

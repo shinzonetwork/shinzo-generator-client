@@ -427,6 +427,62 @@ func TestFetcher_FetchBlock_FallbackRejectsReceiptsFromAnotherBlock(t *testing.T
 	require.Error(t, err, "receipts from another block must fail the fetch, not be bundled")
 }
 
+// In tokens mode a block whose transactions or receipts do not rebuild the header's roots fails
+// the fetch, so the height is retried. Full mode does not check.
+func TestFetcher_FetchBlock_TokensModeChecksRoots(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		mode    string
+		alter   func(block *Block, receipts []*TransactionReceipt) []*TransactionReceipt
+		wantErr bool
+	}{
+		{name: "matching answers", mode: config.ChainModeTokens},
+		{
+			name: "receipt missing", mode: config.ChainModeTokens, wantErr: true,
+			alter: func(_ *Block, receipts []*TransactionReceipt) []*TransactionReceipt { return receipts[:1] },
+		},
+		{
+			name: "receipt altered", mode: config.ChainModeTokens, wantErr: true,
+			alter: func(_ *Block, receipts []*TransactionReceipt) []*TransactionReceipt {
+				receipts[1].GethReceipt.Status = ethtypes.ReceiptStatusFailed
+				return receipts
+			},
+		},
+		{
+			name: "transaction missing", mode: config.ChainModeTokens, wantErr: true,
+			alter: func(block *Block, receipts []*TransactionReceipt) []*TransactionReceipt {
+				block.GethTransactions = block.GethTransactions[:1]
+				return receipts
+			},
+		},
+		{
+			name: "full mode, receipt missing", mode: config.ChainModeFull,
+			alter: func(_ *Block, receipts []*TransactionReceipt) []*TransactionReceipt { return receipts[:1] },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			bundle := gethBundle(t, 12345, nil, nil)
+			block, receipts := bundle.Block, bundle.Receipts
+			if tt.alter != nil {
+				receipts = tt.alter(block, receipts)
+			}
+			f, err := NewFetcherFromConfig(&config.Config{Chain: config.ChainConfig{Mode: tt.mode}})
+			require.NoError(t, err)
+			f.client = &fakeRPCClient{block: block, receiptsByHash: map[string][]*TransactionReceipt{block.Hash: receipts}}
+
+			_, err = f.FetchBlock(context.Background(), 12345)
+			if tt.wantErr {
+				require.ErrorIs(t, err, errRootMismatch)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // FetchBlock: block not found (no retry, error passed through unwrapped)
 // ---------------------------------------------------------------------------
