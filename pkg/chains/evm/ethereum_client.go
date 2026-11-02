@@ -502,6 +502,7 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *Transact
 		ContractAddress:   getContractAddress(receipt),
 		Logs:              logs,
 		Status:            getReceiptStatus(receipt),
+		GethReceipt:       receipt,
 	}
 }
 
@@ -585,6 +586,7 @@ func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *Block {
 		Uncles:           uncles,
 		Transactions:     transactions,
 		Header:           gethBlock.Header(),
+		GethTransactions: gethBlock.Transactions(),
 	}
 }
 

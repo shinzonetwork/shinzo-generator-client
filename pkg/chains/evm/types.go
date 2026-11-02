@@ -21,6 +21,10 @@ type TransactionReceipt struct {
 	ContractAddress   string `json:"contractAddress"`
 	Logs              []Log  `json:"logs"`
 	Status            string `json:"status"`
+
+	// GethReceipt is the receipt as go-ethereum decoded it. Its consensus encoding is what the
+	// header's receipts root covers.
+	GethReceipt *ethtypes.Receipt `json:"-"`
 }
 
 // Block represents an Ethereum block.
@@ -49,6 +53,9 @@ type Block struct {
 
 	// Header is the header as go-ethereum decoded it, holding every field the block hash covers.
 	Header *ethtypes.Header `json:"-"`
+	// GethTransactions are the transactions as go-ethereum decoded them, in block order. Their
+	// consensus encoding is what the header's transactions root covers.
+	GethTransactions ethtypes.Transactions `json:"-"`
 }
 
 // Transaction represents an Ethereum transaction.
