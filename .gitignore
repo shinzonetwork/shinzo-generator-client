@@ -70,3 +70,5 @@ logs/
 # SDD Files
 specs/
 
+# Replay tests data
+replay/testdata/

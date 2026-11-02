@@ -636,6 +636,35 @@ func TestCheckAndSnapshot_GapHandling(t *testing.T) {
 	assert.Equal(t, int64(1004), s.lastSnapshotBlock)
 }
 
+// SetCycleObserver is the seam the replay harness reads cycle facts through:
+// every completed cycle reports its created count and wall time, and the
+// consumer owns which cycles count as work.
+func TestSetCycleObserver_ReportsCycleFacts(t *testing.T) {
+	// The aligned range [1000..1999] cannot complete from blocks 1000-1004,
+	// so this cycle is check-only: it still reports, with zero snapshots.
+	s, _, ctx := newTestSnapshotterWithDB(t, 1000, 1000, 1004)
+
+	var events []CycleEvent
+	s.SetCycleObserver(func(ev CycleEvent) { events = append(events, ev) })
+
+	require.NoError(t, s.timedCheckAndSnapshot(ctx))
+	require.Len(t, events, 1)
+	assert.Equal(t, 0, events[0].Snapshots)
+	assert.Greater(t, events[0].Duration, time.Duration(0))
+
+	// The aligned range [100..104] is fully present, so this cycle creates
+	// a snapshot and must report it.
+	s2, _, ctx2 := newTestSnapshotterWithDB(t, 5, 100, 104)
+
+	var events2 []CycleEvent
+	s2.SetCycleObserver(func(ev CycleEvent) { events2 = append(events2, ev) })
+
+	require.NoError(t, s2.timedCheckAndSnapshot(ctx2))
+	require.Len(t, events2, 1)
+	assert.Equal(t, 1, events2[0].Snapshots)
+	assert.Greater(t, events2[0].Duration, time.Duration(0))
+}
+
 // ---------------------------------------------------------------------------
 // checkAndSnapshot: createSnapshot error path
 // ---------------------------------------------------------------------------
