@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -28,8 +29,8 @@ type rpcClient interface {
 	// GetBlockReceipts fetches all receipts for a block in a single RPC
 	// call, selected by the block's content hash so the receipts always
 	// stay on the branch of the block the fetcher already holds.
-	GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error)
-	GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
+	GetBlockReceipts(ctx context.Context, blockHash string) ([]*ethtypes.Receipt, error)
+	GetTransactionReceipt(ctx context.Context, txHash string) (*ethtypes.Receipt, error)
 	GetFinalizedBlockNumber(ctx context.Context) (int64, error)
 	Close() error
 }
@@ -214,10 +215,9 @@ func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error
 // always belong to the block the caller holds, whichever branch it sits on
 // (a by-number receipts call would race a reorg between the two reads).
 // The batch path is verified: every served receipt must carry the pinned
-// hash. Any failure, including a hash mismatch, degrades to the per-tx
-// fallback. eth_getTransactionReceipt resolves to the tx's canonical
-// inclusion, so each fallback receipt is verified against the pinned hash
-// too, and a mismatch fails the fetch instead of bundling cross-branch data.
+// hash, and the receipts must rebuild the header's receipts root. Any
+// failure, including a mismatch, degrades to the per-tx fallback,
+// fetchReceiptsByTx.
 func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt, error) {
 	transactions := make([]*Transaction, len(block.Transactions))
 	for i := range block.Transactions {
@@ -225,21 +225,34 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 	}
 
 	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, block.Hash)
-	if batchErr == nil && receiptHashesMatch(batchReceipts, block.Hash) {
-		return transactions, batchReceipts, nil
-	}
-	if batchErr == nil {
+	if batchErr == nil && !receiptHashesMatch(batchReceipts, block.Hash) {
 		// The receipts came back for a different block than the one the
 		// caller holds: treat the batch result as failed and fall back
 		// rather than bundling cross-branch content.
 		batchErr = fmt.Errorf("served receipts do not belong to block hash %s", block.Hash)
 	}
+	if batchErr == nil {
+		batchErr = checkRoot("receipts", ethtypes.Receipts(batchReceipts), common.HexToHash(block.ReceiptsRoot))
+	}
+	if batchErr == nil {
+		return transactions, convertGethReceipts(batchReceipts), nil
+	}
 
 	if ctx.Err() == nil {
 		logger.Sugar.Debugf("Block %d: pinned eth_getBlockReceipts not usable, falling back to individual fetches: %v", blockNum, batchErr)
 	}
+	receipts, err := f.fetchReceiptsByTx(ctx, block, blockNum)
+	return transactions, receipts, err
+}
 
-	receipts := make([]*TransactionReceipt, len(block.Transactions))
+// fetchReceiptsByTx fetches the block's receipts one transaction at a time.
+// eth_getTransactionReceipt resolves to the tx's canonical inclusion, so each
+// receipt is verified against the pinned hash, the receipts must rebuild the
+// header's receipts root, and a mismatch fails the fetch instead of bundling
+// cross-branch or altered data. When a receipt cannot be fetched, the
+// returned slice keeps the others in position with nil in its slot.
+func (f *Fetcher) fetchReceiptsByTx(ctx context.Context, block *Block, blockNum int64) ([]*TransactionReceipt, error) {
+	receipts := make([]*ethtypes.Receipt, len(block.Transactions))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.receiptWorkers)
 
@@ -260,7 +273,7 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 				}
 				return
 			}
-			if receipt == nil || !strings.EqualFold(receipt.BlockHash, block.Hash) {
+			if receipt == nil || !strings.EqualFold(receipt.BlockHash.Hex(), block.Hash) {
 				// The node resolved the tx to another block: ours is no longer
 				// canonical. Leave the slot nil so the fetch fails and retries.
 				if ctx.Err() == nil && logger.Sugar != nil {
@@ -280,18 +293,21 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 		}
 	}
 	if failed > 0 {
-		return transactions, receipts, fmt.Errorf("block %d: %d/%d transaction receipts could not be fetched", blockNum, failed, len(receipts))
+		return convertGethReceipts(receipts), fmt.Errorf("block %d: %d/%d transaction receipts could not be fetched", blockNum, failed, len(receipts))
+	}
+	if err := checkRoot("receipts", ethtypes.Receipts(receipts), common.HexToHash(block.ReceiptsRoot)); err != nil {
+		return nil, err
 	}
 
-	return transactions, receipts, nil
+	return convertGethReceipts(receipts), nil
 }
 
 // receiptHashesMatch reports whether every receipt belongs to the pinned
 // block hash, case-insensitively. An empty receipt list always matches: a
 // receiptless block leaves nothing to verify.
-func receiptHashesMatch(receipts []*TransactionReceipt, blockHash string) bool {
+func receiptHashesMatch(receipts []*ethtypes.Receipt, blockHash string) bool {
 	for _, r := range receipts {
-		if r == nil || !strings.EqualFold(r.BlockHash, blockHash) {
+		if r == nil || !strings.EqualFold(r.BlockHash.Hex(), blockHash) {
 			return false
 		}
 	}
