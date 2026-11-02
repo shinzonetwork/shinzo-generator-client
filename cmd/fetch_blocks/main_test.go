@@ -97,15 +97,18 @@ func TestHexNum(t *testing.T) {
 
 func TestParseFlags(t *testing.T) {
 	t.Parallel()
-	t.Run("defaults", func(t *testing.T) {
+	t.Run("chain is required", func(t *testing.T) {
 		t.Parallel()
-		opts, err := parseFlags([]string{})
-		require.NoError(t, err)
-		assert.Equal(t, defaultChain, opts.chain)
-		assert.Equal(t, defaultNetwork, opts.network)
-		assert.Equal(t, uint64(0), opts.from)
-		assert.Equal(t, uint64(0), opts.to)
-		assert.Equal(t, defaultDelay, opts.delay)
+		_, err := parseFlags([]string{"--network", "Mainnet"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--chain is required")
+	})
+
+	t.Run("network is required", func(t *testing.T) {
+		t.Parallel()
+		_, err := parseFlags([]string{"--chain", "ethereum"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--network is required")
 	})
 
 	t.Run("explicit chain and network", func(t *testing.T) {
@@ -114,20 +117,23 @@ func TestParseFlags(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "arbitrum", opts.chain)
 		assert.Equal(t, "testnet", opts.network)
+		assert.Equal(t, uint64(0), opts.from)
+		assert.Equal(t, uint64(0), opts.to)
+		assert.Equal(t, defaultDelay, opts.delay)
 	})
 
 	t.Run("empty chain rejected", func(t *testing.T) {
 		t.Parallel()
 		_, err := parseFlags([]string{"--chain", " "})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--chain must not be empty")
+		assert.Contains(t, err.Error(), "--chain is required")
 	})
 
 	t.Run("empty network rejected", func(t *testing.T) {
 		t.Parallel()
-		_, err := parseFlags([]string{"--network", ""})
+		_, err := parseFlags([]string{"--chain", "ethereum", "--network", ""})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--network must not be empty")
+		assert.Contains(t, err.Error(), "--network is required")
 	})
 }
 
@@ -173,8 +179,8 @@ func TestFixtureRoundTrip(t *testing.T) {
 	// bytes intact: the replay mock serves exactly what the node served.
 	original := replayFixture{
 		Meta: fixtureMeta{
-			Chain:      defaultChain,
-			Network:    defaultNetwork,
+			Chain:      "ethereum",
+			Network:    "mainnet",
 			From:       10,
 			To:         11,
 			BlockCount: 2,
@@ -211,9 +217,9 @@ func TestFixtureRoundTrip(t *testing.T) {
 
 func TestSaveFixtureAtomic(t *testing.T) {
 	t.Parallel()
-	out := t.TempDir() + "/nested/" + fixturePrefix(defaultChain) + "1_2" + fixtureExt
+	out := t.TempDir() + "/nested/" + fixturePrefix("BSC") + "1_2" + fixtureExt
 	fx := &replayFixture{
-		Meta:   fixtureMeta{Chain: defaultChain, From: 1, To: 2, BlockCount: 1},
+		Meta:   fixtureMeta{Chain: "BSC", From: 1, To: 2, BlockCount: 1},
 		Blocks: []fixtureBlock{{Number: "0x1", Block: json.RawMessage(`{}`)}},
 	}
 
@@ -326,18 +332,6 @@ func TestIsJSONNull(t *testing.T) {
 	assert.True(t, isJSONNull(json.RawMessage("  null  ")))
 	assert.False(t, isJSONNull(json.RawMessage(`{"a":1}`)))
 	assert.False(t, isJSONNull(json.RawMessage("")))
-}
-
-func TestRedactEndpoint(t *testing.T) {
-	t.Parallel()
-	// Key-in-path style URLs (Infura/Alchemy) must lose everything after the
-	// host, both in the capture log and in rpcCall error strings.
-	assert.Equal(t, "https://mainnet.infura.io", redactEndpoint("https://user:pass@mainnet.infura.io/v3/s3cr3t"))
-	assert.Equal(t, "https://eth-mainnet.g.alchemy.com", redactEndpoint("https://eth-mainnet.g.alchemy.com/v2/KEY"))
-	assert.Equal(t, "http://127.0.0.1:8545", redactEndpoint("http://127.0.0.1:8545"))
-	assert.Equal(t, "(endpoint hidden)", redactEndpoint("http://host\n.evil"))
-	assert.Equal(t, "(endpoint hidden)", redactEndpoint("not a url"))
-	assert.Equal(t, "(endpoint hidden)", redactEndpoint(""))
 }
 
 // receiptTestServer dispatches on the JSON-RPC method: a configurable
@@ -499,7 +493,7 @@ func TestCaptureRangeNamesCompleteFixture(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	server := captureTestServer(t, zeroTxBlock)
-	opts := &captureOptions{chain: defaultChain, network: defaultNetwork, delay: time.Millisecond}
+	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
 	require.NoError(t, captureRange(context.Background(), testEnv(server), opts, 1, 1))
 
 	// A complete capture keeps the plain range name — no _partial suffix.
@@ -511,28 +505,96 @@ func TestCaptureRangeNamesCompleteFixture(t *testing.T) {
 	assert.Equal(t, 1, saved.Meta.BlockCount)
 }
 
-func TestCaptureRangeInterruptSavesPartialFixture(t *testing.T) {
+func TestCaptureRangeInterruptWithZeroBlocksWritesNothing(t *testing.T) {
 	// Not parallel: t.Chdir redirects the whole process's working directory.
 	t.Chdir(t.TempDir())
 
-	// A pre-cancelled context interrupts capture before the first request;
-	// the partial fixture must still be saved, named after the blocks
-	// actually captured.
+	// A pre-cancelled context interrupts capture before the first request:
+	// a 0-block fixture is not salvage, so nothing may be written - an
+	// empty _partial file would be the newest file in testdata and replace
+	// a complete capture in the acceptance suite's pick.
 	server := captureTestServer(t, zeroTxBlock)
 	server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	opts := &captureOptions{chain: defaultChain, network: defaultNetwork, delay: time.Millisecond}
+	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
+	err := captureRange(ctx, testEnv(server), opts, 10, 12)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "interrupted before any block completed")
+
+	// No fixture of any kind: both the plain and _partial names are empty.
+	assert.NoFileExists(t, filepath.Join(defaultOutDir, "bsc_blocks_10_12"+fixtureExt))
+	assert.NoFileExists(t, filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt))
+}
+
+func TestCaptureRangeInterruptMidRunSavesPartialFixture(t *testing.T) {
+	// Not parallel: t.Chdir redirects the whole process's working directory.
+	t.Chdir(t.TempDir())
+
+	// The mock serves each block at its own number and cancels the run's
+	// context right after block 10's receipts have been served: a block
+	// only exists in the fixture once its block AND its receipts reply
+	// landed, so the interrupt must be scheduled behind the block's last
+	// RPC, not its first. Capture then interrupts with exactly that block
+	// in hand, and the partial fixture must rename itself to the range it
+	// actually holds (To 10) instead of promising the requested one.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Helper()
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "eth_getBlockReceipts":
+			var rawNum string
+			if err := json.Unmarshal(req.Params[0], &rawNum); err != nil {
+				t.Errorf("decode block number: %v", err)
+				return
+			}
+			if num, err := parseHexUint(rawNum); err == nil && num == 10 {
+				// The response is written first; the interrupt lands after
+				// block 10 is fully captured (block plus receipts), not
+				// mid-block.
+				defer cancel()
+			}
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[]}`))
+		case "eth_getBlockByNumber":
+			var rawNum string
+			if err := json.Unmarshal(req.Params[0], &rawNum); err != nil {
+				t.Errorf("decode block number: %v", err)
+				return
+			}
+			num, err := parseHexUint(rawNum)
+			if err != nil {
+				t.Errorf("parse block number: %v", err)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"number":"0x%x","transactions":[]}}`, num)
+		default:
+			t.Errorf("unexpected RPC method %s", req.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
 	require.NoError(t, captureRange(ctx, testEnv(server), opts, 10, 12))
 
-	out := filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt)
-	data, err := os.ReadFile(out)
+	data, err := os.ReadFile(filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt))
 	require.NoError(t, err)
 	var saved replayFixture
 	require.NoError(t, json.Unmarshal(data, &saved))
 	assert.True(t, saved.Meta.CapturePartial)
 	assert.Equal(t, uint64(10), saved.Meta.To, "To is the last captured block, not the requested range end")
-	assert.Equal(t, 0, saved.Meta.BlockCount)
+	assert.Equal(t, 1, saved.Meta.BlockCount)
 }

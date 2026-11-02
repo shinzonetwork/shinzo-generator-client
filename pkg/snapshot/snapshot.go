@@ -60,6 +60,12 @@ type Snapshotter struct {
 	totalSnapshots    int
 	stopChan          chan struct{}
 	wg                sync.WaitGroup
+
+	// cycleObserver, when set, is fired after every completed snapshot
+	// cycle with the cycle's raw facts. Guarded by mu. Bench aggregation
+	// stays out of the package: the consumer decides which cycles count as
+	// work and how the durations roll up.
+	cycleObserver func(CycleEvent)
 }
 
 // New creates a new Snapshotter. The converter supplies block-range
@@ -185,6 +191,23 @@ func (s *Snapshotter) SnapshotSigCollection() string {
 	return s.snapshotSigCollection
 }
 
+// CycleEvent reports one completed snapshot cycle: how many snapshot files
+// it created and its wall time. Raw facts only, so the consumer owns which
+// cycles count as work and how the durations aggregate.
+type CycleEvent struct {
+	Snapshots int
+	Duration  time.Duration
+}
+
+// SetCycleObserver registers a callback fired after every completed snapshot
+// cycle, zeros included. It runs on the snapshotter's loop goroutine and
+// must stay cheap.
+func (s *Snapshotter) SetCycleObserver(fn func(CycleEvent)) {
+	s.mu.Lock()
+	s.cycleObserver = fn
+	s.mu.Unlock()
+}
+
 // scanExisting reads the snapshot directory to find the highest snapshotted block.
 func (s *Snapshotter) scanExisting() {
 	files, err := filepath.Glob(filepath.Join(s.cfg.Dir, "snapshot_*.kvsnap.gz"))
@@ -226,11 +249,38 @@ func (s *Snapshotter) loop(ctx context.Context) {
 		case <-s.stopChan:
 			return
 		case <-ticker.C:
-			if err := s.checkAndSnapshot(ctx); err != nil {
+			if err := s.timedCheckAndSnapshot(ctx); err != nil {
 				logger.Sugar.Errorf("Snapshot check failed: %v", err)
 			}
 		}
 	}
+}
+
+// timedCheckAndSnapshot runs one snapshot cycle and reports its raw facts to
+// the cycle observer. Every cycle passes through here, so the reported
+// duration covers everything the cycle spends inside its boundary: the range
+// queries, the KV export, the gzip write, signing and the max_snapshots
+// purge that trails a successful write. Every cycle fires, zeros included;
+// deciding that only snapshot-creating cycles count is the consumer's
+// policy, not the package's.
+func (s *Snapshotter) timedCheckAndSnapshot(ctx context.Context) error {
+	s.mu.RLock()
+	snapsBefore := s.totalSnapshots
+	s.mu.RUnlock()
+
+	start := time.Now()
+	err := s.checkAndSnapshot(ctx)
+	elapsed := time.Since(start)
+
+	s.mu.RLock()
+	created := s.totalSnapshots - snapsBefore
+	observer := s.cycleObserver
+	s.mu.RUnlock()
+
+	if observer != nil {
+		observer(CycleEvent{Snapshots: created, Duration: elapsed})
+	}
+	return err
 }
 
 func (s *Snapshotter) checkAndSnapshot(ctx context.Context) error {

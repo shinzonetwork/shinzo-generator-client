@@ -47,7 +47,7 @@ If metrics are enabled but misconfigured (e.g. a malformed `OTEL_RESOURCE_ATTRIB
 
 ## Deployment
 
-See the [Shinzo documentation site](https://docs.shinzo.network/generator/overview) for production deployment instructions.
+See the [Shinzo documentation site](https://docs.shinzo.network/run/run-a-generator/prerequisites/) for production deployment instructions.
 
 ## Contributing
 

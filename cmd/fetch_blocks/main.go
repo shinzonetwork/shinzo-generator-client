@@ -1,5 +1,5 @@
 // Command fetch_blocks captures raw block data from any EVM-compatible
-// JSON-RPC node into a replay fixture for the benchmarking acceptance suites.
+// JSON-RPC node into a replay fixture for the replay acceptance suites.
 // The chain and network are plain parameters (--chain/--network): they only
 // label the fixture and derive its filename — the capture itself is
 // transport-only JSON-RPC over HTTP, so it works unchanged across
@@ -23,7 +23,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -33,6 +32,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 )
 
 const (
@@ -54,18 +54,18 @@ const (
 
 	// Fixture output layout: fixtures for every chain share one directory
 	// and the filename prefix identifies the chain
-	// (e.g. bsc_blocks_<from>_<to>.json).
-	defaultOutDir = "benchmarking/testdata"
+	// (e.g. ethereum_blocks_<from>_<to>.json).
+	defaultOutDir = "replay/testdata"
 	fixtureExt    = ".json"
+
+	// fixturePartialSuffix marks an interrupted capture's fixture
+	// (e.g. ethereum_blocks_100_120_partial.json) so consumers can tell a
+	// mid-run snapshot from a complete capture.
+	fixturePartialSuffix = "_partial"
 
 	// Receipt capture modes recorded per block.
 	receiptModeBatch = "batch"
 	receiptModePerTx = "per-tx"
-
-	// defaultChain/defaultNetwork prefill the chain-agnostic --chain and
-	// --network flags; they only label the fixture, never the transport.
-	defaultChain   = "BSC"
-	defaultNetwork = "Mainnet"
 
 	// maxErrorBodyBytes bounds how much of an error response body is
 	// echoed into error messages.
@@ -215,7 +215,7 @@ func run(args []string) error {
 	// this gosec build does not apply the rule's documented sanitizers
 	// (strings.ReplaceAll, strconv.Quote) interprocedurally.
 	log.Printf("capturing %s %s blocks %d..%d (tip %d) from %s",
-		sanitizeLogLabel(opts.chain), sanitizeLogLabel(opts.network), resolvedFrom, resolvedTo, tip, redactEndpoint(rpcURL))
+		sanitizeLogLabel(opts.chain), sanitizeLogLabel(opts.network), resolvedFrom, resolvedTo, tip, utils.RedactEndpoint(rpcURL))
 
 	return captureRange(ctx, env, opts, resolvedFrom, resolvedTo)
 }
@@ -228,24 +228,15 @@ func sanitizeLogLabel(s string) string {
 	return strings.ReplaceAll(s, "\r", "")
 }
 
-// redactEndpoint reduces an endpoint URL to scheme://host so API keys that
-// providers embed in the path (.../v2/<key>) never reach terminal or CI logs.
-// url.Parse rejects control characters, so a CR/LF-forged value falls into the
-// unparseable branch rather than being echoed.
-func redactEndpoint(endpoint string) string {
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Host == "" {
-		return "(endpoint hidden)"
-	}
-	return u.Scheme + "://" + u.Host
-}
-
 // parseFlags parses and validates the CLI flags.
 func parseFlags(args []string) (*captureOptions, error) {
 	opts := &captureOptions{}
 	fs := flag.NewFlagSet("fetch_blocks", flag.ContinueOnError)
-	fs.StringVar(&opts.chain, "chain", defaultChain, "chain name labelling the fixture (e.g. BSC)")
-	fs.StringVar(&opts.network, "network", defaultNetwork, "network name labelling the fixture (e.g. Mainnet)")
+	// chain/network have no defaults: the fixture filename is derived from
+	// --chain, so a silently prefilled chain would let a bare run of the
+	// binary drop a fixture the acceptance suite's glob never finds.
+	fs.StringVar(&opts.chain, "chain", "", "chain name labelling the fixture (required; e.g. BSC)")
+	fs.StringVar(&opts.network, "network", "", "network name labelling the fixture (required; e.g. Mainnet)")
 	fs.Uint64Var(&opts.from, "from", 0, "first block to capture (0 = defaultBlockCount blocks ending at --to or the tip)")
 	fs.Uint64Var(&opts.to, "to", 0, "last block to capture (0 = the current tip)")
 	fs.StringVar(&opts.out, "out", "", fmt.Sprintf("output fixture path (default %s/<chain>_<from>_<to>%s)", defaultOutDir, fixtureExt))
@@ -257,10 +248,10 @@ func parseFlags(args []string) (*captureOptions, error) {
 	// A blank chain or network would corrupt the fixture identity and its
 	// filename, so reject it up front rather than mid-capture.
 	if strings.TrimSpace(opts.chain) == "" {
-		return nil, fmt.Errorf("--chain must not be empty")
+		return nil, fmt.Errorf("--chain is required (it labels the fixture and derives its filename)")
 	}
 	if strings.TrimSpace(opts.network) == "" {
-		return nil, fmt.Errorf("--network must not be empty")
+		return nil, fmt.Errorf("--network is required (it labels the fixture)")
 	}
 	return opts, nil
 }
@@ -301,7 +292,7 @@ func fixtureOutPath(opts *captureOptions, fx *replayFixture) string {
 	}
 	name := fmt.Sprintf("%s%d_%d%s", fixturePrefix(opts.chain), fx.Meta.From, fx.Meta.To, fixtureExt)
 	if fx.Meta.CapturePartial {
-		name = strings.TrimSuffix(name, fixtureExt) + "_partial" + fixtureExt
+		name = strings.TrimSuffix(name, fixtureExt) + fixturePartialSuffix + fixtureExt
 	}
 	return filepath.Join(defaultOutDir, name)
 }
@@ -343,11 +334,19 @@ func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, 
 		}
 	}
 
+	// Zero blocks is not a fixture: the only way here is an interrupt
+	// landing before the first block completed (a real block error returns
+	// directly above), so the file would be an empty marker whose _partial
+	// name silently replaces a complete capture in the suite's latest-file
+	// pick. Nothing mid-capture was lost, so there is nothing to salvage.
+	if len(fx.Blocks) == 0 {
+		return fmt.Errorf("interrupted before any block completed; no fixture written (requested %d..%d)", from, to)
+	}
 	if interrupted {
-		last := fx.Meta.From
-		if len(fx.Blocks) > 0 {
-			last, _ = parseHexUint(fx.Blocks[len(fx.Blocks)-1].Number)
-		}
+		// Runs with at least one block: a zero-block run returned above.
+		// To is rewritten to the block actually captured last so the
+		// fixture name never promises a range the file does not contain.
+		last, _ := parseHexUint(fx.Blocks[len(fx.Blocks)-1].Number)
 		fx.Meta.To = last
 		fx.Meta.CapturePartial = true
 		log.Printf("interrupted - saving partial fixture (%d blocks)", len(fx.Blocks))
@@ -511,12 +510,12 @@ func rpcOnce(ctx context.Context, env *rpcEnv, method string, params any) (json.
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 		return nil, &retryableError{
 			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
-			err:        fmt.Errorf("http status %d from %s", resp.StatusCode, redactEndpoint(env.url)),
+			err:        fmt.Errorf("http status %d from %s", resp.StatusCode, utils.RedactEndpoint(env.url)),
 		}
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		return nil, fmt.Errorf("http status %d from %s: %s", resp.StatusCode, redactEndpoint(env.url), string(body))
+		return nil, fmt.Errorf("http status %d from %s: %s", resp.StatusCode, utils.RedactEndpoint(env.url), string(body))
 	}
 
 	var envelope struct {

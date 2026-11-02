@@ -76,7 +76,6 @@ func SetupTestDefraDBWithSchemaOpts(t *testing.T, schemaSDL, storePath string, e
 	for _, apply := range extra {
 		apply(opts)
 	}
-
 	defraNode, err := node.New(ctx, opts)
 	if err != nil {
 		t.Fatalf("Failed to create DefraDB node: %v", err)

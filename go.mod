@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/TBD54566975/ssi-sdk v0.0.4-alpha
-	github.com/ethereum/go-ethereum v1.17.8
+	github.com/ethereum/go-ethereum v1.17.10
 	github.com/gorilla/websocket v1.5.3
 	github.com/holiman/uint256 v1.3.2
 	github.com/ipfs/go-cid v0.6.2
@@ -158,7 +158,7 @@ require (
 	github.com/go-chi/cors v1.2.2 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
 	github.com/go-kit/kit v0.13.0 // indirect
 	github.com/go-kit/log v0.2.1 // indirect
 	github.com/go-logfmt/logfmt v0.6.1 // indirect
