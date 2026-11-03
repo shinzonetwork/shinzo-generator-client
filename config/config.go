@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -15,8 +16,29 @@ import (
 // CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
 
-// DefaultChainAdapter is the default and currently only supported chain adapter type.
+// DefaultChainAdapter is the default chain adapter type.
 const DefaultChainAdapter = "evm"
+
+// BitcoinAdapter is the chain adapter name for Bitcoin Core JSON-RPC indexing.
+const BitcoinAdapter = "bitcoin"
+
+// DefaultBitcoinConfirmationDepth is the default finality floor for the
+// bitcoin adapter: the finalized height is the tip minus this many blocks.
+const DefaultBitcoinConfirmationDepth = 6
+
+// maxBitcoinConfirmationDepth is the approved upper bound for
+// confirmation_depth. A reorg deeper than the floor fails loudly, which is
+// the intended operator-visible event for extraordinary forks, so an extreme
+// floor only hides that event.
+const maxBitcoinConfirmationDepth = 100
+
+// DefaultBitcoinDialTimeoutSeconds is the default startup dial timeout for
+// bitcoin RPC connections.
+const DefaultBitcoinDialTimeoutSeconds = 10
+
+// SupportedChainAdapters is the adapter allowlist consumed by validateConfig.
+// Later chain integrations append their adapter and union this list.
+var SupportedChainAdapters = []string{DefaultChainAdapter, BitcoinAdapter} //nolint:gochecknoglobals
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
@@ -86,7 +108,7 @@ type ChainConfig struct {
 	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
 	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
 	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default) or BitcoinAdapter (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -98,6 +120,48 @@ type GethConfig struct {
 	// DialTimeoutSeconds bounds the startup RPC/WS dial phase when positive.
 	// 0 or negative = unbounded dial; the caller's context governs.
 	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
+}
+
+// BitcoinConfig represents Bitcoin Core RPC configuration.
+type BitcoinConfig struct {
+	// RPCURL is the Bitcoin Core JSON-RPC endpoint, HTTP POST mode.
+	RPCURL string `yaml:"rpc_url"` // (env: BITCOIN_RPC_URL)
+	// RPCUser and RPCPassword are the Bitcoin Core basic-auth credentials.
+	// Bitcoin Core accepts only basic auth or cookie auth (no API-key header
+	// support), so one mechanism must be configured.
+	RPCUser     string `yaml:"rpc_user"`     // (env: BITCOIN_RPC_USER)
+	RPCPassword string `yaml:"rpc_password"` // (env: BITCOIN_RPC_PASSWORD)
+	// CookiePath points at Bitcoin Core's .cookie file and is used when user
+	// and password are unset. The cookie file is re-read when its mtime
+	// changes, so a stale-cookie window of up to ~30 seconds after the
+	// daemon rotates the file is expected.
+	CookiePath string `yaml:"cookie_path"` // (env: BITCOIN_COOKIE_PATH)
+	// APIKey enables a per-request auth header for hosted providers. It is
+	// not usable against Bitcoin Core itself, which lacks API-key auth.
+	// APIKeyType lowercased is the header name; empty falls back to the
+	// client's default header name.
+	APIKey     string `yaml:"api_key"`      // (env: BITCOIN_API_KEY)
+	APIKeyType string `yaml:"api_key_type"` // (env: BITCOIN_API_KEY_TYPE)
+	// ConfirmationDepth is the finality floor: the finalized height is the
+	// tip minus this depth. 0 or negative = DefaultBitcoinConfirmationDepth.
+	ConfirmationDepth int `yaml:"confirmation_depth"` // (env: BITCOIN_CONFIRMATION_DEPTH)
+	// ArchiveRPCURL is an optional fallback endpoint on an unpruned node,
+	// used to fetch blocks whose undo data is unavailable. Pruned nodes
+	// discard undo data below their prune height, and verbosity-3 lookups
+	// need that data to backfill denormalized prevout information.
+	ArchiveRPCURL string `yaml:"archive_rpc_url"` // (env: BITCOIN_ARCHIVE_RPC_URL)
+	// DialTimeoutSeconds bounds the startup RPC dial phase. 0 or negative =
+	// DefaultBitcoinDialTimeoutSeconds.
+	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"` // (env: BITCOIN_DIAL_TIMEOUT_SECONDS)
+}
+
+// AuthConfigured reports whether Bitcoin Core authentication is present:
+// user+password basic auth or a cookie file. Bitcoin Core denies
+// unauthenticated RPC. Unexpanded ${VAR} yaml placeholders count as
+// configured: they are non-empty, and deployment envsubst resolves them
+// before the client dials.
+func (b *BitcoinConfig) AuthConfigured() bool {
+	return (b.RPCUser != "" && b.RPCPassword != "") || b.CookiePath != ""
 }
 
 // IndexerConfig represents indexer configuration.
@@ -212,6 +276,7 @@ type Config struct {
 	Chain     ChainConfig     `yaml:"chain"`
 	DefraDB   DefraDBConfig   `yaml:"defradb"`
 	Geth      GethConfig      `yaml:"geth"`
+	Bitcoin   BitcoinConfig   `yaml:"bitcoin"`
 	Indexer   IndexerConfig   `yaml:"indexer"`
 	Pruner    PrunerConfig    `yaml:"pruner"`
 	Snapshot  SnapshotConfig  `yaml:"snapshot"`
@@ -253,14 +318,20 @@ func LoadConfig(path string) (*Config, error) {
 
 // applyDefaults sets default values for optional configuration.
 func applyDefaults(cfg *Config) {
+	if cfg.Chain.Adapter == "" {
+		cfg.Chain.Adapter = DefaultChainAdapter
+	}
 	if cfg.Chain.Name == "" {
-		cfg.Chain.Name = "Ethereum"
+		// The adapter default is applied first: the chain-name default
+		// depends on the resolved adapter.
+		if cfg.Chain.Adapter == BitcoinAdapter {
+			cfg.Chain.Name = "Bitcoin"
+		} else {
+			cfg.Chain.Name = "Ethereum"
+		}
 	}
 	if cfg.Chain.Network == "" {
 		cfg.Chain.Network = "Mainnet"
-	}
-	if cfg.Chain.Adapter == "" {
-		cfg.Chain.Adapter = DefaultChainAdapter
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
@@ -290,12 +361,26 @@ func applyDefaults(cfg *Config) {
 
 	// Converter defaults.
 	cfg.Converter.SetDefaults()
+
+	// Bitcoin defaults.
+	if cfg.Bitcoin.ConfirmationDepth <= 0 {
+		cfg.Bitcoin.ConfirmationDepth = DefaultBitcoinConfirmationDepth
+	}
+	if cfg.Bitcoin.DialTimeoutSeconds <= 0 {
+		cfg.Bitcoin.DialTimeoutSeconds = DefaultBitcoinDialTimeoutSeconds
+	}
 }
 
 // validateConfig validates the configuration.
 func validateConfig(cfg *Config) error {
-	if cfg.Chain.Adapter != DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", cfg.Chain.Adapter, DefaultChainAdapter)
+	if !slices.Contains(SupportedChainAdapters, cfg.Chain.Adapter) {
+		return fmt.Errorf("chain adapter %q not yet implemented: supported adapters are [%s]", cfg.Chain.Adapter, strings.Join(SupportedChainAdapters, " "))
+	}
+
+	if cfg.Chain.Adapter == BitcoinAdapter {
+		if err := validateBitcoinConfig(&cfg.Bitcoin); err != nil {
+			return err
+		}
 	}
 
 	if cfg.Indexer.StartHeight < 0 {
@@ -330,6 +415,29 @@ func validateConfig(cfg *Config) error {
 				cfg.Snapshot.MaxSnapshots, cfg.Snapshot.BlocksPerFile, coverage, cfg.Pruner.MaxBlocks,
 			)
 		}
+	}
+
+	return nil
+}
+
+// validateBitcoinConfig enforces the bitcoin adapter's operator-facing rules.
+// Unexpanded ${VAR} yaml placeholders are exempt: they are non-empty strings,
+// so they pass the non-empty checks by construction, and deployment envsubst
+// resolves them while the BITCOIN_* env overrides carry real values.
+func validateBitcoinConfig(b *BitcoinConfig) error {
+	if strings.TrimSpace(b.RPCURL) == "" {
+		return fmt.Errorf("bitcoin.rpc_url is required: set rpc_url (env: BITCOIN_RPC_URL)")
+	}
+
+	if !b.AuthConfigured() {
+		return fmt.Errorf("bitcoin RPC requires authentication: set rpc_user+rpc_password or cookie_path (env: BITCOIN_RPC_USER, BITCOIN_RPC_PASSWORD, BITCOIN_COOKIE_PATH)")
+	}
+
+	// The approved range is 6..100 inclusive. Zero and negative values are
+	// always replaced by DefaultBitcoinConfirmationDepth in applyDefaults
+	// before validation runs through LoadConfig.
+	if b.ConfirmationDepth < DefaultBitcoinConfirmationDepth || b.ConfirmationDepth > maxBitcoinConfirmationDepth {
+		return fmt.Errorf("bitcoin.confirmation_depth must be in %d..%d inclusive, got %d", DefaultBitcoinConfirmationDepth, maxBitcoinConfirmationDepth, b.ConfirmationDepth)
 	}
 
 	return nil
@@ -455,7 +563,7 @@ func envPositiveInt(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// applyChainEnvOverrides applies chain and Geth environment variable overrides.
+// applyChainEnvOverrides applies chain, Geth and Bitcoin environment variable overrides.
 func applyChainEnvOverrides(cfg *Config) {
 	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
 		cfg.Chain.Name = chainName
@@ -484,6 +592,38 @@ func applyChainEnvOverrides(cfg *Config) {
 	if gethDialTimeout := os.Getenv("GETH_DIAL_TIMEOUT_SECONDS"); gethDialTimeout != "" {
 		if n, err := strconv.Atoi(gethDialTimeout); err == nil {
 			cfg.Geth.DialTimeoutSeconds = n
+		}
+	}
+
+	if btcRPCURL := os.Getenv("BITCOIN_RPC_URL"); btcRPCURL != "" {
+		cfg.Bitcoin.RPCURL = btcRPCURL
+	}
+	if btcUser := os.Getenv("BITCOIN_RPC_USER"); btcUser != "" {
+		cfg.Bitcoin.RPCUser = btcUser
+	}
+	if btcPassword := os.Getenv("BITCOIN_RPC_PASSWORD"); btcPassword != "" {
+		cfg.Bitcoin.RPCPassword = btcPassword
+	}
+	if btcCookiePath := os.Getenv("BITCOIN_COOKIE_PATH"); btcCookiePath != "" {
+		cfg.Bitcoin.CookiePath = btcCookiePath
+	}
+	if btcAPIKey := os.Getenv("BITCOIN_API_KEY"); btcAPIKey != "" {
+		cfg.Bitcoin.APIKey = btcAPIKey
+	}
+	if btcAPIKeyType := os.Getenv("BITCOIN_API_KEY_TYPE"); btcAPIKeyType != "" {
+		cfg.Bitcoin.APIKeyType = btcAPIKeyType
+	}
+	if btcArchiveURL := os.Getenv("BITCOIN_ARCHIVE_RPC_URL"); btcArchiveURL != "" {
+		cfg.Bitcoin.ArchiveRPCURL = btcArchiveURL
+	}
+	if btcDepth := os.Getenv("BITCOIN_CONFIRMATION_DEPTH"); btcDepth != "" {
+		if n, err := strconv.Atoi(btcDepth); err == nil {
+			cfg.Bitcoin.ConfirmationDepth = n
+		}
+	}
+	if btcDialTimeout := os.Getenv("BITCOIN_DIAL_TIMEOUT_SECONDS"); btcDialTimeout != "" {
+		if n, err := strconv.Atoi(btcDialTimeout); err == nil {
+			cfg.Bitcoin.DialTimeoutSeconds = n
 		}
 	}
 }
