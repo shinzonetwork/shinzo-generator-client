@@ -45,7 +45,10 @@ jobs:
         -covermode=atomic \
         -coverprofile=coverage.out \
         ./...
-    
+
+    - name: Run golden tests
+      run: go test -tags=integration ./golden/... -count=1
+
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
       with:
