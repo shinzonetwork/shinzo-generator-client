@@ -102,8 +102,8 @@ test-local:
 # "integration"): an embedded DefraDB fed with synthetic block data. No chain
 # endpoint and no credentials, so it is safe to run anywhere at any time.
 integration-test:
-	@go test -tags=integration -v ./integration/
-
+	@echo "🧪 Running integration tests..."
+  @go test -tags=integration -v ./integration/ ./golden/
 coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html

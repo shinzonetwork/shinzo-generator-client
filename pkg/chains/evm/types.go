@@ -16,6 +16,7 @@ type TransactionReceipt struct {
 	To                string `json:"to"`
 	CumulativeGasUsed string `json:"cumulativeGasUsed"`
 	GasUsed           string `json:"gasUsed"`
+	EffectiveGasPrice string `json:"effectiveGasPrice"`
 	ContractAddress   string `json:"contractAddress"`
 	Logs              []Log  `json:"logs"`
 	Status            string `json:"status"`
