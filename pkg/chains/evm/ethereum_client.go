@@ -817,12 +817,18 @@ const (
 	jsonRPCMethodNotFound = -32601
 )
 
+// isMethodNotFound reports whether the node answered that it does not implement the called method.
+func isMethodNotFound(err error) bool {
+	rpcErr, ok := stderrors.AsType[ethrpc.Error](err)
+	return ok && rpcErr.ErrorCode() == jsonRPCMethodNotFound
+}
+
 // rpcErrorType maps err to error.type value, so dashboards can separate method_not_found errors (e.g. a node without eth_getBlockReceipts).
 func rpcErrorType(err error) string {
-	if rpcErr, ok := stderrors.AsType[ethrpc.Error](err); ok {
-		if rpcErr.ErrorCode() == jsonRPCMethodNotFound {
-			return "method_not_found"
-		}
+	if isMethodNotFound(err) {
+		return "method_not_found"
+	}
+	if _, ok := stderrors.AsType[ethrpc.Error](err); ok {
 		return "rpc_error"
 	}
 	if httpErr, ok := stderrors.AsType[ethrpc.HTTPError](err); ok {
