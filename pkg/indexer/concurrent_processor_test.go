@@ -15,6 +15,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	pkgErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -35,6 +36,7 @@ func TestConcurrentProcessor_FetchBlockWithRetry(t *testing.T) {
 		fetchBlockFn func(_ context.Context, _ int64) (any, error)
 		wantErr      bool
 		wantErrSub   string
+		wantSkip     bool
 		wantResult   any
 		wantCalls    int
 	}{
@@ -70,6 +72,22 @@ func TestConcurrentProcessor_FetchBlockWithRetry(t *testing.T) {
 			wantErrSub: "connection refused",
 			wantCalls:  MaxRPCRetries,
 		},
+		{
+			name: "SkippedHeightReturnsImmediately",
+			fetchBlockFn: func(_ context.Context, _ int64) (any, error) {
+				return nil, chains.ErrHeightSkipped
+			},
+			wantSkip:  true,
+			wantCalls: 1,
+		},
+		{
+			name: "WrappedSkippedHeightStillSkips",
+			fetchBlockFn: func(_ context.Context, _ int64) (any, error) {
+				return nil, fmt.Errorf("slot 5 below confirmed tip 6: %w", chains.ErrHeightSkipped)
+			},
+			wantSkip:  true,
+			wantCalls: 1,
+		},
 	}
 
 	for _, tc := range cases {
@@ -85,11 +103,17 @@ func TestConcurrentProcessor_FetchBlockWithRetry(t *testing.T) {
 			}
 
 			got, err := p.fetchBlockWithRetry(context.Background(), 42)
-			if tc.wantErr {
+			switch {
+			case tc.wantSkip:
+				require.Error(t, err)
+				require.ErrorIs(t, err, chains.ErrHeightSkipped)
+				assert.False(t, pkgErrors.IsErrNotFound(err),
+					"a skipped height must never be classified as a transient not-found")
+			case tc.wantErr:
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "failed to fetch block")
 				assert.Contains(t, err.Error(), tc.wantErrSub)
-			} else {
+			default:
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantResult, got)
 			}
@@ -997,4 +1021,147 @@ func TestProcessBlocks_ShutdownDrainsSigners(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("ProcessBlocks did not return after the signer finished")
 	}
+}
+
+// ---------------------------------------------------------------------------.
+// Skipped-height tests: chains.ErrHeightSkipped must never enter the retry
+// machinery, and the skip must advance the run without storing, signing, or
+// re-fetching.
+// ---------------------------------------------------------------------------.
+
+// TestCheckedForDispatch_SkippedHeightRecordsHole pins the collector-side
+// skip behavior: a skipped fetch is not a failure (no failure metric is
+// touched), it records an apply hole so the cursor can advance past the
+// height, and it returns nil so nothing is ever handed to the store pool.
+func TestCheckedForDispatch_SkippedHeightRecordsHole(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	p := &ConcurrentBlockProcessor{
+		applyHoles: make(map[int64]struct{}),
+	}
+
+	next := &BlockResult{
+		BlockNum: 7,
+		Error:    fmt.Errorf("slot 7 below confirmed tip 9: %w", chains.ErrHeightSkipped),
+	}
+
+	out := p.checkedForDispatch(context.Background(), next)
+	require.Nil(t, out, "a skipped height must never be dispatched to the store pool")
+	assert.Contains(t, p.applyHoles, int64(7), "the cursor must be able to advance past the skipped height")
+	assert.Equal(t, int64(7), p.lastCheckedNum)
+	assert.Empty(t, p.lastCheckedHash, "a skip leaves no hash to chain from")
+}
+
+// TestResolveEpisodeItem_SkippedHeightBridges pins the confirmation-wait
+// skip behavior: a skipped height inside a parked wait is consumed and the
+// episode state (anchor, last parked hash, refill budget) stays untouched so
+// the next chained item verifies against the pre-skip hash.
+func TestResolveEpisodeItem_SkippedHeightBridges(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	mock := &testutils.MockFetcher{}
+	p := NewConcurrentBlockProcessor(mock, nil, nil, nil, 1, 0)
+	ep := &reorgEpisode{
+		baseHeight:     10,
+		baseParentHash: "hash-9",
+		lastParkedHash: "hash-9",
+	}
+	p.pendingMu.Lock()
+	p.episode = ep
+	p.pendingMu.Unlock()
+
+	item := &BlockResult{BlockNum: 11, Error: chains.ErrHeightSkipped}
+
+	p.resolveEpisodeItem(context.Background(), item, func(_ int64) {
+		t.Error("onBlockProcessed must not fire for a skipped height")
+	})
+
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	assert.NotNil(t, p.episode, "a skipped height must not finalize or open the episode")
+	assert.Nil(t, p.fatalErr)
+	assert.Equal(t, "hash-9", ep.lastParkedHash, "the wait must keep chaining against the pre-skip hash")
+	assert.Equal(t, int64(10), ep.baseHeight, "the anchor must stay on the mismatch height")
+	assert.Equal(t, 0, ep.gapRefills, "a pre-classified skip bridges before any refill runs")
+}
+
+// TestResolveEpisodeItem_SkippedRefillBridges pins the refill path: when the
+// wait re-fetches an unusable verification point and the refetch itself
+// classifies as skipped, the wait bridges instead of failing the episode as
+// fatal.
+func TestResolveEpisodeItem_SkippedRefillBridges(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	skip := func(_ context.Context, _ int64) (any, error) {
+		return nil, chains.ErrHeightSkipped
+	}
+
+	// The unusable parked item refetches into a fresh skip instead of a
+	// usable block: the wait must bridge, not fail.
+	var calls atomic.Int64
+	mock := &testutils.MockFetcher{
+		FetchBlockFn: func(ctx context.Context, height int64) (any, error) {
+			calls.Add(1)
+			return skip(ctx, height)
+		},
+	}
+	p := NewConcurrentBlockProcessor(mock, nil, nil, nil, 1, 0)
+	ep := &reorgEpisode{
+		baseHeight:     10,
+		baseParentHash: "hash-9",
+		lastParkedHash: "hash-9",
+	}
+	p.pendingMu.Lock()
+	p.episode = ep
+	p.pendingMu.Unlock()
+
+	item := &BlockResult{BlockNum: 11, Error: errors.New("fetch failed")}
+
+	p.resolveEpisodeItem(context.Background(), item, nil)
+
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	assert.NotNil(t, p.episode, "the skip verdict re-enters the episode rules and the wait stays open")
+	assert.Nil(t, p.fatalErr, "a skipped refill must never fail the episode as fatal")
+	assert.Equal(t, int64(10), ep.baseHeight, "the anchor must stay on the mismatch height")
+	assert.Equal(t, "hash-9", ep.lastParkedHash, "the wait must keep chaining against the pre-skip hash")
+	assert.Equal(t, 1, ep.gapRefills, "the refill ticks its budget before the skip verdict")
+	assert.Equal(t, int64(1), calls.Load(), "the skip verdict comes back before the retry machinery spins")
+}
+
+// TestRefillEpisodeGap_SkippedNotFatal pins the refill contract directly: a
+// skipped refetch hands the verdict back for the episode rules to bridge, it
+// does not fail the wait, and it releases pendingMu.
+func TestRefillEpisodeGap_SkippedNotFatal(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	mock := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, _ int64) (any, error) {
+			return nil, chains.ErrHeightSkipped
+		},
+	}
+	p := NewConcurrentBlockProcessor(mock, nil, nil, nil, 1, 0)
+	ep := &reorgEpisode{baseHeight: 10, gapRefills: 1}
+	p.pendingMu.Lock()
+	p.episode = ep
+	p.pendingMu.Unlock()
+
+	item := &BlockResult{BlockNum: 11}
+	p.pendingMu.Lock() // refillEpisodeGap is called with pendingMu held
+	fresh, stop, fatal := p.refillEpisodeGap(context.Background(), ep, item)
+
+	assert.False(t, fatal)
+	assert.False(t, stop)
+	require.NotNil(t, fresh)
+	require.ErrorIs(t, fresh.Error, chains.ErrHeightSkipped)
+	assert.Equal(t, 2, ep.gapRefills, "the refill ticks its budget before the skip verdict")
+	assert.Nil(t, p.fatalErr)
+
+	// Always returns with pendingMu released: TryLock proves it.
+	assert.True(t, p.pendingMu.TryLock(), "refillEpisodeGap must release pendingMu on the skip path")
+	p.pendingMu.Unlock()
 }

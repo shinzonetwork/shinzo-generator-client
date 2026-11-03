@@ -40,6 +40,15 @@ var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 // cannot find any usable number.
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
 
+// ErrHeightSkipped reports a fetch height that the chain will never fill:
+// the chain validated no block there (e.g. a Solana slot whose leader
+// produced nothing), so the processor must advance past the height without
+// storing anything. Only fetchers that can classify such heights return it;
+// EVM never does, keeping EVM behavior unchanged. Its message deliberately
+// does not contain "not found", so pkg/errors.IsErrNotFound can never
+// conflate the permanent skip with the transient not-found retry.
+var ErrHeightSkipped = errors.New("permanently skipped: no block will exist at this height")
+
 // DefaultAdapterName is the default name value to be used in ChainFactories.
 const DefaultAdapterName = "evm"
 

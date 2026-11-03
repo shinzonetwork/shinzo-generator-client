@@ -1,0 +1,15 @@
+# A Solana block. Slot is the fetch height used across the adapter; not every
+# slot produces a block (leader skips), so a missing slot is permanent, not
+# pending. The block document carries the generator-host contract field names:
+# number holds the slot value and hash holds the blockhash, so the shared
+# reorg, pruning, and snapshot machinery queries it unchanged.
+type Solana__Mainnet__Block {
+    hash: String
+    number: Int @index
+    parentHash: String
+    blockTime: Int
+    transactionCount: Int
+    rewardCount: Int
+    # Relationships
+    transactions: [Solana__Mainnet__Transaction] @relation(name: "solana_block_transactions")
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,26 @@ const DefaultChainAdapter = "evm"
 // number query when converter.lowest_block_query_limit is unset. A window > 1
 // lets the query skip purge residue with a missing or unparsable number.
 const DefaultLowestBlockQueryLimit = 1
+
+// SolanaAdapter is the non-EVM chain adapter name for Solana, accepted by
+// validateConfig through the SupportedChainAdapters allowlist.
+const SolanaAdapter = "solana"
+
+// DefaultSolanaCommitment is the default commitment level used by the Solana
+// adapter for block fetching.
+const DefaultSolanaCommitment = "confirmed"
+
+// DefaultSolanaMaxSupportedTxVersion is the default maxSupportedTransactionVersion
+// passed to getBlock calls. Blocks containing versioned (v0+) transactions fail
+// with RPC error -32015 unless a supported version is declared.
+const DefaultSolanaMaxSupportedTxVersion = 1
+
+// DefaultSolanaDialTimeoutSeconds is the default startup RPC/WS dial bound for
+// the Solana adapter when solana.dial_timeout_seconds is unset, zero or negative.
+const DefaultSolanaDialTimeoutSeconds = 10
+
+// SupportedChainAdapters lists every chain adapter validateConfig accepts.
+var SupportedChainAdapters = []string{DefaultChainAdapter, SolanaAdapter} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
 
 // Version is the generator version, for example "v0.7.0-ethereum-mainnet",
 // set at build time via -ldflags (see the Makefile build target and the
@@ -123,6 +144,36 @@ type IndexerConfig struct {
 	SchemaAPIKeys []string `yaml:"-"`
 }
 
+// SolanaConfig represents Solana node configuration. It is consumed by the
+// "solana" chain adapter; the "geth" section is the EVM counterpart.
+type SolanaConfig struct {
+	NodeURL    string `yaml:"rpc_url"`
+	WsURL      string `yaml:"ws_url"`
+	APIKey     string `yaml:"api_key"`
+	APIKeyType string `yaml:"api_key_type"`
+	// Commitment is the Solana commitment level used for block fetching.
+	// Only "confirmed" and "finalized" are valid; block RPC methods reject
+	// "processed".
+	Commitment string `yaml:"commitment"`
+	// MaxSupportedTransactionVersion is passed as maxSupportedTransactionVersion
+	// on getBlock calls. 0 or negative = DefaultSolanaMaxSupportedTxVersion.
+	MaxSupportedTransactionVersion int `yaml:"max_supported_transaction_version"`
+	// Rewards controls whether per-block rewards are fetched. Nil = enabled.
+	Rewards *bool `yaml:"rewards"`
+	// ArchiveRPCURL optionally routes historical backfill (slots below the
+	// full-node ledger floor) to an archive endpoint. Empty = disabled.
+	ArchiveRPCURL string `yaml:"archive_rpc_url"`
+	// DialTimeoutSeconds bounds the startup RPC/WS dial phase when positive.
+	// 0 or negative = DefaultSolanaDialTimeoutSeconds (env: SOLANA_DIAL_TIMEOUT_SECONDS).
+	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
+}
+
+// RewardsEnabled reports whether block rewards should be fetched. A nil
+// Rewards pointer means enabled.
+func (s *SolanaConfig) RewardsEnabled() bool {
+	return s.Rewards == nil || *s.Rewards
+}
+
 // LoggerConfig represents logger configuration.
 type LoggerConfig struct {
 	Development bool `yaml:"development"`
@@ -212,6 +263,7 @@ type Config struct {
 	Chain     ChainConfig     `yaml:"chain"`
 	DefraDB   DefraDBConfig   `yaml:"defradb"`
 	Geth      GethConfig      `yaml:"geth"`
+	Solana    SolanaConfig    `yaml:"solana"` // inert when chain.adapter is evm
 	Indexer   IndexerConfig   `yaml:"indexer"`
 	Pruner    PrunerConfig    `yaml:"pruner"`
 	Snapshot  SnapshotConfig  `yaml:"snapshot"`
@@ -253,14 +305,21 @@ func LoadConfig(path string) (*Config, error) {
 
 // applyDefaults sets default values for optional configuration.
 func applyDefaults(cfg *Config) {
+	// The adapter default comes first so the chain-name default can follow it:
+	// a Solana deployment that omits chain.name must not end up with
+	// Ethereum-prefixed collections built from solana SDL.
+	if cfg.Chain.Adapter == "" {
+		cfg.Chain.Adapter = DefaultChainAdapter
+	}
 	if cfg.Chain.Name == "" {
-		cfg.Chain.Name = "Ethereum"
+		if cfg.Chain.Adapter == SolanaAdapter {
+			cfg.Chain.Name = "Solana"
+		} else {
+			cfg.Chain.Name = "Ethereum"
+		}
 	}
 	if cfg.Chain.Network == "" {
 		cfg.Chain.Network = "Mainnet"
-	}
-	if cfg.Chain.Adapter == "" {
-		cfg.Chain.Adapter = DefaultChainAdapter
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
@@ -282,6 +341,17 @@ func applyDefaults(cfg *Config) {
 		cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 	}
 
+	// Solana defaults (inert when chain.adapter is evm).
+	if strings.TrimSpace(cfg.Solana.Commitment) == "" {
+		cfg.Solana.Commitment = DefaultSolanaCommitment
+	}
+	if cfg.Solana.MaxSupportedTransactionVersion <= 0 {
+		cfg.Solana.MaxSupportedTransactionVersion = DefaultSolanaMaxSupportedTxVersion
+	}
+	if cfg.Solana.DialTimeoutSeconds <= 0 {
+		cfg.Solana.DialTimeoutSeconds = DefaultSolanaDialTimeoutSeconds
+	}
+
 	// Pruner defaults.
 	cfg.Pruner.SetDefaults()
 
@@ -294,8 +364,34 @@ func applyDefaults(cfg *Config) {
 
 // validateConfig validates the configuration.
 func validateConfig(cfg *Config) error {
-	if cfg.Chain.Adapter != DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", cfg.Chain.Adapter, DefaultChainAdapter)
+	if !slices.Contains(SupportedChainAdapters, cfg.Chain.Adapter) {
+		return fmt.Errorf(
+			"chain adapter %q not yet implemented: supported adapters are %s",
+			cfg.Chain.Adapter, strings.Join(SupportedChainAdapters, ", "),
+		)
+	}
+
+	if cfg.Chain.Adapter == SolanaAdapter {
+		if strings.TrimSpace(cfg.Solana.NodeURL) == "" {
+			return fmt.Errorf("solana adapter requires a non-empty solana.rpc_url (env: SOLANA_RPC_URL)")
+		}
+		switch cfg.Solana.Commitment {
+		case DefaultSolanaCommitment, "finalized":
+		default:
+			return fmt.Errorf(
+				"invalid solana.commitment %q: must be %q or %q; block RPC methods reject %q",
+				cfg.Solana.Commitment, DefaultSolanaCommitment, "finalized", "processed",
+			)
+		}
+		// The WebSocket is an optional slot hint; a malformed URL silently degrades
+		// to polling, so a typo must fail at load rather than go unnoticed. An
+		// unexpanded ${VAR} placeholder is resolved by deployment envsubst and
+		// cannot be judged for scheme at load time, so it is exempt.
+		if wsURL := strings.TrimSpace(cfg.Solana.WsURL); wsURL != "" &&
+			!strings.HasPrefix(wsURL, "${") &&
+			!strings.HasPrefix(wsURL, "ws://") && !strings.HasPrefix(wsURL, "wss://") {
+			return fmt.Errorf("invalid solana.ws_url %q: must use the ws:// or wss:// scheme", wsURL)
+		}
 	}
 
 	if cfg.Indexer.StartHeight < 0 {
@@ -455,7 +551,7 @@ func envPositiveInt(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// applyChainEnvOverrides applies chain and Geth environment variable overrides.
+// applyChainEnvOverrides applies chain, Geth and Solana environment variable overrides.
 func applyChainEnvOverrides(cfg *Config) {
 	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
 		cfg.Chain.Name = chainName
@@ -484,6 +580,29 @@ func applyChainEnvOverrides(cfg *Config) {
 	if gethDialTimeout := os.Getenv("GETH_DIAL_TIMEOUT_SECONDS"); gethDialTimeout != "" {
 		if n, err := strconv.Atoi(gethDialTimeout); err == nil {
 			cfg.Geth.DialTimeoutSeconds = n
+		}
+	}
+	if solanaRPCURL := os.Getenv("SOLANA_RPC_URL"); solanaRPCURL != "" {
+		cfg.Solana.NodeURL = solanaRPCURL
+	}
+	if solanaWsURL := os.Getenv("SOLANA_WS_URL"); solanaWsURL != "" {
+		cfg.Solana.WsURL = solanaWsURL
+	}
+	if solanaAPIKey := os.Getenv("SOLANA_API_KEY"); solanaAPIKey != "" {
+		cfg.Solana.APIKey = solanaAPIKey
+	}
+	if solanaAPIKeyType := os.Getenv("SOLANA_API_KEY_TYPE"); solanaAPIKeyType != "" {
+		cfg.Solana.APIKeyType = solanaAPIKeyType
+	}
+	if solanaArchiveRPCURL := os.Getenv("SOLANA_ARCHIVE_RPC_URL"); solanaArchiveRPCURL != "" {
+		cfg.Solana.ArchiveRPCURL = solanaArchiveRPCURL
+	}
+	if solanaCommitment := os.Getenv("SOLANA_COMMITMENT"); solanaCommitment != "" {
+		cfg.Solana.Commitment = solanaCommitment
+	}
+	if solanaDialTimeout := os.Getenv("SOLANA_DIAL_TIMEOUT_SECONDS"); solanaDialTimeout != "" {
+		if n, err := strconv.Atoi(solanaDialTimeout); err == nil {
+			cfg.Solana.DialTimeoutSeconds = n
 		}
 	}
 }

@@ -11,9 +11,10 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 
-	// The blank import wires the default chain adapter into the registry;
+	// The blank imports wire the built-in chain adapters into the registry;
 	// everything below resolves through the pkg/chains interfaces.
 	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/solana"
 )
 
 func main() {

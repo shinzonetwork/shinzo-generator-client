@@ -1008,13 +1008,22 @@ func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRe
 }
 
 // GetSourceChainInfo returns the ShinzoHub registration source chain metadata for this indexer.
+// Chain IDs are EVM-only (EIP-155), so chain families without a legacy numeric
+// ID register with the hub using ID 0. Only mainnet combinations report a
+// chain name: a testnet or unknown combination reports an empty chain name,
+// the same treatment as ethereum + sepolia. The chain family comes from
+// chain.adapter, the authoritative adapter signal, rather than chain.name.
 func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
 		return "", 0
 	}
 
-	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
 	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
+	if i.cfg.Chain.Adapter == config.SolanaAdapter && network == "mainnet" {
+		return "solana", 0
+	}
+
+	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
 	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
 		return "ethereum", 1
 	}
