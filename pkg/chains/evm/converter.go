@@ -393,6 +393,7 @@ func (c *Converter) buildTransactionData(tx *Transaction) map[string]any {
 		"v":                            tx.V,
 		"r":                            tx.R,
 		"s":                            tx.S,
+		GasUsedFieldName:               tx.GasUsed,
 		CumulativeGasUsedFieldName:     tx.CumulativeGasUsed,
 		EffectiveGasPriceFieldName:     tx.EffectiveGasPrice,
 		StatusFieldName:                tx.Status,

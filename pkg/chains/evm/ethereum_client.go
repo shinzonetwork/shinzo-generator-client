@@ -481,6 +481,7 @@ func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *Transact
 		BlockNumber:       receipt.BlockNumber.String(),
 		CumulativeGasUsed: fmt.Sprintf("%d", receipt.CumulativeGasUsed),
 		GasUsed:           fmt.Sprintf("%d", receipt.GasUsed),
+		EffectiveGasPrice: getEffectiveGasPrice(receipt),
 		ContractAddress:   getContractAddress(receipt),
 		Logs:              logs,
 		Status:            getReceiptStatus(receipt),
@@ -516,11 +517,30 @@ func getContractAddress(receipt *ethtypes.Receipt) string {
 	return receipt.ContractAddress.Hex()
 }
 
+// getReceiptStatus maps the receipt's execution outcome to the converted
+// decimal "1"/"0" format. Pre-Byzantium receipts carry a post-state root
+// instead of a status field, and go-ethereum leaves Status at its zero
+// value for them, so a non-empty PostState would otherwise be read as
+// failed. Root-only receipts are indexed as successful, matching how
+// explorers report pre-Byzantium transactions.
 func getReceiptStatus(receipt *ethtypes.Receipt) string {
+	if len(receipt.PostState) > 0 {
+		return "1"
+	}
 	if receipt.Status == ethtypes.ReceiptStatusSuccessful {
 		return "1"
 	}
 	return "0"
+}
+
+// getEffectiveGasPrice formats the receipt's effective gas price as a decimal
+// string, matching the GasUsed formatting. Nodes that omit the field
+// (EffectiveGasPrice nil) yield an empty string.
+func getEffectiveGasPrice(receipt *ethtypes.Receipt) string {
+	if receipt.EffectiveGasPrice == nil {
+		return ""
+	}
+	return receipt.EffectiveGasPrice.String()
 }
 
 // convertGethBlock converts go-ethereum Block to our custom Block type.
@@ -639,7 +659,7 @@ func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock 
 		V:                    v.String(),                               // string
 		R:                    r.String(),                               // string
 		S:                    s.String(),                               // string
-		Status:               true,                                     // Default to true, will be updated from receipt.
+		Status:               true,                                     // signed payloads carry no execution outcome, so status defaults to true; the fetcher's receipt merge overwrites it with the executed result
 	}
 
 	return &localTx

@@ -105,8 +105,8 @@ test-local:
 integration-test:
 	@echo "🧪 Running integration tests..."
 	@echo "📦 Mock tests (fast):"
-	@go test -tags=integration -v ./integration/
-	@go test -tags=integration -v ./integration/solana/
+	@go test -tags=integration -v ./integration/ ./golden/
+  @go test -tags=integration -v ./integration/solana/
 	@echo ""
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
