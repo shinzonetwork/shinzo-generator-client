@@ -1,0 +1,15 @@
+type Bitcoin__Mainnet__TxOutput {
+    txid: String @index
+    blockNumber: Int @index
+    # Position within the transaction.
+    n: Int
+    valueSat: Int
+    scriptPubKeyHex: String
+    scriptPubKeyAddress: String @index
+    # Values: nonstandard, anchor, pubkey, pubkeyhash, scripthash, multisig,
+    # nulldata, witness_v0_scripthash, witness_v0_keyhash, witness_v1_taproot,
+    # witness_unknown.
+    scriptPubKeyType: String
+    # Relationships
+    transaction: Bitcoin__Mainnet__Transaction @relation(name: "bitcoin_transaction_outputs")
+}
