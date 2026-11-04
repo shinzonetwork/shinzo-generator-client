@@ -26,7 +26,10 @@ The compiled binary goes into `./bin`.
 | `make start-ethereum` | Run the compiled binary for Ethereum. |
 | `make start-bitcoin` | Run the compiled binary for Bitcoin. |
 | `make test` | Run all tests with a summary. |
-| `make integration-test` | Run mock and live integration tests. |
+| `make integration-test` | Run the Ethereum and Bitcoin integration suites. |
+| `make ethereum-integration-test` | Run the Ethereum mock and live legs. |
+| `make bitcoin-integration-test` | Run the Bitcoin mock and live legs. |
+| `make bitcoin-live-test` | Run the Bitcoin live smoke suite against a Bitcoin Core JSON-RPC endpoint (requires `BITCOIN_RPC_URL`). |
 | `make coverage` | Generate an HTML coverage report. |
 | `make node-status` | Check connectivity and current block number for a blockchain node. Probes Ethereum-compatible JSON-RPC endpoints via `eth_blockNumber`; the Generator itself is chain-agnostic and accepts any compatible JSON-RPC/WebSocket endpoint. |
 | `make clean` | Remove build artifacts. |
