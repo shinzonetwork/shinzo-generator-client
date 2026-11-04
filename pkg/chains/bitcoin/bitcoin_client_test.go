@@ -116,14 +116,6 @@ func testBlock() Block {
 	}
 }
 
-// ptrUint32 is a literal for the Vin.Vout pointer: Core omits the field for
-// coinbase inputs, so only regular inputs carry a non-nil zero here.
-//
-//go:fix inline
-func ptrUint32(v uint32) *uint32 {
-	return new(v)
-}
-
 // firstCall returns the mock server's first recorded request, copied under
 // the recording lock so the test's read cannot race the handler goroutine.
 func firstCall(t *testing.T, server *coreRPCServer) recordedCall {

@@ -366,14 +366,6 @@ func fakeBitcoinHash(seed string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// fakeValue returns the BTC float the satoshi tables pin against; the pointer
-// form keeps every builder's values aligned in one place.
-//
-//go:fix inline
-func fakeValue(btc float64) *float64 {
-	return new(btc)
-}
-
 // fakeBlock builds one coinbase-only wire block at the given height. Every
 // identity is sha256-derived from the height, so docs built from different
 // heights never collide on content.
