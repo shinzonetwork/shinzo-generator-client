@@ -23,7 +23,8 @@ The compiled binary goes into `./bin`.
 | Command | What it does |
 | --- | --- |
 | `make build` | Build the generator binary (standard mode). |
-| `make start` | Run the compiled binary. |
+| `make start-ethereum` | Run the compiled binary for Ethereum. |
+| `make start-bitcoin` | Run the compiled binary for Bitcoin. |
 | `make test` | Run all tests with a summary. |
 | `make integration-test` | Run mock and live integration tests. |
 | `make coverage` | Generate an HTML coverage report. |

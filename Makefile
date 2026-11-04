@@ -1,4 +1,4 @@
-.PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check
+.PHONY: deps env build start-ethereum start-bitcoin clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test bitcoin-live-test deadcode-check
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -10,6 +10,12 @@ endif
 GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
+
+# Bitcoin Core JSON-RPC (block_poster with chain.adapter: bitcoin). A local
+# regtest node is the suggested live-test endpoint since it needs no external
+# account or credentials.
+BITCOIN_RPC_URL ?=
+BITCOIN_ARCHIVE_RPC_URL ?=
 
 
 # Capture range for replay-fetch. 0 = auto: latest 100 blocks from the
@@ -34,8 +40,11 @@ build:
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
 	fi
 
-start:
-	./bin/block_poster
+start-ethereum:
+	./bin/block_poster -config config/config.yaml
+
+start-bitcoin:
+	./bin/block_poster -config config/config_bitcoin.yaml
 
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
