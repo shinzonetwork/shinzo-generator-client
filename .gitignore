@@ -30,6 +30,8 @@ go.work.sum
 .defra-avalanche/
 .defra-celo/
 .defra-kaia/
+.defra-polygon/
+.defra-polygon-amoy/
 
 .claude/
 
