@@ -45,9 +45,11 @@ for ((n = FROM; n <= TO; n++)); do
 
   block=$(evm eth_getBlockByNumber "[\"$h\", false]")
   receipts=$(evm eth_getBlockReceipts "[\"$h\"]")
-  want=$(jq -cn --argjson b "$block" --argjson r "$receipts" \
-    '([$r.result[].logs[]] | length) as $logs
-     | {hash: $b.result.hash, txs: ($b.result.transactions|length), logs: $logs, logsOnBlock: $logs}')
+  # Mainnet receipts run to ~1MB per block: feed them to jq on stdin, never
+  # as arguments.
+  logs=$(jq '[.result[].logs[]] | length' <<<"$receipts")
+  want=$(jq -c --argjson logs "$logs" \
+    '{hash: .result.hash, txs: (.result.transactions|length), logs: $logs, logsOnBlock: $logs}' <<<"$block")
 
   if [ "$got" != "$want" ]; then
     echo "MISMATCH $n: stored=$got chain=$want"; fail=1

@@ -54,7 +54,7 @@ defradb:
 # The geth section name is historical. The Generator is chain-agnostic and accepts any compatible JSON-RPC and WebSocket endpoint, not just Geth.
 geth:
   node_url: "https://polygon.drpc.org"  # Must serve eth_getBlockReceipts; public endpoints rate-limit large blocks, use a keyed one via POLYGON_RPC_URL (env: GETH_RPC_URL)
-  ws_url: ""                   # Optional; HTTP polling keeps up with ~2s blocks (env: GETH_WS_URL)
+  ws_url: ""                   # Optional; HTTP polling keeps up with ~1.5s blocks (env: GETH_WS_URL)
   api_key: ""                 # Public RPC is unauthenticated. A non-empty GETH_API_KEY (incl. from .env) still overrides this: run with GETH_API_KEY= set empty
   api_key_type: ""
   dial_timeout_seconds: 10     # Positive: bounds the startup WebSocket dial (seconds); WS timeout with HTTP connected starts HTTP-only. 0 or negative = unbounded (env: GETH_DIAL_TIMEOUT_SECONDS)
@@ -66,7 +66,7 @@ indexer:
   max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
   max_log_docs_per_batch: 125  # Per-batch size for logs (0 = use max_docs_per_txn)
   max_ale_docs_per_batch: 500  # Per-batch size for ALEs (0 = use max_docs_per_txn)
-  blocks_per_minute: 45     # Polygon produces ~30 blocks/min (2s); headroom lets a lagging node catch up
+  blocks_per_minute: 60     # Polygon produces ~40 blocks/min (1.5s); headroom lets a lagging node catch up
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 1000       # Start 1000 blocks behind the tip; a resume more than 1000 blocks behind also skips ahead
@@ -80,7 +80,7 @@ logger:
   development: true
   level: "info"
 pruner:
-  enabled: true             # Retention window of max_blocks (~33 min at 2s blocks)
+  enabled: true             # Retention window of max_blocks (~25 min at 1.5s blocks)
   max_blocks: 1000          # Number of blocks to retain
   max_blocks_per_cycle: 50  # Max blocks one prune cycle may delete
   prune_threshold: 1        # Trigger pruning when exceeding max_blocks by this amount
