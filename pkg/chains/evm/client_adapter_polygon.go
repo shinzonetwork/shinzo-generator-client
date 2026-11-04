@@ -6,9 +6,10 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-// polygonStateSyncTxType is Bor's state-sync envelope (PIP-74): an unsigned
-// tx from the zero address to the state receiver (0x…1001), appended to
-// sprint-boundary blocks that carry L1 bridge events.
+// polygonStateSyncTxType is Bor's state-sync envelope (PIP-74): an unsigned,
+// zero-gas tx from and to the zero address, appended to sprint-boundary
+// blocks that carry L1 bridge events. Its receipt holds the bridge logs,
+// ending with the state receiver's (0x…1001) StateCommitted.
 const polygonStateSyncTxType = 0x7f
 
 // polygonClientAdapter covers the JSON-RPC differences of Polygon PoS (Bor),
