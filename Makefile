@@ -103,7 +103,7 @@ test-local:
 # endpoint and no credentials, so it is safe to run anywhere at any time.
 integration-test:
 	@echo "🧪 Running integration tests..."
-  @go test -tags=integration -v ./integration/ ./golden/
+	@go test -tags=integration -v ./integration/ ./golden/
 coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
@@ -254,7 +254,7 @@ help:
 	@echo "  bsc-live-test      - BSC live suite (GETH_RPC_URL gates the run)"
 	@echo ""
 	@echo "⏱  BSC tip-indexing acceptance (replay):"
-	@echo "  bsc-replay-fetch    - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
+	@echo "  bsc-replay-fetch   - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
 	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
 	@echo ""
 	@echo "🔍 Code Quality:"
