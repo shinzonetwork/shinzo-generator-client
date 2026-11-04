@@ -346,15 +346,35 @@ func (p *Pruner) discardStaleQueueEntries(ctx context.Context) error {
 	case errors.Is(err, ErrNoBlocks):
 		// Nothing the queue tracks can still exist, so every entry is stale:
 		// the first Drain would purge and count documents that are gone.
-		if removed := iq.DiscardUpTo(math.MaxInt64); removed > 0 {
-			logger.Sugar.Infof("Discarded %d stale queue entries (DB has no blocks)", removed)
-			if err := iq.Save(); err != nil {
-				logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
-			}
-		}
+		p.discardAndSave(iq, math.MaxInt64, "(DB has no blocks)")
 		return nil
 	default:
 		return fmt.Errorf("check block range for stale queue entries: %w", err)
+	}
+}
+
+// discardAndSave drops queue entries at or below upTo, then checkpoints the
+// queue file when anything was discarded. The checkpoint is part of the
+// discard, not an afterthought: the queue is the only record that a document
+// is prunable, so an unsaved discard would be undone by the next restart
+// loading the pre-discard file. reason completes the log line and says which
+// path performed the discard. Returns the number of discarded entries, so
+// callers with pending work of their own can skip a redundant Save.
+func (p *Pruner) discardAndSave(iq *IndexerQueue, upTo int64, reason string) int {
+	if removed := iq.DiscardUpTo(upTo); removed > 0 {
+		logger.Sugar.Infof("Discarded %d stale queue entries %s", removed, reason)
+		p.saveQueue(iq)
+		return removed
+	}
+	return 0
+}
+
+// saveQueue checkpoints the queue file, warning instead of failing: a missed
+// checkpoint only widens the stranding window that the tick path's deferred
+// Save or the next startup cleanup closes again.
+func (p *Pruner) saveQueue(iq *IndexerQueue) {
+	if err := iq.Save(); err != nil {
+		logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
 	}
 }
 
@@ -362,12 +382,13 @@ func (p *Pruner) discardStaleQueueEntries(ctx context.Context) error {
 // It also drops stale queue entries at or below the DB's lowest block: on restart,
 // entries loaded from the queue file may sit at or below the DB's lowest block.
 // Those blocks are already gone, and pruning them again through a Drain would
-// double-count, so they are discarded here, in memory and on disk. This runs
-// before the retention check because the within-limit early return is exactly
-// the path that would otherwise strand the stale entries. Entries for an empty
-// DB are not handled here: a DB-observed emptiness is only trustworthy before
-// tracking exists, so that discard runs synchronously in
-// discardStaleQueueEntries instead.
+// double-count. On the within-limit path the discard and Save run before the
+// early return, which is exactly the path that would otherwise strand the
+// stale entries. On the over-retention path, pruneBlockRange's discard at or
+// below cutoffBlock subsumes lowest-1, so a single Save after the prune
+// persists both discards. Entries for an empty DB are not handled here: a
+// DB-observed emptiness is only trustworthy before tracking exists, so that
+// discard runs synchronously in discardStaleQueueEntries instead.
 func (p *Pruner) startupCleanup(ctx context.Context) error {
 	lowest, highest, err := p.getBlockRange(ctx)
 	if err != nil {
@@ -378,20 +399,18 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 		return fmt.Errorf("startup cleanup: get block range: %w", err)
 	}
 
-	// Nothing at or below the DB's lowest block can still be live: those
-	// documents no longer exist, so queue entries for them cannot purge
-	// anything real but would be counted again by the next Drain.
-	if iq, ok := p.queue.(*IndexerQueue); ok {
-		if removed := iq.DiscardUpTo(lowest - 1); removed > 0 {
-			logger.Sugar.Infof("Startup cleanup: discarded %d stale queue entries at or below block %d", removed, lowest-1)
-			if err := iq.Save(); err != nil {
-				logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
-			}
-		}
-	}
+	iq, isQueue := p.queue.(*IndexerQueue)
 
 	currentCount := highest - lowest + 1
 	if currentCount <= p.cfg.MaxBlocks {
+		// Nothing at or below the DB's lowest block can still be live: those
+		// documents no longer exist, so queue entries for them cannot purge
+		// anything real but would be counted again by the next Drain. The
+		// within-limit early return is exactly the path that would otherwise
+		// strand those entries, so the discard runs before it.
+		if isQueue {
+			p.discardAndSave(iq, lowest-1, fmt.Sprintf("at or below block %d (startup cleanup)", lowest-1))
+		}
 		logger.Sugar.Debugf("Existing blocks %d-%d (count=%d) within limit (max_blocks=%d), no cleanup needed",
 			lowest, highest, currentCount, p.cfg.MaxBlocks)
 		return nil
@@ -405,14 +424,18 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 
 	totalPurged, err := p.pruneBlockRange(ctx, lowest, cutoffBlock)
 
-	// pruneBlockRange discards queue entries for the pruned range regardless of
-	// the purge outcome, but unlike the tick path there is no deferred checkpoint
-	// here: without a Save, a kill before the first tick leaves the file holding
-	// entries for blocks that were just deleted.
-	if iq, ok := p.queue.(*IndexerQueue); ok {
-		if err := iq.Save(); err != nil {
-			logger.Sugar.Warnf("Failed to save pruned queue: %v", err)
+	// One checkpoint covers every discard this cleanup made. pruneBlockRange
+	// discards entries at or below cutoffBlock regardless of the purge
+	// outcome, which subsumes any entries at or below lowest-1, so a separate
+	// discard and Save before the prune would write the file twice. When the
+	// prune failed before that discard could run (a failed docID query), the
+	// discard below re-covers the lowest-1 stale entries; it is a no-op
+	// (removed == 0) whenever the discard inside pruneBlockRange already ran.
+	if isQueue {
+		if removed := iq.DiscardUpTo(lowest - 1); removed > 0 {
+			logger.Sugar.Infof("Startup cleanup: discarded %d stale queue entries at or below block %d (prune failed)", removed, lowest-1)
 		}
+		p.saveQueue(iq)
 	}
 
 	if err != nil {
