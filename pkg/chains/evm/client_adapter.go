@@ -12,7 +12,7 @@ type ClientAdapter interface {
 	// NeedsRawBlock declares that the chain reads the raw
 	// eth_getBlockByNumber response (tolerant decode, RPC-provided
 	// from/yParity, chain-unique header fields). False keeps the existing
-	// ethclient typed decode (Ethereum, BSC, Linea, Monad, Polygon).
+	// ethclient typed decode (Ethereum, BSC, Linea, Monad).
 	NeedsRawBlock() bool
 
 	// DecodeTransactions turns the raw tx objects of the block (standard
@@ -25,14 +25,14 @@ type ClientAdapter interface {
 
 	// ResolveFrom overrides the sender for one tx; ok=false keeps the
 	// current behavior (GetFromAddress recovery, ZeroAddress fallback).
-	// Explicit-from chains: Polygon's unsigned Bor deposits, OP/Base
+	// Explicit-from chains: Polygon's unsigned Bor state syncs, OP/Base
 	// deposits, Arbitrum L1 messages, ZKsync 0x71.
 	ResolveFrom(tx *ethtypes.Transaction, rawTx json.RawMessage) (from string, ok bool)
 
 	// YParity returns the tx's yParity, "" when the chain does not index
-	// it (Ethereum, BSC, ZKsync). Linea/Monad derive from v, Polygon from
-	// v + type, Arbitrum/OP/Base read it from the raw tx, Avalanche from
-	// the coreth raw tx.
+	// it (Ethereum, BSC, ZKsync). Linea/Monad derive from v;
+	// Arbitrum/OP/Base, Celo and Polygon read it from the raw tx, Avalanche
+	// from the coreth raw tx.
 	YParity(tx *ethtypes.Transaction, rawTx json.RawMessage) string
 }
 
