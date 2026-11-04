@@ -349,7 +349,7 @@ func TestLoadConfig_BitcoinYAML_Invalid(t *testing.T) {
 }
 
 // TestLoadConfig_ConfigBitcoinYAML is the guard test for the shipped bitcoin
-// deployment file. config-bitcoin.yaml carries schema_auth_mode as the
+// deployment file. config_bitcoin.yaml carries schema_auth_mode as the
 // literal "${SCHEMA_AUTH_MODE}" placeholder: yaml parsing never expands it
 // and the scrub removes the env var that would normally fill it in, so a
 // known-good literal keeps schema-auth validation deterministic, mirroring
@@ -360,7 +360,7 @@ func TestLoadConfig_ConfigBitcoinYAML(t *testing.T) {
 	scrubTestEnv(t)
 	t.Setenv("SCHEMA_AUTH_MODE", constants.SchemaAuthModeNone)
 
-	cfg, err := LoadConfig("config-bitcoin.yaml")
+	cfg, err := LoadConfig("config_bitcoin.yaml")
 	require.NoError(t, err, "the shipped bitcoin deployment file must parse and validate")
 
 	assert.Equal(t, BitcoinAdapter, cfg.Chain.Adapter, "Chain.Adapter")
