@@ -31,6 +31,10 @@ services:
       - GETH_API_KEY=<YOUR_API_KEY_HERE>
       - GETH_API_KEY_TYPE=x-goog-api-key
       - GETH_DIAL_TIMEOUT_SECONDS=10
+      # The chain the RPC serves. Change all three together.
+      # - CHAIN_NAME=Ethereum
+      # - CHAIN_NETWORK=Mainnet
+      # - CHAIN_ID=1
       - INDEXER_START_HEIGHT=0
       - DEFRADB_KEYRING_SECRET=pingpong
       - GOMEMLIMIT=14GiB
