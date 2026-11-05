@@ -23,10 +23,11 @@ const (
 	methodSolidityGetNowBlock = "walletsolidity_getnowblock"
 )
 
-// apiKeyHeader is the fixed TronGrid authentication header sent on every
-// request when an API key is configured. HTTP header names are matched
-// case-insensitively on the wire, so the canonical MIME spelling net/http
-// writes is accepted wherever docs show the upper-case form.
+// apiKeyHeader is the default header name for the TronGrid authentication
+// key, sent on every request when an API key is configured. HTTP header
+// names are matched case-insensitively on the wire, so the canonical MIME
+// spelling net/http writes is accepted wherever docs show the upper-case
+// form. A configured tron.api_key_type overrides the name.
 const apiKeyHeader = "Tron-Pro-Api-Key" //nolint:gosec // public HTTP header name, not a credential
 
 // httpSuccessMax is the greatest 2xx status the wallet client treats as a

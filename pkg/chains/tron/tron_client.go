@@ -31,19 +31,22 @@ import (
 // pkg/errors.IsErrNotFound, so the processor's retry logic treats a
 // not-yet-produced height exactly like the EVM adapter does.
 type Client struct {
-	httpClient  *http.Client
-	nodeURL     string
-	solidityURL string
-	apiKey      string
-	rpcErrors   metric.Int64Counter
+	httpClient   *http.Client
+	nodeURL      string
+	solidityURL  string
+	apiKey       string
+	apiKeyHeader string
+	rpcErrors    metric.Int64Counter
 }
 
 // NewClient builds a client against the configured endpoints. The
 // wallet endpoints are served lazily, so no dial happens here: the caller's
 // context is checked at Connect time in the fetcher instead. solidityURL
 // empty means the same host as nodeURL (TronGrid serves /walletsolidity/*
-// there); timeout bounds the whole HTTP round trip when positive.
-func NewClient(nodeURL, solidityURL, apiKey string, timeout time.Duration) *Client {
+// there); timeout bounds the whole HTTP round trip when positive. apiKeyType
+// names the header the key rides in; an empty one keeps the TronGrid
+// standard header.
+func NewClient(nodeURL, solidityURL, apiKey, apiKeyType string, timeout time.Duration) *Client {
 	rpcErrors, meterErr := otel.Meter(
 		"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/tron",
 	).Int64Counter("shinzo.generator.rpc.errors",
@@ -60,11 +63,12 @@ func NewClient(nodeURL, solidityURL, apiKey string, timeout time.Duration) *Clie
 	}
 
 	return &Client{
-		httpClient:  httpClient,
-		nodeURL:     trimBaseURL(nodeURL),
-		solidityURL: resolveSolidityURL(nodeURL, solidityURL),
-		apiKey:      apiKey,
-		rpcErrors:   rpcErrors,
+		httpClient:   httpClient,
+		nodeURL:      trimBaseURL(nodeURL),
+		solidityURL:  resolveSolidityURL(nodeURL, solidityURL),
+		apiKey:       apiKey,
+		apiKeyHeader: resolveTronAPIKeyHeader(apiKeyType),
+		rpcErrors:    rpcErrors,
 	}
 }
 
@@ -81,6 +85,17 @@ func resolveSolidityURL(nodeURL, solidityURL string) string {
 		return trimmed
 	}
 	return trimBaseURL(nodeURL)
+}
+
+// resolveTronAPIKeyHeader resolves the header name the API key rides in: a
+// configured tron.api_key_type wins, lowercased like the EVM
+// normalizeHeaderName; an empty value keeps the TronGrid standard header.
+func resolveTronAPIKeyHeader(apiKeyType string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(apiKeyType))
+	if trimmed == "" {
+		return apiKeyHeader
+	}
+	return trimmed
 }
 
 // post issues one wallet-API request and returns the raw response body.
@@ -109,7 +124,7 @@ func (c *Client) post(ctx context.Context, method, endpoint string, body any) ([
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
-		req.Header.Set(apiKeyHeader, c.apiKey)
+		req.Header.Set(c.apiKeyHeader, c.apiKey)
 	}
 	logDebugf("tron %s %s", req.Method, utils.RedactEndpoint(req.URL.String()))
 

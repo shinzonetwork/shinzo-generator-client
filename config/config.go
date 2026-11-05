@@ -116,7 +116,11 @@ type GethConfig struct {
 type TronConfig struct {
 	NodeURL     string `yaml:"node_url"`     // FullNode HTTP base URL, e.g. "https://api.trongrid.io" (env: TRON_RPC_URL)
 	SolidityURL string `yaml:"solidity_url"` // SolidityNode base URL; empty = same host as node_url, TronGrid serves /walletsolidity/* there (env: TRON_SOLIDITY_RPC_URL)
-	APIKey      string `yaml:"api_key"`      // Sent as the TRON-PRO-API-KEY header on every request when set (env: TRON_API_KEY)
+	APIKey      string `yaml:"api_key"`      // Sent on every request when set; header name from api_key_type, default TRON-PRO-API-KEY (env: TRON_API_KEY)
+	// APIKeyType overrides the header name the API key rides in. Empty keeps
+	// the TronGrid standard TRON-PRO-API-KEY; custom gateways use their own
+	// header name (env: TRON_API_KEY_TYPE).
+	APIKeyType string `yaml:"api_key_type"`
 	// DialTimeoutSeconds bounds the HTTP client timeout when positive.
 	// 0 or negative = DefaultTronDialTimeoutSeconds (env: TRON_DIAL_TIMEOUT_SECONDS).
 	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
@@ -535,6 +539,9 @@ func applyChainEnvOverrides(cfg *Config) {
 	}
 	if tronAPIKey := os.Getenv("TRON_API_KEY"); tronAPIKey != "" {
 		cfg.Tron.APIKey = tronAPIKey
+	}
+	if tronAPIKeyType := os.Getenv("TRON_API_KEY_TYPE"); tronAPIKeyType != "" {
+		cfg.Tron.APIKeyType = tronAPIKeyType
 	}
 	if tronDialTimeout := os.Getenv("TRON_DIAL_TIMEOUT_SECONDS"); tronDialTimeout != "" {
 		if n, err := strconv.Atoi(tronDialTimeout); err == nil {
