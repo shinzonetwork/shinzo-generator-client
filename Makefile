@@ -141,7 +141,7 @@ bsc-live-test:
 # bsc-replay-fetch captures a raw replay fixture via the chain-agnostic
 # cmd/fetch_blocks CLI (one-time; needs a real endpoint). FROM/TO are
 # overridable block numbers; the default captures 100 blocks ending at the
-# current tip. Fixtures land in replaymarking/testdata/ (gitignored) as
+# current tip. Fixtures land in replay/testdata/ (gitignored) as
 # bsc_blocks_<from>_<to>.json.
 bsc-replay-fetch:
 	@if [ -z "$(GETH_RPC_URL)" ]; then \
@@ -160,7 +160,7 @@ bsc-replay-fetch:
 # BSC_* env vars), and unlike `go clean -testcache` it leaves the rest of the
 # project's test results cached.
 bsc-acceptance-test:
-	go test -tags=acceptance ./replay/bsc -run TestBSCReplayAcceptance -count=1 -v -timeout 30m
+	go test -tags=acceptance ./replay/evm -run TestBSCReplayAcceptance -count=1 -v -timeout 30m
 
 lint:
 	@echo "🔍 Running golangci-lint..."
@@ -236,7 +236,7 @@ replay-fetch:
 # ETHEREUM_* env vars), and unlike `go clean -testcache` it leaves the rest of the
 # project's test results cached.
 ethereum-acceptance-test:
-	go test -tags=acceptance ./replay/ethereum -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
+	go test -tags=acceptance ./replay/evm -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
 
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"

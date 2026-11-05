@@ -79,8 +79,16 @@ Semantics:
 ## 2. Run the acceptance suite
 
 ```sh
-make ethereum-acceptance-test
+make ethereum-acceptance-test   # Ethereum suite (ETHEREUM_* env vars)
+make bsc-acceptance-test        # BSC suite (BSC_* env vars)
 ```
+
+Both suites share one implementation. The chain-agnostic harness (timing
+collection, report format, verdicts, background services, config
+bootstrapping) lives in `replay/harness_helpers.go` behind the `acceptance`
+build tag and is imported only by tests. `replay/evm/` carries the EVM mock
+JSON-RPC node, the fixture handling, and the per-chain specs and test entry
+points (`ethereum_replay_test.go`, `bsc_replay_test.go`).
 
 - Build tag `acceptance`: excluded from `go test ./...` and CI, like the live
   suites.
@@ -98,6 +106,15 @@ make ethereum-acceptance-test
   `ETHEREUM_REPLAY_SNAPSHOT_BLOCKS_PER_FILE` (50) tune the services' forced-fast
   cadence and retention.
 
+The BSC suite mirrors every knob with the `BSC_*` prefix:
+`BSC_REPLAY_FIXTURE`, `BSC_REPLAY_MAX_BLOCKS`, `BSC_TARGET_BLOCK_TIME`
+(default `450ms` since the Fermi hardfork; e.g. `750ms` for a Maxwell-era
+fixture), `BSC_REPLAY_PRUNER`, `BSC_REPLAY_PRUNER_INTERVAL_SECONDS`,
+`BSC_REPLAY_PRUNER_MAX_BLOCKS`, `BSC_REPLAY_SNAPSHOT`,
+`BSC_REPLAY_SNAPSHOT_INTERVAL_SECONDS`, `BSC_REPLAY_SNAPSHOT_BLOCKS_PER_FILE`
+(same defaults as Ethereum), and boots from the shipped
+`config/config_bsc.yaml`.
+
 The loop runs through the generator's **`ConcurrentBlockProcessor`** — the real
 production orchestration (worker pool, retry classification, in-order commit,
 per-block `Committed block N` info logs). The worker count comes from the
@@ -109,8 +126,9 @@ The run deliberately bypasses `blocks_per_minute` pacing (`0` disables the
 processor's rate limiter) because it measures raw pipeline capacity against
 the chain's BPS.
 
-The config boots from the shipped `config/config.yaml` — the same file
-production runs (`block_poster -config config/config.yaml`) — so chain
+The config boots from the suite's shipped yaml (`config/config.yaml` for
+Ethereum, `config/config_bsc.yaml` for BSC), the same files production runs
+(`block_poster -config ...`), so chain
 identity, batch sizes, badger caches, `prune_history: true` and the per-cycle
 prune cap are production values, not bench approximations. Only what the
 bench cannot take from it is overridden: the mock endpoint, the temp store and
