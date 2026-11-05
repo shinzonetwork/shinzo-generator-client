@@ -196,8 +196,6 @@ answers *"does it hold with the network in the loop"*.
 
 ```
 ====================================================================================================
-Pruner: 51 blocks / 53882 docs pruned
-Snapshotter: 3 snapshots (last block 126050850)
 Blocks Replayed: 24001000 - 24001150   (151 blocks)
 Concurrent Blocks: 1
 Total Time:  24m9.6s
