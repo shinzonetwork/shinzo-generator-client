@@ -40,6 +40,7 @@ type Fetcher struct {
 	nodeURL     string
 	solidityURL string
 	apiKey      string
+	apiKeyType  string
 	dialTimeout time.Duration
 }
 
@@ -67,6 +68,7 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		nodeURL:     cfg.Tron.NodeURL,
 		solidityURL: cfg.Tron.SolidityURL,
 		apiKey:      cfg.Tron.APIKey,
+		apiKeyType:  cfg.Tron.APIKeyType,
 		dialTimeout: time.Duration(dialSeconds) * time.Second,
 	}, nil
 }
@@ -87,7 +89,7 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 		return errors.NewRPCConnectionFailed("rpc", "Connect", "tron endpoints",
 			fmt.Errorf("empty tron.node_url: set config tron.node_url or the TRON_RPC_URL env variable"))
 	}
-	f.client = NewClient(f.nodeURL, f.solidityURL, f.apiKey, f.dialTimeout)
+	f.client = NewClient(f.nodeURL, f.solidityURL, f.apiKey, f.apiKeyType, f.dialTimeout)
 	return nil
 }
 

@@ -1,4 +1,4 @@
-# Tron (Mainnet) configuration - run with: block_poster -config config/config-tron.yml
+# Tron (Mainnet) configuration - run with: block_poster -config config/config_tron.yml
 # Environment variables will override these values.
 
 # Chain configuration - identifies which chain to index.
@@ -61,6 +61,10 @@ tron:
   # TronGrid API key, sent as the TRON-PRO-API-KEY header on every request. Strongly
   # recommended to avoid rate limits; leave empty for unauthenticated endpoints.
   api_key:  "${TRON_API_KEY}" 
+  # Header name the api_key rides in. Empty keeps the TronGrid standard
+  # TRON-PRO-API-KEY; custom gateways can point the key at their own header
+  # (env: TRON_API_KEY_TYPE).
+  api_key_type: "${TRON_API_KEY_TYPE}"
   dial_timeout_seconds: 10             # HTTP client timeout (env: TRON_DIAL_TIMEOUT_SECONDS)
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height

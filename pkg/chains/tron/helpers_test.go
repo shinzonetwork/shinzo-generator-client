@@ -71,9 +71,11 @@ func (f *fakeTronClient) Close() error {
 }
 
 // walletFakeHandler answers one wallet-API request with a status and body,
-// keyed by the request path, the received apiKey header, and the request
-// body; handlers assert request shapes inside the httptest round trip.
-type walletFakeHandler func(path, apiKey string, body []byte) (status int, resp []byte)
+// keyed by the request path, the full request header map (Get canonicalizes
+// lookups, so any api_key_type header resolves by its MIME spelling), and
+// the request body; handlers assert request shapes inside the httptest
+// round trip.
+type walletFakeHandler func(path string, header http.Header, body []byte) (status int, resp []byte)
 
 // newWalletFake serves a wallet-API-shaped fake: every request is a POST
 // that completes only when the handler has read the full body.
@@ -85,7 +87,7 @@ func newWalletFake(t *testing.T, handler walletFakeHandler) *httptest.Server {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		status, resp := handler(r.URL.Path, r.Header.Get("Tron-Pro-Api-Key"), body)
+		status, resp := handler(r.URL.Path, r.Header, body)
 		w.WriteHeader(status)
 		_, _ = w.Write(resp)
 	}))
