@@ -3,6 +3,7 @@ package tron
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -174,7 +175,7 @@ func TestFetcher_Connect(t *testing.T) {
 	fetcher := NewFetcher(client)
 	require.NoError(t, fetcher.Connect(context.Background()))
 
-	server := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	server := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		return 200, []byte(blockJSON("head", 105, 2, "p"))
 	})
 	cfgFetcher := newTestFetcherFromConfig(t, server.URL)
@@ -204,6 +205,18 @@ func TestNewFetcherFromConfig_NilConfig(t *testing.T) {
 	t.Parallel()
 	_, err := NewFetcherFromConfig(nil)
 	require.Error(t, err)
+}
+
+// TestNewFetcherFromConfig_APIKeyType pins the tron.api_key_type plumbing:
+// the config value reaches the fetcher so Connect can hand it to the client.
+func TestNewFetcherFromConfig_APIKeyType(t *testing.T) {
+	t.Parallel()
+	fetcher, err := NewFetcherFromConfig(&config.Config{
+		Chain: config.ChainConfig{Name: "Tron", Network: "Mainnet", Adapter: "tron"},
+		Tron:  config.TronConfig{NodeURL: "https://api.trongrid.io", APIKeyType: "X-Api-Key"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "X-Api-Key", fetcher.apiKeyType, "NewFetcherFromConfig must carry tron.api_key_type")
 }
 
 // TestFetcher_CloseDelegates pins close delegation.

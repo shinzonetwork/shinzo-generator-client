@@ -31,11 +31,12 @@ type capture struct {
 }
 
 // handler builds a walletFakeHandler serving resp while recording the
-// request.
+// request. The recorded api key is the value of the TronGrid standard
+// header; custom api_key_type tests assert their own header directly.
 func (c *capture) handler(resp fakeResponse) walletFakeHandler {
-	return func(path, apiKey string, body []byte) (int, []byte) {
+	return func(path string, header http.Header, body []byte) (int, []byte) {
 		c.mu.Lock()
-		c.path, c.apiKey, c.body = path, apiKey, string(body)
+		c.path, c.apiKey, c.body = path, header.Get(apiKeyHeader), string(body)
 		c.mu.Unlock()
 		return resp.status, []byte(resp.data)
 	}
@@ -65,7 +66,7 @@ func TestTronClient_GetBlockByNum(t *testing.T) {
 		data:   blockJSON("0000000003fe262d", 66987565, 1777445121000, "0000000003fe262c"),
 	}))
 
-	client := NewClient(server.URL, "", "", 0)
+	client := NewClient(server.URL, "", "", "", 0)
 	block, err := client.GetBlockByNum(context.Background(), 66987565)
 	require.NoError(t, err)
 	assert.Equal(t, "0000000003fe262d", block.BlockID)
@@ -81,8 +82,12 @@ func TestTronClient_GetBlockByNum(t *testing.T) {
 	assert.Equal(t, map[string]any{"num": float64(66987565)}, sent)
 }
 
-// TestTronClient_APIKeyHeaderInjection pins the fixed TronGrid
-// authentication header on every request when an API key is configured.
+// TestTronClient_APIKeyHeaderInjection pins the TronGrid authentication
+// header on every request when an API key is configured, and the
+// tron.api_key_type override: a configured type renames the header the key
+// rides in (lowercased, MIME-canonicalized by net/http) and the TronGrid
+// header must stay absent, so a gateway cannot mistake the request for
+// unkeyed TronGrid traffic.
 func TestTronClient_APIKeyHeaderInjection(t *testing.T) {
 	t.Parallel()
 	captured := &capture{}
@@ -91,12 +96,21 @@ func TestTronClient_APIKeyHeaderInjection(t *testing.T) {
 		data:   blockJSON("b", 1, 2, "p"),
 	}))
 
-	client := NewClient(server.URL, "", "test-key", 0)
+	client := NewClient(server.URL, "", "test-key", "", 0)
 	_, err := client.GetBlockByNum(context.Background(), 1)
 	require.NoError(t, err)
 
 	_, apiKey, _ := captured.served()
 	assert.Equal(t, "test-key", apiKey)
+
+	customServer := newWalletFake(t, func(_ string, header http.Header, _ []byte) (int, []byte) {
+		assert.Equal(t, "test-key", header.Get("X-Custom-Key"), "configured api_key_type must carry the key")
+		assert.Empty(t, header.Get(apiKeyHeader), "the TronGrid header must stay absent when the type is overridden")
+		return http.StatusOK, []byte(blockJSON("b", 1, 2, "p"))
+	})
+	customClient := NewClient(customServer.URL, "", "test-key", "x-custom-key", 0)
+	_, err = customClient.GetBlockByNum(context.Background(), 1)
+	require.NoError(t, err, "custom api_key_type must resolve onto its own header")
 }
 
 // TestTronClient_GetBlockByNum_EmptyObject pins the not-found mapping: a
@@ -104,11 +118,11 @@ func TestTronClient_APIKeyHeaderInjection(t *testing.T) {
 // a pkg/errors.IsErrNotFound error, not a transport failure.
 func TestTronClient_GetBlockByNum_EmptyObject(t *testing.T) {
 	t.Parallel()
-	server := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	server := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		return http.StatusOK, []byte(`{}`)
 	})
 
-	client := NewClient(server.URL, "", "", 0)
+	client := NewClient(server.URL, "", "", "", 0)
 	_, err := client.GetBlockByNum(context.Background(), 123456)
 	require.Error(t, err)
 	assert.True(t, errors.IsErrNotFound(err), "empty block body must classify as not found: %v", err)
@@ -119,11 +133,11 @@ func TestTronClient_GetBlockByNum_EmptyObject(t *testing.T) {
 // an Error field carries the server's message verbatim.
 func TestTronClient_ErrorBody(t *testing.T) {
 	t.Parallel()
-	server := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	server := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		return http.StatusOK, []byte(`{"Error": "class java.lang.NumberFormatException : bad number"}`)
 	})
 
-	client := NewClient(server.URL, "", "", 0)
+	client := NewClient(server.URL, "", "", "", 0)
 	_, err := client.GetNowBlock(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "class java.lang.NumberFormatException : bad number")
@@ -133,11 +147,11 @@ func TestTronClient_ErrorBody(t *testing.T) {
 // non-2xx status is not a not-found and carries the status code.
 func TestTronClient_HTTPErrorStatus(t *testing.T) {
 	t.Parallel()
-	server := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	server := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		return http.StatusInternalServerError, []byte(`{"Error": "boom"}`)
 	})
 
-	client := NewClient(server.URL, "", "", 0)
+	client := NewClient(server.URL, "", "", "", 0)
 	_, err := client.GetBlockByID(context.Background(), "deadbeef")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP 500")
@@ -155,7 +169,7 @@ func TestTronClient_GetBlockByID(t *testing.T) {
 		data:   blockJSON("deadbeef", 7, 8, "p"),
 	}))
 
-	client := NewClient(server.URL, "", "", 0)
+	client := NewClient(server.URL, "", "", "", 0)
 	block, err := client.GetBlockByID(context.Background(), "deadbeef")
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), block.BlockHeader.RawData.Number)
@@ -168,10 +182,10 @@ func TestTronClient_GetBlockByID(t *testing.T) {
 	_, emptyErr := client.GetBlockByID(context.Background(), "")
 	require.Error(t, emptyErr, "an empty hash is a caller bug")
 
-	notFoundServer := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	notFoundServer := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		return http.StatusOK, []byte(`{}`)
 	})
-	notFoundClient := NewClient(notFoundServer.URL, "", "", 0)
+	notFoundClient := NewClient(notFoundServer.URL, "", "", "", 0)
 	_, notFoundErr := notFoundClient.GetBlockByID(context.Background(), "0000000000000000")
 	require.Error(t, notFoundErr)
 	assert.True(t, errors.IsErrNotFound(notFoundErr))
@@ -187,7 +201,7 @@ func TestTronClient_SolidityRouting(t *testing.T) {
 	nodeServer := newWalletFake(t, nodeCapture.handler(fakeResponse{status: http.StatusOK, data: blockJSON("n", 1, 2, "p")}))
 	solidityServer := newWalletFake(t, solidityCapture.handler(fakeResponse{status: http.StatusOK, data: blockJSON("s", 3, 4, "p")}))
 
-	client := NewClient(nodeServer.URL, solidityServer.URL, "", 0)
+	client := NewClient(nodeServer.URL, solidityServer.URL, "", "", 0)
 	_, errNode := client.GetNowBlock(context.Background())
 	require.NoError(t, errNode)
 	_, errSolidity := client.GetSolidifiedNowBlock(context.Background())
@@ -199,7 +213,7 @@ func TestTronClient_SolidityRouting(t *testing.T) {
 
 	fallbackCapture := &capture{}
 	fallbackServer := newWalletFake(t, fallbackCapture.handler(fakeResponse{status: http.StatusOK, data: blockJSON("n", 1, 2, "p")}))
-	fallbackClient := NewClient(fallbackServer.URL, "", "", 0)
+	fallbackClient := NewClient(fallbackServer.URL, "", "", "", 0)
 	_, errFallback := fallbackClient.GetSolidifiedNowBlock(context.Background())
 	require.NoError(t, errFallback)
 	fallbackPath, _, _ := fallbackCapture.served()
@@ -211,14 +225,14 @@ func TestTronClient_SolidityRouting(t *testing.T) {
 // no receipts at all.
 func TestTronClient_Receipts(t *testing.T) {
 	t.Parallel()
-	populated := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	populated := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		return http.StatusOK, []byte(`[
 			{"id": "a", "blockNumber": 1000000, "blockTimeStamp": 1578594852000, "fee": 345000,
 			 "receipt": {"result": "SUCCESS", "energy_usage": 64284}},
 			{"id": "b", "blockNumber": 1000000, "blockTimeStamp": 1578594852000}
 		]`)
 	})
-	populatedClient := NewClient(populated.URL, "", "", 0)
+	populatedClient := NewClient(populated.URL, "", "", "", 0)
 	infos, err := populatedClient.GetTransactionInfoByBlockNum(context.Background(), 1000000)
 	require.NoError(t, err)
 	require.Len(t, infos, 2)
@@ -226,18 +240,18 @@ func TestTronClient_Receipts(t *testing.T) {
 	assert.Equal(t, int64(345000), infos[0].Fee)
 	assert.Equal(t, int64(64284), infos[0].Receipt.EnergyUsage)
 
-	emptyList := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	emptyList := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		return http.StatusOK, []byte(`[]`)
 	})
-	emptyClient := NewClient(emptyList.URL, "", "", 0)
+	emptyClient := NewClient(emptyList.URL, "", "", "", 0)
 	none, err := emptyClient.GetTransactionInfoByBlockNum(context.Background(), 1000000)
 	require.NoError(t, err)
 	assert.Empty(t, none)
 
-	emptyObject := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	emptyObject := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		return http.StatusOK, []byte(`{}`)
 	})
-	objectClient := NewClient(emptyObject.URL, "", "", 0)
+	objectClient := NewClient(emptyObject.URL, "", "", "", 0)
 	noneObject, err := objectClient.GetTransactionInfoByBlockNum(context.Background(), 1000000)
 	require.NoError(t, err)
 	assert.Empty(t, noneObject)
@@ -247,12 +261,12 @@ func TestTronClient_Receipts(t *testing.T) {
 // timeout reaches the HTTP client as a full round-trip bound.
 func TestTronClient_TimeoutIsServedByHTTPClient(t *testing.T) {
 	t.Parallel()
-	server := newWalletFake(t, func(_ string, _ string, _ []byte) (int, []byte) {
+	server := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
 		time.Sleep(50 * time.Millisecond)
 		return http.StatusOK, []byte(blockJSON("b", 1, 2, "p"))
 	})
 
-	client := NewClient(server.URL, "", "", 10*time.Millisecond)
+	client := NewClient(server.URL, "", "", "", 10*time.Millisecond)
 	_, err := client.GetBlockByNum(context.Background(), 1)
 	require.Error(t, err, "a 10ms budget cannot cover a 50ms response")
 }

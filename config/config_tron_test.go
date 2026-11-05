@@ -18,6 +18,7 @@ func neutralizeTronEnv(t *testing.T) {
 	t.Setenv("TRON_RPC_URL", "")
 	t.Setenv("TRON_SOLIDITY_RPC_URL", "")
 	t.Setenv("TRON_API_KEY", "")
+	t.Setenv("TRON_API_KEY_TYPE", "")
 	t.Setenv("TRON_DIAL_TIMEOUT_SECONDS", "")
 }
 
@@ -84,12 +85,14 @@ func TestApplyEnvOverrides_TronConfig(t *testing.T) {
 	t.Setenv("TRON_RPC_URL", "https://api.trongrid.io")
 	t.Setenv("TRON_SOLIDITY_RPC_URL", "https://solidity.tron.example.test")
 	t.Setenv("TRON_API_KEY", "key-123")
+	t.Setenv("TRON_API_KEY_TYPE", "X-Api-Key")
 	t.Setenv("TRON_DIAL_TIMEOUT_SECONDS", "30")
 	require.NoError(t, applyEnvOverrides(cfg))
 
 	assert.Equal(t, "https://api.trongrid.io", cfg.Tron.NodeURL, "Tron.NodeURL")
 	assert.Equal(t, "https://solidity.tron.example.test", cfg.Tron.SolidityURL, "Tron.SolidityURL")
 	assert.Equal(t, "key-123", cfg.Tron.APIKey, "Tron.APIKey")
+	assert.Equal(t, "X-Api-Key", cfg.Tron.APIKeyType, "Tron.APIKeyType")
 	assert.Equal(t, 30, cfg.Tron.DialTimeoutSeconds, "Tron.DialTimeoutSeconds")
 }
 
@@ -154,11 +157,12 @@ func TestLoadConfig_RepositoryTronConfigFile(t *testing.T) {
 	// validateConfig as the config schema evolves. The tron URLs use ${VAR}
 	// placeholders; the loader does NOT expand them, so they load as literal
 	// strings and deployment (docker-compose, envsubst) resolves them.
-	cfg, err := LoadConfig("config-tron.yml")
+	cfg, err := LoadConfig("config_tron.yml")
 	require.NoError(t, err)
 	assert.Equal(t, "tron", cfg.Chain.Adapter, "Chain.Adapter")
 	assert.Equal(t, "${TRON_RPC_URL}", cfg.Tron.NodeURL, "Tron.NodeURL placeholder")
 	assert.Equal(t, "${TRON_SOLIDITY_RPC_URL}", cfg.Tron.SolidityURL, "Tron.SolidityURL placeholder")
+	assert.Equal(t, "${TRON_API_KEY_TYPE}", cfg.Tron.APIKeyType, "Tron.APIKeyType placeholder")
 	assert.Equal(t, DefaultTronDialTimeoutSeconds, cfg.Tron.DialTimeoutSeconds, "Tron.DialTimeoutSeconds")
 	assert.Equal(t, 20, cfg.Indexer.BlocksPerMinute, "Indexer.BlocksPerMinute")
 }
