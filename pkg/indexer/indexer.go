@@ -1007,14 +1007,26 @@ func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRe
 	}, nil
 }
 
-// GetSourceChainInfo returns the ShinzoHub registration source chain metadata for this indexer.
+// GetSourceChainInfo returns the ShinzoHub registration source chain metadata
+// for this indexer. The chain family is resolved from chain.adapter, not
+// chain.name: EVM chains register with their EIP-155 chain ID, non-EVM chains
+// register with ID 0, and any network other than mainnet reports an empty
+// chain name so hub registration records no source chain.
 func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
 		return "", 0
 	}
 
-	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
+	adapter := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Adapter))
 	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
+	if adapter == config.BitcoinAdapter {
+		if network == "mainnet" {
+			return "bitcoin", 0
+		}
+		return "", 0
+	}
+
+	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
 	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
 		return "ethereum", 1
 	}

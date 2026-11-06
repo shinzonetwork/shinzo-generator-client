@@ -1,0 +1,21 @@
+# Transaction input (vin entry).
+# For coinbase inputs, prevTxid/prevVout/scriptSigHex/prevout* are unset
+# and coinbase holds the coinbase script.
+type Bitcoin__Mainnet__TxInput {
+    txid: String @index
+    blockNumber: Int @index
+    inputIndex: Int
+    prevTxid: String
+    prevVout: Int
+    scriptSigHex: String
+    # uint32 stored as Int (the old String choice was revised for consistency).
+    sequence: Int
+    coinbase: String
+    witness: [String]
+    # Denormalized prevout fields (the spent output's satoshi value, address, type).
+    prevoutValueSat: Int
+    prevoutAddress: String @index
+    prevoutType: String
+    # Relationships
+    transaction: Bitcoin__Mainnet__Transaction @relation(name: "bitcoin_transaction_inputs")
+}

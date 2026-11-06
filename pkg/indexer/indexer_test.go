@@ -834,3 +834,125 @@ func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
 	// Just verify no panic/race occurred.
 	assert.True(t, indexer.GetCurrentBlock() >= 0)
 }
+
+// TestGetSourceChainInfo pins the ShinzoHub registration chain metadata
+// policy: the chain family comes from chain.adapter (EVM chains register with
+// their EIP-155 ID, non-EVM chains with ID 0) and only an explicit mainnet
+// network registers, while any other network reports an empty chain name.
+func TestGetSourceChainInfo(t *testing.T) {
+	t.Parallel()
+
+	// The nil-receiver guard exists so registration during shutdown can
+	// never panic on a drained indexer.
+	var nilIndexer *ChainIndexer
+	chain, id := nilIndexer.GetSourceChainInfo()
+	assert.Empty(t, chain)
+	assert.Zero(t, id)
+
+	tests := []struct {
+		name      string
+		cfg       *config.Config
+		wantChain string
+		wantID    uint64
+	}{
+		{
+			name:      "nil config reports nothing",
+			cfg:       nil,
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin mainnet",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.BitcoinAdapter,
+				Name:    "Bitcoin",
+				Network: "Mainnet",
+			}},
+			wantChain: "bitcoin",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin mainnet matching is case insensitive",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: "Bitcoin",
+				Name:    "BTC",
+				Network: "mainnet",
+			}},
+			wantChain: "bitcoin",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin testnet reports nothing",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.BitcoinAdapter,
+				Name:    "Bitcoin",
+				Network: "Testnet",
+			}},
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin with no network reports nothing",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.BitcoinAdapter,
+			}},
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin adapter wins over chain name",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.BitcoinAdapter,
+				Name:    "Ethereum",
+				Network: "Mainnet",
+			}},
+			wantChain: "bitcoin",
+			wantID:    0,
+		},
+		{
+			name: "chain name alone does not make the family",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.DefaultChainAdapter,
+				Name:    "Bitcoin",
+				Network: "Mainnet",
+			}},
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name:      "default config registers ethereum mainnet",
+			cfg:       &config.Config{},
+			wantChain: "ethereum",
+			wantID:    1,
+		},
+		{
+			name: "ethereum mainnet",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Name:    "Ethereum",
+				Network: "Mainnet",
+			}},
+			wantChain: "ethereum",
+			wantID:    1,
+		},
+		{
+			name: "ethereum non-mainnet reports nothing",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Name:    "Ethereum",
+				Network: "Sepolia",
+			}},
+			wantChain: "",
+			wantID:    0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			i := &ChainIndexer{cfg: tc.cfg}
+			chain, id := i.GetSourceChainInfo()
+			assert.Equal(t, tc.wantChain, chain)
+			assert.Equal(t, tc.wantID, id)
+		})
+	}
+}
