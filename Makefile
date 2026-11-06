@@ -62,11 +62,9 @@ tron-build:
 	fi
 
 evm-start:
-	./bin/block_poster_evm
-
-
+	./bin/block_poster_evm -config config/config.yml
 tron-start:
-	./bin/block_poster_tron -config config/config-tron.yml
+	./bin/block_poster_tron -config config/config_tron.yml
 
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
