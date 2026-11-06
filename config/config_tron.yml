@@ -63,13 +63,12 @@ tron:
   api_key:  "${TRON_API_KEY}" 
   # Header name the api_key rides in. Empty keeps the TronGrid standard
   # TRON-PRO-API-KEY; custom gateways can point the key at their own header
-  # (env: TRON_API_KEY_TYPE).
   api_key_type: "${TRON_API_KEY_TYPE}"
   dial_timeout_seconds: 10             # HTTP client timeout (env: TRON_DIAL_TIMEOUT_SECONDS)
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
-  concurrent_blocks: 1      # Number of blocks to process concurrently
-  receipt_workers: 8        # Concurrent receipt fetchers per block
+  concurrent_blocks: 2      # Number of blocks to process concurrently
+  receipt_workers: 16        # Concurrent receipt fetchers per block
   max_docs_per_txn: 100    # Docs threshold for single-txn block creation
   max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
   max_log_docs_per_batch: 125  # Per-batch size for logs (0 = use max_docs_per_txn)
@@ -96,7 +95,7 @@ pruner:
   prune_history: true       # Walk DAG chains to delete historical block versions (2-3x slower)
 snapshot:
   enabled: true             # Set to true to enable automatic snapshots before pruning
-  dir: "./.defra/snapshots" # Directory to store snapshot files
+  dir: "./.defra-tron/snapshots" # Directory to store snapshot files
   blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
   interval_seconds: 30 
   max_snapshots: 100        # Keep the N newest snapshot files
