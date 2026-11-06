@@ -44,7 +44,7 @@ defradb:
     # or a legacy plaintext defra_identity.key in the store path is migrated
     # there automatically on first start, so the identity survives store wipes
     # and restores.
-    path: "./.defra"
+    path: "./.defra-bitcoin"
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size
     memtable_mb: 64      # Memtable size
@@ -97,7 +97,7 @@ pruner:
   prune_history: true       # Walk DAG chains to delete historical block versions (2-3x slower)
 snapshot:
   enabled: true             # Set to true to enable automatic snapshots before pruning
-  dir: "./.defra/snapshots" # Directory to store snapshot files
+  dir: "./.defra-bitcoin/snapshots" # Directory to store snapshot files
   blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
   interval_seconds: 30      # How often to check and create snapshots
   max_snapshots: 100        # Keep the N newest snapshot files
