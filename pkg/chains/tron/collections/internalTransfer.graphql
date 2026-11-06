@@ -1,0 +1,16 @@
+type Tron__Mainnet__InternalTransfer {
+    from: String
+    to: String
+    amount: Int
+    assetName: String
+    rejected: Boolean
+    transactionHash: String
+    blockNumber: Int @index
+    # transferIndex is a synthetic ordinal within the parent transaction:
+    # repeated identical internal transfers are distinct documents only
+    # because of it, so content-addressed docIDs never collide.
+    transferIndex: Int
+    # Relationships
+    block: Tron__Mainnet__Block @relation(name: "block_internalTransfers")
+    transaction: Tron__Mainnet__Transaction @relation(name: "transaction_internalTransfers")
+}

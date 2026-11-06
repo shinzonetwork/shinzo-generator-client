@@ -24,8 +24,10 @@ go.work.sum
 # env file
 .env
 
+# DefraDB files
 .defra/
 .defra2/
+.defra-tron/
 
 .claude/
 
