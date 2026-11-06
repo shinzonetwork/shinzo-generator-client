@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -470,25 +471,65 @@ func connConfigFor(endpoint string, cfg *config.BitcoinConfig) (*rpcclient.ConnC
 	return conn, nil
 }
 
-// rpcEndpointHost splits a bare host:port, http:// or https:// endpoint
-// into rpcclient's Host value and a TLS flag. Unknown or missing schemes
-// degrade to plain http: Bitcoin Core itself never serves TLS, and a bare
-// host:port is the un-schemed spelling of its default deployment.
+// rpcEndpointHost maps an endpoint onto rpcclient's Host value plus a TLS
+// flag. Schemed http/https endpoints are rebuilt as hostname[:port] plus
+// the escaped path and query, and an endpoint naming no port gains the
+// scheme default (443 for https, 80 for http): btcd's HTTP POST transport
+// derives its dial address from Host alone, where a missing port decays
+// into port 0 and every connect attempt fails before reaching the network.
+// Credentials embedded in the URL are dropped: basic auth is the configured
+// rpc_user and rpc_password pair, not a userinfo spelling. Bare endpoints
+// without a scheme keep their literal spelling and degrade to plain http,
+// the way Core's own default deployment is written, but they must then
+// carry a numeric port, since a portless bare host decays the same way.
+// Unknown schemes are a configuration error.
 func rpcEndpointHost(endpoint string) (host string, disableTLS bool, err error) {
 	parsed, parseErr := url.Parse(endpoint)
 	switch {
 	case parseErr != nil || parsed.Host == "":
 		// url.Parse rejects "host:port" input ("first path segment cannot
-		// contain colon"), so an unparseable or hostless endpoint is treated
-		// as the bare host:port spelling.
+		// contain colon") and reads a bare hostname as a path, so both bare
+		// spellings land here and are validated directly rather than being
+		// handed to btcd as a portless Host.
+		if !isBareHostPort(endpoint) {
+			return "", true, fmt.Errorf("rpc_url %q is neither host:port nor an http:// or https:// URL", endpoint)
+		}
 		return endpoint, true, nil //nolint:nilerr // the parse outcome selects input spelling, not a call failure
 	case parsed.Scheme == "https":
-		return strings.TrimPrefix(endpoint, "https://"), false, nil
+		return schemeAuthority(parsed, "443"), false, nil
 	case parsed.Scheme == "http":
-		return strings.TrimPrefix(endpoint, "http://"), true, nil
+		return schemeAuthority(parsed, "80"), true, nil
 	default:
 		return "", true, fmt.Errorf("rpc_url scheme %q is not http or https", parsed.Scheme)
 	}
+}
+
+// schemeAuthority rebuilds the authority rpcclient needs: the hostname with
+// an explicit or scheme-default port, followed by the escaped path and
+// query so hosted-provider endpoints keep their addressable suffix. The
+// fragment is dropped: it is never sent over the wire and cannot address an
+// RPC surface.
+func schemeAuthority(u *url.URL, defaultPort string) string {
+	host := u.Host
+	if u.Port() == "" {
+		host = net.JoinHostPort(u.Hostname(), defaultPort)
+	}
+	if u.RawQuery == "" {
+		return host + u.EscapedPath()
+	}
+	return host + u.EscapedPath() + "?" + u.RawQuery
+}
+
+// isBareHostPort reports whether endpoint is the bare host:port spelling
+// with a numeric port. Anything else would hand btcd a Host without a
+// usable port and decay into the port-0 dial, so it is rejected instead.
+func isBareHostPort(endpoint string) bool {
+	host, port, splitErr := net.SplitHostPort(endpoint)
+	if splitErr != nil || host == "" || port == "" {
+		return false
+	}
+	_, portErr := strconv.Atoi(port)
+	return portErr == nil
 }
 
 // apiKeyHeader materializes the hosted-provider header when api_key is set:

@@ -757,3 +757,51 @@ func TestFixtureRoundTripThroughRawRequest(t *testing.T) {
 	}
 	assert.True(t, witnessSeen, "the SegWit payload keeps wtxid and txid apart")
 }
+
+// TestRPCEndpointHost pins the endpoint-to-Host mapping rpcclient depends
+// on: portless URLs gain the scheme default because btcd decays a Host
+// without an explicit port into a port-0 dial, hosted-provider paths and
+// queries survive the rebuild, URL-embedded credentials do not, and bare
+// spellings stay literal only while they carry a numeric port.
+func TestRPCEndpointHost(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		endpoint  string
+		wantHost  string
+		wantNoTLS bool
+		wantErr   string
+	}{
+		{"https host gains the scheme default port", "https://bitcoin-mainnet.core.chainstack.com", "bitcoin-mainnet.core.chainstack.com:443", false, ""},
+		{"https path is preserved", "https://bitcoin-mainnet.core.chainstack.com/v2/abc123", "bitcoin-mainnet.core.chainstack.com:443/v2/abc123", false, ""},
+		{"https query is preserved", "https://host.example/v2/abc123?env=mainnet", "host.example:443/v2/abc123?env=mainnet", false, ""},
+		{"https explicit port is kept", "https://host.example:8332/api", "host.example:8332/api", false, ""},
+		{"https trailing empty port gains the default", "https://host.example:", "host.example:443", false, ""},
+		{"https userinfo is dropped", "https://user:secret@host.example", "host.example:443", false, ""},
+		{"https bracketed ipv6 port is kept", "https://[::1]:18443", "[::1]:18443", false, ""},
+		{"https bracketed ipv6 gains the default port", "https://[::1]", "[::1]:443", false, ""},
+		{"http host gains the scheme default port", "http://host.example", "host.example:80", true, ""},
+		{"http explicit port is kept", "http://127.0.0.1:18443", "127.0.0.1:18443", true, ""},
+		{"bare host port keeps its spelling", "127.0.0.1:18443", "127.0.0.1:18443", true, ""},
+		{"bare hostname port keeps its spelling", "myhost:8332", "myhost:8332", true, ""},
+		{"bare portless host is rejected", "myhost", "", true, "neither host:port nor an http"},
+		{"bare path is rejected", "myhost/path", "", true, "neither host:port nor an http"},
+		{"unknown scheme is rejected", "wss://host.example", "", true, "is not http or https"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			host, disableTLS, err := rpcEndpointHost(tc.endpoint)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantHost, host)
+			assert.Equal(t, tc.wantNoTLS, disableTLS)
+		})
+	}
+}
