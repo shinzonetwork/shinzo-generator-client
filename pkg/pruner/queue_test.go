@@ -373,39 +373,6 @@ func trackBlocks(t *testing.T, q *IndexerQueue, blocks ...int64) {
 	}
 }
 
-func TestIndexerQueueDiscardUpTo(t *testing.T) {
-	t.Run("empty queue removes nothing", func(t *testing.T) {
-		q := NewIndexerQueue()
-		assert.Equal(t, 0, q.DiscardUpTo(10))
-		assert.Equal(t, 0, q.Len())
-	})
-
-	t.Run("no matches keeps every entry", func(t *testing.T) {
-		q := NewIndexerQueue()
-		trackBlocks(t, q, 5, 6, 7)
-		assert.Equal(t, 0, q.DiscardUpTo(4))
-		assert.Equal(t, 3, q.Len())
-	})
-
-	t.Run("unsorted entries are matched by block number", func(t *testing.T) {
-		q := NewIndexerQueue()
-		trackBlocks(t, q, 5, 2, 8, 1)
-		assert.Equal(t, 2, q.DiscardUpTo(3))
-		assert.Equal(t, 2, q.Len())
-		assert.Equal(t, int64(5), q.entries[0].BlockNumber)
-		assert.Equal(t, int64(8), q.entries[1].BlockNumber)
-	})
-
-	t.Run("partial match keeps entries above the cutoff", func(t *testing.T) {
-		q := NewIndexerQueue()
-		trackBlocks(t, q, 1, 2, 3, 4)
-		assert.Equal(t, 2, q.DiscardUpTo(2))
-		assert.Equal(t, 2, q.Len())
-		assert.Equal(t, int64(3), q.entries[0].BlockNumber)
-		assert.Equal(t, int64(4), q.entries[1].BlockNumber)
-	})
-}
-
 func TestIndexerQueueDrainUpTo(t *testing.T) {
 	t.Run("empty queue returns nil", func(t *testing.T) {
 		q := NewIndexerQueue()

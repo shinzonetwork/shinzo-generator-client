@@ -659,6 +659,39 @@ func TestStart_DiscardsStaleQueueWhenDBEmpty(t *testing.T) {
 	assert.Equal(t, 0, persisted)
 }
 
+// When the DB holds no visible block, queue entries can still name
+// soft-deleted reorg orphans: the range query only returns default-visible
+// docs, so dropping the entries would strand the orphans forever. The empty-DB
+// discard must hard-purge what it drops, and the purge stays uncounted.
+func TestDiscardStaleQueueEntries_PurgesSoftDeletedOrphansOnEmptyDB(t *testing.T) {
+	n := startTestNode(t)
+	ctx := context.Background()
+	p, _ := newTestPruner(&config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: true}, n)
+
+	orphanBlock := insertTestBlock(t, n, 1, 0)
+	orphanTx := insertTestTx(t, n, 1, 0)
+	softDeleteDocs(t, n, testBlockColName, []string{orphanBlock})
+	softDeleteDocs(t, n, testTxColName, []string{orphanTx})
+
+	// Precondition mirroring the rollback: byte-identical content is refused
+	// while the orphan docs are soft-deleted.
+	errText, refused := reAddBlockDoc(t, n, 1)
+	require.True(t, refused, "the soft-deleted content-derived docID must be refused before the discard")
+	assert.Contains(t, strings.ToLower(errText), "deleted")
+
+	q := NewIndexerQueue()
+	require.NoError(t, q.TrackBlockDocIDs(1, orphanBlock, map[string][]string{testTxColName: {orphanTx}}, ""))
+	p.SetQueue(q)
+
+	require.NoError(t, p.discardStaleQueueEntries(ctx))
+
+	assert.Equal(t, 0, q.Len())
+	errText, refused = reAddBlockDoc(t, n, 1)
+	require.False(t, refused, "after the discard's uncounted purge the identical content must store again, got: %s", errText)
+	assert.Equal(t, int64(0), p.totalBlocksPruned, "the empty-DB purge does not count")
+	assert.Equal(t, int64(0), p.totalDocsPruned, "the empty-DB purge does not count")
+}
+
 // Since the empty-DB discard moved to Start, the loop-side cleanup must not
 // drop entries when the DB appears empty: its getBlockRange can race the
 // indexer's first block stores, and a block stored between the query and a

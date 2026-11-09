@@ -290,36 +290,12 @@ func (q *IndexerQueue) Drain(keep int, blockCollectionName, blockSigCollectionNa
 	return q.buildDrainResult(drained, drainCount, blockCollectionName, blockSigCollectionName)
 }
 
-// DiscardUpTo removes and counts the entries for blocks at or below
-// blockNumber. Entries are not required to be sorted; surviving entries keep
-// their relative order. After a range prune the queue must not hold entries
-// for deleted blocks, or the next Drain purges and counts them again.
-func (q *IndexerQueue) DiscardUpTo(blockNumber int64) int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	kept := q.entries[:0]
-	removed := 0
-	for _, entry := range q.entries {
-		if entry.BlockNumber <= blockNumber {
-			removed++
-			continue
-		}
-		kept = append(kept, entry)
-	}
-	// In-place filtering leaves the dropped entries in the backing array past
-	// len(kept); clearing them releases their OtherDocIDs maps immediately
-	// instead of keeping them reachable until later appends overwrite.
-	clear(q.entries[len(kept):])
-	q.entries = kept
-	return removed
-}
-
-// DrainUpTo removes the entries for blocks at or below blockNumber, the same
-// semantics as DiscardUpTo, but returns the removed entries as a DrainResult
-// keyed by collection name: block docIDs under blockCollectionName, batch sig
-// docIDs under blockSigCollectionName, and all other docIDs under their own
-// collection keys. Returns nil when nothing was removed.
+// DrainUpTo removes the entries for blocks at or below blockNumber and
+// returns the removed entries as a DrainResult keyed by collection name:
+// block docIDs under blockCollectionName, batch sig docIDs under the
+// block-signature collection name, and all other docIDs under their own
+// collection keys. Entries are not required to be sorted; surviving entries
+// keep their relative order. Returns nil when nothing was removed.
 func (q *IndexerQueue) DrainUpTo(blockNumber int64, blockCollectionName, blockSigCollectionName string) *DrainResult {
 	q.mu.Lock()
 	defer q.mu.Unlock()

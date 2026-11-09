@@ -306,10 +306,6 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 
 	logger.Sugar.Infof("Prune complete: removed %d docs for %d blocks",
 		totalPurged, result.BlockCount)
-	if errors.Is(err, ErrNoValidBlocks) {
-		logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping cleanup")
-		return nil
-	}
 	p.mu.Lock()
 	p.totalBlocksPruned += int64(result.BlockCount)
 	p.totalDocsPruned += totalPurged
@@ -320,18 +316,19 @@ func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) 
 }
 
 // discardStaleQueueEntries drops queue entries that cannot correspond to any
-// live document when the DB holds no blocks at all. It runs synchronously in
-// Start, before the loop goroutine and before anything is tracked: once
+// live document when the DB holds no blocks at all, hard-purging whatever the
+// dropped entries still track. It runs synchronously in Start, before the
+// loop goroutine and before anything is tracked: once
 // tracking exists, a query that observes an empty DB can be stale, because a
 // block stored between the query and the discard would be dropped while
 // logged as stale. The non-empty path (entries below the DB's lowest block)
 // is safe in the loop's startup cleanup, since blocks tracked after startup
 // sit above the DB's pre-existing highest block, hence above lowest-1.
 //
-// The discard is not instrumented through timedCycle: it purges nothing, so
-// its blocks/docs deltas are zero by definition, and the observer contract,
-// which includes running on the loop goroutine, is not bent to cover a
-// Start-time step.
+// The purge deliberately bypasses the counters, so the discard's blocks/docs
+// deltas are zero by definition. It is not instrumented through timedCycle:
+// the observer contract, which includes running on the loop goroutine, is not
+// bent to cover a Start-time step.
 func (p *Pruner) discardStaleQueueEntries(ctx context.Context) error {
 	iq, ok := p.queue.(*IndexerQueue)
 	if !ok {
@@ -344,29 +341,19 @@ func (p *Pruner) discardStaleQueueEntries(ctx context.Context) error {
 		// The DB holds blocks; entry age is startupCleanup's job.
 		return nil
 	case errors.Is(err, ErrNoBlocks):
-		// Nothing the queue tracks can still exist, so every entry is stale:
-		// the first Drain would purge and count documents that are gone.
-		p.discardAndSave(iq, math.MaxInt64, "(DB has no blocks)")
+		// No block document is visible, so nothing the queue tracks can be a
+		// live block, and the first Drain would purge and count blocks that
+		// were never live. Entries can still name soft-deleted reorg orphans
+		// and live non-block leftovers, which the range query cannot see and
+		// which only these entries record, so the drain purges them uncounted
+		// instead of just dropping. A failed purge warns and the entries stay
+		// dropped: keeping them would let a later Drain count blocks that no
+		// range pass ever counted.
+		p.discardAndPurge(ctx, iq, math.MaxInt64, "(DB has no blocks)")
 		return nil
 	default:
 		return fmt.Errorf("check block range for stale queue entries: %w", err)
 	}
-}
-
-// discardAndSave drops queue entries at or below upTo, then checkpoints the
-// queue file when anything was discarded. The checkpoint is part of the
-// discard, not an afterthought: the queue is the only record that a document
-// is prunable, so an unsaved discard would be undone by the next restart
-// loading the pre-discard file. reason completes the log line and says which
-// path performed the discard. Returns the number of discarded entries, so
-// callers with pending work of their own can skip a redundant Save.
-func (p *Pruner) discardAndSave(iq *IndexerQueue, upTo int64, reason string) int {
-	if removed := iq.DiscardUpTo(upTo); removed > 0 {
-		logger.Sugar.Infof("Discarded %d stale queue entries %s", removed, reason)
-		p.saveQueue(iq)
-		return removed
-	}
-	return 0
 }
 
 // discardAndPurge drops queue entries at or below upTo and hard-purges the
@@ -383,7 +370,8 @@ func (p *Pruner) discardAndSave(iq *IndexerQueue, upTo int64, reason string) int
 // those docIDs, so dropping them without purging would strand the documents
 // forever. reason names the calling path in the log lines. A failed purge is
 // warned, not returned: the entries are already gone and keeping them would
-// make a later Drain purge and count blocks the range pass already counted.
+// let a later Drain purge and count blocks that a range pass already counted,
+// or that were never live at all in the empty-DB path.
 func (p *Pruner) discardAndPurge(ctx context.Context, iq *IndexerQueue, upTo int64, reason string) {
 	result := iq.DrainUpTo(upTo, p.blockCollection, p.blockSigCollection)
 	if result == nil {
@@ -466,11 +454,6 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 	}
 
 	logger.Sugar.Infof("Startup cleanup complete: purged %d documents", totalPurged)
-
-	if errors.Is(err, ErrNoValidBlocks) {
-		logger.Sugar.Warnf("Blocks exist but none have valid block numbers, skipping cleanup")
-		return nil
-	}
 
 	p.mu.Lock()
 	p.totalBlocksPruned += toPrune
