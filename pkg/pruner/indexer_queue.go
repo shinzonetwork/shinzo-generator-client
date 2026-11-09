@@ -315,6 +315,36 @@ func (q *IndexerQueue) DiscardUpTo(blockNumber int64) int {
 	return removed
 }
 
+// DrainUpTo removes the entries for blocks at or below blockNumber, the same
+// semantics as DiscardUpTo, but returns the removed entries as a DrainResult
+// keyed by collection name: block docIDs under blockCollectionName, batch sig
+// docIDs under blockSigCollectionName, and all other docIDs under their own
+// collection keys. Returns nil when nothing was removed.
+func (q *IndexerQueue) DrainUpTo(blockNumber int64, blockCollectionName, blockSigCollectionName string) *DrainResult {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	kept := q.entries[:0]
+	removed := make([]BlockEntry, 0)
+	for _, entry := range q.entries {
+		if entry.BlockNumber <= blockNumber {
+			removed = append(removed, entry)
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	// In-place filtering leaves the dropped entries in the backing array past
+	// len(kept); clearing them releases their OtherDocIDs maps immediately
+	// instead of keeping them reachable until later appends overwrite.
+	clear(q.entries[len(kept):])
+	q.entries = kept
+
+	return q.buildDrainResult(removed, len(removed), blockCollectionName, blockSigCollectionName)
+}
+
 // buildDrainResult rebuilds DocIDsByCollection from the drained entries:
 // block docIDs under the block collection name, batch-sig docIDs under the
 // block-signature collection name, and all OtherDocIDs under their own keys.

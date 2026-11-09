@@ -406,6 +406,58 @@ func TestIndexerQueueDiscardUpTo(t *testing.T) {
 	})
 }
 
+func TestIndexerQueueDrainUpTo(t *testing.T) {
+	t.Run("empty queue returns nil", func(t *testing.T) {
+		q := NewIndexerQueue()
+		assert.Nil(t, q.DrainUpTo(10, testBlockCol, testBlockSigCol))
+		assert.Equal(t, 0, q.Len())
+	})
+
+	t.Run("no matches keeps every entry and returns nil", func(t *testing.T) {
+		q := NewIndexerQueue()
+		trackBlocks(t, q, 5, 6, 7)
+		assert.Nil(t, q.DrainUpTo(4, testBlockCol, testBlockSigCol))
+		assert.Equal(t, 3, q.Len())
+	})
+
+	t.Run("returns the drained entries with all doc types", func(t *testing.T) {
+		q := NewIndexerQueue()
+		require.NoError(t, q.TrackBlockDocIDs(1,
+			docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
+			map[string][]string{
+				testTxCol:  {docIDPrefix + "-110e8400-e29b-41d4-a716-446655440001"},
+				testLogCol: {docIDPrefix + "-220e8400-e29b-41d4-a716-446655440002"},
+			},
+			docIDPrefix+"-440e8400-e29b-41d4-a716-446655440004",
+		))
+		trackBlocks(t, q, 3, 5)
+
+		result := q.DrainUpTo(3, testBlockCol, testBlockSigCol)
+		require.NotNil(t, result)
+		assert.Equal(t, 2, result.BlockCount)
+		assert.Equal(t, []string{
+			docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000",
+			docIDPrefix + "-550e8400-e29b-41d4-a716-446655440003",
+		}, result.DocIDsByCollection[testBlockCol])
+		assert.Equal(t, []string{docIDPrefix + "-110e8400-e29b-41d4-a716-446655440001"}, result.DocIDsByCollection[testTxCol])
+		assert.Equal(t, []string{docIDPrefix + "-220e8400-e29b-41d4-a716-446655440002"}, result.DocIDsByCollection[testLogCol])
+		assert.Equal(t, []string{docIDPrefix + "-440e8400-e29b-41d4-a716-446655440004"}, result.DocIDsByCollection[testBlockSigCol])
+		assert.Equal(t, 1, q.Len())
+		assert.Equal(t, int64(5), q.entries[0].BlockNumber)
+	})
+
+	t.Run("unsorted entries are matched by block number", func(t *testing.T) {
+		q := NewIndexerQueue()
+		trackBlocks(t, q, 5, 2, 8, 1)
+		result := q.DrainUpTo(3, testBlockCol, testBlockSigCol)
+		require.NotNil(t, result)
+		assert.Equal(t, 2, result.BlockCount)
+		assert.Equal(t, 2, q.Len())
+		assert.Equal(t, int64(5), q.entries[0].BlockNumber)
+		assert.Equal(t, int64(8), q.entries[1].BlockNumber)
+	})
+}
+
 func TestIndexerQueueDrainByDocCount_NotEnoughDocs(t *testing.T) {
 	q := NewIndexerQueue()
 
