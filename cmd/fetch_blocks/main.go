@@ -160,7 +160,7 @@ type fixtureMeta struct {
 	CapturePartial bool   `json:"capture_partial,omitempty"`
 }
 
-// replayFixture is the on-disk format the benchmarking acceptance suites
+// replayFixture is the on-disk format the replay acceptance suites
 // replay through their mock JSON-RPC servers.
 type replayFixture struct {
 	Meta   fixtureMeta    `json:"meta"`
