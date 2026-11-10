@@ -1039,6 +1039,70 @@ func TestPruneBlockRange_KeepsEntriesOnPurgeFailure(t *testing.T) {
 	assert.Equal(t, 3, countDocs(t, n, testBlockColName), "nothing may be deleted when the only range docID is invalid")
 }
 
+// An over-retention startup prune that fails must still drain the entries
+// at or below the DB's lowest block: those blocks predate the DB's floor and
+// were deleted by an earlier run, so keeping their entries would let the
+// next Drain purge and count blocks that were never live. The entries inside
+// the failed range stay kept, since their documents may still be live.
+func TestStartupCleanup_OverRetentionPruneFailure_DrainsBelowDBMinimum(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+
+	// A live leftover tx at block 2, whose block doc is already gone.
+	leftoverTx := insertTestTx(t, n, 2, 0)
+	seedDocID := docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000"
+	q := NewIndexerQueue()
+	_, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	require.NoError(t, q.TrackBlockDocIDs(1, seedDocID, nil, ""))
+	require.NoError(t, q.TrackBlockDocIDs(2, seedDocID, map[string][]string{testTxColName: {leftoverTx}}, ""))
+	require.NoError(t, q.TrackBlockDocIDs(3, seedDocID, nil, ""))
+	// Blocks 4-8 go in after the stale entries are tracked: block 4 is then
+	// the DB's floor, which is what the expected failure branch must use.
+	docIDs := make(map[int64]string, 5)
+	for i := int64(4); i <= 8; i++ {
+		docIDs[i] = insertTestBlock(t, n, i, 0)
+	}
+	for i := int64(4); i <= 8; i++ {
+		require.NoError(t, q.TrackBlockDocIDs(i, docIDs[i], nil, ""))
+	}
+	p := NewPruner(&config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}, n, brokenRangeChain{testChain: newTestChain(n)})
+	p.blockCollection = testBlockColName
+	p.SetQueue(q)
+
+	// The over-retention prune of 4-6 fails on the invalid range docID, so
+	// the entries 4-8 stay kept and the error branch drains 1-3.
+	err = p.startupCleanup(context.Background())
+	require.Error(t, err)
+
+	assert.Equal(t, 5, q.Len())
+	for _, entry := range q.entries {
+		assert.GreaterOrEqual(t, entry.BlockNumber, int64(4))
+	}
+	assert.Equal(t, 0, countDocs(t, n, testTxColName), "the live leftover below the DB floor is purged uncounted")
+	assert.Equal(t, 5, countDocs(t, n, testBlockColName), "the failed prune deletes nothing")
+
+	// The counters stay zero: the failed prune counted nothing, and the
+	// below-floor purge is uncounted by design.
+	assert.Equal(t, int64(0), p.totalBlocksPruned)
+	assert.Equal(t, int64(0), p.totalDocsPruned)
+
+	// The discard reaches the file, so a later restart cannot load the
+	// stale entries back.
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 5, persisted)
+
+	// The next tick with q.Len() > max_blocks drains entries 4-6. Only
+	// those blocks count: the stale 1-3 were already drained by the error
+	// branch, so a block a previous run deleted can no longer be counted
+	// again through this restart path.
+	require.NoError(t, p.runIndexerQueuePrune(context.Background(), q))
+	assert.Equal(t, int64(3), p.totalBlocksPruned, "only the live drained blocks count, not the stale below-floor ones")
+	assert.Equal(t, 2, q.Len())
+}
+
 func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {
 	n := startTestNode(t)
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: false}

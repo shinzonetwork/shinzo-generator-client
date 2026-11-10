@@ -408,8 +408,12 @@ func (p *Pruner) saveQueue(iq *IndexerQueue) {
 // On the within-limit path the purge and Save run before the early return,
 // which is exactly the path that would otherwise strand those entries. On
 // the over-retention path, pruneBlockRange's success drain subsumes
-// lowest-1, and its failure keeps the entries with the queue file already
-// holding them unchanged, so no separate queue upkeep is needed here.
+// lowest-1. Its failure keeps the entries in the pruned range, since
+// nothing has been counted yet and their documents may still be live, but
+// the error branch still drains and purges at or below lowest-1 here: those
+// blocks predate the DB's floor and cannot be live regardless of the
+// prune's outcome, and leaving their entries would let the next Drain count
+// blocks a previous run already deleted.
 // Entries for an empty DB are not handled here: a
 // DB-observed emptiness is only trustworthy before tracking exists, so that
 // discard runs synchronously in discardStaleQueueEntries instead.
@@ -449,6 +453,13 @@ func (p *Pruner) startupCleanup(ctx context.Context) error {
 
 	totalPurged, err := p.pruneBlockRange(ctx, lowest, cutoffBlock)
 	if err != nil {
+		// Blocks below the DB's floor were gone before this run, so their
+		// entries are drained and purged uncounted however the prune turned
+		// out. The entries inside the failed range stay kept: their documents
+		// may still be live, and a later pass counts those blocks once.
+		if isQueue {
+			p.discardAndPurge(ctx, iq, lowest-1, fmt.Sprintf("at or below block %d (startup cleanup, prune failed)", lowest-1))
+		}
 		logger.Sugar.Errorf("Startup: failed to prune blocks %d-%d: %v", lowest, cutoffBlock, err)
 		return err
 	}
