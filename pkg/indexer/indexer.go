@@ -181,6 +181,20 @@ func (i *ChainIndexer) observePeers(ctx context.Context, o metric.Int64Observer)
 	return nil
 }
 
+// GetDefraDBURL returns the API URL of the embedded DefraDB node, or "" when
+// using external DefraDB or before the node has started.
+//
+// The node's own APIURL is the authoritative reachable address: an embedded
+// node binds a non-loopback (machine LAN) address with a random port, so the
+// bind address cannot be reconstructed from the port alone. The health server
+// is initialized with this same value for its connectivity probe.
+func (i *ChainIndexer) GetDefraDBURL() string {
+	if i.defraNode == nil {
+		return ""
+	}
+	return i.defraNode.APIURL
+}
+
 // CreateIndexer creates a new ChainIndexer with the provided configuration.
 func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	if cfg == nil {
