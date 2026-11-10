@@ -498,7 +498,8 @@ func runEVMReplay(t *testing.T, spec replaySpec) {
 	defer func() { _ = client.Close() }()
 
 	fetcher := evm.NewFetcher(client, cfg.Indexer.ReceiptWorkers)
-	converter := evm.NewConverter(cfg)
+	converter, err := evm.NewConverter(cfg)
+	require.NoError(t, err)
 	handler, err := defra.NewBlockHandler(td.Node, cfg.Indexer.MaxDocsPerTxn)
 	require.NoError(t, err)
 

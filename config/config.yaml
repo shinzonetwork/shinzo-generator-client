@@ -6,6 +6,7 @@
 chain:
   name: "Ethereum"       # Chain name (env: CHAIN_NAME)
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
+  chain_id: 1            # EVM chain ID the RPC must report; the generator refuses to start otherwise (env: CHAIN_ID)
   adapter: "evm"         # Chain adapter: "evm" (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
 defradb:

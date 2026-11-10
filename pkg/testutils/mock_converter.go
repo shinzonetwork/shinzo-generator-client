@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/sourcenetwork/defradb/node"
 )
@@ -84,7 +85,8 @@ func (m *MockConverter) GetCollections() []string {
 	return nil
 }
 
-// Collections records the call and delegates to CollectionsFn.
+// Collections records the call and delegates to CollectionsFn. Without
+// CollectionsFn it returns the Ethereum mainnet collections.
 func (m *MockConverter) Collections() chains.Collections {
 	m.mu.Lock()
 	m.CollectionsCalls++
@@ -92,7 +94,7 @@ func (m *MockConverter) Collections() chains.Collections {
 	if m.CollectionsFn != nil {
 		return m.CollectionsFn()
 	}
-	c, err := chains.NewCollections(nil)
+	c, err := chains.NewCollections(&config.Config{Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet"}})
 	if err != nil {
 		panic(fmt.Sprintf("MockConverter.Collections: chains.NewCollections failed: %v", err))
 	}

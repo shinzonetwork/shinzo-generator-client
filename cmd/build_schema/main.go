@@ -16,6 +16,10 @@ import (
 	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
 
+// errChainFlagsUnset is returned when --chain or --network is missing. The
+// collection prefix is built from both, so neither has a default.
+var errChainFlagsUnset = errors.New("--chain and --network are required")
+
 func main() {
 	if err := run(os.Args, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -26,8 +30,8 @@ func main() {
 func run(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("build_schema", flag.ContinueOnError)
 	listFiles := fs.Bool("list-files", false, "List collection filenames in apply order, one per line")
-	chain := fs.String("chain", "", "Chain name for collection prefixes (e.g. Arbitrum). Defaults to the adapter's default when empty.")
-	network := fs.String("network", "", "Network name for collection prefixes (e.g. Mainnet). Defaults to the adapter's default when empty.")
+	chain := fs.String("chain", "", "Chain name for collection prefixes (e.g. Arbitrum). Required.")
+	network := fs.String("network", "", "Network name for collection prefixes (e.g. Mainnet). Required.")
 	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from. Defaults to the built-in default when empty.")
 	file := fs.String("file", "", "Single collection file to output (e.g. block.graphql). Default: full merged SDL.")
 	// The prefix flag is still declared so legacy invocations get a targeted
@@ -38,6 +42,12 @@ func run(args []string, stdout io.Writer) error {
 	}
 	if *prefix != "" {
 		return errors.New("--prefix is no longer supported; use --chain, --network, and --adapter instead")
+	}
+	if *chain == "" || *network == "" {
+		return errChainFlagsUnset
+	}
+	if err := config.ValidateChainNames(*chain, *network); err != nil {
+		return err
 	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
