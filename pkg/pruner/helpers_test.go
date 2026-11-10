@@ -225,6 +225,80 @@ func insertTestBlock(t *testing.T, n *node.Node, blockNum int64, txCount int) st
 	return blockDocID
 }
 
+// insertTestTx inserts a TestTx document at blockNumber and returns its docID.
+// Used to plant documents whose block doc does not exist (purge-crash
+// leftovers) and to capture docIDs for soft-delete setups.
+func insertTestTx(t *testing.T, n *node.Node, blockNum int64, txIndex int) string {
+	t.Helper()
+	mutation := fmt.Sprintf(`mutation { add_TestTx(input: [{blockNumber: %d, txHash: "tx%d_%d"}]) { _docID } }`, blockNum, blockNum, txIndex)
+	return execSingleDocID(t, n, mutation, "add_TestTx")
+}
+
+// execSingleDocID runs a mutation and returns the _docID of its single
+// created document.
+func execSingleDocID(t *testing.T, n *node.Node, mutation, field string) string {
+	t.Helper()
+	ctx := context.Background()
+	result := n.DB.ExecRequest(ctx, mutation)
+	require.Empty(t, result.GQL.Errors, "mutation failed: %v", result.GQL.Errors)
+
+	data, ok := result.GQL.Data.(map[string]any)
+	require.True(t, ok, "unexpected mutation payload")
+
+	var rows []any
+	switch typed := data[field].(type) {
+	case []any:
+		rows = typed
+	case []map[string]any:
+		for _, r := range typed {
+			rows = append(rows, r)
+		}
+	default:
+		require.FailNowf(t, "unexpected mutation payload", "field %s: %T", field, data[field])
+	}
+	require.Len(t, rows, 1, "expected exactly one created document")
+	row, ok := rows[0].(map[string]any)
+	require.True(t, ok, "unexpected row payload")
+	docID, ok := row["_docID"].(string)
+	require.True(t, ok, "missing _docID")
+	return docID
+}
+
+// softDeleteDocs soft-deletes documents by docID the way the rollback roller
+// does, through DeleteDocumentsWithFilter on a default-visible selection.
+// Soft-deleted docs re-add identical content only after a hard purge, which
+// is the observable that distinguishes reclaimed from merely hidden docs.
+func softDeleteDocs(t *testing.T, n *node.Node, collectionName string, docIDs []string) {
+	t.Helper()
+	if len(docIDs) == 0 {
+		return
+	}
+	col, err := n.DB.GetCollectionByName(context.Background(), collectionName)
+	require.NoError(t, err)
+	conditions := make([]any, len(docIDs))
+	for i, id := range docIDs {
+		conditions[i] = id
+	}
+	filter := map[string]any{"_docID": map[string]any{"_in": conditions}}
+	_, err = col.DeleteDocumentsWithFilter(context.Background(), filter)
+	require.NoError(t, err)
+}
+
+// reAddBlockDoc attempts to re-create a block document with identical
+// content and reports whether DefraDB refused it. A refusal naming the
+// deleted document proves the doc is soft-deleted; acceptance after a
+// cleanup proves the cleanup hard-purged it.
+func reAddBlockDoc(t *testing.T, n *node.Node, blockNum int64) (errText string, refused bool) {
+	t.Helper()
+	ctx := context.Background()
+	mutation := fmt.Sprintf(`mutation { add_TestBlock(input: [{number: %d, hash: "hash%d"}]) { _docID } }`, blockNum, blockNum)
+	result := n.DB.ExecRequest(ctx, mutation)
+	if len(result.GQL.Errors) == 0 {
+		return "", false
+	}
+	return fmt.Sprintf("%v", result.GQL.Errors[0]), true
+}
+
 // countDocs queries and returns the number of docs in the given collection.
 func countDocs(t *testing.T, n *node.Node, collectionName string) int {
 	t.Helper()

@@ -32,10 +32,16 @@ type BlockEntry struct {
 }
 
 // indexerQueueSnapshot is the serializable form of the queue.
+// PendingPurges holds docIDs whose purge failed after their entries were
+// already dropped. Gob encodes fields by name, so older files load with a nil
+// map and older binaries ignore the field; a downgrade re-saving the queue
+// simply loses the parked list, which only returns those docIDs to the
+// pre-parking behavior.
 type indexerQueueSnapshot struct {
-	Version     int
-	DocIDPrefix string
-	Entries     []BlockEntry
+	Version       int
+	DocIDPrefix   string
+	Entries       []BlockEntry
+	PendingPurges map[string][]string
 }
 
 // IndexerQueue is an in-memory ordered queue of indexed blocks with compact UUID storage.
@@ -43,6 +49,7 @@ type indexerQueueSnapshot struct {
 type IndexerQueue struct {
 	mu       sync.Mutex
 	entries  []BlockEntry
+	pending  map[string][]string
 	filePath string
 }
 
@@ -85,6 +92,7 @@ func (q *IndexerQueue) LoadFromFile(path string) (int, error) {
 
 	q.mu.Lock()
 	q.entries = snap.Entries
+	q.pending = snap.PendingPurges
 	count := len(q.entries)
 	q.mu.Unlock()
 
@@ -100,14 +108,15 @@ func (q *IndexerQueue) Save() error {
 
 	q.mu.Lock()
 	snap := indexerQueueSnapshot{
-		Version:     indexerQueueGobVersion,
-		DocIDPrefix: docIDPrefix,
-		Entries:     make([]BlockEntry, len(q.entries)),
+		Version:       indexerQueueGobVersion,
+		DocIDPrefix:   docIDPrefix,
+		Entries:       make([]BlockEntry, len(q.entries)),
+		PendingPurges: q.pending,
 	}
 	copy(snap.Entries, q.entries)
 	q.mu.Unlock()
 
-	if len(snap.Entries) == 0 {
+	if len(snap.Entries) == 0 && len(snap.PendingPurges) == 0 {
 		err := os.Remove(q.filePath)
 		if err != nil {
 			logger.Sugar.Warnf("Failed to remove queue file: %v", err)
@@ -195,6 +204,7 @@ func (q *IndexerQueue) TrackBlockDocIDs(blockNumber int64, blockDocID string, ot
 }
 
 // DocCount returns the total number of documents across all block entries.
+// Parked docIDs are excluded, matching Len.
 func (q *IndexerQueue) DocCount() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -290,29 +300,79 @@ func (q *IndexerQueue) Drain(keep int, blockCollectionName, blockSigCollectionNa
 	return q.buildDrainResult(drained, drainCount, blockCollectionName, blockSigCollectionName)
 }
 
-// DiscardUpTo removes and counts the entries for blocks at or below
-// blockNumber. Entries are not required to be sorted; surviving entries keep
-// their relative order. After a range prune the queue must not hold entries
-// for deleted blocks, or the next Drain purges and counts them again.
-func (q *IndexerQueue) DiscardUpTo(blockNumber int64) int {
+// takeUpTo removes the entries for blocks at or below blockNumber and returns
+// them. Entries are not required to be sorted; surviving entries keep their
+// relative order. Returns nil when nothing was removed.
+func (q *IndexerQueue) takeUpTo(blockNumber int64) []BlockEntry {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	kept := q.entries[:0]
-	removed := 0
+	removed := make([]BlockEntry, 0)
 	for _, entry := range q.entries {
 		if entry.BlockNumber <= blockNumber {
-			removed++
+			removed = append(removed, entry)
 			continue
 		}
 		kept = append(kept, entry)
+	}
+	if len(removed) == 0 {
+		return nil
 	}
 	// In-place filtering leaves the dropped entries in the backing array past
 	// len(kept); clearing them releases their OtherDocIDs maps immediately
 	// instead of keeping them reachable until later appends overwrite.
 	clear(q.entries[len(kept):])
 	q.entries = kept
+
 	return removed
+}
+
+// ParkDocIDs records docIDs dropped from the queue whose purge did not
+// succeed, keyed by collection name. The parked list is the only remaining
+// record of those documents, so it is persisted with the queue and retried
+// uncounted by the pruner. Duplicate docIDs are tolerated and harmless: a
+// purge of a missing docID is a no-op, so re-purging costs one lookup.
+func (q *IndexerQueue) ParkDocIDs(docIDsByCollection map[string][]string) {
+	if len(docIDsByCollection) == 0 {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.pending == nil {
+		q.pending = make(map[string][]string, len(docIDsByCollection))
+	}
+	for colName, docIDs := range docIDsByCollection {
+		if len(docIDs) == 0 {
+			continue
+		}
+		q.pending[colName] = append(q.pending[colName], docIDs...)
+	}
+}
+
+// TakePendingDocIDs returns the currently parked docIDs and clears the parked
+// list, transferring responsibility for them to the caller until it parks
+// them back or purges them.
+func (q *IndexerQueue) TakePendingDocIDs() map[string][]string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.pending) == 0 {
+		return nil
+	}
+	pending := q.pending
+	q.pending = nil
+	return pending
+}
+
+// PendingCount returns the number of docIDs currently parked for a purge retry.
+func (q *IndexerQueue) PendingCount() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	total := 0
+	for _, docIDs := range q.pending {
+		total += len(docIDs)
+	}
+	return total
 }
 
 // buildDrainResult rebuilds DocIDsByCollection from the drained entries:
@@ -347,7 +407,9 @@ func (q *IndexerQueue) buildDrainResult(drained []BlockEntry, drainCount int, bl
 	return result
 }
 
-// Len returns the current number of entries in the queue.
+// Len returns the current number of entries in the queue. Parked docIDs are
+// excluded: they await a purge, they are not queued blocks, so retention
+// keep-math and logging see the same numbers as before parking existed.
 func (q *IndexerQueue) Len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -355,6 +417,7 @@ func (q *IndexerQueue) Len() int {
 }
 
 // HighestBlockNumber returns the highest block number in the queue, or 0 if empty.
+// Parked docIDs carry no block number and are excluded.
 func (q *IndexerQueue) HighestBlockNumber() int64 {
 	q.mu.Lock()
 	defer q.mu.Unlock()
