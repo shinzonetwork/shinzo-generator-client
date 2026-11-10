@@ -1,6 +1,7 @@
 version: 2
 updates:
   # Go package configurations
+  # Go package configurations
   - package-ecosystem: gomod
     directory: "/"
     schedule:
@@ -9,6 +10,13 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+    groups:
+      opentelemetry:
+        patterns:
+          - "go.opentelemetry.io/*"
+    ignore:
+      - dependency-name: "github.com/sourcenetwork/defradb"
+
 
   # GitHub Actions configurations
   - package-ecosystem: github-actions
