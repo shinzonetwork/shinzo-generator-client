@@ -84,7 +84,7 @@ func TestNewHealthServer(t *testing.T) {
 	assert.NotNil(t, hs)
 	assert.NotNil(t, hs.mux)
 	assert.NotNil(t, hs.server)
-	assert.Equal(t, ":8080", hs.server.Addr)
+	assert.Equal(t, "127.0.0.1:8080", hs.server.Addr)
 }
 
 // --- SetSnapshotter ---
