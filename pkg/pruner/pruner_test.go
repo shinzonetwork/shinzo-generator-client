@@ -934,6 +934,25 @@ func (b brokenRangeChain) GetDocIDsByBlockRange(_ context.Context, _ *node.Node,
 	return map[string][]string{testBlockColName: {"not-a-valid-docid"}}, nil
 }
 
+// flakyLowestChain fails the first block-range query the way a transient
+// start-time error would and serves the real chain afterwards. The call
+// counter pins that the loop actually retries instead of giving up.
+type flakyLowestChain struct {
+	*testChain
+
+	failing bool
+	calls   int
+}
+
+func (c *flakyLowestChain) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
+	c.calls++
+	if c.failing {
+		c.failing = false
+		return 0, fmt.Errorf("transient range query failure")
+	}
+	return c.testChain.GetLowestStoredBlockNumber(ctx, n)
+}
+
 // A purge dying between collections deletes collections in sorted-name
 // order, so the block docs go first and their live txs are left behind. On
 // restart the DB's lowest block sits above those leftovers, so a range pass
@@ -1101,6 +1120,268 @@ func TestStartupCleanup_OverRetentionPruneFailure_DrainsBelowDBMinimum(t *testin
 	require.NoError(t, p.runIndexerQueuePrune(context.Background(), q))
 	assert.Equal(t, int64(3), p.totalBlocksPruned, "only the live drained blocks count, not the stale below-floor ones")
 	assert.Equal(t, 2, q.Len())
+}
+
+// A failed startup cleanup must change nothing by itself: no entries drained,
+// nothing counted, and the queue file left exactly as the restart loaded it.
+// This is the state a transient range query failure at startup leaves behind,
+// which loopCycle's retry must recover from before any counted drain runs.
+func TestStartupCleanup_QueryFailure_KeepsEverythingAndCountsNothing(t *testing.T) {
+	n := startTestNode(t)
+	ctx := context.Background()
+	path := t.TempDir() + "/prune_queue.gob"
+
+	docIDs := make(map[int64]string, 5)
+	for i := int64(1); i <= 5; i++ {
+		docIDs[i] = insertTestBlock(t, n, i, 0)
+	}
+	seedQueueFile(t, path, 1, 5)
+	p, q := loadPrunerWithQueue(t, n, path, 2, 5)
+	flaky := &flakyLowestChain{testChain: newTestChain(n), failing: true}
+	p.converter = flaky
+
+	err := p.startupCleanup(ctx)
+	require.Error(t, err)
+
+	assert.Equal(t, 5, q.Len(), "a failed startup cleanup must not drain anything")
+	assert.Equal(t, int64(0), p.totalBlocksPruned)
+	assert.Equal(t, int64(0), p.totalDocsPruned)
+	assert.Equal(t, 5, countDocs(t, n, testBlockColName), "nothing may be deleted when the block range cannot be read")
+
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 5, persisted, "the queue file must be untouched by the failed cleanup")
+}
+
+// The startup cleanup runs before any counted drain and is retried until its
+// first success. Its failure keeps the entries at or below the DB's floor in
+// place; without the retry, the oldest-first queue drain would purge and
+// count blocks that an earlier run already deleted and counted.
+func TestPrunerLoopCycle_RetriesStartupCleanupUntilSuccess(t *testing.T) {
+	n := startTestNode(t)
+	ctx := context.Background()
+	path := t.TempDir() + "/prune_queue.gob"
+
+	// Blocks 4-8 are live; the queue still tracks 1-3 as stale below-floor
+	// entries (1-3 were range-pruned by an earlier run), with a live
+	// leftover tx at block 2 recording only through its entry. The real
+	// docIDs go through the queue file, the way a previous run's checkpoint
+	// would have.
+	leftoverTx := insertTestTx(t, n, 2, 0)
+	docIDs := make(map[int64]string, 5)
+	for i := int64(4); i <= 8; i++ {
+		docIDs[i] = insertTestBlock(t, n, i, 0)
+	}
+	seedDocID := docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000"
+	written := NewIndexerQueue()
+	_, err := written.LoadFromFile(path)
+	require.NoError(t, err)
+	require.NoError(t, written.TrackBlockDocIDs(1, seedDocID, nil, ""))
+	require.NoError(t, written.TrackBlockDocIDs(2, seedDocID, map[string][]string{testTxColName: {leftoverTx}}, ""))
+	require.NoError(t, written.TrackBlockDocIDs(3, seedDocID, nil, ""))
+	for i := int64(4); i <= 8; i++ {
+		require.NoError(t, written.TrackBlockDocIDs(i, docIDs[i], nil, ""))
+	}
+	require.NoError(t, written.Save())
+	p, q := loadPrunerWithQueue(t, n, path, 2, 8)
+	flaky := &flakyLowestChain{testChain: newTestChain(n), failing: true}
+	p.converter = flaky
+
+	// First cycle: the startup cleanup fails on the range query, so nothing
+	// is drained and nothing is counted.
+	err = p.loopCycle(ctx)
+	require.Error(t, err)
+	assert.Equal(t, 8, q.Len())
+	assert.Equal(t, int64(0), p.totalBlocksPruned)
+	assert.False(t, p.startupCleanupDone)
+
+	// Second cycle: the startup cleanup is retried and succeeds. The
+	// over-retention range prune of 4-6 counts those three blocks once, and
+	// the success drain drops every entry at or below the cutoff, stale
+	// ones included, purging their docIDs uncounted.
+	err = p.loopCycle(ctx)
+	require.NoError(t, err)
+	assert.True(t, p.startupCleanupDone)
+	assert.Equal(t, int64(3), p.totalBlocksPruned, "only the live range-pruned blocks 4-6 counted")
+	assert.Equal(t, 0, countDocs(t, n, testTxColName), "the live leftover below the DB floor is purged uncounted")
+	assert.Equal(t, 2, q.Len(), "only entries above the cutoff survive")
+
+	// The recovered state reached the file, so a restart cannot load the
+	// stale entries back.
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 2, persisted)
+
+	// Third cycle: startup cleanup is done, so the regular prune runs and
+	// the stale 1-3 can no longer be counted through any path.
+	err = p.loopCycle(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), p.totalBlocksPruned, "no block may be counted through the post-recovery cycles")
+	assert.Equal(t, 2, q.Len())
+	assert.GreaterOrEqual(t, flaky.calls, 2, "the failed startup must be retried, not dropped")
+}
+
+// A cancelled context must leave the queue untouched: the purge would fail
+// for the same reason, and dropping the entries on the way out would erase
+// the only record of docIDs, including soft-deleted reorg orphans whose
+// absence blocks that height from ever being re-indexed. The next run
+// retries them uncounted.
+func TestDiscardAndPurge_SkipsOnCancelledContext(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+
+	seedQueueFile(t, path, 1, 2)
+	p, q := loadPrunerWithQueue(t, n, path, 100, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	p.discardAndPurge(ctx, q, 1, "(test, cancelled)")
+
+	assert.Equal(t, 2, q.Len(), "a cancelled run must not drain entries")
+	assert.Equal(t, 0, q.PendingCount())
+	assert.Equal(t, int64(0), p.totalBlocksPruned)
+
+	reloaded := NewIndexerQueue()
+	persisted, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 2, persisted, "the queue file must be untouched by a cancelled run")
+}
+
+// When the uncounted purge of dropped entries fails, the docIDs are parked on
+// the queue and persisted: the entries are already gone, so the parked list
+// becomes the only record of what may still need purging.
+func TestDiscardAndPurge_ParksOnFailedPurge(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+
+	// A valid docID under a collection name that does not exist fails the
+	// purge without touching anything purgeable.
+	parkedTx := docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001"
+	p, _ := newTestPruner(&config.PrunerConfig{Enabled: true, MaxBlocks: 100, PruneHistory: false}, n)
+	q := NewIndexerQueue()
+	_, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	require.NoError(t, q.TrackBlockDocIDs(1,
+		docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
+		map[string][]string{"BogusCol": {parkedTx}},
+		""))
+
+	p.discardAndPurge(context.Background(), q, 1, "(test, failing purge)")
+
+	assert.Equal(t, 0, q.Len(), "the failed purge drops the entries either way")
+	assert.Equal(t, 2, q.PendingCount(), "the docIDs must be parked, not lost")
+	pending := q.TakePendingDocIDs()
+	assert.Equal(t, []string{docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000"}, pending[testBlockColName])
+	assert.Equal(t, []string{parkedTx}, pending["BogusCol"])
+	q.ParkDocIDs(pending)
+	assert.Equal(t, int64(0), p.totalBlocksPruned, "the uncounted purge must not count")
+	assert.Equal(t, int64(0), p.totalDocsPruned)
+
+	// The parked list must survive a restart like the entries do.
+	reloaded := NewIndexerQueue()
+	_, err = reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 2, reloaded.PendingCount(), "the parked docIDs must be persisted")
+}
+
+// Soft-deleted reorg orphans whose purge failed must be recoverable through
+// the parked list: the retry hard-purges them, which is what lifts the
+// indexer's refusal to re-store identical content at that height.
+func TestRetryPendingPurges_PurgesOrphansOfDiscardedEntries(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+
+	orphanBlock := insertTestBlock(t, n, 1, 0)
+	orphanTx := insertTestTx(t, n, 1, 0)
+	softDeleteDocs(t, n, testBlockColName, []string{orphanBlock})
+	softDeleteDocs(t, n, testTxColName, []string{orphanTx})
+
+	errText, refused := reAddBlockDoc(t, n, 1)
+	require.True(t, refused, "the soft-deleted content-derived docID must be refused before the retry")
+	assert.Contains(t, strings.ToLower(errText), "deleted")
+
+	// The parked list is what a failed purge left behind: the entries are
+	// gone and the docIDs persist only here. The queue file is checkpointed
+	// with it the same way discardAndPurge's save does.
+	seedQueueFile(t, path, 5, 6)
+	p := NewPruner(&config.PrunerConfig{Enabled: true, MaxBlocks: 2, PruneHistory: true}, n, newTestChain(n))
+	p.blockCollection = testBlockColName
+	q := NewIndexerQueue()
+	_, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	p.SetQueue(q)
+	q.ParkDocIDs(map[string][]string{
+		testBlockColName: {orphanBlock},
+		testTxColName:    {orphanTx},
+	})
+	require.NoError(t, q.Save())
+
+	p.retryPendingPurges(context.Background(), q)
+
+	_, refused = reAddBlockDoc(t, n, 1)
+	require.False(t, refused, "the uncounted retry must hard-purge the soft-deleted orphans")
+	assert.Equal(t, 0, q.PendingCount(), "a successful retry empties the parked list")
+	assert.Equal(t, int64(0), p.totalBlocksPruned, "the retry must not count")
+	assert.Equal(t, int64(0), p.totalDocsPruned)
+
+	reloaded := NewIndexerQueue()
+	_, err = reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 0, reloaded.PendingCount(), "the empty parked list must be persisted")
+}
+
+// A counted drain whose purge fails counts its blocks once but must not
+// erase the docID record: parking them keeps the stranding window to the
+// failed purge instead of losing the documents forever, and the uncycled
+// retry must not count a second time.
+func TestRunIndexerQueuePrune_ParksOnPurgeFailure(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+
+	// The queue tracks blocks 1-3, with entry 2 carrying a docID under a
+	// collection that does not exist, so the drained purge fails after the
+	// block docs may already have been purged.
+	block2Tx := docIDPrefix + "-660e8400-e29b-41d4-a716-446655440012"
+	p, q := loadPrunerWithQueue(t, n, path, 1, 0)
+	require.NoError(t, q.TrackBlockDocIDs(1,
+		docIDPrefix+"-550e8400-e29b-41d4-a716-446655440001", nil, ""))
+	require.NoError(t, q.TrackBlockDocIDs(2,
+		docIDPrefix+"-550e8400-e29b-41d4-a716-446655440002",
+		map[string][]string{"BogusCol": {block2Tx}},
+		""))
+	require.NoError(t, q.TrackBlockDocIDs(3,
+		docIDPrefix+"-550e8400-e29b-41d4-a716-446655440003", nil, ""))
+
+	err := p.runIndexerQueuePrune(context.Background(), q)
+	require.Error(t, err, "the bogus-collection purge must fail the cycle")
+
+	assert.Equal(t, 1, q.Len(), "only the newest entry survives the drain")
+	assert.Equal(t, int64(2), p.totalBlocksPruned, "the drained blocks were counted exactly once")
+	assert.Equal(t, 3, q.PendingCount(), "the failed purge's docIDs must be parked")
+	assert.Equal(t, int64(2), p.totalDocsPruned, "the count reflects the requested docIDs, not the failed collection")
+
+	// The deferred checkpoint persisted both the drained removal and the
+	// parked list.
+	reloaded := NewIndexerQueue()
+	_, err = reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 1, reloaded.Len())
+	assert.Equal(t, 3, reloaded.PendingCount())
+
+	// The next cycle retries the parked docIDs uncounted, fails again on the
+	// same collection and parks them back, without counting anything twice.
+	err = p.runIndexerQueuePrune(context.Background(), q)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), p.totalBlocksPruned, "the retry must not count")
+	assert.Equal(t, int64(2), p.totalDocsPruned)
+	assert.Equal(t, 3, q.PendingCount(), "a failed retry keeps the docIDs parked")
+
+	reloaded = NewIndexerQueue()
+	_, err = reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 3, reloaded.PendingCount(), "the re-parked docIDs must reach the file")
 }
 
 func TestRunIndexerQueuePrune_WithRealNode(t *testing.T) {

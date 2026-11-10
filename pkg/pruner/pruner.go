@@ -43,6 +43,12 @@ type Pruner struct {
 	wg                 sync.WaitGroup
 	mu                 sync.RWMutex
 
+	// startupCleanupDone flips once the loop's startup cleanup first
+	// succeeds. Owned by the loop goroutine (tests run it sequentially), so
+	// it needs no lock of its own; see loopCycle for why it must gate the
+	// counted drain.
+	startupCleanupDone bool
+
 	// Metrics
 	lastPruneTime     time.Time
 	totalBlocksPruned int64
@@ -124,6 +130,7 @@ func (p *Pruner) Start(ctx context.Context) error {
 		return nil
 	}
 	p.isRunning = true
+	p.startupCleanupDone = false
 	p.mu.Unlock()
 
 	logger.Sugar.Debugf("Starting pruner (max_blocks=%d, docs_per_block=%d, max_docs=%d, interval=%ds)",
@@ -136,6 +143,12 @@ func (p *Pruner) Start(ctx context.Context) error {
 	if p.queue != nil {
 		if err := p.discardStaleQueueEntries(ctx); err != nil {
 			logger.Sugar.Warnf("Pruner started without stale-entry discard: %v", err)
+		}
+		// Parked docIDs from a previous run are purged here, before the loop
+		// starts: their purge is docID-based and touches nothing the indexer
+		// is about to write, so no startup race applies.
+		if iq, ok := p.queue.(*IndexerQueue); ok {
+			p.retryPendingPurges(ctx, iq)
 		}
 	}
 
@@ -194,12 +207,9 @@ func (p *Pruner) GetMetrics() Metrics {
 func (p *Pruner) pruneLoop(ctx context.Context) {
 	defer p.wg.Done()
 
-	// Run startup cleanup only for indexer queues (no P2P) or when no queue is set.
-	// Only queue-tracked data gets pruned.
-
-	logger.Sugar.Debugf("Running startup cleanup for pre-existing blocks...")
-	if err := p.timedCycle(ctx, p.startupCleanup); err != nil {
-		logger.Sugar.Errorf("Startup cleanup failed: %v", err)
+	// The first cycle runs immediately rather than waiting a full interval.
+	if err := p.loopCycle(ctx); err != nil {
+		logger.Sugar.Errorf("Prune cycle failed: %v", err)
 	}
 
 	ticker := time.NewTicker(time.Duration(p.cfg.IntervalSeconds) * time.Second)
@@ -212,11 +222,34 @@ func (p *Pruner) pruneLoop(ctx context.Context) {
 		case <-p.stopChan:
 			return
 		case <-ticker.C:
-			if err := p.timedCycle(ctx, p.runPrune); err != nil {
-				logger.Sugar.Errorf("Prune failed: %v", err)
+			if err := p.loopCycle(ctx); err != nil {
+				logger.Sugar.Errorf("Prune cycle failed: %v", err)
 			}
 		}
 	}
+}
+
+// loopCycle runs the startup cleanup until it first succeeds, then switches
+// to the regular prune cycles. The counted queue drain must not run before
+// the startup cleanup has succeeded once: a startup that failed on a
+// transient query error left the entries below the DB's floor in place
+// (nothing is drained on a failed range query), and the oldest-first queue
+// drain would purge and count blocks that an earlier run already deleted and
+// counted. The flag gates that out: the startup cleanup purges below-floor
+// docIDs uncounted, and its success proves those entries are gone by the
+// time the first counted drain runs. On an empty database the startup
+// cleanup returns nil having purged nothing, which is fine: the empty-DB
+// stale-entry discard runs in Start before tracking, so a tracked queue
+// alongside an empty DB is the Start path's concern, not this gate's.
+func (p *Pruner) loopCycle(ctx context.Context) error {
+	if !p.startupCleanupDone {
+		if err := p.timedCycle(ctx, p.startupCleanup); err != nil {
+			return err
+		}
+		p.startupCleanupDone = true
+		return nil
+	}
+	return p.timedCycle(ctx, p.runPrune)
 }
 
 // timedCycle runs one prune operation and reports its raw facts to the
@@ -273,6 +306,10 @@ func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) erro
 		}
 	}()
 
+	// A purge that failed at an earlier drop point parks its docIDs; they are
+	// purged here, before any new drop decision of this cycle.
+	p.retryPendingPurges(ctx, q)
+
 	blockCount := int64(q.Len())
 
 	if blockCount <= p.cfg.MaxBlocks {
@@ -294,13 +331,27 @@ func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) erro
 	logger.Sugar.Infof("Pruning %d blocks (queue had %d blocks, keeping %d, target %d, prune_history=%v)",
 		result.BlockCount, blockCount, keep, p.cfg.MaxBlocks, p.cfg.PruneHistory)
 
-	return p.purgeFromDrainResult(ctx, result)
+	err := p.purgeFromDrainResult(ctx, result)
+	if err != nil {
+		// The entries drained and the counters counted them once, so the
+		// blocks must never be counted again; but a purge failure must not
+		// silently erase the docID record either. Parking keeps it for the
+		// uncounted retry, and the deferred save below makes that durable.
+		q.ParkDocIDs(result.DocIDsByCollection)
+		logger.Sugar.Warnf("Purge after draining %d blocks failed: %v (%d docIDs parked for uncounted retry)",
+			result.BlockCount, err, q.PendingCount())
+	}
+	return err
 }
 
 // purgeFromDrainResult deletes documents from a DrainResult.
 // Collections are purged in sorted collection-name order — DefraDB does not
 // enforce foreign keys, so purge order does not affect correctness; any
 // orphan documents are cleaned by the next prune run's startupCleanup.
+// Counters are updated even when the purge fails: the entries drained and
+// the blocks were counted exactly once, and the caller parks the failed
+// docIDs so the uncounted retry reclaims the documents that are still
+// missing, making the recorded count truthful eventually rather than never.
 func (p *Pruner) purgeFromDrainResult(ctx context.Context, result *DrainResult) error {
 	totalPurged, err := p.purgeByDocIDsByCollection(ctx, result.DocIDsByCollection)
 
@@ -346,9 +397,9 @@ func (p *Pruner) discardStaleQueueEntries(ctx context.Context) error {
 		// were never live. Entries can still name soft-deleted reorg orphans
 		// and live non-block leftovers, which the range query cannot see and
 		// which only these entries record, so the drain purges them uncounted
-		// instead of just dropping. A failed purge warns and the entries stay
-		// dropped: keeping them would let a later Drain count blocks that no
-		// range pass ever counted.
+		// instead of just dropping. Keeping the entries themselves is not an
+		// option: it would let a later Drain count blocks that no range pass
+		// ever counted, so a purge failure parks the docIDs instead.
 		p.discardAndPurge(ctx, iq, math.MaxInt64, "(DB has no blocks)")
 		return nil
 	default:
@@ -367,24 +418,67 @@ func (p *Pruner) discardStaleQueueEntries(ctx context.Context) error {
 // default-visible documents: soft-deleted reorg orphans whose entries were
 // deliberately retained by the rollback, and documents left live by a purge
 // that died between collections. The drained entries are the only record of
-// those docIDs, so dropping them without purging would strand the documents
-// forever. reason names the calling path in the log lines. A failed purge is
-// warned, not returned: the entries are already gone and keeping them would
-// let a later Drain purge and count blocks that a range pass already counted,
-// or that were never live at all in the empty-DB path.
+// those docIDs, so the failure path must not lose the record: a failed purge
+// parks the docIDs on the queue for an uncounted retry
+// (retryPendingPurges) instead of leaving them stranded forever. Keeping the
+// entries themselves is not an alternative, because it would let a later
+// Drain purge and count blocks that a range pass already counted, or that
+// were never live at all in the empty-DB path. reason names the calling path
+// in the log lines. A cancelled context skips the drain: the resulting purge
+// would fail the same way, and the entries stay intact for the next run,
+// which retries them uncounted.
 func (p *Pruner) discardAndPurge(ctx context.Context, iq *IndexerQueue, upTo int64, reason string) {
-	result := iq.DrainUpTo(upTo, p.blockCollection, p.blockSigCollection)
-	if result == nil {
+	if ctx.Err() != nil {
 		return
 	}
 
+	entries := iq.takeUpTo(upTo)
+	if len(entries) == 0 {
+		return
+	}
+	result := iq.buildDrainResult(entries, len(entries), p.blockCollection, p.blockSigCollection)
+	totalEntries := result.BlockCount
+
 	uncounted, err := p.purgeByDocIDsByCollection(ctx, result.DocIDsByCollection)
 	if err != nil {
-		logger.Sugar.Warnf("Uncounted purge of %d dropped queue entries %s failed: %v", result.BlockCount, reason, err)
+		// The drained entries are gone, so the parked docIDs are now the
+		// only record of what may still need purging. They are persisted
+		// with the queue below, so a crash cannot lose them either.
+		iq.ParkDocIDs(result.DocIDsByCollection)
+		logger.Sugar.Warnf("Uncounted purge of %d dropped queue entries %s failed: %v (%d docIDs parked for uncounted retry)",
+			totalEntries, reason, err, iq.PendingCount())
 	} else {
-		logger.Sugar.Infof("Discarded %d queue entries %s; uncounted purge removed %d docs", result.BlockCount, reason, uncounted)
+		logger.Sugar.Infof("Discarded %d queue entries %s; uncounted purge removed %d docs", totalEntries, reason, uncounted)
 	}
 
+	p.saveQueue(iq)
+}
+
+// retryPendingPurges purges the docIDs parked by earlier failed purge
+// attempts, and parks them back when it fails again. Its purges are uncounted
+// by design: parked docIDs belong either to discardAndPurge, whose blocks a
+// range pass already counted or that were never live at all, or to a counted
+// Drain whose purge failed, whose blocks were counted when the entries
+// drained. Counting the retry would hit the same docIDs a second time.
+func (p *Pruner) retryPendingPurges(ctx context.Context, iq *IndexerQueue) {
+	if ctx.Err() != nil {
+		return
+	}
+
+	pending := iq.TakePendingDocIDs()
+	if len(pending) == 0 {
+		return
+	}
+	purged, err := p.purgeByDocIDsByCollection(ctx, pending)
+	if err != nil {
+		// Keep the record: the taken docIDs are parked back, and the file
+		// still holds them from the earlier checkpoint, so no new write is
+		// needed and a later cycle retries them again.
+		iq.ParkDocIDs(pending)
+		logger.Sugar.Warnf("Uncounted retry of %d parked docIDs failed, keeping them parked: %v", iq.PendingCount(), err)
+		return
+	}
+	logger.Sugar.Infof("Uncounted retry purged %d parked docs", purged)
 	p.saveQueue(iq)
 }
 
@@ -413,7 +507,11 @@ func (p *Pruner) saveQueue(iq *IndexerQueue) {
 // the error branch still drains and purges at or below lowest-1 here: those
 // blocks predate the DB's floor and cannot be live regardless of the
 // prune's outcome, and leaving their entries would let the next Drain count
-// blocks a previous run already deleted.
+// blocks a previous run already deleted. A purge failure on that drain
+// parks the docIDs rather than losing them.
+// A failed startup cleanup does not open a window for the counted Drain:
+// the loop retries this cleanup until its first success (loopCycle), so a
+// transient range query failure only delays pruning by one tick.
 // Entries for an empty DB are not handled here: a
 // DB-observed emptiness is only trustworthy before tracking exists, so that
 // discard runs synchronously in discardStaleQueueEntries instead.
@@ -523,7 +621,8 @@ func (p *Pruner) filterBasedPrune(ctx context.Context) error {
 // are the only record of those docIDs, and dropping the entries without
 // purging would strand the documents forever. The purge must not count: the
 // range pass already counted these blocks, and overlapping docIDs would be
-// double counted (see discardAndPurge).
+// double counted (see discardAndPurge). Should this success drain's own
+// purge fail, discardAndPurge parks the docIDs instead of losing them.
 //
 // On purge failure the entries are kept: nothing has been counted yet, since
 // callers skip the metrics update when this returns an error, so a later
