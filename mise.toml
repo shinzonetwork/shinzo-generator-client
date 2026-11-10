@@ -1,0 +1,38 @@
+[tool_alias]
+deadcode = "go:golang.org/x/tools/cmd/deadcode"
+govulncheck = "go:golang.org/x/vuln/cmd/govulncheck"
+
+[tools]
+go = "1.27.3"
+golangci-lint = "2.15.0"
+gotestsum = "1.13.0"
+govulncheck = "1.9.0"
+deadcode = "0.52.0"
+
+# Code quality tasks & templates
+[tasks.lint]
+description = "Linting check for the codebase."
+run = "golangci-lint run ./..."
+
+[tasks.vuln]
+description = "Static analysis check for the codebase."
+run = "govulncheck ./..."
+
+[tasks.inspect]
+depends = ["lint"]
+run = [
+   # Sequential tasks
+   { tasks = ["scripts/check_loc.sh", "scripts/check_deadcode.sh"] },  # Parallel tasks
+   { task = "vuln" }
+]
+
+# Testing tasks & templates
+[tasks."test:unit"]
+description = "Running unit tests with coverage report."
+run = "gotestsum -- -coverprofile=coverage.out -parallel=4 ./..."
+alias = "test"
+
+# Binary building tasks & templates + cleanup
+[tasks.clean]
+description = "Cleaning local project binaries and log files."
+run = "rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log"
