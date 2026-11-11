@@ -39,10 +39,12 @@ const (
 	StatusFieldName            = "status"
 )
 
-// Tokens-mode field names: the Header's RLP-encoded header and the Evidence document's fields.
+// Tokens-mode field names: the Header's RLP-encoded header and the Evidence and StateCapture
+// documents' fields.
 const (
 	RawFieldName     = "raw"
 	AssetFieldName   = "asset"
 	RecordsFieldName = "records"
 	ProofFieldName   = "proof"
+	ValueFieldName   = "value"
 )

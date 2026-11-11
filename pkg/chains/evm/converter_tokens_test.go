@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math/big"
 	"os"
 	"slices"
 	"testing"
@@ -36,8 +37,8 @@ func TestNewConverter_InvalidTokenAddress(t *testing.T) {
 }
 
 // In tokens mode a block converts to its Header, one Evidence document per listed token with
-// transactions in the block, and its statement. Each token's proof verifies its records against
-// the header's roots.
+// transactions in the block, one StateCapture document per supply the fetcher proved, and its
+// statement. Each token's proof verifies its records against the header's roots.
 func TestConvert_TokenMode(t *testing.T) {
 	t.Parallel()
 	listedA := common.HexToAddress("0xaa00000000000000000000000000000000000001")
@@ -65,11 +66,12 @@ func TestConvert_TokenMode(t *testing.T) {
 		logsFrom(listedA, listedA),
 	)
 	header := bundle.Block.Header
+	bundle.StateCaptures = []StateCapture{{Asset: "aa00000000000000000000000000000000000001", Value: big.NewInt(1000), Proof: []byte{1, 2}}}
 
 	result, err := c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
 	assert.Equal(t, "Bsc__Mainnet__BlockAttestation", result.SignatureCollection)
-	require.Len(t, result.Groups, 2)
+	require.Len(t, result.Groups, 3)
 	assert.Equal(t, "Bsc__Mainnet__Header", result.Groups[0].Collection)
 	assert.Equal(t, header.Hash().Hex(), result.Groups[0].Docs[0][constants.HashFieldName])
 
@@ -99,6 +101,16 @@ func TestConvert_TokenMode(t *testing.T) {
 		require.NoError(t, codecevm.VerifyRecords(header.ReceiptHash, header.TxHash, records, decodeHexField(t, doc, ProofFieldName)))
 	}
 
+	captures := result.Groups[2]
+	assert.Equal(t, "Bsc__Mainnet__StateCapture", captures.Collection)
+	assert.Equal(t, []map[string]any{{
+		constants.BlockNumberFieldName: int64(42),
+		constants.BlockHashFieldName:   header.Hash().Hex(),
+		AssetFieldName:                 "aa00000000000000000000000000000000000001",
+		ValueFieldName:                 "1000",
+		ProofFieldName:                 "0102",
+	}}, captures.Docs)
+
 	st, err := statement.Decode(result.Statement)
 	require.NoError(t, err)
 	assert.Equal(t, "eip155:56", st.Chain)
@@ -116,19 +128,24 @@ func TestConvert_TokenMode(t *testing.T) {
 		{Asset: "aa00000000000000000000000000000000000001", Count: 3, Root: roots[0]},
 		{Asset: "bb00000000000000000000000000000000000002", Count: 1, Root: roots[1]},
 	}, st.Claims)
+	assert.Equal(t, []statement.Capture{
+		{Asset: "aa00000000000000000000000000000000000001", Value: "1000", ProofHash: sha256.Sum256([]byte{1, 2})},
+	}, st.Captures)
 
-	// A block with no listed token's logs still lists the Evidence group, empty, and the statement
-	// claims each token with count 0 and the empty list's root.
+	// A block with no listed token's logs and no captures still lists both groups, empty, and the
+	// statement claims each token with count 0 and the empty list's root.
 	result, err = c.Convert(context.Background(), gethBundle(t, 43, logsFrom(unlisted)))
 	require.NoError(t, err)
-	require.Len(t, result.Groups, 2)
+	require.Len(t, result.Groups, 3)
 	assert.Empty(t, result.Groups[1].Docs)
+	assert.Empty(t, result.Groups[2].Docs)
 	st, err = statement.Decode(result.Statement)
 	require.NoError(t, err)
 	assert.Equal(t, []statement.Claim{
 		{Asset: "aa00000000000000000000000000000000000001", Root: merkle.Root(nil)},
 		{Asset: "bb00000000000000000000000000000000000002", Root: merkle.Root(nil)},
 	}, st.Claims)
+	assert.Empty(t, st.Captures)
 
 	bundle.Block.Header = nil
 	_, err = c.Convert(context.Background(), bundle)

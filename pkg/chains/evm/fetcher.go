@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
+	codecevm "github.com/shinzonetwork/shinzo-evidence-codec/evm"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -35,6 +38,8 @@ type rpcClient interface {
 	GetFinalizedBlockNumber(ctx context.Context) (int64, error)
 	// GetFinalizedHeight returns the finalized tag's height, with no fallback.
 	GetFinalizedHeight(ctx context.Context) (int64, error)
+	// GetProof returns the node's eth_getProof answer for account's slots at the block with blockHash.
+	GetProof(ctx context.Context, account common.Address, slots []string, blockHash string) (codecevm.AccountProof, error)
 	Close() error
 }
 
@@ -47,7 +52,30 @@ type BlockBundle struct {
 	Block        *Block
 	Transactions []*Transaction
 	Receipts     []*TransactionReceipt
+	// StateCaptures holds, in tokens mode at a capture height, each listed token's proven total
+	// supply. A token whose proof failed every attempt is missing.
+	StateCaptures []StateCapture
 }
+
+// StateCapture is a token's total supply at a block, with the proof that showed it.
+type StateCapture struct {
+	Asset string   // the token's address as 40 lower-case hex digits
+	Value *big.Int // the supply slot's value
+	Proof []byte   // the eth_getProof answer as the evidence codec encodes it
+}
+
+// supplySlot is a listed token and the storage slot of its total supply.
+type supplySlot struct {
+	asset    string // 40 lower-case hex digits
+	contract common.Address
+	slot     string      // as configured, the form eth_getProof is asked for
+	key      common.Hash // the same slot as a 32-byte key, the form a proof is checked against
+}
+
+// captureAttempts is how many times a token's supply proof is tried at a capture height, with no
+// delay between attempts. A token whose proof fails every attempt has no capture at that height, and
+// nothing proves it later.
+const captureAttempts = 3
 
 // Fetcher is the RPC I/O layer for EVM chains. It fetches raw block data
 // (block + transactions + receipts) from the chain node and queries the
@@ -76,6 +104,10 @@ type Fetcher struct {
 	// the node and the block's transactions and receipts against the header's roots, and
 	// FetchFinalizedBlockNumber reports the finalized tag only, without the safe fallback.
 	tokensMode bool
+	// supplySlots and captureInterval are set in tokens mode: FetchBlock asks for a proof of each
+	// token's total supply at every block whose number is a multiple of captureInterval.
+	supplySlots     []supplySlot
+	captureInterval int64
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -102,7 +134,7 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 	if receiptWorkers <= 0 {
 		receiptWorkers = 16 //nolint:mnd
 	}
-	return &Fetcher{
+	f := &Fetcher{
 		nodeURL:        cfg.Geth.NodeURL,
 		wsURL:          cfg.Geth.WsURL,
 		apiKey:         cfg.Geth.APIKey,
@@ -111,7 +143,28 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		chainID:        cfg.Chain.ChainID,
 		tokensMode:     cfg.Chain.Mode == config.ChainModeTokens,
 		receiptWorkers: receiptWorkers,
-	}, nil
+	}
+	if f.tokensMode {
+		f.captureInterval = cfg.Chain.StateCaptureInterval
+		for _, t := range cfg.Chain.Tokens {
+			asset, err := config.ContractAddress(t.Address)
+			if err != nil {
+				return nil, err
+			}
+			key, err := codecevm.ParseStorageKey(t.SupplySlot)
+			if err != nil {
+				return nil, fmt.Errorf("token %s supply slot: %w", asset, err)
+			}
+			f.supplySlots = append(f.supplySlots, supplySlot{
+				asset:    asset,
+				contract: common.HexToAddress(asset),
+				slot:     t.SupplySlot,
+				key:      common.Hash(key),
+			})
+		}
+		slices.SortFunc(f.supplySlots, func(a, b supplySlot) int { return strings.Compare(a.asset, b.asset) })
+	}
+	return f, nil
 }
 
 // errChainIDMismatch reports that the endpoint serves a chain other than the configured one.
@@ -172,16 +225,62 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 			return nil, fmt.Errorf("block %d: node has no header with hash %s: %w", height, block.Hash, err)
 		}
 	}
+	bundle := &BlockBundle{
+		Block:        block,
+		Transactions: transactions,
+		Receipts:     receipts,
+	}
 	if f.tokensMode {
 		if err := checkRoots(block, receipts); err != nil {
 			return nil, fmt.Errorf("block %d: %w", height, err)
 		}
+		if f.captureInterval > 0 && height%f.captureInterval == 0 {
+			if bundle.StateCaptures, err = f.captureSupply(ctx, height, block); err != nil {
+				return nil, err
+			}
+		}
 	}
-	return &BlockBundle{
-		Block:        block,
-		Transactions: transactions,
-		Receipts:     receipts,
-	}, nil
+	return bundle, nil
+}
+
+// captureSupply returns the verified total-supply captures of the listed tokens at block, leaving
+// out a token whose proof fails captureAttempts times. It fails only when ctx ends, so a stopping
+// generator does not return a block missing captures it could have made.
+func (f *Fetcher) captureSupply(ctx context.Context, height int64, block *Block) ([]StateCapture, error) {
+	var captures []StateCapture
+	for _, s := range f.supplySlots {
+		capture, err := f.proveSupply(ctx, block, s)
+		for attempt := 1; err != nil && attempt < captureAttempts && ctx.Err() == nil; attempt++ {
+			capture, err = f.proveSupply(ctx, block, s)
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err != nil {
+			logger.Sugar.Warnf("Block %d: no supply capture for %s after %d attempts: %v", height, s.asset, captureAttempts, err)
+			continue
+		}
+		captures = append(captures, capture)
+	}
+	return captures, nil
+}
+
+// proveSupply asks the node for s's supply slot at block, by the block's hash, and checks the proof
+// against the header's state root.
+func (f *Fetcher) proveSupply(ctx context.Context, block *Block, s supplySlot) (StateCapture, error) {
+	answer, err := f.client.GetProof(ctx, s.contract, []string{s.slot}, block.Hash)
+	if err != nil {
+		return StateCapture{}, err
+	}
+	proof, err := codecevm.EncodeStateProof(answer)
+	if err != nil {
+		return StateCapture{}, err
+	}
+	value, err := codecevm.VerifyStateCapture(block.Header.Root, s.contract, s.key, proof)
+	if err != nil {
+		return StateCapture{}, err
+	}
+	return StateCapture{Asset: s.asset, Value: value, Proof: proof}, nil
 }
 
 // FetchHighestBlockNumber implements chains.Fetcher. It queries the RPC
