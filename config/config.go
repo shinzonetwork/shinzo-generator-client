@@ -29,6 +29,24 @@ var ErrInvalidChainName = errors.New("chain name and network must each be an upp
 // ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
 var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
 
+// ErrInvalidChainMode is returned for a chain.mode the generator does not run.
+var ErrInvalidChainMode = errors.New("unsupported chain.mode")
+
+// ErrTokenKeyInFullMode is returned, wrapped with the key's name, when full mode sets a key that only
+// tokens mode reads.
+var ErrTokenKeyInFullMode = errors.New("only tokens mode takes this key")
+
+// ErrInvalidChainTokensEnv is returned for a CHAIN_TOKENS entry that is not address:supply_slot.
+var ErrInvalidChainTokensEnv = errors.New("CHAIN_TOKENS entries must be address:supply_slot")
+
+// Chain modes. Full mode indexes every block, transaction, log and access-list entry. Tokens mode is
+// the mode chain.tokens, chain.state_capture_interval and chain.finalized_poll_interval_ms configure;
+// validateChainMode refuses it.
+const (
+	ChainModeFull   = "full"
+	ChainModeTokens = "tokens"
+)
+
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
 // lets the query skip purge residue with a missing or unparsable number.
@@ -99,6 +117,17 @@ type ChainConfig struct {
 	ChainID uint64 `yaml:"chain_id"` // EVM chain ID the RPC must report from eth_chainId, e.g. 1 for Ethereum mainnet (env: CHAIN_ID)
 	Hub     string `yaml:"hub"`      // ShinzoHub hostname only: no scheme, no port (e.g. "testnet.shinzo.network")
 	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+
+	Mode                    string  `yaml:"mode"`                       // the chain mode; empty means ChainModeFull (env: CHAIN_MODE)
+	Tokens                  []Token `yaml:"tokens"`                     // tokens mode: each token's address and supply slot (env: CHAIN_TOKENS, address:supply_slot pairs, comma-separated)
+	StateCaptureInterval    int64   `yaml:"state_capture_interval"`     // tokens mode: blocks between total-supply captures, at least 1 (env: CHAIN_STATE_CAPTURE_INTERVAL)
+	FinalizedPollIntervalMs int64   `yaml:"finalized_poll_interval_ms"` // tokens mode: milliseconds between finalized-height polls once dispatch has reached that height; 0 means 1 s (env: CHAIN_FINALIZED_POLL_INTERVAL_MS)
+}
+
+// Token is one chain.tokens entry: a token contract and the slot holding its total supply.
+type Token struct {
+	Address    string `yaml:"address"`     // the contract's 20-byte hex address, either case, with or without 0x
+	SupplySlot string `yaml:"supply_slot"` // the storage slot of the token's total supply, 0x-prefixed hex
 }
 
 // GethConfig represents Geth node configuration.
@@ -314,6 +343,9 @@ func validateConfig(cfg *Config) error {
 	if cfg.Chain.Adapter == DefaultChainAdapter && cfg.Chain.ChainID == 0 {
 		return ErrChainIDUnset
 	}
+	if err := validateChainMode(cfg.Chain); err != nil {
+		return err
+	}
 
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
@@ -362,6 +394,26 @@ var chainNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
 func ValidateChainNames(name, network string) error {
 	if !chainNamePattern.MatchString(name) || !chainNamePattern.MatchString(network) {
 		return fmt.Errorf("%w: got %q and %q", ErrInvalidChainName, name, network)
+	}
+	return nil
+}
+
+// validateChainMode checks chain.mode and the keys only tokens mode reads. Full mode sets none of
+// them, since they would have no effect there.
+func validateChainMode(c ChainConfig) error {
+	switch c.Mode {
+	case "", ChainModeFull:
+		if len(c.Tokens) > 0 {
+			return fmt.Errorf("chain.tokens: %w", ErrTokenKeyInFullMode)
+		}
+		if c.StateCaptureInterval != 0 {
+			return fmt.Errorf("chain.state_capture_interval: %w", ErrTokenKeyInFullMode)
+		}
+		if c.FinalizedPollIntervalMs != 0 {
+			return fmt.Errorf("chain.finalized_poll_interval_ms: %w", ErrTokenKeyInFullMode)
+		}
+	default:
+		return fmt.Errorf("%w: got %q", ErrInvalidChainMode, c.Mode)
 	}
 	return nil
 }
@@ -509,6 +561,9 @@ func applyChainEnvOverrides(cfg *Config) error {
 	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
 		cfg.Chain.Adapter = chainAdapter
 	}
+	if err := applyTokensEnvOverrides(cfg); err != nil {
+		return err
+	}
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL
 	}
@@ -525,6 +580,40 @@ func applyChainEnvOverrides(cfg *Config) error {
 		if n, err := strconv.Atoi(gethDialTimeout); err == nil {
 			cfg.Geth.DialTimeoutSeconds = n
 		}
+	}
+	return nil
+}
+
+// applyTokensEnvOverrides applies the environment variable overrides of chain.mode and the chain keys
+// only tokens mode reads.
+func applyTokensEnvOverrides(cfg *Config) error {
+	if mode := os.Getenv("CHAIN_MODE"); mode != "" {
+		cfg.Chain.Mode = mode
+	}
+	if raw := os.Getenv("CHAIN_TOKENS"); raw != "" {
+		var tokens []Token
+		for entry := range strings.SplitSeq(raw, ",") {
+			address, slot, ok := strings.Cut(entry, ":")
+			if !ok {
+				return fmt.Errorf("%w: got %q", ErrInvalidChainTokensEnv, entry)
+			}
+			tokens = append(tokens, Token{Address: strings.TrimSpace(address), SupplySlot: strings.TrimSpace(slot)})
+		}
+		cfg.Chain.Tokens = tokens
+	}
+	if raw := os.Getenv("CHAIN_STATE_CAPTURE_INTERVAL"); raw != "" {
+		interval, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid CHAIN_STATE_CAPTURE_INTERVAL value %q: %w", raw, err)
+		}
+		cfg.Chain.StateCaptureInterval = interval
+	}
+	if raw := os.Getenv("CHAIN_FINALIZED_POLL_INTERVAL_MS"); raw != "" {
+		interval, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid CHAIN_FINALIZED_POLL_INTERVAL_MS value %q: %w", raw, err)
+		}
+		cfg.Chain.FinalizedPollIntervalMs = interval
 	}
 	return nil
 }
