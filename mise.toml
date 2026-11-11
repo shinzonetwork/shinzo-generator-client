@@ -76,6 +76,16 @@ description = "Running the BSC replay test."
 extends = "test:replay"
 vars = { replay-test = "TestBSCReplayAcceptance" }
 
+[tasks.replay-fetch]
+description = "Fetch blocks for the replay test harness."
+usage = '''
+flag "--chain <chain>" help="Target chain" default="ethereum"
+flag "--network <network>" help="Target network" default="mainnet"
+flag "--from <from>" help="Start block" default="0"
+flag "--to <to>" help="End block" default="0"
+'''
+run="go run ./cmd/fetch_blocks --chain ${usage_chain} --network ${usage_network} --from ${usage_from} --to ${usage_to}"
+
 [task_templates."test:live"]
 vars = { chain = "", timeout="20s" }  
 run = "go test -tags=live -v ./integration/live/{{ vars.chain }} -count=1 -timeout={{ vars.timeout }}"
