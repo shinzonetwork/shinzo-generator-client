@@ -1,9 +1,11 @@
 [tool_alias]
 deadcode = "go:golang.org/x/tools/cmd/deadcode"
 govulncheck = "go:golang.org/x/vuln/cmd/govulncheck"
+goimports = "go:golang.org/x/tools/cmd/goimports"
 
 [tools]
 go = "1.27.3"
+goimports = "0.52.0"
 golangci-lint = "2.15.0"
 gotestsum = "1.13.0"
 govulncheck = "1.9.0"
@@ -17,6 +19,13 @@ _.file = ".env"
 VERSION = "{{ exec(command='git describe --tags --always --dirty 2>/dev/null || echo dev') }}"
 
 # Code quality tasks & templates
+[tasks.format]
+description = "Formatting code and imports."
+run = [
+    "gofmt -s -w .", 
+    "goimports -w -local github.com/shinzonetwork/shinzo-generator-client ." 
+]
+    
 [task_templates."go:lint"]
 description = "Linting check for the codebase."
 vars = { flag= "" }
@@ -36,7 +45,7 @@ run = "govulncheck ./..."
 
 [tasks.inspect]
 description = "Running all code quality and dependencies vulnerability checks."
-depends = ["lint"]
+depends = ["format", "lint"]
 run = [
    # Sequential tasks
    { tasks = ["scripts/check_loc.sh", "scripts/check_deadcode.sh"] },  # Parallel tasks
