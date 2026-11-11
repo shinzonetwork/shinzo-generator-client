@@ -36,17 +36,22 @@ const (
 	methodGetBlockByNumber      = "eth_getBlockByNumber"
 	methodGetBlockReceipts      = "eth_getBlockReceipts"
 	methodGetTransactionReceipt = "eth_getTransactionReceipt"
+	methodChainID               = "eth_chainId"
+	methodGetProof              = "eth_getProof"
 )
 
 // blockFixture is one captured block with its receipts, loaded from a chain's
 // testdata folder. blockRaw and receiptsRaw keep the captured wire shape
 // verbatim so served responses carry the same payload a real node returns.
+// proofRaw is the block's eth_getProof answer, present only for a block a
+// tokens-mode case captures supply at.
 type blockFixture struct {
 	height         int64
 	hash           string
 	blockRaw       json.RawMessage
 	receiptsRaw    json.RawMessage
 	receiptsByHash map[string]json.RawMessage
+	proofRaw       json.RawMessage
 }
 
 // loadChainFixtures loads every block fixture (with its receipts twin) from a
@@ -95,12 +100,19 @@ func loadBlockFixture(t *testing.T, chainDir, stem string) *blockFixture {
 	receiptsByHash, err := decodeReceipts(receiptsRaw)
 	require.NoError(t, err, "receipts fixture %s: not a receipt array", stem)
 
+	var proofRaw json.RawMessage
+	proofPath := filepath.Join(chainDir, "testdata", "proofs", stem+".json")
+	if _, err := os.Stat(proofPath); err == nil {
+		proofRaw = loadFixtureResult(t, proofPath)
+	}
+
 	return &blockFixture{
 		height:         height,
 		hash:           strings.ToLower(meta.Hash),
 		blockRaw:       blockRaw,
 		receiptsRaw:    receiptsRaw,
 		receiptsByHash: receiptsByHash,
+		proofRaw:       proofRaw,
 	}
 }
 
@@ -146,26 +158,28 @@ func decodeReceipts(raw json.RawMessage) (map[string]json.RawMessage, error) {
 }
 
 // fixtureRPCServer replays captured fixtures over JSON-RPC: block bodies are
-// addressed by the requested hex height, receipts by the block's content
-// hash, mirroring how the real endpoints are addressed. failBatchReceipts
+// addressed by the requested hex height, receipts and proofs by the block's
+// content hash, mirroring how the real endpoints are addressed. failBatchReceipts
 // makes every eth_getBlockReceipts call fail: with a healthy fixture the
 // batch call always succeeds, so the per-tx eth_getTransactionReceipt
-// fallback the fetcher degrades to would never run without the flag.
+// fallback the fetcher degrades to would never run without the flag. chainID
+// is the eth_chainId answer a connecting fetcher checks.
 type fixtureRPCServer struct {
 	*httptest.Server
 	byHeight          map[int64]*blockFixture
 	byHash            map[string]*blockFixture
 	failBatchReceipts bool
+	chainID           uint64
 }
 
-func newFixtureRPCServer(fixtures []*blockFixture, failBatchReceipts bool) *fixtureRPCServer {
+func newFixtureRPCServer(fixtures []*blockFixture, failBatchReceipts bool, chainID uint64) *fixtureRPCServer {
 	byHeight := make(map[int64]*blockFixture, len(fixtures))
 	byHash := make(map[string]*blockFixture, len(fixtures))
 	for _, fixture := range fixtures {
 		byHeight[fixture.height] = fixture
 		byHash[fixture.hash] = fixture
 	}
-	s := &fixtureRPCServer{byHeight: byHeight, byHash: byHash, failBatchReceipts: failBatchReceipts}
+	s := &fixtureRPCServer{byHeight: byHeight, byHash: byHash, failBatchReceipts: failBatchReceipts, chainID: chainID}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
 	return s
 }
@@ -207,6 +221,9 @@ func (s *fixtureRPCServer) handle(w http.ResponseWriter, r *http.Request) {
 
 // serve resolves one RPC method against the captured fixtures.
 func (s *fixtureRPCServer) serve(method string, params json.RawMessage) (json.RawMessage, error) {
+	if method == methodChainID {
+		return json.Marshal(fmt.Sprintf("0x%x", s.chainID))
+	}
 	var args []json.RawMessage
 	if err := json.Unmarshal(params, &args); err != nil || len(args) == 0 {
 		return nil, fmt.Errorf("malformed params for %s", method)
@@ -261,6 +278,36 @@ func (s *fixtureRPCServer) serve(method string, params json.RawMessage) (json.Ra
 		}
 		return nil, fmt.Errorf("no fixture receipt captured for transaction %s", txHash)
 
+	case methodGetProof:
+		// The block selector is the object form a by-hash request takes:
+		// {"blockHash": ..., "requireCanonical": true}.
+		var account string
+		var slots []string
+		var block struct {
+			BlockHash string `json:"blockHash"`
+		}
+		if len(args) != 3 || json.Unmarshal(args[0], &account) != nil || json.Unmarshal(args[1], &slots) != nil ||
+			json.Unmarshal(args[2], &block) != nil {
+			return nil, fmt.Errorf("%s: expected an account, a slot list and a block hash selector", method)
+		}
+		fixture, ok := s.byHash[strings.ToLower(block.BlockHash)]
+		if !ok || fixture.proofRaw == nil {
+			return nil, fmt.Errorf("no proof captured for block hash %s", block.BlockHash)
+		}
+		var captured struct {
+			Address      string `json:"address"`
+			StorageProof []struct {
+				Key string `json:"key"`
+			} `json:"storageProof"`
+		}
+		if err := json.Unmarshal(fixture.proofRaw, &captured); err != nil {
+			return nil, fmt.Errorf("proof fixture for block %d: %w", fixture.height, err)
+		}
+		if !strings.EqualFold(account, captured.Address) || len(slots) != len(captured.StorageProof) {
+			return nil, fmt.Errorf("proof fixture for block %d covers %s, not %s with %v", fixture.height, captured.Address, account, slots)
+		}
+		return fixture.proofRaw, nil
+
 	default:
 		return nil, fmt.Errorf("unexpected RPC method %q: the golden flow only exercises block and receipt fetches", method)
 	}
@@ -275,6 +322,30 @@ type collectionFields struct {
 	name   string
 	column func(*evm.CollectionNames) string
 	fields []string
+}
+
+// tokenCollections are the tables a tokens-mode case freezes.
+var tokenCollections = []collectionFields{
+	{
+		name:   "header",
+		column: func(n *evm.CollectionNames) string { return n.Header },
+		fields: []string{"number", "hash", "parentHash", "timestamp", "raw"},
+	},
+	{
+		name:   "evidence",
+		column: func(n *evm.CollectionNames) string { return n.Evidence },
+		fields: []string{"blockNumber", "blockHash", "asset", "records", "proof"},
+	},
+	{
+		name:   "stateCapture",
+		column: func(n *evm.CollectionNames) string { return n.StateCapture },
+		fields: []string{"blockNumber", "blockHash", "asset", "value", "proof"},
+	},
+	{
+		name:   "blockAttestation",
+		column: func(n *evm.CollectionNames) string { return n.BlockAttestation },
+		fields: []string{"blockNumber", "blockHash", "statement", "signatureType", "signer", "signature"},
+	},
 }
 
 var goldenCollections = []collectionFields{
