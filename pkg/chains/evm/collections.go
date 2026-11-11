@@ -3,6 +3,7 @@ package evm
 import (
 	"fmt"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
@@ -26,10 +27,13 @@ const (
 // It implements chains.Collections for the generic schema loader and future
 // generic BlockHandler.
 //
+// In tokens mode only Header, Evidence, StateCapture and BlockAttestation are
+// set. Header takes Block's place as the table the chain's heights are read
+// from, and BlockAttestation takes BlockSignature's.
+//
 // Every collection except SnapshotSignature must declare an @index on its
-// block-number field (number on Block, blockNumber elsewhere): the pruner
-// orders and filters by it, and GetDocIDsByBlockRange queries it. Enforced by
-// pruner.TestSchemaIndexesBlockNumberField.
+// block-number field (number on Block and Header, blockNumber elsewhere): the
+// pruner orders and filters by it, and GetDocIDsByBlockRange queries it.
 type CollectionNames struct {
 	prefix            string
 	Block             string
@@ -38,6 +42,11 @@ type CollectionNames struct {
 	Transaction       string
 	AccessListEntry   string
 	Log               string
+
+	Header           string
+	Evidence         string
+	StateCapture     string
+	BlockAttestation string
 }
 
 // Compile-time guarantee that CollectionNames implements chains.Collections.
@@ -57,6 +66,36 @@ func NewCollectionNames(prefix string) *CollectionNames {
 	}
 }
 
+// NewTokenCollectionNames creates the tokens-mode collection names: Header,
+// Evidence, StateCapture and BlockAttestation.
+func NewTokenCollectionNames(prefix string) *CollectionNames {
+	return &CollectionNames{
+		prefix:           prefix,
+		Header:           fmt.Sprintf("%s__Header", prefix),
+		Evidence:         fmt.Sprintf("%s__Evidence", prefix),
+		StateCapture:     fmt.Sprintf("%s__StateCapture", prefix),
+		BlockAttestation: fmt.Sprintf("%s__BlockAttestation", prefix),
+	}
+}
+
+// collectionNamesFromConfig returns the collection names for cfg's chain and
+// mode. It returns config.ErrChainUnset when cfg names no chain.
+func collectionNamesFromConfig(cfg *config.Config) (*CollectionNames, error) {
+	prefix, err := chainPrefixFromConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Chain.Mode == config.ChainModeTokens {
+		return NewTokenCollectionNames(prefix), nil
+	}
+	return NewCollectionNames(prefix), nil
+}
+
+// tokenMode reports whether the names are tokens-mode names.
+func (c *CollectionNames) tokenMode() bool {
+	return c.Header != ""
+}
+
 // Prefix returns the chain prefix (e.g. "Ethereum__Mainnet").
 func (c *CollectionNames) Prefix() string {
 	return c.prefix
@@ -64,6 +103,9 @@ func (c *CollectionNames) Prefix() string {
 
 // AllCollections returns all collection names as a slice in P2P filter order.
 func (c *CollectionNames) AllCollections() []string {
+	if c.tokenMode() {
+		return []string{c.Header, c.Evidence, c.StateCapture, c.BlockAttestation}
+	}
 	return []string{
 		c.Block,
 		c.BlockSignature,
@@ -75,20 +117,28 @@ func (c *CollectionNames) AllCollections() []string {
 }
 
 // BlockCollection implements chains.Collections. It returns the collection
-// name that stores block documents.
+// name that stores block documents: Header in tokens mode, Block otherwise.
 func (c *CollectionNames) BlockCollection() string {
+	if c.tokenMode() {
+		return c.Header
+	}
 	return c.Block
 }
 
 // SnapshotSignatureCollection implements chains.Collections. It returns the
-// collection name that stores snapshot signature documents.
+// collection name that stores snapshot signature documents, empty in tokens
+// mode, which has no snapshots.
 func (c *CollectionNames) SnapshotSignatureCollection() string {
 	return c.SnapshotSignature
 }
 
 // BlockSignatureCollection implements chains.Collections. It returns the
-// collection name that stores block signature documents.
+// collection name that stores block signature documents: BlockAttestation in
+// tokens mode, BlockSignature otherwise.
 func (c *CollectionNames) BlockSignatureCollection() string {
+	if c.tokenMode() {
+		return c.BlockAttestation
+	}
 	return c.BlockSignature
 }
 

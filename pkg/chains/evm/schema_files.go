@@ -41,6 +41,10 @@ const (
 	transactionCollectionFile       = "transaction.graphql"
 	accessListEntryCollectionFile   = "accessListEntry.graphql"
 	logCollectionFile               = "log.graphql"
+	headerCollectionFile            = "header.graphql"
+	evidenceCollectionFile          = "evidence.graphql"
+	stateCaptureCollectionFile      = "stateCapture.graphql"
+	blockAttestationCollectionFile  = "blockAttestation.graphql"
 
 	blockCollectionStem             = "block"
 	blockSignatureCollectionStem    = "blockSignature"
@@ -48,6 +52,10 @@ const (
 	transactionCollectionStem       = "transaction"
 	accessListEntryCollectionStem   = "accessListEntry"
 	logCollectionStem               = "log"
+	headerCollectionStem            = "header"
+	evidenceCollectionStem          = "evidence"
+	stateCaptureCollectionStem      = "stateCapture"
+	blockAttestationCollectionStem  = "blockAttestation"
 )
 
 // CollectionFiles implements chains.Collections. It returns the collection
@@ -63,6 +71,14 @@ func (c *CollectionNames) CollectionFiles() ([]chains.CollectionFile, error) {
 		{c.Transaction, transactionCollectionStem, transactionCollectionFile},
 		{c.AccessListEntry, accessListEntryCollectionStem, accessListEntryCollectionFile},
 		{c.Log, logCollectionStem, logCollectionFile},
+	}
+	if c.tokenMode() {
+		specs = []collectionSpec{
+			{c.Header, headerCollectionStem, headerCollectionFile},
+			{c.Evidence, evidenceCollectionStem, evidenceCollectionFile},
+			{c.StateCapture, stateCaptureCollectionStem, stateCaptureCollectionFile},
+			{c.BlockAttestation, blockAttestationCollectionStem, blockAttestationCollectionFile},
+		}
 	}
 
 	files := make([]chains.CollectionFile, 0, len(specs))

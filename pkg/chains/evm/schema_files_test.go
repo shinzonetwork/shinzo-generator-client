@@ -141,3 +141,21 @@ func TestMergedSDL_DefaultPrefixByteIdentity(t *testing.T) {
 	}
 	assert.Equal(t, strings.Join(raws, "\n\n"), merged)
 }
+
+func TestCollectionFiles_TokenMode(t *testing.T) {
+	t.Parallel()
+	c := NewTokenCollectionNames("Bsc__Mainnet")
+
+	files, err := c.CollectionFiles()
+	require.NoError(t, err)
+
+	var typeNames, stems []string
+	for _, f := range files {
+		typeNames = append(typeNames, f.TypeName)
+		stems = append(stems, f.Name)
+		assert.Contains(t, f.SDL, "type "+f.TypeName+" {")
+		assert.NotContains(t, f.SDL, DefaultCollectionPrefix)
+	}
+	assert.Equal(t, c.AllCollections(), typeNames)
+	assert.Equal(t, []string{"header", "evidence", "stateCapture", "blockAttestation"}, stems)
+}

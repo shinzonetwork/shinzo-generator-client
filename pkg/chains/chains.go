@@ -93,8 +93,9 @@ type Collections interface {
 	// or silently skipped entry.
 	CollectionFiles() ([]CollectionFile, error)
 
-	// BlockCollection returns the collection name that stores block documents
-	// (the chain prefix suffixed with "__Block").
+	// BlockCollection returns the collection name that stores one document per
+	// block, holding its number and hash (for EVM chains "<prefix>__Block", or
+	// "<prefix>__Header" in tokens mode).
 	BlockCollection() string
 
 	// BlockSignatureCollection returns the collection name that stores block
@@ -103,7 +104,7 @@ type Collections interface {
 
 	// SnapshotSignatureCollection returns the collection name that stores
 	// snapshot signature documents (the chain prefix suffixed with
-	// "__SnapshotSignature").
+	// "__SnapshotSignature"), or "" when the chain has no snapshots.
 	SnapshotSignatureCollection() string
 }
 
