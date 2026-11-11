@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	codecevm "github.com/shinzonetwork/shinzo-evidence-codec/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"gopkg.in/yaml.v3"
 )
@@ -32,6 +33,9 @@ var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
 // ErrInvalidChainMode is returned for a chain.mode the generator does not run.
 var ErrInvalidChainMode = errors.New("unsupported chain.mode")
 
+// ErrNoTokens is returned in tokens mode when chain.tokens lists no token.
+var ErrNoTokens = errors.New("chain.tokens must list at least one token in tokens mode")
+
 // ErrTokenKeyInFullMode is returned, wrapped with the key's name, when full mode sets a key that only
 // tokens mode reads.
 var ErrTokenKeyInFullMode = errors.New("only tokens mode takes this key")
@@ -39,12 +43,37 @@ var ErrTokenKeyInFullMode = errors.New("only tokens mode takes this key")
 // ErrInvalidContractAddress is returned for a token address that is not 20 bytes of hex.
 var ErrInvalidContractAddress = errors.New("chain.tokens addresses must be 20 bytes of hex")
 
+// ErrDuplicateToken is returned in tokens mode when chain.tokens lists one address twice, in either
+// letter case, with or without 0x.
+var ErrDuplicateToken = errors.New("chain.tokens lists a token twice")
+
+// ErrInvalidSupplySlot is returned for a token whose supply_slot is not a 0x-prefixed hex storage slot
+// of at most 32 bytes.
+var ErrInvalidSupplySlot = errors.New("chain.tokens supply_slot must be a 0x-prefixed hex storage slot of at most 32 bytes")
+
+// ErrInvalidStateCaptureInterval is returned in tokens mode when chain.state_capture_interval is below 1.
+var ErrInvalidStateCaptureInterval = errors.New("chain.state_capture_interval must be at least 1 in tokens mode")
+
+// ErrInvalidFinalizedPollInterval is returned in tokens mode when chain.finalized_poll_interval_ms is
+// negative.
+var ErrInvalidFinalizedPollInterval = errors.New("chain.finalized_poll_interval_ms must not be negative in tokens mode")
+
 // ErrInvalidChainTokensEnv is returned for a CHAIN_TOKENS entry that is not address:supply_slot.
 var ErrInvalidChainTokensEnv = errors.New("CHAIN_TOKENS entries must be address:supply_slot")
 
-// Chain modes. Full mode indexes every block, transaction, log and access-list entry. Tokens mode is
-// the mode chain.tokens, chain.state_capture_interval and chain.finalized_poll_interval_ms configure;
-// validateChainMode refuses it.
+// ErrSnapshotsInTokensMode is returned when snapshots are enabled in tokens mode, whose schema has
+// no SnapshotSignature table to sign them in.
+var ErrSnapshotsInTokensMode = errors.New("snapshot.enabled must be false in tokens mode")
+
+// ErrAcceptIncomingInTokensMode is returned when defradb.p2p.accept_incoming is true in tokens mode.
+// Another generator's Header for a block has the same document ID as this generator's, so a
+// replicated one would be taken as stored and leave the height without this generator's attestation.
+var ErrAcceptIncomingInTokensMode = errors.New("defradb.p2p.accept_incoming must be false in tokens mode")
+
+// Chain modes. Full mode indexes every block, transaction, log and access-list entry. Tokens mode
+// stores, per block, the raw header, each listed token's transactions and receipts with their proof
+// (Evidence), the tokens' total supplies every chain.state_capture_interval blocks (StateCapture),
+// and the block's signed statement (BlockAttestation).
 const (
 	ChainModeFull   = "full"
 	ChainModeTokens = "tokens"
@@ -55,10 +84,13 @@ const (
 // lets the query skip purge residue with a missing or unparsable number.
 const DefaultLowestBlockQueryLimit = 1
 
+// DevVersion is Version in a build made without version injection.
+const DevVersion = "dev"
+
 // Version is the generator version, for example "v0.7.0-ethereum-mainnet",
 // set at build time via -ldflags (see the Makefile build target and the
-// Dockerfile builder stage); "dev" when built without injection.
-var Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
+// Dockerfile builder stage); DevVersion when built without injection.
+var Version = DevVersion //nolint:gochecknoglobals // set at build time via -ldflags
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -349,6 +381,12 @@ func validateConfig(cfg *Config) error {
 	if err := validateChainMode(cfg.Chain); err != nil {
 		return err
 	}
+	if cfg.Chain.Mode == ChainModeTokens && cfg.Snapshot.Enabled {
+		return ErrSnapshotsInTokensMode
+	}
+	if cfg.Chain.Mode == ChainModeTokens && cfg.DefraDB.P2P.AcceptIncoming {
+		return ErrAcceptIncomingInTokensMode
+	}
 
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
@@ -414,6 +452,30 @@ func validateChainMode(c ChainConfig) error {
 		}
 		if c.FinalizedPollIntervalMs != 0 {
 			return fmt.Errorf("chain.finalized_poll_interval_ms: %w", ErrTokenKeyInFullMode)
+		}
+	case ChainModeTokens:
+		if len(c.Tokens) == 0 {
+			return ErrNoTokens
+		}
+		seen := make(map[string]bool, len(c.Tokens))
+		for _, t := range c.Tokens {
+			addr, err := ContractAddress(t.Address)
+			if err != nil {
+				return err
+			}
+			if seen[addr] {
+				return fmt.Errorf("%w: %q", ErrDuplicateToken, t.Address)
+			}
+			seen[addr] = true
+			if _, err := codecevm.ParseStorageKey(t.SupplySlot); err != nil {
+				return fmt.Errorf("%w: token %s: %w", ErrInvalidSupplySlot, t.Address, err)
+			}
+		}
+		if c.StateCaptureInterval < 1 {
+			return fmt.Errorf("%w: got %d", ErrInvalidStateCaptureInterval, c.StateCaptureInterval)
+		}
+		if c.FinalizedPollIntervalMs < 0 {
+			return fmt.Errorf("%w: got %d", ErrInvalidFinalizedPollInterval, c.FinalizedPollIntervalMs)
 		}
 	default:
 		return fmt.Errorf("%w: got %q", ErrInvalidChainMode, c.Mode)

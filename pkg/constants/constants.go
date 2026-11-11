@@ -52,6 +52,15 @@ const (
 
 	// CreatedAtFieldName is the field carrying the signing timestamp.
 	CreatedAtFieldName = "createdAt"
+
+	// StatementFieldName is the block attestation field holding the encoded statement.
+	StatementFieldName = "statement"
+
+	// SignerFieldName is the block attestation field holding the signer's public key.
+	SignerFieldName = "signer"
+
+	// SignatureFieldName is the block attestation field holding the signature over the statement.
+	SignatureFieldName = "signature"
 )
 
 // Block-document field names the generator and the host must agree on.

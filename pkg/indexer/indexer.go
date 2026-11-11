@@ -45,6 +45,9 @@ var (
 	// dispatch can store above an unstored one, so a restart could take a never-stored height for a
 	// pruned one.
 	ErrRetentionBelowDispatch = errors.New("pruner.max_blocks must cover the heights dispatched ahead in tokens mode")
+	// ErrDevBuildInTokensMode is returned when tokens mode starts on a build without a version: every
+	// block attestation names the generator version that made it.
+	ErrDevBuildInTokensMode = errors.New("tokens mode needs a build with a version injected")
 	// ErrReorgStopped is returned when a processor set to stop on reorgs detects one. Tokens mode
 	// stops instead of rolling back: it dispatches finalized heights only, and DefraDB refuses to
 	// re-add a soft-deleted document ID, so a rolled-back height whose documents come back unchanged
@@ -271,6 +274,9 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	if cfg == nil {
 		return fmt.Errorf("configuration is required - use config.LoadConfig() to load configuration")
 	}
+	if err := checkTokensBuild(cfg.Chain.Mode, config.Version); err != nil {
+		return err
+	}
 
 	cfg.DefraDB.P2P.BootstrapPeers = append(cfg.DefraDB.P2P.BootstrapPeers, []string{
 		// Add any "big peers" here to speed up peer discovery.
@@ -379,8 +385,12 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 			return ctx, err
 		}
 
-		// Get the identity context for block signing
+		// Get the identity context for block signing. Tokens mode cannot store a block without
+		// signing its attestation, so it does not start without one.
 		identityCtx, err := defradb.GetIdentityContext(ctx, cfg)
+		if err != nil && cfg.Chain.Mode == config.ChainModeTokens {
+			return ctx, fmt.Errorf("get identity context for block attestations: %w", err)
+		}
 		if err != nil {
 			logger.Sugar.Warnf("Failed to get identity context for block signing: %v (block signatures may not work)", err)
 		} else {
@@ -473,6 +483,14 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	}
 
 	return int64(cfg.Indexer.StartHeight), nil
+}
+
+// checkTokensBuild refuses tokens mode on a build whose version is config.DevVersion.
+func checkTokensBuild(mode, version string) error {
+	if mode == config.ChainModeTokens && version == config.DevVersion {
+		return ErrDevBuildInTokensMode
+	}
+	return nil
 }
 
 // lowestMissing returns the lowest height at or above from that is not in

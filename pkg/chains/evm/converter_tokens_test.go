@@ -71,6 +71,7 @@ func TestConvert_TokenMode(t *testing.T) {
 	result, err := c.Convert(context.Background(), bundle)
 	require.NoError(t, err)
 	assert.Equal(t, "Bsc__Mainnet__BlockAttestation", result.SignatureCollection)
+	assert.True(t, result.BlockLast)
 	require.Len(t, result.Groups, 3)
 	assert.Equal(t, "Bsc__Mainnet__Header", result.Groups[0].Collection)
 	assert.Equal(t, header.Hash().Hex(), result.Groups[0].Docs[0][constants.HashFieldName])

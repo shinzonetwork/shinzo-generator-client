@@ -373,10 +373,11 @@ func NewConcurrentBlockProcessor(
 // is held back, waits for the new chain to confirm during the episode
 // procedure, walks back by hash to the fork point, and hands the orphan
 // range to the rollback below. Rollback failure, walk-back failure,
-// rollback-loop guard trips, and a re-store refused because a soft-deleted
-// content-derived docID cannot be re-added are all fatal: the run stops
-// loudly instead of leaving silently un-indexable heights behind. With
-// StopOnReorg a detected reorg is fatal too, and nothing is rolled back.
+// rollback-loop guard trips, a re-store refused because a soft-deleted
+// content-derived docID cannot be re-added, and a block stored block-last
+// finding another header at its height stop the run, because retrying cannot
+// store the height. With StopOnReorg a detected reorg stops the run too, and
+// nothing is rolled back.
 //
 // The onBlockProcessed callback contract: it fires exactly once per
 // successfully committed height, in strict height order, always on one
@@ -985,6 +986,10 @@ func (p *ConcurrentBlockProcessor) applyOneCompletion(ctx context.Context, compl
 		if errors.IsErrDocumentDeleted(computed.Error) {
 			p.failRun(fmt.Errorf("block %d store refused: %w (a soft-deleted content-derived docID cannot be re-added; the deleted documents must be hard-purged by the pruner before this height can be re-indexed; indexing stopped)", //nolint:err113
 				item.BlockNum, computed.Error))
+			return
+		}
+		if stderrors.Is(computed.Error, defra.ErrStoredHeaderDiffers) {
+			p.failRun(fmt.Errorf("block %d store refused: %w (the store holds another block at this height; indexing stopped)", item.BlockNum, computed.Error))
 			return
 		}
 		logger.Sugar.Warnf("Block %d failed: %v", item.BlockNum, computed.Error)
@@ -1700,7 +1705,9 @@ func (p *ConcurrentBlockProcessor) resolveForkPoint(ctx context.Context, startHe
 // the routine idempotent path - a fire-and-forget SignExisting goroutine and
 // success - since content-derived dockeys can only collide on byte-identical
 // content (the differing-content stale-stored case the old backstop targeted
-// is covered by the seed and gap-fallback continuity rules instead).
+// is covered by the seed and gap-fallback continuity rules instead). For a
+// block stored block-last only defra.ErrHeaderStored is success, and the block
+// is not signed again, since its attestation was committed with it.
 func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum int64, result chains.ConversionResult) *BlockResult {
 	blockHash := extractBlockHash(result.Groups)
 
@@ -1720,7 +1727,10 @@ func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum 
 			return &BlockResult{BlockNum: blockNum, BlockID: res.BlockID, Hash: blockHash, Success: true}
 		}
 
-		if errors.IsErrAlreadyExists(err) {
+		if result.BlockLast && stderrors.Is(err, defra.ErrHeaderStored) {
+			return &BlockResult{BlockNum: blockNum, Hash: blockHash, Success: true}
+		}
+		if !result.BlockLast && errors.IsErrAlreadyExists(err) {
 			p.signWg.Go(func() {
 				if _, sErr := p.blockHandler.SignExisting(ctx, result, blockHash, blockNum); sErr != nil {
 					logger.Sugar.Warnf("Block %d: failed to create block signature for existing block: %v", blockNum, sErr)

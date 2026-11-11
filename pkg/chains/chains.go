@@ -276,6 +276,10 @@ type ConversionResult struct {
 	Groups              []DocumentGroup
 	SignatureCollection string
 	LinkStamper         LinkStamper
+	// BlockLast asks BlockHandler.Store to write the other groups first and the block document
+	// last, in one transaction with the block's attestation, so a stored block document always
+	// means a complete, attested block. Only for groups that do not link to the block document.
+	BlockLast bool
 	// Statement is, in tokens mode, the block's statement in the codec's encoding.
 	Statement []byte
 }

@@ -88,16 +88,27 @@ func TestValidateConfig_ChainMode(t *testing.T) {
 		interval  int64
 		pollMs    int64
 		snapshots bool
+		incoming  bool
 		wantErr   error
 	}{
 		{name: "full by default", mode: ""},
 		{name: "full", mode: ChainModeFull},
-		{name: "tokens mode is not accepted", mode: ChainModeTokens, tokens: []Token{usd1}, interval: 1, wantErr: ErrInvalidChainMode},
+		{name: "tokens", mode: ChainModeTokens, tokens: []Token{usd1, {Address: "8D0D000EE44948FC98C9B98A4FA4921476F08B0E", SupplySlot: "0x0"}}, interval: 1},
 		{name: "unknown mode", mode: "logs", wantErr: ErrInvalidChainMode},
+		{name: "tokens mode without tokens", mode: ChainModeTokens, interval: 1, wantErr: ErrNoTokens},
 		{name: "tokens in full mode", mode: ChainModeFull, tokens: []Token{usd1}, wantErr: ErrTokenKeyInFullMode},
 		{name: "state capture interval in full mode", mode: ChainModeFull, interval: 1, wantErr: ErrTokenKeyInFullMode},
 		{name: "finalized poll interval in full mode", mode: ChainModeFull, pollMs: 500, wantErr: ErrTokenKeyInFullMode},
+		{name: "invalid address", mode: ChainModeTokens, tokens: []Token{{Address: "0x8d0d", SupplySlot: "0x2"}}, interval: 1, wantErr: ErrInvalidContractAddress},
+		{name: "same address twice", mode: ChainModeTokens, tokens: []Token{usd1, {Address: "8D0D000EE44948FC98C9B98A4FA4921476F08B0D", SupplySlot: "0x3"}}, interval: 1, wantErr: ErrDuplicateToken},
+		{name: "token without a supply slot", mode: ChainModeTokens, tokens: []Token{{Address: usd1.Address}}, interval: 1, wantErr: ErrInvalidSupplySlot},
+		{name: "state capture interval below 1", mode: ChainModeTokens, tokens: []Token{usd1}, wantErr: ErrInvalidStateCaptureInterval},
+		{name: "finalized poll interval in tokens mode", mode: ChainModeTokens, tokens: []Token{usd1}, interval: 1, pollMs: 500},
+		{name: "finalized poll interval below 0", mode: ChainModeTokens, tokens: []Token{usd1}, interval: 1, pollMs: -1, wantErr: ErrInvalidFinalizedPollInterval},
 		{name: "snapshots in full mode", mode: ChainModeFull, snapshots: true},
+		{name: "snapshots in tokens mode", mode: ChainModeTokens, tokens: []Token{usd1}, interval: 1, snapshots: true, wantErr: ErrSnapshotsInTokensMode},
+		{name: "incoming documents in full mode", mode: ChainModeFull, incoming: true},
+		{name: "incoming documents in tokens mode", mode: ChainModeTokens, tokens: []Token{usd1}, interval: 1, incoming: true, wantErr: ErrAcceptIncomingInTokensMode},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -108,6 +119,7 @@ func TestValidateConfig_ChainMode(t *testing.T) {
 			cfg.Chain.StateCaptureInterval = tt.interval
 			cfg.Chain.FinalizedPollIntervalMs = tt.pollMs
 			cfg.Snapshot.Enabled = tt.snapshots
+			cfg.DefraDB.P2P.AcceptIncoming = tt.incoming
 			cfg.DefraDB.Embedded = true
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			require.ErrorIs(t, validateConfig(cfg), tt.wantErr)
@@ -140,6 +152,32 @@ func TestContractAddress(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// The tokens-mode keys load from YAML under the names config.yaml documents.
+func TestLoadConfig_TokensMode(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+chain:
+  name: "Bsc"
+  network: "Mainnet"
+  chain_id: 56
+  mode: "tokens"
+  tokens:
+    - address: "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"
+      supply_slot: "0x2"
+  state_capture_interval: 100
+  finalized_poll_interval_ms: 250
+defradb:
+  url: "http://localhost:9181"
+`), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, []Token{{Address: "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d", SupplySlot: "0x2"}}, cfg.Chain.Tokens)
+	require.Equal(t, int64(100), cfg.Chain.StateCaptureInterval)
+	require.Equal(t, int64(250), cfg.Chain.FinalizedPollIntervalMs)
 }
 
 func TestApplyChainEnvOverrides_Mode(t *testing.T) {
