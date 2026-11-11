@@ -52,8 +52,16 @@ func (p *ConcurrentBlockProcessor) stoppedForReorg(signal reorgSignal) bool {
 // cannot clear. It returns the last result.
 func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt func() *BlockResult) *BlockResult {
 	result := attempt()
+	height, failures := result.BlockNum, int64(0)
+	defer func() {
+		if failures > 0 {
+			p.recordRetry(ctx, height, 0)
+		}
+	}()
 	for p.retryFailedHeights && result.Error != nil && !errors.IsErrDocumentDeleted(result.Error) &&
 		!stderrors.Is(result.Error, defra.ErrStoredHeaderDiffers) && ctx.Err() == nil {
+		failures++
+		p.recordRetry(ctx, height, failures)
 		logger.Sugar.Warnf("Block %d failed, retrying in %v: %v", result.BlockNum, FailedHeightRetryDelay, result.Error)
 		select {
 		case <-ctx.Done():
@@ -63,6 +71,27 @@ func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt fun
 		result = attempt()
 	}
 	return result
+}
+
+// recordRetry notes that height has failed failures times and is being retried in place, or, with
+// failures 0, that it no longer is, and sets the retry gauges to the lowest such height and its
+// failures, or to 0 when no height is being retried.
+func (p *ConcurrentBlockProcessor) recordRetry(ctx context.Context, height, failures int64) {
+	p.retryMu.Lock()
+	defer p.retryMu.Unlock()
+	if failures == 0 {
+		delete(p.retrying, height)
+	} else {
+		p.retrying[height] = failures
+	}
+	var lowest, lowestFailures int64
+	for h, n := range p.retrying {
+		if lowest == 0 || h < lowest {
+			lowest, lowestFailures = h, n
+		}
+	}
+	p.metrics.retryHeight.Record(ctx, lowest)
+	p.metrics.retryFailures.Record(ctx, lowestFailures)
 }
 
 // waitForFinalized returns once the fetcher reports height as finalized, asking every

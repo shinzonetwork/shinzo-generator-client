@@ -16,6 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 )
@@ -93,25 +95,70 @@ func supplyFetcher(t *testing.T, p supplyProof, proofFn func(context.Context, co
 	return f
 }
 
+// countSupplyMetrics points f's supply counters at a test reader and returns a function that reads
+// them: proof attempts by result, and missed captures under "missed".
+func countSupplyMetrics(t *testing.T, f *Fetcher) func() map[string]int64 {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test")
+	var err error
+	f.supplyProofs, err = meter.Int64Counter("proofs")
+	require.NoError(t, err)
+	f.suppliesMissed, err = meter.Int64Counter("missed")
+	require.NoError(t, err)
+	return func() map[string]int64 {
+		var rm metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(t.Context(), &rm))
+		counts := map[string]int64{}
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				require.True(t, ok)
+				for _, dp := range sum.DataPoints {
+					key := m.Name
+					if result, ok := dp.Attributes.Value("result"); ok {
+						key = result.AsString()
+					}
+					counts[key] += dp.Value
+				}
+			}
+		}
+		return counts
+	}
+}
+
 // At a capture height each listed token's supply proof is asked for by block hash and checked
 // against the header's state root. A token that fails captureAttempts times is left out of the
-// block.
+// block. Each attempt is counted by result, and a token left out as missed.
 func TestFetcher_CaptureSupply(t *testing.T) {
 	t.Parallel()
 	p := loadSupplyProof(t)
 	supply, ok := new(big.Int).SetString(strings.TrimPrefix(p.TotalSupply, "0x"), 16)
 	require.True(t, ok)
 	tests := []struct {
-		name      string
-		stateRoot common.Hash
-		failFirst int
-		wantCalls int
-		wantValue *big.Int
+		name       string
+		stateRoot  common.Hash
+		failFirst  int
+		wantCalls  int
+		wantValue  *big.Int
+		wantCounts map[string]int64
 	}{
-		{name: "proof verifies", stateRoot: p.StateRoot, wantCalls: 1, wantValue: supply},
-		{name: "second attempt verifies", stateRoot: p.StateRoot, failFirst: 1, wantCalls: 2, wantValue: supply},
-		{name: "every attempt fails", stateRoot: p.StateRoot, failFirst: captureAttempts, wantCalls: captureAttempts},
-		{name: "proof of another state root", stateRoot: common.Hash{1}, wantCalls: captureAttempts},
+		{
+			name: "proof verifies", stateRoot: p.StateRoot, wantCalls: 1, wantValue: supply,
+			wantCounts: map[string]int64{"verified": 1},
+		},
+		{
+			name: "second attempt verifies", stateRoot: p.StateRoot, failFirst: 1, wantCalls: 2, wantValue: supply,
+			wantCounts: map[string]int64{"rpc_error": 1, "verified": 1},
+		},
+		{
+			name: "every attempt fails", stateRoot: p.StateRoot, failFirst: captureAttempts, wantCalls: captureAttempts,
+			wantCounts: map[string]int64{"rpc_error": captureAttempts, "missed": 1},
+		},
+		{
+			name: "proof of another state root", stateRoot: common.Hash{1}, wantCalls: captureAttempts,
+			wantCounts: map[string]int64{"invalid_proof": captureAttempts, "missed": 1},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -127,11 +174,13 @@ func TestFetcher_CaptureSupply(t *testing.T) {
 				}
 				return p.Proof, nil
 			})
+			counts := countSupplyMetrics(t, f)
 			block := &Block{Hash: p.BlockHash, Header: &ethtypes.Header{Root: tt.stateRoot}}
 
 			captures, err := f.captureSupply(context.Background(), 26307825, block)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCalls, calls)
+			assert.Equal(t, tt.wantCounts, counts())
 			if tt.wantValue == nil {
 				assert.Empty(t, captures)
 				return
@@ -147,7 +196,7 @@ func TestFetcher_CaptureSupply(t *testing.T) {
 }
 
 // A capture cut short by a stopping generator fails the fetch, so FetchBlock does not return the
-// block without a capture it could have made.
+// block without a capture it could have made. The interrupted attempt is not counted.
 func TestFetcher_CaptureSupplyStops(t *testing.T) {
 	t.Parallel()
 	p := loadSupplyProof(t)
@@ -156,8 +205,10 @@ func TestFetcher_CaptureSupplyStops(t *testing.T) {
 		cancel()
 		return codecevm.AccountProof{}, context.Canceled
 	})
+	counts := countSupplyMetrics(t, f)
 	_, err := f.captureSupply(ctx, 26307825, &Block{Hash: p.BlockHash, Header: &ethtypes.Header{Root: p.StateRoot}})
 	require.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, counts())
 }
 
 // FetchBlock captures supply only at multiples of the capture interval.
