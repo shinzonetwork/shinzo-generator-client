@@ -31,6 +31,11 @@ const (
 	// head, so the interval bounds how far dispatch trails it.
 	FinalizedPollInterval = time.Second
 
+	// FailedHeightRetryDelay is the wait before a failed height is fetched or stored again when
+	// failed heights are retried in place. A failed fetch has by then been tried MaxRPCRetries times,
+	// with RPCErrorRetryBaseDelay backoff between tries, so this delay adds to that backoff.
+	FailedHeightRetryDelay = time.Second
+
 	// transactionConflictRetryBaseDelay is the base delay for retrying
 	// transaction conflicts on store.
 	transactionConflictRetryBaseDelay = 50 * time.Millisecond
@@ -215,6 +220,10 @@ type ConcurrentBlockProcessor struct {
 	finalizedOnly bool
 	finalizedPoll time.Duration
 	finalized     int64
+
+	// retryFailedHeights retries a height whose fetch, convert or store failed until it succeeds,
+	// instead of leaving it unstored.
+	retryFailedHeights bool
 
 	// bounded store pool: the collector never calls Store. Fetch/convert
 	// workers hand checked results to storeChan, pool goroutines run
@@ -592,7 +601,7 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 	for range p.workers {
 		wg.Go(func() {
 			for blockNum := range workChan {
-				result := p.fetchAndConvertBlock(ctx, blockNum)
+				result := p.retryInPlace(ctx, func() *BlockResult { return p.fetchAndConvertBlock(ctx, blockNum) })
 				select {
 				case p.resultChan <- result:
 				case <-ctx.Done():
@@ -625,7 +634,7 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 // completion back to the collector's ordered apply. It runs only on pool
 // goroutines - the collector never stores.
 func (p *ConcurrentBlockProcessor) runStoreTask(ctx context.Context, item *BlockResult) {
-	computed := p.storeWithRetry(ctx, item.BlockNum, item.Converted)
+	computed := p.retryInPlace(ctx, func() *BlockResult { return p.storeWithRetry(ctx, item.BlockNum, item.Converted) })
 	completion := storeCompletion{item: item, computed: computed}
 	if computed.Error != nil && !errors.IsErrDocumentDeleted(computed.Error) && p.reorgHandler != nil {
 		completion.stale = p.detectStaleOrphan(ctx, item)

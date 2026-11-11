@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -12,6 +13,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newTokensModeIndexer returns a tokens-mode indexer over fetcher, with a test DefraDB.
+func newTokensModeIndexer(t *testing.T, fetcher *testutils.MockFetcher) *ChainIndexer {
+	t.Helper()
+	td := testutils.SetupTestDefraDB(t)
+	converter := chainConverter()
+	handler, err := defra.NewBlockHandler(td.Node, 1000)
+	require.NoError(t, err)
+	return &ChainIndexer{
+		cfg: &config.Config{
+			Chain:   config.ChainConfig{Mode: config.ChainModeTokens},
+			Indexer: config.IndexerConfig{ConcurrentBlocks: 2},
+		},
+		fetcher:      fetcher,
+		converter:    converter,
+		blockHandler: handler,
+		defraNode:    td.Node,
+	}
+}
 
 // In tokens mode the indexer fetches no block above the finalized height and asks for that height
 // every chain.finalized_poll_interval_ms, or every FinalizedPollInterval when it is unset. Each run
@@ -43,22 +63,10 @@ func TestRunConcurrentIndexing_TokensModeDispatchesFinalizedOnly(t *testing.T) {
 					return 5000, nil
 				},
 			}
-			td := testutils.SetupTestDefraDB(t)
-			converter := chainConverter()
-			handler, err := defra.NewBlockHandler(td.Node, 1000)
-			require.NoError(t, err)
-			indexer := &ChainIndexer{
-				cfg: &config.Config{
-					Chain:   config.ChainConfig{Mode: config.ChainModeTokens, FinalizedPollIntervalMs: tc.pollMs},
-					Indexer: config.IndexerConfig{ConcurrentBlocks: 2},
-				},
-				fetcher:      fetcher,
-				converter:    converter,
-				blockHandler: handler,
-				defraNode:    td.Node,
-			}
+			indexer := newTokensModeIndexer(t, fetcher)
+			indexer.cfg.Chain.FinalizedPollIntervalMs = tc.pollMs
 
-			err = indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg)
+			err := indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg)
 			assert.Empty(t, fetcher.FetchBlockCalls)
 			require.ErrorIs(t, err, context.Canceled)
 			require.Len(t, polled, tc.polls)
@@ -71,4 +79,20 @@ func TestRunConcurrentIndexing_TokensModeDispatchesFinalizedOnly(t *testing.T) {
 			}
 		})
 	}
+}
+
+// In tokens mode the indexer keeps fetching a height whose fetch fails, instead of passing it.
+func TestRunConcurrentIndexing_TokensModeRetriesFailedHeights(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn:                func(context.Context, int64) (any, error) { return nil, errors.New("fetch failed") },
+		FetchFinalizedBlockNumberFn: func(context.Context) (int64, error) { return 5001, nil },
+	}
+	indexer := newTokensModeIndexer(t, fetcher)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg), context.DeadlineExceeded)
+	assert.Greater(t, len(fetcher.FetchBlockCalls), MaxRPCRetries)
 }

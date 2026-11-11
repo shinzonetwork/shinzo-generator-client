@@ -592,6 +592,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	)
 	if cfg.Chain.Mode == config.ChainModeTokens {
 		processor.DispatchFinalizedOnly(time.Duration(cfg.Chain.FinalizedPollIntervalMs) * time.Millisecond)
+		processor.RetryFailedHeights()
 	}
 
 	headCtx, stopHead := context.WithCancel(ctx)
