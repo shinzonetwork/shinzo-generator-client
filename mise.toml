@@ -9,16 +9,30 @@ gotestsum = "1.13.0"
 govulncheck = "1.9.0"
 deadcode = "0.52.0"
 
+[vars]
+# Executes the git command dynamically when mise loads the config
+VERSION = "{{ exec(command='git describe --tags --always --dirty 2>/dev/null || echo dev') }}"
+
 # Code quality tasks & templates
-[tasks.lint]
+[task_templates."go:lint"]
 description = "Linting check for the codebase."
-run = "golangci-lint run ./..."
+vars = { flag= "" }
+run = "golangci-lint run {{ vars.flag }} ./..."
+
+[tasks.lint]
+extends = "go:lint"
+
+[tasks.lint-fix]
+description = "Linting check for the codebase with autorepair."
+extends = "go:lint"
+vars = { flag= "--fix" }
 
 [tasks.vuln]
 description = "Static analysis check for the codebase."
 run = "govulncheck ./..."
 
 [tasks.inspect]
+description = "Running all code quality and dependencies vulnerability checks."
 depends = ["lint"]
 run = [
    # Sequential tasks
@@ -27,12 +41,43 @@ run = [
 ]
 
 # Testing tasks & templates
-[tasks."test:unit"]
+[tasks.test-unit]
 description = "Running unit tests with coverage report."
-run = "gotestsum -- -coverprofile=coverage.out -parallel=4 ./..."
+run = "gotestsum -- -coverprofile=coverage.out -parallel=4 ./... -count=1"
 alias = "test"
 
-# Binary building tasks & templates + cleanup
+# Binary building tasks & templates
+[task_templates."generator:build"]
+description = "Building the generator binary."
+vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{vars.VERSION}}"'} 
+run = "go build -ldflags {{ vars.ldflags }} -o bin/block_poster ./cmd/block_poster/"
+
+[tasks.build]
+extends = "generator:build"
+
+[tasks.build-all]
+description = "Building block_poster, fetch_blocks, and build_schema binaries."
+depends = "build"
+run = [
+    "go build -o bin/fetch_blocks ./cmd/fetch_blocks/",
+    "go build -o bin/build_schema ./cmd/build_schema/"
+]
+
+# Generator startup tasks & templates
+[task_templates."generator:start"]
+vars = { config = "./config/config.yaml"}
+run = "./bin/block_poster --config {{ vars.config }}"
+
+[tasks.ethereum-start]
+description = "Starting Ethereum generator binary."
+extends="generator:start"
+
+[tasks.bsc-start]
+description = "Starting BSC generator binary."
+extends="generator:start"
+vars = { config = "./config/config_bsc.yaml" }
+
+# Cleanup tasks
 [tasks.clean]
 description = "Cleaning local project binaries and log files."
 run = "rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log"
