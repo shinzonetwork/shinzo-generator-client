@@ -134,7 +134,63 @@ description = "Starting BSC generator binary."
 extends="generator:start"
 vars = { config = "./config/config_bsc.yaml" }
 
-# Cleanup tasks
+# Cleanup and client stop tasks
 [tasks.clean]
 description = "Cleaning local project binaries and log files."
 run = "rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log"
+
+[tasks.stop]
+description = "Stop running DefraDB and block_poster processes"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEFRA_ROOTDIR="$PWD/.defra"
+DEFRA_PIDS=$(ps aux | grep '[d]efradb start --rootdir ' | grep "$DEFRA_ROOTDIR" | awk '{print $2}' || true)
+if [ -n "$DEFRA_PIDS" ]; then
+  echo "Killing defradb PIDs: $DEFRA_PIDS"
+  echo "$DEFRA_PIDS" | xargs -r kill -9 2>/dev/null || true
+  echo "Stopped all defradb processes using $DEFRA_ROOTDIR"
+else
+  echo "No defradb processes found for $DEFRA_ROOTDIR"
+fi
+rm -f .defra/defradb.pid
+
+echo "===> Stopping block_poster if running..."
+BLOCK_PIDS=$(ps aux | grep '[b]lock_poster' | awk '{print $2}' || true)
+if [ -n "$BLOCK_PIDS" ]; then
+  echo "Killing block_poster PIDs: $BLOCK_PIDS"
+  echo "$BLOCK_PIDS" | xargs -r kill -9 2>/dev/null || true
+  echo "Stopped all block_poster processes"
+else
+  echo "No block_poster processes found"
+fi
+rm -f .defra/block_poster.pid
+'''
+
+# Misc 
+[tasks.node-status]
+description = "Probe an Ethereum-compatible JSON-RPC endpoint via eth_blockNumber"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -z "${GETH_RPC_URL:-}" ]; then
+  echo "❌ GETH_RPC_URL not set"
+  exit 1
+fi
+
+BLOCK_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+  -H "X-goog-api-key: ${GETH_API_KEY:-}" \
+  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+  "$GETH_RPC_URL" 2>/dev/null)
+
+if echo "$BLOCK_RESPONSE" | jq -e '.result' >/dev/null 2>&1; then
+  BLOCK_HEX=$(echo "$BLOCK_RESPONSE" | jq -r '.result')
+  BLOCK_NUM=$(printf "%d" "$BLOCK_HEX" 2>/dev/null || echo "unknown")
+  echo "✅ Block: $BLOCK_NUM"
+else
+  echo "❌ Failed: $BLOCK_RESPONSE"
+  exit 1
+fi
+'''
