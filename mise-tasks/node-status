@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#MISE description="Probe an Ethereum-compatible JSON-RPC endpoint via eth_blockNumber"
+set -euo pipefail
+
+if [ -z "${GETH_RPC_URL:-}" ]; then
+  echo "❌ GETH_RPC_URL not set"
+  exit 1
+fi
+
+BLOCK_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+  -H "X-goog-api-key: ${GETH_API_KEY:-}" \
+  --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+  "$GETH_RPC_URL" 2>/dev/null)
+
+if echo "$BLOCK_RESPONSE" | jq -e '.result' >/dev/null 2>&1; then
+  BLOCK_HEX=$(echo "$BLOCK_RESPONSE" | jq -r '.result')
+  BLOCK_NUM=$(printf "%d" "$BLOCK_HEX" 2>/dev/null || echo "unknown")
+  echo "✅ Block: $BLOCK_NUM"
+else
+  echo "❌ Failed: $BLOCK_RESPONSE"
+  exit 1
+fi
