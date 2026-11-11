@@ -46,10 +46,54 @@ description = "Running unit tests with coverage report."
 run = "gotestsum -- -coverprofile=coverage.out -parallel=4 ./... -count=1"
 alias = "test"
 
+[task_templates."test:integration"]
+run = "go test -tags=integration  -v ./integration/"
+
+[tasks.evm-integration]
+description = "Running the EVM integration tests."
+extends = "test:integration"
+
+[task_templates."test:golden"]
+run = "go test -tags=integration -v ./golden/"
+
+[tasks.ethereum-golden]
+description = "Running the Ethereum golden tests."
+extends = "test:golden"
+
+[task_templates."test:replay"]
+vars = { chain-family = "evm", replay-test = "TestEthereumReplayAcceptance" }
+run = "go test -tags=acceptance ./replay/{{ vars.chain-family }} -run {{ vars.replay-test }}} -count=1 -v -timeout 30m"
+
+[tasks.ethereum-replay]
+description = "Running the Ethereum replay test."
+extends = "test:replay"
+
+[tasks.bsc-replay]
+description = "Running the BSC replay test."
+extends = "test:replay"
+vars = { replay-test = "TestBSCReplayAcceptance" }
+
+[task_templates."test:live"]
+vars = { chain = "", timeout="20s" }  
+run = "go test -tags=live -v ./integration/live/{{ vars.chain }} -count=1 -timeout={{ vars.timeout }}"
+
+[tasks.ethereum-live-test]
+description = "Running Ethereum live tests"
+extends = "test:live"
+
+[tasks.bsc-live-test]
+description = "Running BSC live tests"
+extends = "test:live"
+vars = { chain = "bsc", timeout="400s" }  
+
+[tasks.ethereum-test]
+description = "Running all Ethereum-related test suites."
+depends = ["test-unit", "evm-integration", "ethereum-golden"]
+
 # Binary building tasks & templates
 [task_templates."generator:build"]
 description = "Building the generator binary."
-vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{vars.VERSION}}"'} 
+vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"'} 
 run = "go build -ldflags {{ vars.ldflags }} -o bin/block_poster ./cmd/block_poster/"
 
 [tasks.build]
