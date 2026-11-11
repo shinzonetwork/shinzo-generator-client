@@ -11,6 +11,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/multiformats/go-multihash v0.2.3
+	github.com/shinzonetwork/shinzo-evidence-codec v0.0.0-20261112194140-4ddb4afa3964
 	github.com/sourcenetwork/defradb v1.0.1-0.20261026140438-2a899b860df3
 	github.com/sourcenetwork/immutable v0.3.0
 	github.com/stretchr/testify v1.12.1
@@ -60,6 +61,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/NathanBaulch/protoc-gen-cobra v1.2.1 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
+	github.com/VictoriaMetrics/fastcache v1.13.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/awalterschulze/gographviz v2.0.3+incompatible // indirect
 	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect

@@ -1,11 +1,20 @@
 package evm
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
+	codecevm "github.com/shinzonetwork/shinzo-evidence-codec/evm"
+	"github.com/shinzonetwork/shinzo-evidence-codec/merkle"
+	"github.com/shinzonetwork/shinzo-evidence-codec/statement"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -44,22 +53,41 @@ func chainPrefixFromConfig(cfg *config.Config) (string, error) {
 type Converter struct {
 	collections *CollectionNames
 	cfg         *config.Config
+
+	// chain, tokens and extractor are set in tokens mode. chain is the CAIP-2 chain ID, which decides
+	// how a block's time is read. tokens are the listed token addresses as 40 lower-case hex digits,
+	// in byte order. extractor is the generator version each statement names.
+	chain     string
+	tokens    []string
+	extractor string
 }
 
 // Compile-time guarantee that Converter implements chains.Converter.
 var _ chains.Converter = (*Converter)(nil)
 
 // NewConverter creates a Converter for the chain and mode cfg names. It
-// returns config.ErrChainUnset when cfg is nil or has no chain name or network.
+// returns config.ErrChainUnset when cfg is nil or has no chain name or network,
+// and config.ErrInvalidContractAddress for a token address that is not 20 bytes
+// of hex.
 func NewConverter(cfg *config.Config) (*Converter, error) {
 	collections, err := collectionNamesFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return &Converter{
-		collections: collections,
-		cfg:         cfg,
-	}, nil
+	c := &Converter{collections: collections, cfg: cfg}
+	if collections.tokenMode() {
+		c.chain = fmt.Sprintf("eip155:%d", cfg.Chain.ChainID)
+		c.extractor = config.Version
+		for _, t := range cfg.Chain.Tokens {
+			addr, err := config.ContractAddress(t.Address)
+			if err != nil {
+				return nil, err
+			}
+			c.tokens = append(c.tokens, addr)
+		}
+		slices.Sort(c.tokens)
+	}
+	return c, nil
 }
 
 // Convert implements chains.Converter. It type-asserts rawBlock to *BlockBundle
@@ -74,6 +102,9 @@ func NewConverter(cfg *config.Config) (*Converter, error) {
 // field name holding the block number in each doc map). The signature
 // collection name is returned inside the ConversionResult; the signature
 // document itself is built later by BlockHandler during signing.
+//
+// In tokens mode it builds the header and the listed tokens' evidence instead
+// (convertTokens).
 func (c *Converter) Convert(
 	_ context.Context,
 	rawBlock any,
@@ -89,6 +120,9 @@ func (c *Converter) Convert(
 	blockInt, err := utils.HexToInt(bundle.Block.Number)
 	if err != nil {
 		return chains.ConversionResult{}, fmt.Errorf("converter: parse block number: %w", err)
+	}
+	if c.collections.tokenMode() {
+		return c.convertTokens(bundle, blockInt)
 	}
 
 	blockData := c.buildBlockData(bundle.Block, blockInt)
@@ -141,6 +175,155 @@ func (c *Converter) Convert(
 		SignatureCollection: c.collections.BlockSignature,
 		LinkStamper:         stamper,
 	}, nil
+}
+
+// convertTokens builds the tokens-mode groups, Header and then Evidence, and
+// the block's statement. The Evidence group is present even when empty, so a
+// store can purge what a failed attempt left in its table at the height.
+func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.ConversionResult, error) {
+	if bundle.Block.Header == nil {
+		return chains.ConversionResult{}, fmt.Errorf("converter: block %d has no decoded header", blockInt)
+	}
+	raw, header, timestamp, err := c.readHeader(bundle.Block.Header)
+	if err != nil {
+		return chains.ConversionResult{}, fmt.Errorf("converter: block %d header: %w", blockInt, err)
+	}
+	blockHash := header.Hash.Hex()
+
+	defaultBatch := c.maxDocsPerTxn()
+	groups := []chains.DocumentGroup{{
+		Collection:      c.collections.Header,
+		Docs:            []map[string]any{headerDoc(blockInt, raw, header, timestamp)},
+		BatchSize:       defaultBatch,
+		BlockNumField:   constants.NumberFieldName,
+		BlockHashField:  constants.HashFieldName,
+		ParentHashField: ParentHashFieldName,
+	}}
+
+	evidence, claims, err := c.buildEvidence(bundle, blockInt, blockHash)
+	if err != nil {
+		return chains.ConversionResult{}, fmt.Errorf("converter: block %d evidence: %w", blockInt, err)
+	}
+	groups = append(groups, chains.DocumentGroup{
+		Collection:    c.collections.Evidence,
+		Docs:          evidence,
+		BatchSize:     defaultBatch,
+		BlockNumField: constants.BlockNumberFieldName,
+	})
+
+	encoded, err := statement.Statement{
+		Chain:        c.chain,
+		Number:       header.Number,
+		Hash:         blockHash,
+		ParentHash:   header.ParentHash.Hex(),
+		ParentNumber: header.Number - 1,
+		Timestamp:    timestamp,
+		Status:       statement.StatusFinalized,
+		Extractor:    c.extractor,
+		Filter:       statement.FilterContractLog,
+		HeaderHash:   sha256.Sum256(raw),
+		Items:        uint64(len(bundle.Receipts)),
+		Claims:       claims,
+	}.Encode()
+	if err != nil {
+		return chains.ConversionResult{}, fmt.Errorf("converter: block %d statement: %w", blockInt, err)
+	}
+
+	return chains.ConversionResult{
+		Groups:              groups,
+		SignatureCollection: c.collections.BlockAttestation,
+		Statement:           encoded,
+	}, nil
+}
+
+// readHeader returns the RLP-encoded header, the header as the evidence codec
+// reads it from those bytes, and the block time in milliseconds as the codec
+// reads it for the chain.
+func (c *Converter) readHeader(h *ethtypes.Header) ([]byte, codecevm.Header, uint64, error) {
+	raw, err := rlp.EncodeToBytes(h)
+	if err != nil {
+		return nil, codecevm.Header{}, 0, err
+	}
+	header, err := codecevm.HeaderFromRaw(raw)
+	if err != nil {
+		return nil, codecevm.Header{}, 0, err
+	}
+	timestamp, err := codecevm.BlockTime(c.chain, header)
+	if err != nil {
+		return nil, codecevm.Header{}, 0, err
+	}
+	return raw, header, timestamp, nil
+}
+
+// headerDoc builds the Header document. raw is the RLP-encoded header, so
+// keccak256(raw) is hash, and timestamp is in milliseconds.
+func headerDoc(blockInt int64, raw []byte, header codecevm.Header, timestamp uint64) map[string]any {
+	return map[string]any{
+		constants.NumberFieldName: blockInt,
+		constants.HashFieldName:   header.Hash.Hex(),
+		ParentHashFieldName:       header.ParentHash.Hex(),
+		TimestampFieldName:        int64(timestamp), //nolint:gosec // a Unix time in milliseconds
+		RawFieldName:              hex.EncodeToString(raw),
+	}
+}
+
+// buildEvidence returns, in token order, an Evidence document for each listed
+// token that emitted a log in the block and a statement claim for every listed
+// token. A record's index is its receipt's position in the block, which the
+// fetcher's check against the receipts root makes its trie index.
+func (c *Converter) buildEvidence(bundle *BlockBundle, blockInt int64, blockHash string) ([]map[string]any, []statement.Claim, error) {
+	receipts := gethReceipts(bundle.Receipts)
+	transactions := bundle.Block.GethTransactions
+
+	// positions holds, per log address, the positions of the transactions that emitted a log from it.
+	positions := make(map[string][]uint64)
+	for i, receipt := range receipts {
+		for _, l := range receipt.Logs {
+			address := hex.EncodeToString(l.Address[:])
+			if p := positions[address]; len(p) == 0 || p[len(p)-1] != uint64(i) {
+				positions[address] = append(p, uint64(i))
+			}
+		}
+	}
+
+	var docs []map[string]any
+	claims := make([]statement.Claim, len(c.tokens))
+	for k, token := range c.tokens {
+		indices := positions[token]
+		claims[k] = statement.Claim{Asset: token, Count: uint64(len(indices)), Root: merkle.Root(nil)}
+		if len(indices) == 0 {
+			continue
+		}
+		records := make([]codecevm.Record, len(indices))
+		for j, i := range indices {
+			records[j] = codecevm.Record{Index: i, Receipt: encodedItem(receipts, i), Transaction: encodedItem(transactions, i)}
+		}
+		encoded, root, err := codecevm.EncodeRecords(records)
+		if err != nil {
+			return nil, nil, fmt.Errorf("token %s records: %w", token, err)
+		}
+		proof, err := codecevm.BuildProof(receipts, transactions, indices)
+		if err != nil {
+			return nil, nil, fmt.Errorf("token %s proof: %w", token, err)
+		}
+		claims[k].Root = root
+		docs = append(docs, map[string]any{
+			constants.BlockNumberFieldName: blockInt,
+			constants.BlockHashFieldName:   blockHash,
+			AssetFieldName:                 token,
+			RecordsFieldName:               hex.EncodeToString(encoded),
+			ProofFieldName:                 hex.EncodeToString(proof),
+		})
+	}
+	return docs, claims, nil
+}
+
+// encodedItem returns the consensus encoding of list's item at index i, which is
+// the value the list's trie holds at that index.
+func encodedItem(list ethtypes.DerivableList, i uint64) []byte {
+	var buf bytes.Buffer
+	list.EncodeIndex(int(i), &buf) //nolint:gosec // i is a position in list
+	return buf.Bytes()
 }
 
 // maxDocsPerTxn returns the configured default batch size for BlockHandler.

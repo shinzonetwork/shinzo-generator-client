@@ -36,6 +36,9 @@ var ErrInvalidChainMode = errors.New("unsupported chain.mode")
 // tokens mode reads.
 var ErrTokenKeyInFullMode = errors.New("only tokens mode takes this key")
 
+// ErrInvalidContractAddress is returned for a token address that is not 20 bytes of hex.
+var ErrInvalidContractAddress = errors.New("chain.tokens addresses must be 20 bytes of hex")
+
 // ErrInvalidChainTokensEnv is returned for a CHAIN_TOKENS entry that is not address:supply_slot.
 var ErrInvalidChainTokensEnv = errors.New("CHAIN_TOKENS entries must be address:supply_slot")
 
@@ -416,6 +419,17 @@ func validateChainMode(c ChainConfig) error {
 		return fmt.Errorf("%w: got %q", ErrInvalidChainMode, c.Mode)
 	}
 	return nil
+}
+
+// ContractAddress returns a contract address as 40 lower-case hex digits without 0x, the form tokens
+// mode names a token by in its documents and statements. It accepts either letter case, with or
+// without 0x, and returns ErrInvalidContractAddress for anything that is not 20 bytes of hex.
+func ContractAddress(raw string) (string, error) {
+	addr := strings.TrimPrefix(strings.ToLower(raw), "0x")
+	if len(addr) != 40 || strings.Trim(addr, "0123456789abcdef") != "" {
+		return "", fmt.Errorf("%w: got %q", ErrInvalidContractAddress, raw)
+	}
+	return addr, nil
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.

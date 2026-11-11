@@ -38,3 +38,11 @@ const (
 	EffectiveGasPriceFieldName = "effectiveGasPrice"
 	StatusFieldName            = "status"
 )
+
+// Tokens-mode field names: the Header's RLP-encoded header and the Evidence document's fields.
+const (
+	RawFieldName     = "raw"
+	AssetFieldName   = "asset"
+	RecordsFieldName = "records"
+	ProofFieldName   = "proof"
+)

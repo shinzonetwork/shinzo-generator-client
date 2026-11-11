@@ -128,7 +128,7 @@ func gethBundle(t *testing.T, num int64, logs ...[]*ethtypes.Log) *BlockBundle {
 			Status: ethtypes.ReceiptStatusSuccessful, CumulativeGasUsed: uint64(21000 * (i + 1)), Logs: txLogs,
 		}
 	}
-	header := &ethtypes.Header{Number: big.NewInt(num), Difficulty: big.NewInt(0)}
+	header := &ethtypes.Header{Number: big.NewInt(num), Difficulty: big.NewInt(0), Time: 1_700_000_000}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{Transactions: txs}, receipts, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
