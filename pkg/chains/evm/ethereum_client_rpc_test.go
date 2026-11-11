@@ -379,6 +379,31 @@ func TestGetProof_RequestPinsCanonicalBlockHash(t *testing.T) {
 	assert.JSONEq(t, fmt.Sprintf(`{"blockHash": %q, "requireCanonical": true}`, blockHash), string(params[2]))
 }
 
+// A read of the account alone sends an empty storage key list, since go-ethereum refuses null.
+func TestGetProof_NoSlotsSendsEmptyList(t *testing.T) {
+	t.Parallel()
+	var proofParams json.RawMessage
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		if method != "eth_getProof" {
+			return "0x1", nil
+		}
+		proofParams = params
+		return map[string]any{"accountProof": []string{"0x01"}, "storageProof": []any{}}, nil
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.GetProof(context.Background(), common.HexToAddress("0xc6cde7c39eb2f0f0095f41570af89efc2c1ea828"), nil, fakeHash("account"))
+	require.NoError(t, err)
+	var params []json.RawMessage
+	require.NoError(t, json.Unmarshal(proofParams, &params))
+	require.Len(t, params, 3)
+	assert.JSONEq(t, `[]`, string(params[1]))
+}
+
 // A GetProof transport error does not carry the credentials in the node endpoint's URL.
 func TestGetProof_RedactsTheEndpoint(t *testing.T) {
 	t.Parallel()
