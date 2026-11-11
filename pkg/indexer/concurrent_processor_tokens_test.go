@@ -18,6 +18,41 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
+// A block stored block-last succeeds again only when its header is already stored, and is never
+// signed again: it was committed with its attestation. Another "already exists" error fails it.
+func TestStoreWithRetry_StoredBlockLastIsNotSignedAgain(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		storeErr    error
+		wantSuccess bool
+	}{
+		{"header stored", defra.ErrHeaderStored, true},
+		{"another write already exists", errors.New("block already exists"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var signed atomic.Int64
+			storer := &mockBlockStorer{
+				storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
+					return nil, tc.storeErr
+				},
+				signExistingFn: func(_ context.Context, _ chains.ConversionResult, _ string, _ int64) (string, error) {
+					signed.Add(1)
+					return "mock-sig-id", nil
+				},
+			}
+			p := NewConcurrentBlockProcessor(nil, nil, storer, nil, 1, 0)
+
+			result := p.storeWithRetry(context.Background(), 5001, chains.ConversionResult{BlockLast: true})
+			p.signWg.Wait()
+			assert.Equal(t, tc.wantSuccess, result.Success)
+			assert.Zero(t, signed.Load())
+		})
+	}
+}
+
 // Dispatch waits while the finalized height is unknown, stops at it, and moves on as it rises.
 func TestProcessBlocks_DispatchesFinalizedOnly(t *testing.T) {
 	t.Parallel()
