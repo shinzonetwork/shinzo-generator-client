@@ -22,13 +22,13 @@ VERSION = "{{ exec(command='git describe --tags --always --dirty 2>/dev/null || 
 [tasks.format]
 description = "Formatting code and imports."
 run = [
-    "gofmt -s -w .", 
-    "goimports -w -local github.com/shinzonetwork/shinzo-generator-client ." 
+    "gofmt -s -w .",
+    "goimports -w -local github.com/shinzonetwork/shinzo-generator-client .",
 ]
-    
+
 [task_templates."go:lint"]
 description = "Linting check for the codebase."
-vars = { flag= "" }
+vars = { flag = "" }
 run = "golangci-lint run {{ vars.flag }} ./..."
 
 [tasks.lint]
@@ -37,7 +37,7 @@ extends = "go:lint"
 [tasks.lint-fix]
 description = "Linting check for the codebase with autorepair."
 extends = "go:lint"
-vars = { flag= "--fix" }
+vars = { flag = "--fix" }
 
 [tasks.vuln]
 description = "Static analysis check for the codebase."
@@ -45,11 +45,11 @@ run = "govulncheck ./..."
 
 [tasks.inspect]
 description = "Running all code quality and dependencies vulnerability checks."
-depends = ["format", "lint"]
+depends = ["lint"]
 run = [
-   # Sequential tasks
-   { tasks = ["scripts/check_loc.sh", "scripts/check_deadcode.sh"] },  # Parallel tasks
-   { task = "vuln" }
+    "./scripts/check_loc.sh",
+    "./scripts/check_deadcode.sh",
+    { task = "vuln" },
 ]
 
 # Testing tasks & templates
@@ -74,7 +74,7 @@ extends = "test:golden"
 
 [task_templates."test:replay"]
 vars = { chain-family = "evm", replay-test = "TestEthereumReplayAcceptance" }
-run = "go test -tags=acceptance ./replay/{{ vars.chain-family }} -run {{ vars.replay-test }}} -count=1 -v -timeout 30m"
+run = "go test -tags=acceptance ./replay/{{ vars.chain-family }} -run {{ vars.replay-test }} -count=1 -v -timeout 30m"
 
 [tasks.ethereum-replay]
 description = "Running the Ethereum replay test."
@@ -93,10 +93,10 @@ flag "--network <network>" help="Target network" default="mainnet"
 flag "--from <from>" help="Start block" default="0"
 flag "--to <to>" help="End block" default="0"
 '''
-run="go run ./cmd/fetch_blocks --chain ${usage_chain} --network ${usage_network} --from ${usage_from} --to ${usage_to}"
+run = "go run ./cmd/fetch_blocks --chain ${usage_chain} --network ${usage_network} --from ${usage_from} --to ${usage_to}"
 
 [task_templates."test:live"]
-vars = { chain = "", timeout="20s" }  
+vars = { chain = "", timeout = "20s" }
 run = "go test -tags=live -v ./integration/live/{{ vars.chain }} -count=1 -timeout={{ vars.timeout }}"
 
 [tasks.ethereum-live-test]
@@ -106,7 +106,7 @@ extends = "test:live"
 [tasks.bsc-live-test]
 description = "Running BSC live tests"
 extends = "test:live"
-vars = { chain = "bsc", timeout="400s" }  
+vars = { chain = "bsc", timeout = "400s" }
 
 [tasks.ethereum-test]
 description = "Running all Ethereum-related test suites."
@@ -115,7 +115,7 @@ depends = ["test-unit", "evm-integration", "ethereum-golden"]
 # Binary building tasks & templates
 [task_templates."generator:build"]
 description = "Building the generator binary."
-vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"'} 
+vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"' }
 run = "go build -ldflags {{ vars.ldflags }} -o bin/block_poster ./cmd/block_poster/"
 
 [tasks.build]
@@ -126,27 +126,27 @@ description = "Building block_poster, fetch_blocks, and build_schema binaries."
 depends = "build"
 run = [
     "go build -o bin/fetch_blocks ./cmd/fetch_blocks/",
-    "go build -o bin/build_schema ./cmd/build_schema/"
+    "go build -o bin/build_schema ./cmd/build_schema/",
 ]
 
 # Generator startup tasks & templates
 [task_templates."generator:start"]
-vars = { config = "./config/config.yaml"}
+vars = { config = "./config/config.yaml" }
 run = "./bin/block_poster --config {{ vars.config }}"
 
 [tasks.ethereum-start]
 description = "Starting Ethereum generator binary."
-extends="generator:start"
+extends = "generator:start"
 
 [tasks.bsc-start]
 description = "Starting BSC generator binary."
-extends="generator:start"
+extends = "generator:start"
 vars = { config = "./config/config_bsc.yaml" }
 
 # Cleanup and client stop tasks
 [tasks.clean]
 description = "Cleaning local project binaries and log files."
-run = "rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log"
+run = "rm -rf bin/ logs/logfile.log && mkdir -p logs && touch logs/logfile.log"
 
 [tasks.stop]
 description = "Stop running DefraDB and block_poster processes"
