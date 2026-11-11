@@ -1,5 +1,7 @@
 package evm
 
+import ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 // AccessListEntry represents an access list entry for EIP-2930 transactions.
 type AccessListEntry struct {
 	Address     string   `json:"address"`
@@ -20,6 +22,19 @@ type TransactionReceipt struct {
 	ContractAddress   string `json:"contractAddress"`
 	Logs              []Log  `json:"logs"`
 	Status            string `json:"status"`
+
+	// GethReceipt is the receipt as go-ethereum decoded it. Its consensus encoding is what the
+	// header's receipts root covers.
+	GethReceipt *ethtypes.Receipt `json:"-"`
+}
+
+// gethReceipts returns the receipts as go-ethereum decoded them, in the order given.
+func gethReceipts(receipts []*TransactionReceipt) ethtypes.Receipts {
+	geth := make(ethtypes.Receipts, len(receipts))
+	for i, r := range receipts {
+		geth[i] = r.GethReceipt
+	}
+	return geth
 }
 
 // Block represents an Ethereum block.
@@ -45,6 +60,12 @@ type Block struct {
 	MixHash          string        `json:"mixHash"`
 	Uncles           []string      `json:"uncles"`
 	Transactions     []Transaction `json:"transactions,omitempty"`
+
+	// Header is the header as go-ethereum decoded it, holding every field the block hash covers.
+	Header *ethtypes.Header `json:"-"`
+	// GethTransactions are the transactions as go-ethereum decoded them, in block order. Their
+	// consensus encoding is what the header's transactions root covers.
+	GethTransactions ethtypes.Transactions `json:"-"`
 }
 
 // Transaction represents an Ethereum transaction.
