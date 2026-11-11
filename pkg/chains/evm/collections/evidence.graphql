@@ -1,0 +1,9 @@
+# One document per listed token with transactions in the block. records holds each transaction that
+# emitted one of the token's logs, with its receipt, and proof proves them against the header's roots.
+type Ethereum__Mainnet__Evidence {
+    blockNumber: Int @index
+    blockHash: String
+    asset: String
+    records: Blob
+    proof: Blob
+}

@@ -1,0 +1,8 @@
+# raw is the RLP-encoded header, so keccak256(raw) is hash. timestamp is in milliseconds.
+type Ethereum__Mainnet__Header {
+    number: Int @index
+    hash: String @index
+    parentHash: String
+    timestamp: Int @index
+    raw: Blob
+}

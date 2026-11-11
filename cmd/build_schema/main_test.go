@@ -74,6 +74,18 @@ func TestRun_ExplicitEVMAdapter(t *testing.T) {
 	assert.Contains(t, buf.String(), "Ethereum__Mainnet__Block")
 }
 
+func TestRun_Mode(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Bsc", "--network", "Mainnet", "--mode", "tokens"}, &buf))
+	expected, err := evm.NewTokenCollectionNames("Bsc__Mainnet").MergedSDL()
+	require.NoError(t, err)
+	assert.Equal(t, expected, buf.String())
+
+	err = run([]string{"build_schema", "--chain", "Bsc", "--network", "Mainnet", "--mode", "logs"}, &buf)
+	require.ErrorIs(t, err, config.ErrInvalidChainMode)
+}
+
 func TestRun_UnknownAdapterFails(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
