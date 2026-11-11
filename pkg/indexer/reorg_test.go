@@ -1162,9 +1162,24 @@ func TestReorgProcessor_WalkBackCrossesFinalizedFloorMidDescent(t *testing.T) {
 // is only confirmed - and rolled back - once a block chains onto the newest
 // anchor. Nothing is ever stored or deleted during the wait (exactly one
 // rollback episode fires, after the confirm), so a flip-flopping chain costs
-// re-plans, not deletions.
+// re-plans, not deletions. It runs with and without failed heights retried in
+// place: with one worker the confirming block is two heights above the parked
+// one, at the dispatch limit, so it is fetched only if the wait is exempt.
 func TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain(t *testing.T) {
 	t.Parallel()
+	t.Run("failed heights left as holes", func(t *testing.T) {
+		t.Parallel()
+		runReanchorScenario(t, false)
+	})
+	t.Run("failed heights retried in place", func(t *testing.T) {
+		t.Parallel()
+		runReanchorScenario(t, true)
+	})
+}
+
+// runReanchorScenario runs the flip scenario above on a one-worker processor,
+// retrying failed heights in place when retryFailedHeights is set.
+func runReanchorScenario(t *testing.T, retryFailedHeights bool) {
 	logger.InitConsoleOnly(true)
 
 	fetch101 := atomic.Int64{}
@@ -1212,6 +1227,9 @@ func TestReorgProcessor_ConfirmationWaitReanchorsOnNewestChain(t *testing.T) {
 	}
 
 	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, reorg, 1, 0)
+	if retryFailedHeights {
+		p.RetryFailedHeights()
+	}
 
 	rec := &commitRecorder{}
 	cancel, errCh := runProcessor(p, 100, rec.record)
