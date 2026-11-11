@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/ethereum/go-ethereum"
@@ -104,6 +105,29 @@ func TestFetcher_FetchBlock_TokensModeChecksRoots(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+// In tokens mode the fetcher reports only the finalized tag; otherwise it takes the client's
+// finalized-or-safe height.
+func TestFetcher_FetchFinalizedBlockNumber_TokensModeHasNoFallback(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{config.ChainModeFull, config.ChainModeTokens} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Chain: config.ChainConfig{Mode: mode}}
+			f, err := NewFetcherFromConfig(cfg)
+			require.NoError(t, err)
+			f.client = &fakeRPCClient{finalizedNum: 90, finalizedHeightErr: errors.New("finalized tag not served")}
+
+			n, err := f.FetchFinalizedBlockNumber(context.Background())
+			if mode == config.ChainModeTokens {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, int64(90), n)
 		})
 	}
 }

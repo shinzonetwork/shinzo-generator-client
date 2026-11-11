@@ -33,6 +33,8 @@ type rpcClient interface {
 	GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error)
 	GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
 	GetFinalizedBlockNumber(ctx context.Context) (int64, error)
+	// GetFinalizedHeight returns the finalized tag's height, with no fallback.
+	GetFinalizedHeight(ctx context.Context) (int64, error)
 	Close() error
 }
 
@@ -71,7 +73,8 @@ type Fetcher struct {
 	// chainID is the chain ID Connect requires the endpoint to report.
 	chainID uint64
 	// tokensMode is set for a tokens-mode chain. FetchBlock checks the decoded header's hash with
-	// the node and the block's transactions and receipts against the header's roots.
+	// the node and the block's transactions and receipts against the header's roots, and
+	// FetchFinalizedBlockNumber reports the finalized tag only, without the safe fallback.
 	tokensMode bool
 }
 
@@ -222,10 +225,14 @@ func (f *Fetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chai
 
 // FetchFinalizedBlockNumber implements chains.Fetcher. It returns the
 // finalized chain height (the client falls back to the safe height when the
-// finalized tag is unavailable), used as the floor of the reorg walk-back.
+// finalized tag is unavailable, except in tokens mode), used as the floor of
+// the reorg walk-back and, in tokens mode, as the dispatch ceiling.
 func (f *Fetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
 	if f.client == nil {
 		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchFinalizedBlockNumber")
+	}
+	if f.tokensMode {
+		return f.client.GetFinalizedHeight(ctx)
 	}
 	return f.client.GetFinalizedBlockNumber(ctx)
 }
