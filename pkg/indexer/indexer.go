@@ -45,6 +45,11 @@ var (
 	// dispatch can store above an unstored one, so a restart could take a never-stored height for a
 	// pruned one.
 	ErrRetentionBelowDispatch = errors.New("pruner.max_blocks must cover the heights dispatched ahead in tokens mode")
+	// ErrReorgStopped is returned when a processor set to stop on reorgs detects one. Tokens mode
+	// stops instead of rolling back: it dispatches finalized heights only, and DefraDB refuses to
+	// re-add a soft-deleted document ID, so a rolled-back height whose documents come back unchanged
+	// could not be stored again.
+	ErrReorgStopped = errors.New("reorg detected; indexing stopped instead of rolling back")
 
 	// errIndexingStopped is the cancel cause used when StopIndexing initiates a
 	// clean shutdown of the indexing loop; runConcurrentIndexing maps it to a
@@ -640,6 +645,7 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	if cfg.Chain.Mode == config.ChainModeTokens {
 		processor.DispatchFinalizedOnly(time.Duration(cfg.Chain.FinalizedPollIntervalMs) * time.Millisecond)
 		processor.RetryFailedHeights()
+		processor.StopOnReorg()
 	}
 
 	headCtx, stopHead := context.WithCancel(ctx)

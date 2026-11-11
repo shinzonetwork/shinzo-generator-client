@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,6 +101,28 @@ func TestRunConcurrentIndexing_TokensModeRetriesFailedHeights(t *testing.T) {
 	defer cancel()
 	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg), context.DeadlineExceeded)
 	assert.Greater(t, len(fetcher.FetchBlockCalls), MaxRPCRetries)
+}
+
+// In tokens mode a reorg stops indexing instead of rolling back.
+func TestRunConcurrentIndexing_TokensModeStopsOnReorg(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+	var orphanFetched atomic.Bool
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			if height == 100 && orphanFetched.CompareAndSwap(false, true) {
+				return &servedBlock{height: 100, hash: orphanHash(100), parentHash: canonicalHash(99)}, nil
+			}
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+		FetchBlockHeaderFn:          headerLookup(canonicalHashIndex(95, 115)),
+		FetchFinalizedBlockNumberFn: func(context.Context) (int64, error) { return 110, nil },
+	}
+	indexer := newTokensModeIndexer(t, fetcher)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 100, indexer.cfg), ErrReorgStopped)
 }
 
 // A tokens-mode restart resumes at the lowest unstored height the pruner still keeps and never

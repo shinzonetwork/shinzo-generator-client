@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
@@ -24,6 +25,23 @@ func (p *ConcurrentBlockProcessor) DispatchFinalizedOnly(poll time.Duration) {
 // retrying cannot clear still stops the run. Call it before ProcessBlocks.
 func (p *ConcurrentBlockProcessor) RetryFailedHeights() {
 	p.retryFailedHeights = true
+}
+
+// StopOnReorg makes a detected reorg stop the run with ErrReorgStopped instead of rolling the
+// orphaned heights back, so nothing stored is deleted. Call it before ProcessBlocks.
+func (p *ConcurrentBlockProcessor) StopOnReorg() {
+	p.stopOnReorg = true
+}
+
+// stoppedForReorg stops the run on signal when the processor stops on reorgs, and reports whether
+// it did.
+func (p *ConcurrentBlockProcessor) stoppedForReorg(signal reorgSignal) bool {
+	if !p.stopOnReorg {
+		return false
+	}
+	p.failRun(fmt.Errorf("%w: stored block %d has hash %s, the chain has %s", ErrReorgStopped,
+		signal.rollbackFrom, signal.orphanHash, signal.chainHash))
+	return true
 }
 
 // retryInPlace calls attempt and, when failed heights are retried in place, again every

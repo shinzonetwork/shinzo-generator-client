@@ -225,6 +225,9 @@ type ConcurrentBlockProcessor struct {
 	// instead of leaving it unstored.
 	retryFailedHeights bool
 
+	// stopOnReorg stops the run with ErrReorgStopped where a detected reorg would open an episode.
+	stopOnReorg bool
+
 	// bounded store pool: the collector never calls Store. Fetch/convert
 	// workers hand checked results to storeChan, pool goroutines run
 	// storeWithRetry, and completions flow back on completionChan for the
@@ -372,7 +375,8 @@ func NewConcurrentBlockProcessor(
 // range to the rollback below. Rollback failure, walk-back failure,
 // rollback-loop guard trips, and a re-store refused because a soft-deleted
 // content-derived docID cannot be re-added are all fatal: the run stops
-// loudly instead of leaving silently un-indexable heights behind.
+// loudly instead of leaving silently un-indexable heights behind. With
+// StopOnReorg a detected reorg is fatal too, and nothing is rolled back.
 //
 // The onBlockProcessed callback contract: it fires exactly once per
 // successfully committed height, in strict height order, always on one
@@ -1120,6 +1124,9 @@ waiting:
 // inside finalize continues collecting further stale verifications before
 // the descent starts.
 func (p *ConcurrentBlockProcessor) openStaleEpisode(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64)) {
+	if p.stoppedForReorg(*completion.stale) {
+		return
+	}
 	item := completion.item
 	logger.Sugar.Warnf(
 		"Reorg detected: stored block %d (hash %s) disagrees with chain-side block %d (hash %s); holding from height %d",
@@ -1176,6 +1183,9 @@ func (p *ConcurrentBlockProcessor) applyCommit(ctx context.Context, item *BlockR
 // is held back until the new chain is confirmed and the walk-back resolves
 // the fork point.
 func (p *ConcurrentBlockProcessor) startReorgEpisode(signal reorgSignal, parked *BlockResult) {
+	if p.stoppedForReorg(signal) {
+		return
+	}
 	logger.Sugar.Warnf(
 		"Reorg detected: stored block %d (hash %s) disagrees with chain-side block %d (hash %s); holding block %d back",
 		signal.rollbackFrom, signal.orphanHash, parked.BlockNum, signal.chainHash, parked.BlockNum,
