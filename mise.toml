@@ -9,6 +9,9 @@ gotestsum = "1.13.0"
 govulncheck = "1.9.0"
 deadcode = "0.52.0"
 
+[env]
+_.file = ".env"
+
 [vars]
 # Executes the git command dynamically when mise loads the config
 VERSION = "{{ exec(command='git describe --tags --always --dirty 2>/dev/null || echo dev') }}"
