@@ -9,11 +9,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -338,6 +341,57 @@ func TestGetFinalizedHeight_NoSafeFallback(t *testing.T) {
 	tagMu.Lock()
 	defer tagMu.Unlock()
 	assert.Equal(t, []string{ethGetBlockTagFinalized}, servedTags)
+}
+
+// GetProof names the block by hash with requireCanonical set, so a node that no longer holds the
+// block on its canonical chain refuses instead of answering for another block at that height.
+func TestGetProof_RequestPinsCanonicalBlockHash(t *testing.T) {
+	t.Parallel()
+	var proofParams json.RawMessage
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		if method != "eth_getProof" {
+			return "0x1", nil
+		}
+		proofParams = params
+		return map[string]any{
+			"accountProof": []string{"0x01"},
+			"storageProof": []any{map[string]any{"key": "0x35", "proof": []string{"0x02"}}},
+		}, nil
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	blockHash := fakeHash("capture")
+	account := common.HexToAddress("0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d")
+	proof, err := client.GetProof(context.Background(), account, []string{"0x35"}, blockHash)
+	require.NoError(t, err)
+	require.Len(t, proof.StorageProof, 1)
+	assert.Equal(t, []byte{0x02}, []byte(proof.StorageProof[0].Proof[0]))
+
+	var params []json.RawMessage
+	require.NoError(t, json.Unmarshal(proofParams, &params))
+	require.Len(t, params, 3)
+	assert.JSONEq(t, `"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"`, string(params[0]))
+	assert.JSONEq(t, `["0x35"]`, string(params[1]))
+	assert.JSONEq(t, fmt.Sprintf(`{"blockHash": %q, "requireCanonical": true}`, blockHash), string(params[2]))
+}
+
+// A GetProof transport error does not carry the credentials in the node endpoint's URL.
+func TestGetProof_RedactsTheEndpoint(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.NotFoundHandler())
+	endpoint := server.URL + "/secret-token"
+	server.Close()
+	client, err := NewEthereumClient(context.Background(), endpoint, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.GetProof(context.Background(), common.Address{}, []string{"0x35"}, fakeHash("capture"))
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "secret-token")
 }
 
 // --- GetTransactionReceipt with mock server ---

@@ -177,9 +177,10 @@ func (c *Converter) Convert(
 	}, nil
 }
 
-// convertTokens builds the tokens-mode groups, Header and then Evidence, and
-// the block's statement. The Evidence group is present even when empty, so a
-// store can purge what a failed attempt left in its table at the height.
+// convertTokens builds the tokens-mode groups, Header, Evidence and
+// StateCapture in that order, and the block's statement. The Evidence and
+// StateCapture groups are present even when empty, so a store can purge what a
+// failed attempt left in their tables at the height.
 func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.ConversionResult, error) {
 	if bundle.Block.Header == nil {
 		return chains.ConversionResult{}, fmt.Errorf("converter: block %d has no decoded header", blockInt)
@@ -204,13 +205,25 @@ func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.C
 	if err != nil {
 		return chains.ConversionResult{}, fmt.Errorf("converter: block %d evidence: %w", blockInt, err)
 	}
-	groups = append(groups, chains.DocumentGroup{
-		Collection:    c.collections.Evidence,
-		Docs:          evidence,
-		BatchSize:     defaultBatch,
-		BlockNumField: constants.BlockNumberFieldName,
-	})
+	groups = append(groups,
+		chains.DocumentGroup{
+			Collection:    c.collections.Evidence,
+			Docs:          evidence,
+			BatchSize:     defaultBatch,
+			BlockNumField: constants.BlockNumberFieldName,
+		},
+		chains.DocumentGroup{
+			Collection:    c.collections.StateCapture,
+			Docs:          buildStateCaptureDocs(bundle.StateCaptures, blockInt, blockHash),
+			BatchSize:     defaultBatch,
+			BlockNumField: constants.BlockNumberFieldName,
+		},
+	)
 
+	captures := make([]statement.Capture, len(bundle.StateCaptures))
+	for i, capture := range bundle.StateCaptures {
+		captures[i] = statement.Capture{Asset: capture.Asset, Value: capture.Value.String(), ProofHash: sha256.Sum256(capture.Proof)}
+	}
 	encoded, err := statement.Statement{
 		Chain:        c.chain,
 		Number:       header.Number,
@@ -224,6 +237,7 @@ func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.C
 		HeaderHash:   sha256.Sum256(raw),
 		Items:        uint64(len(bundle.Receipts)),
 		Claims:       claims,
+		Captures:     captures,
 	}.Encode()
 	if err != nil {
 		return chains.ConversionResult{}, fmt.Errorf("converter: block %d statement: %w", blockInt, err)
@@ -316,6 +330,22 @@ func (c *Converter) buildEvidence(bundle *BlockBundle, blockInt int64, blockHash
 		})
 	}
 	return docs, claims, nil
+}
+
+// buildStateCaptureDocs returns one StateCapture document per capture, with the
+// supply in decimal base units.
+func buildStateCaptureDocs(captures []StateCapture, blockInt int64, blockHash string) []map[string]any {
+	docs := make([]map[string]any, len(captures))
+	for i, capture := range captures {
+		docs[i] = map[string]any{
+			constants.BlockNumberFieldName: blockInt,
+			constants.BlockHashFieldName:   blockHash,
+			AssetFieldName:                 capture.Asset,
+			ValueFieldName:                 capture.Value.String(),
+			ProofFieldName:                 hex.EncodeToString(capture.Proof),
+		}
+	}
+	return docs
 }
 
 // encodedItem returns the consensus encoding of list's item at index i, which is
