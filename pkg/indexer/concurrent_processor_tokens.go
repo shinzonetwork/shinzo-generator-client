@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
@@ -16,6 +17,30 @@ func (p *ConcurrentBlockProcessor) DispatchFinalizedOnly(poll time.Duration) {
 	if poll == 0 {
 		p.finalizedPoll = FinalizedPollInterval
 	}
+}
+
+// RetryFailedHeights makes a height whose fetch, convert or store failed retry until it succeeds.
+// A store refusal that retrying cannot clear still stops the run. Call it before ProcessBlocks.
+func (p *ConcurrentBlockProcessor) RetryFailedHeights() {
+	p.retryFailedHeights = true
+}
+
+// retryInPlace calls attempt and, when failed heights are retried in place, again every
+// FailedHeightRetryDelay until it succeeds, ctx is done, or a store is refused in a way retrying
+// cannot clear. It returns the last result.
+func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt func() *BlockResult) *BlockResult {
+	result := attempt()
+	for p.retryFailedHeights && result.Error != nil && !errors.IsErrDocumentDeleted(result.Error) &&
+		ctx.Err() == nil {
+		logger.Sugar.Warnf("Block %d failed, retrying in %v: %v", result.BlockNum, FailedHeightRetryDelay, result.Error)
+		select {
+		case <-ctx.Done():
+			return result
+		case <-time.After(FailedHeightRetryDelay):
+		}
+		result = attempt()
+	}
+	return result
 }
 
 // waitForFinalized returns once the fetcher reports height as finalized, asking every
