@@ -1435,8 +1435,15 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 		p.pendingMu.Lock()
 		// The dispatch throttle anchors on the check cursor: dispatched
 		// fetches may not run more than DefaultWorkersAhead*workers heights
-		// ahead of the checked frontier.
-		tooFarAhead := nextBlock-p.nextToCommit >= int64(p.workers*DefaultWorkersAhead)
+		// ahead of the checked frontier. When failed heights are retried in
+		// place it anchors on the apply cursor, the lowest unstored height,
+		// except during a reorg confirmation wait, which needs later heights
+		// fetched to resolve.
+		anchor := p.nextToCommit
+		if p.retryFailedHeights && p.episode == nil {
+			anchor = p.applyCursor
+		}
+		tooFarAhead := nextBlock-anchor >= int64(p.workers*DefaultWorkersAhead)
 		p.pendingMu.Unlock()
 
 		if tooFarAhead {

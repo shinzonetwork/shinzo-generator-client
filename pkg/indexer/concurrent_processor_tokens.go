@@ -19,8 +19,9 @@ func (p *ConcurrentBlockProcessor) DispatchFinalizedOnly(poll time.Duration) {
 	}
 }
 
-// RetryFailedHeights makes a height whose fetch, convert or store failed retry until it succeeds.
-// A store refusal that retrying cannot clear still stops the run. Call it before ProcessBlocks.
+// RetryFailedHeights makes a height whose fetch, convert or store failed retry until it succeeds,
+// and stores nothing DefaultWorkersAhead*workers or more above it before it. A store refusal that
+// retrying cannot clear still stops the run. Call it before ProcessBlocks.
 func (p *ConcurrentBlockProcessor) RetryFailedHeights() {
 	p.retryFailedHeights = true
 }
