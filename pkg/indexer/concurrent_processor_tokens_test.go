@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -161,4 +162,63 @@ func TestProcessBlocks_RetriedStoreHoldsBackDispatch(t *testing.T) {
 	assert.Equal(t, []int64{100, 101, 102, 103, 104, 105, 106, 107, 108, 109}, rec.snapshot()[:10])
 	cancel()
 	assert.ErrorIs(t, <-errCh, context.Canceled)
+}
+
+// A processor set to stop on reorgs stops the run with ErrReorgStopped and rolls nothing back,
+// whether the reorg shows as a parent hash that breaks from the stored block or as a different
+// block found stored after a failed store.
+func TestReorgProcessor_StopOnReorgRollsNothingBack(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		fetcher func() *testutils.MockFetcher
+		storer  *mockBlockStorer
+		stored  map[int64]string
+	}{
+		{
+			name: "parent hash breaks",
+			fetcher: func() *testutils.MockFetcher {
+				var orphanFetched atomic.Bool
+				return &testutils.MockFetcher{
+					FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+						if height == 100 && orphanFetched.CompareAndSwap(false, true) {
+							return &servedBlock{height: 100, hash: orphanHash(100), parentHash: canonicalHash(99)}, nil
+						}
+						return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+					},
+					FetchBlockHeaderFn: headerLookup(canonicalHashIndex(95, 115)),
+				}
+			},
+			storer: &mockBlockStorer{},
+			stored: map[int64]string{99: canonicalHash(99)},
+		},
+		{
+			name:    "stale block after a failed store",
+			fetcher: func() *testutils.MockFetcher { return canonicalOnlyFetcher(95, 115) },
+			storer: &mockBlockStorer{
+				storeFn: func(context.Context, chains.ConversionResult) (*defra.BlockCreationResult, error) {
+					return nil, fmt.Errorf("store failed")
+				},
+			},
+			stored: map[int64]string{99: canonicalHash(99), 100: orphanHash(100)},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
+			reorg := &mockReorgHandler{storedHashes: tc.stored}
+			p := NewConcurrentBlockProcessor(tc.fetcher(), chainConverter(), tc.storer, reorg, 1, 0)
+			p.StopOnReorg()
+
+			_, errCh := runProcessor(p, 100, nil)
+			select {
+			case err := <-errCh:
+				require.ErrorIs(t, err, ErrReorgStopped)
+			case <-time.After(10 * time.Second):
+				t.Fatal("timed out waiting for the reorg to stop the run")
+			}
+			assert.Empty(t, reorg.calls())
+		})
+	}
 }
