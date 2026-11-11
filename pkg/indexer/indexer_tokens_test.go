@@ -3,13 +3,18 @@ package indexer
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,4 +100,111 @@ func TestRunConcurrentIndexing_TokensModeRetriesFailedHeights(t *testing.T) {
 	defer cancel()
 	require.ErrorIs(t, indexer.runConcurrentIndexing(ctx, 5001, indexer.cfg), context.DeadlineExceeded)
 	assert.Greater(t, len(fetcher.FetchBlockCalls), MaxRPCRetries)
+}
+
+// A tokens-mode restart resumes at the lowest unstored height the pruner still keeps and never
+// skips ahead; full mode skips ahead when the gap to the tip exceeds the start buffer. listFrom is
+// the lowest height the converter is asked to list (0: none).
+func TestResolveStartHeight(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		mode        string
+		startHeight int
+		maxBlocks   int64
+		stored      []int64
+		want        int64
+		listFrom    int64
+		wantErr     error
+	}{
+		{name: "tokens mode, gap below the highest", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 1000, stored: []int64{100, 101, 103, 104}, want: 102, listFrom: 100},
+		{name: "tokens mode, no gap", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 1000, stored: []int64{100, 101, 102}, want: 103, listFrom: 100},
+		{name: "tokens mode, start height never stored", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 1000, stored: []int64{101, 102}, want: 100, listFrom: 100},
+		{name: "tokens mode, gap below the retained heights", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 4, stored: []int64{100, 102, 103, 104, 105}, want: 106, listFrom: 102},
+		{name: "tokens mode, gap at the lowest retained height", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 4, stored: []int64{100, 101, 103, 104, 105}, want: 102, listFrom: 102},
+		{name: "tokens mode without a start height", mode: config.ChainModeTokens, maxBlocks: 1000, stored: []int64{100}, wantErr: ErrStartHeightUnset},
+		{name: "tokens mode, max_blocks below the dispatch window", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 3, stored: []int64{100}, wantErr: ErrRetentionBelowDispatch},
+		{name: "full mode", mode: config.ChainModeFull, stored: []int64{100, 101, 102}, want: 990},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var listedFrom int64
+			indexer := &ChainIndexer{
+				converter: &testutils.MockConverter{
+					GetHighestStoredBlockNumberFn: func(context.Context, *node.Node) (int64, error) {
+						return tc.stored[len(tc.stored)-1], nil
+					},
+					GetStoredBlockNumbersFn: func(_ context.Context, _ *node.Node, from int64) ([]int64, error) {
+						listedFrom = from
+						return slices.DeleteFunc(slices.Clone(tc.stored), func(h int64) bool { return h < from }), nil
+					},
+				},
+				fetcher: &testutils.MockFetcher{
+					FetchHighestBlockNumberFn: func(context.Context) (int64, error) { return 1000, nil },
+				},
+			}
+			cfg := &config.Config{
+				Chain:   config.ChainConfig{Mode: tc.mode},
+				Indexer: config.IndexerConfig{StartBuffer: 10, StartHeight: tc.startHeight, ConcurrentBlocks: 2},
+				Pruner:  config.PrunerConfig{MaxBlocks: tc.maxBlocks},
+			}
+
+			got, err := indexer.resolveStartHeight(context.Background(), cfg)
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.listFrom, listedFrom)
+		})
+	}
+}
+
+// A tokens-mode start on an empty store begins at start_height. A store whose highest height cannot
+// be read fails the start with the query's error: here it holds only a Header without a number,
+// which GetHighestStoredBlockNumber reports as chains.ErrBlockNumberCorrupt.
+func TestResolveStartHeight_TokensModeHighestStored(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		numberless bool
+		want       int64
+		wantErr    error
+	}{
+		{name: "empty store", want: 100},
+		{name: "highest height unreadable", numberless: true, wantErr: chains.ErrBlockNumberCorrupt},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				Chain: config.ChainConfig{
+					Name: "Ethereum", Network: "Mainnet", ChainID: 1, Mode: config.ChainModeTokens,
+					Tokens:               []config.Token{{Address: "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d", SupplySlot: "0x35"}},
+					StateCaptureInterval: 1,
+				},
+				Indexer: config.IndexerConfig{StartHeight: 100, ConcurrentBlocks: 2},
+				Pruner:  config.PrunerConfig{MaxBlocks: 1000},
+			}
+			converter, err := evm.NewConverter(cfg)
+			require.NoError(t, err)
+			sdl, err := converter.GetSchema()
+			require.NoError(t, err)
+			td := testutils.SetupTestDefraDBWithSchema(t, sdl)
+			if tc.numberless {
+				headers := converter.Collections().BlockCollection()
+				res := td.Node.DB.ExecRequest(context.Background(), fmt.Sprintf(`mutation { add_%s(input: {hash: "0x05"}) { _docID } }`, headers))
+				require.Empty(t, res.GQL.Errors)
+			}
+			indexer := &ChainIndexer{
+				converter: converter,
+				defraNode: td.Node,
+				fetcher: &testutils.MockFetcher{
+					FetchHighestBlockNumberFn: func(context.Context) (int64, error) { return 1000, nil },
+				},
+			}
+
+			got, err := indexer.resolveStartHeight(context.Background(), cfg)
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }

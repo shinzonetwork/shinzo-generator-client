@@ -232,6 +232,9 @@ func TestTokenMode_ReadsTokenTables(t *testing.T) {
 	highest, err := c.GetHighestStoredBlockNumber(ctx, td.Node)
 	require.NoError(t, err)
 	assert.Equal(t, int64(9), highest)
+	stored, err := c.GetStoredBlockNumbers(ctx, td.Node, 9)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{9}, stored)
 
 	docIDs, err := c.GetDocIDsByBlockRange(ctx, td.Node, 7, 7)
 	require.NoError(t, err)

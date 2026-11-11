@@ -189,12 +189,18 @@ type Converter interface {
 	Collections() Collections
 
 	// GetHighestStoredBlockNumber returns the highest block number currently
-	// persisted in DefraDB.
+	// persisted in DefraDB. With no block stored it returns an error whose
+	// pkg/errors code is CodeDocumentNotFound; tokens-mode resume reads that
+	// as an empty store and fails on any other error.
 	GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
 
 	// GetLowestStoredBlockNumber returns the lowest block number currently
 	// persisted in DefraDB. Useful for pruning windows.
 	GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
+
+	// GetStoredBlockNumbers returns the number of every block persisted in
+	// DefraDB at or above from, in ascending order.
+	GetStoredBlockNumbers(ctx context.Context, n *node.Node, from int64) ([]int64, error)
 
 	// GetDocIDsByBlockRange returns the DefraDB docIDs for every relevant
 	// collection whose block-number field falls within [from, to] inclusive.
