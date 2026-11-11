@@ -10,10 +10,10 @@ reviewed before it lands.
 The suite is behind the `integration` build tag and runs as part of
 `make integration-test`. No network access and no running node are needed:
 the only endpoint is an in-process mock server that answers from the fixture
-files, and it serves exactly the three methods the pipeline calls
-(`eth_getBlockByNumber`, `eth_getBlockReceipts`, `eth_getTransactionReceipt`).
-Any other method fails loudly, so unexpected RPC traffic cannot pass
-silently.
+files, and it serves exactly the methods the pipeline calls
+(`eth_getBlockByNumber`, `eth_getBlockReceipts`, `eth_getTransactionReceipt`,
+and for tokens mode `eth_chainId` and `eth_getProof`). Any other method fails
+loudly, so unexpected RPC traffic cannot pass silently.
 
 Both receipt paths the fetcher supports are exercised: every chain case runs
 once against the batch `eth_getBlockReceipts` response and once with that
@@ -61,6 +61,21 @@ golden/
         transaction.json
         log.json
         accessListEntry.json
+  ethereum-tokens/             tokens mode, USD1, no supply capture at this height
+    testdata/
+      blocks/26378186.json
+      receipts/26378186.json
+      golden/
+        header.json
+        evidence.json
+        stateCapture.json
+        blockAttestation.json
+  bsc-tokens/                  tokens mode, USD1, with a supply capture
+    testdata/
+      blocks/132610290.json
+      receipts/132610290.json
+      proofs/132610290.json    eth_getProof response for USD1's supply slot
+      golden/                  the same four files
 ```
 
 A block and its receipts are paired by their decimal-height file stem. Both a
@@ -102,6 +117,23 @@ chain-data fields. DefraDB artifacts are excluded: no `_docID` and no relation
 link fields, so the freeze tracks conversion output rather than docID scheme
 details. Rows are sorted by their compact JSON and rendered with two-space
 indent, which keeps diffs stable and reviewable.
+
+## Tokens-mode cases
+
+A tokens-mode case lists USD1 and freezes the Header, Evidence, StateCapture
+and BlockAttestation tables. The fetcher is built from the case's config and
+connects to the mock server, which answers `eth_chainId` with the case's chain
+ID. Blocks are signed with a fixed secp256k1 identity, so the attestations are
+the same on every run; the statement names the extractor `dev`, the version of
+a test build.
+
+The fixtures are the node answers saved in shinzo-evidence-codec's
+`testdata/vectors` (`ethereum-26378186.node.json.gz`, `bsc-132610290.node.json.gz`),
+split into `blocks/`, `receipts/` and `proofs/`. The stored raw header,
+records, receipt proof, state proof and supply match that directory's expected
+outputs. The statements match too, apart from the extractor and, for Ethereum,
+the vector's capture, which this case does not make. A block a case captures
+supply at needs `proofs/HEIGHT.json`.
 
 ## Adding a chain
 
