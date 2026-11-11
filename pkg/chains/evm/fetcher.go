@@ -22,6 +22,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	shinzoerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 )
 
 // rpcClient abstracts the subset of *rpc.EthereumClient methods used by the
@@ -120,8 +121,11 @@ type Fetcher struct {
 	suppliesMissed  metric.Int64Counter
 }
 
-// Compile-time guarantee that Fetcher implements chains.Fetcher.
-var _ chains.Fetcher = (*Fetcher)(nil)
+// Compile-time guarantee that Fetcher implements chains.Fetcher and chains.StateProver.
+var (
+	_ chains.Fetcher     = (*Fetcher)(nil)
+	_ chains.StateProver = (*Fetcher)(nil)
+)
 
 // NewFetcher creates an Fetcher wrapping the given RPC client. The
 // receiptWorkers parameter controls concurrency for individual receipt fetches
@@ -326,6 +330,28 @@ func (f *Fetcher) proveSupply(ctx context.Context, block *Block, s supplySlot) (
 		return StateCapture{}, fmt.Errorf("%w: %w", errInvalidSupplyProof, err)
 	}
 	return StateCapture{Asset: s.asset, Value: value, Proof: proof}, nil
+}
+
+// ProveState implements chains.StateProver. It reads the block's header by hash for its number, and
+// the node's eth_getProof answer for contract's slots at the block, also by hash. Errors carry no
+// endpoint credentials.
+func (f *Fetcher) ProveState(ctx context.Context, blockHash, contract string, slots []string) (int64, []byte, error) {
+	if f.client == nil {
+		return 0, nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before ProveState")
+	}
+	header, err := f.client.GetHeaderByHash(ctx, blockHash)
+	if err != nil {
+		return 0, nil, utils.RedactHTTPError(err)
+	}
+	answer, err := f.client.GetProof(ctx, common.HexToAddress(contract), slots, blockHash)
+	if err != nil {
+		return 0, nil, err
+	}
+	proof, err := codecevm.EncodeStateProof(answer)
+	if err != nil {
+		return 0, nil, err
+	}
+	return header.Number.Int64(), proof, nil
 }
 
 // FetchHighestBlockNumber implements chains.Fetcher. It queries the RPC

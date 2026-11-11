@@ -269,6 +269,15 @@ type LinkStamper interface {
 	RecordDocIDs(collection string, docs []map[string]any, ids []string) error
 }
 
+// StateProver answers a read of storage slots at a block with the node's proof. The EVM fetcher
+// implements it, and a tokens-mode generator serves it as its state endpoint.
+type StateProver interface {
+	// ProveState returns the number of the block with hash blockHash and the proof of contract's
+	// slots at that block, in the evidence codec's state-proof encoding. The node refuses a block
+	// that is not on its canonical chain.
+	ProveState(ctx context.Context, blockHash, contract string, slots []string) (int64, []byte, error)
+}
+
 // ConversionResult is the output of Converter.Convert — it bundles the
 // document groups, the signature collection name, and the chain-specific
 // LinkStamper needed for link resolution during Store.
