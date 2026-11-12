@@ -1,4 +1,4 @@
-# This workflow will run 'golangcci-lint' on the project when creating a PR (or trying to push to) main
+# This workflow will run the 'lint' mise task (golangci-lint) on the project when creating a PR (or trying to push to) main
 name: Go Lint CI
 
 on:
@@ -9,8 +9,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -19,18 +17,24 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v7
 
-    - name: Set up Go
-      uses: actions/setup-go@v7
+    - name: Set up mise
+      uses: jdx/mise-action@v5
+  
+    - name: Cache Go modules and build cache
+      uses: actions/cache@v6
       with:
-        go-version-file: 'go.mod'
-        cache: true
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/.cache/golangci-lint
+        key: ${{ runner.os }}-go-lint-${{ hashFiles('go.sum', '.golangci.yml', '.golangci.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-go-lint-${{ hashFiles('go.sum') }}-
+          ${{ runner.os }}-go-lint-
 
     - name: Get CPU count
       id: cpu
       run: echo "count=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 2)" >> $GITHUB_OUTPUT
     
-    - name: Linting - golangci-lint
-      uses: golangci/golangci-lint-action@v9
-      with:
-        version: v2.15.0
-
+    - name: Linting checks
+      run: mise run lint
