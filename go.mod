@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/TBD54566975/ssi-sdk v0.0.4-alpha
 	github.com/btcsuite/btcd v0.27.0
-	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2
+	github.com/btcsuite/btcd/chainhash/v2 v2.0.0
 	github.com/ethereum/go-ethereum v1.17.10
 	github.com/gorilla/websocket v1.5.3
 	github.com/holiman/uint256 v1.3.2
@@ -93,7 +93,6 @@ require (
 	github.com/btcsuite/btcd/btcec/v2 v2.5.1 // indirect
 	github.com/btcsuite/btcd/btcutil/v2 v2.0.2 // indirect
 	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0 // indirect
-	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
 	github.com/btcsuite/btcd/txscript/v2 v2.0.1 // indirect
 	github.com/btcsuite/btcd/wire/v2 v2.0.2 // indirect
 	github.com/btcsuite/btclog v1.0.0 // indirect
@@ -441,7 +440,7 @@ require (
 	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
+	golang.org/x/time v0.16.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gonum.org/v1/gonum v0.17.0 // indirect
