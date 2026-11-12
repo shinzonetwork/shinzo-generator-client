@@ -26,12 +26,13 @@ var bitcoinEnvKeys = []string{
 
 // bitcoinTestConfig returns a full Config that satisfies every bitcoin
 // adapter rule: basic auth, a confirmation depth inside the approved range,
-// and the schema-auth and DefraDB rules every adapter shares.
+// and the schema-auth, DefraDB, and EVM chain-ID rules every adapter shares.
 func bitcoinTestConfig() *Config {
 	cfg := &Config{}
 	cfg.Chain.Adapter = BitcoinAdapter
 	cfg.Chain.Name = "Bitcoin"
 	cfg.Chain.Network = "Mainnet"
+	cfg.Chain.ChainID = 0
 	cfg.DefraDB.Embedded = true
 	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 	cfg.Bitcoin.RPCURL = "http://bitcoin-core:8332"
@@ -131,6 +132,7 @@ func TestValidateConfig_Bitcoin(t *testing.T) {
 		}, true, "confirmation_depth"},
 		{"evm adapter leaves bitcoin section unchecked", func(cfg *Config) {
 			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Chain.ChainID = 1
 			cfg.Bitcoin = BitcoinConfig{}
 		}, false, ""},
 	}

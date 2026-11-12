@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -40,9 +40,11 @@ const DefaultBitcoinDialTimeoutSeconds = 10
 
 // SupportedChainAdapters is the adapter allowlist consumed by validateConfig.
 // Later chain integrations append their adapter and union this list.
-var SupportedChainAdapters = []string{DefaultChainAdapter, BitcoinAdapter} //nolint:gochecknoglobals
-// ErrChainUnset is returned when the config does not name the chain to index.
-var ErrChainUnset = errors.New("chain.name and chain.network are required")
+var (
+	SupportedChainAdapters = []string{DefaultChainAdapter, BitcoinAdapter} //nolint:gochecknoglobals
+	// ErrChainUnset is returned when the config does not name the chain to index.
+	ErrChainUnset = errors.New("chain.name and chain.network are required")
+)
 
 // ErrInvalidChainName is returned when the chain name or network cannot be part of a collection name.
 var ErrInvalidChainName = errors.New("chain name and network must each be an upper-case letter followed by letters or digits")
@@ -462,6 +464,9 @@ func validateBitcoinConfig(b *BitcoinConfig) error {
 		return fmt.Errorf("bitcoin.confirmation_depth must be in %d..%d inclusive, got %d", DefaultBitcoinConfirmationDepth, maxBitcoinConfirmationDepth, b.ConfirmationDepth)
 	}
 
+	return nil
+}
+
 // chainNamePattern is an upper-case letter followed by letters or digits, which keeps collection
 // names such as Ethereum__Mainnet__Block valid GraphQL with "__" as an unambiguous separator. The
 // upper-case first letter refuses a typo like mainnet that would create a second set of collections.
@@ -598,7 +603,7 @@ func envPositiveInt(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// applyChainEnvOverrides applies chain and Geth and Bitcoin environment variable overrides.
+// applyChainEnvOverrides applies chain, Geth, and Bitcoin environment variable overrides.
 func applyChainEnvOverrides(cfg *Config) error {
 	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
 		cfg.Chain.Name = chainName
@@ -619,6 +624,13 @@ func applyChainEnvOverrides(cfg *Config) error {
 	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
 		cfg.Chain.Adapter = chainAdapter
 	}
+	applyGethEnvOverrides(cfg)
+	applyBitcoinEnvOverrides(cfg)
+	return nil
+}
+
+// applyGethEnvOverrides applies Geth environment variable overrides.
+func applyGethEnvOverrides(cfg *Config) {
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL
 	}
@@ -636,7 +648,10 @@ func applyChainEnvOverrides(cfg *Config) error {
 			cfg.Geth.DialTimeoutSeconds = n
 		}
 	}
+}
 
+// applyBitcoinEnvOverrides applies Bitcoin environment variable overrides.
+func applyBitcoinEnvOverrides(cfg *Config) {
 	if btcRPCURL := os.Getenv("BITCOIN_RPC_URL"); btcRPCURL != "" {
 		cfg.Bitcoin.RPCURL = btcRPCURL
 	}
