@@ -123,33 +123,6 @@ func TestCreateIndexer(t *testing.T) {
 	}
 }
 
-func TestGetSourceChainInfo(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		chain       config.ChainConfig
-		wantName    string
-		wantChainID uint64
-	}{
-		{name: "Ethereum mainnet", chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: 1}, wantName: "ethereum", wantChainID: 1},
-		{name: "Ethereum Sepolia", chain: config.ChainConfig{Name: "Ethereum", Network: "Sepolia", ChainID: 11155111}, wantName: "ethereum", wantChainID: 11155111},
-		{name: "BSC mainnet", chain: config.ChainConfig{Name: "BSC", Network: "Mainnet", ChainID: 56}, wantName: "bsc", wantChainID: 56},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			indexer := &ChainIndexer{cfg: &config.Config{Chain: tt.chain}}
-
-			name, chainID := indexer.GetSourceChainInfo()
-
-			assert.Equal(t, tt.wantName, name)
-			assert.Equal(t, tt.wantChainID, chainID)
-		})
-	}
-}
-
 // TestGetDefraDBPort tests port retrieval with and without an embedded node.
 func TestGetDefraDBPort(t *testing.T) {
 	t.Parallel()
@@ -861,4 +834,138 @@ func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
 
 	// Just verify no panic/race occurred.
 	assert.True(t, indexer.GetCurrentBlock() >= 0)
+}
+
+// TestGetSourceChainInfo pins the ShinzoHub registration chain metadata
+// policy: the chain family comes from chain.adapter (EVM chains register with
+// their EIP-155 ID, non-EVM chains with ID 0) and only the default ethereum
+// mainnet setup is pinned to ID 1, while every other EVM chain registers with
+// its lowercased chain name and configured EIP-155 chain ID.
+func TestGetSourceChainInfo(t *testing.T) {
+	t.Parallel()
+
+	// The nil-receiver guard exists so registration during shutdown can
+	// never panic on a drained indexer.
+	var nilIndexer *ChainIndexer
+	chain, id := nilIndexer.GetSourceChainInfo()
+	assert.Empty(t, chain)
+	assert.Zero(t, id)
+
+	tests := []struct {
+		name      string
+		cfg       *config.Config
+		wantChain string
+		wantID    uint64
+	}{
+		{
+			name:      "nil config reports nothing",
+			cfg:       nil,
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin mainnet",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.BitcoinAdapter,
+				Name:    "Bitcoin",
+				Network: "Mainnet",
+			}},
+			wantChain: "bitcoin",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin mainnet matching is case insensitive",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: "Bitcoin",
+				Name:    "BTC",
+				Network: "mainnet",
+			}},
+			wantChain: "bitcoin",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin testnet reports nothing",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.BitcoinAdapter,
+				Name:    "Bitcoin",
+				Network: "Testnet",
+			}},
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin with no network reports nothing",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.BitcoinAdapter,
+			}},
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin adapter wins over chain name",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.BitcoinAdapter,
+				Name:    "Ethereum",
+				Network: "Mainnet",
+			}},
+			wantChain: "bitcoin",
+			wantID:    0,
+		},
+		{
+			name: "chain name without the bitcoin adapter registers by name and id",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Adapter: config.DefaultChainAdapter,
+				Name:    "Bitcoin",
+				Network: "Mainnet",
+			}},
+			wantChain: "bitcoin",
+			wantID:    0,
+		},
+		{
+			name:      "default config registers ethereum mainnet",
+			cfg:       &config.Config{},
+			wantChain: "ethereum",
+			wantID:    1,
+		},
+		{
+			name: "ethereum mainnet",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Name:    "Ethereum",
+				Network: "Mainnet",
+			}},
+			wantChain: "ethereum",
+			wantID:    1,
+		},
+		{
+			name: "ethereum sepolia registers with its EIP-155 id",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Name:    "Ethereum",
+				Network: "Sepolia",
+				ChainID: 11155111,
+			}},
+			wantChain: "ethereum",
+			wantID:    11155111,
+		},
+		{
+			name: "bsc mainnet registers with its EIP-155 id",
+			cfg: &config.Config{Chain: config.ChainConfig{
+				Name:    "BSC",
+				Network: "Mainnet",
+				ChainID: 56,
+			}},
+			wantChain: "bsc",
+			wantID:    56,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			i := &ChainIndexer{cfg: tc.cfg}
+			chain, id := i.GetSourceChainInfo()
+			assert.Equal(t, tc.wantChain, chain)
+			assert.Equal(t, tc.wantID, id)
+		})
+	}
 }

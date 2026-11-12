@@ -18,9 +18,13 @@ func TestLoadConfig_ChainRequired(t *testing.T) {
 		chain   string
 		wantErr error
 	}{
-		{name: "no chain section", chain: "", wantErr: ErrChainUnset},
-		{name: "no network", chain: "chain:\n  name: \"Ethereum\"\n  chain_id: 1\n", wantErr: ErrChainUnset},
-		{name: "no name", chain: "chain:\n  network: \"Mainnet\"\n  chain_id: 1\n", wantErr: ErrChainUnset},
+		// applyDefaults fills an empty chain section with the ethereum
+		// mainnet identity, so a missing section only fails on the
+		// EVM chain-ID rule, and a missing name or network no longer
+		// errors at all.
+		{name: "no chain section", chain: "", wantErr: ErrChainIDUnset},
+		{name: "no network", chain: "chain:\n  name: \"Ethereum\"\n  chain_id: 1\n"},
+		{name: "no name", chain: "chain:\n  network: \"Mainnet\"\n  chain_id: 1\n"},
 		{name: "no chain id", chain: "chain:\n  name: \"Ethereum\"\n  network: \"Mainnet\"\n", wantErr: ErrChainIDUnset},
 	}
 	for _, tt := range cases {
@@ -30,7 +34,11 @@ func TestLoadConfig_ChainRequired(t *testing.T) {
 			require.NoError(t, os.WriteFile(configPath, []byte(tt.chain+"defradb:\n  embedded: true\n"), 0o600))
 
 			_, err := LoadConfig(configPath)
-			require.ErrorIs(t, err, tt.wantErr)
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
 		})
 	}
 }

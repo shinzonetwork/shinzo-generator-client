@@ -23,10 +23,14 @@ The compiled binary goes into `./bin`.
 | Command | What it does |
 | --- | --- |
 | `make build` | Build the generator binary (standard mode). |
-| `make start` | Run the compiled binary for Ethereum. |
-| `make start-bsc` | Run the compiled binary for BSC. |
+| `make start-ethereum` | Run the compiled binary for Ethereum. |
+| `make start-bsc` | Run the compiled binary for BSC." |
+| `make start-bitcoin` | Run the compiled binary for Bitcoin. |
 | `make test` | Run all tests with a summary. |
-| `make integration-test` | Run the fast mock integration suite (embedded DefraDB, synthetic data, no chain endpoint). |
+| `make integration-test` | Run the Ethereum and Bitcoin integration suites. |
+| `make ethereum-integration-test` | Run the Ethereum mock and live legs. |
+| `make bitcoin-integration-test` | Run the Bitcoin mock and live legs. |
+| `make bitcoin-live-test` | Run the Bitcoin live smoke suite against a Bitcoin Core JSON-RPC endpoint (requires `BITCOIN_RPC_URL`). |
 | `make ethereum-live-test` | Run live integration tests for Ethereum |
 | `make bsc-live-test` | Run live integration tests for BSC |
 | `make bsc-bench-fetch` | Captures replay fixture for BSC acceptance test from BSC RPC |
