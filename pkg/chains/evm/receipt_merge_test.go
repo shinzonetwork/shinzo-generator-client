@@ -70,7 +70,8 @@ func TestFetcher_MergesReceiptOutcomeOntoTransactions(t *testing.T) {
 			assert.Equal(t, "79000", tx.CumulativeGasUsed)
 			assert.Equal(t, "20000000000", tx.EffectiveGasPrice)
 
-			c := NewConverter(testConfig())
+			c, err := NewConverter(testConfig())
+			require.NoError(t, err)
 			result, err := c.Convert(context.Background(), bundle)
 			require.NoError(t, err)
 

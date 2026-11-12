@@ -1,6 +1,7 @@
 package pruner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -359,6 +360,155 @@ func TestIndexerQueueDrain_WithAllDocTypes(t *testing.T) {
 	assert.Contains(t, result.DocIDsByCollection, testLogCol)
 	assert.Contains(t, result.DocIDsByCollection, testALECol)
 	assert.Contains(t, result.DocIDsByCollection, testBlockSigCol)
+}
+
+// trackBlocks adds one queue entry per block number, using a valid but
+// distinct block docID for every entry.
+func trackBlocks(t *testing.T, q *IndexerQueue, blocks ...int64) {
+	t.Helper()
+	for _, block := range blocks {
+		docID := fmt.Sprintf("%s-550e8400-e29b-41d4-a716-4466554400%02x", docIDPrefix, block)
+		err := q.TrackBlockDocIDs(block, docID, nil, "")
+		require.NoError(t, err, "block %d", block)
+	}
+}
+
+func TestIndexerQueueTakeUpTo(t *testing.T) {
+	t.Run("empty queue returns nil", func(t *testing.T) {
+		q := NewIndexerQueue()
+		assert.Nil(t, q.takeUpTo(10))
+		assert.Equal(t, 0, q.Len())
+	})
+
+	t.Run("no matches keeps every entry and returns nil", func(t *testing.T) {
+		q := NewIndexerQueue()
+		trackBlocks(t, q, 5, 6, 7)
+		assert.Nil(t, q.takeUpTo(4))
+		assert.Equal(t, 3, q.Len())
+	})
+
+	t.Run("returns the drained entries with all doc types", func(t *testing.T) {
+		q := NewIndexerQueue()
+		require.NoError(t, q.TrackBlockDocIDs(1,
+			docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
+			map[string][]string{
+				testTxCol:  {docIDPrefix + "-110e8400-e29b-41d4-a716-446655440001"},
+				testLogCol: {docIDPrefix + "-220e8400-e29b-41d4-a716-446655440002"},
+			},
+			docIDPrefix+"-440e8400-e29b-41d4-a716-446655440004",
+		))
+		trackBlocks(t, q, 3, 5)
+
+		removed := q.takeUpTo(3)
+		require.NotNil(t, removed)
+		require.Len(t, removed, 2)
+		blockIDs := []string{q.RestoreDocID(removed[0].BlockDocID), q.RestoreDocID(removed[1].BlockDocID)}
+		assert.Equal(t, []string{
+			docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000",
+			docIDPrefix + "-550e8400-e29b-41d4-a716-446655440003",
+		}, blockIDs)
+
+		// The caller builds the purged docID map by grouping the raw entries,
+		// so the collection mapping must survive that final step.
+		result := q.buildDrainResult(removed, len(removed), testBlockCol, testBlockSigCol)
+		assert.Equal(t, 2, result.BlockCount)
+		assert.Equal(t, []string{
+			docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000",
+			docIDPrefix + "-550e8400-e29b-41d4-a716-446655440003",
+		}, result.DocIDsByCollection[testBlockCol])
+		assert.Equal(t, []string{docIDPrefix + "-110e8400-e29b-41d4-a716-446655440001"}, result.DocIDsByCollection[testTxCol])
+		assert.Equal(t, []string{docIDPrefix + "-220e8400-e29b-41d4-a716-446655440002"}, result.DocIDsByCollection[testLogCol])
+		assert.Equal(t, []string{docIDPrefix + "-440e8400-e29b-41d4-a716-446655440004"}, result.DocIDsByCollection[testBlockSigCol])
+		assert.Equal(t, 1, q.Len())
+		assert.Equal(t, int64(5), q.entries[0].BlockNumber)
+	})
+
+	t.Run("unsorted entries are matched by block number", func(t *testing.T) {
+		q := NewIndexerQueue()
+		trackBlocks(t, q, 5, 2, 8, 1)
+		removed := q.takeUpTo(3)
+		require.NotNil(t, removed)
+		assert.Equal(t, 2, q.Len())
+		assert.Equal(t, int64(5), q.entries[0].BlockNumber)
+		assert.Equal(t, int64(8), q.entries[1].BlockNumber)
+	})
+}
+
+// Parked docIDs are the only record of documents whose purge failed, so the
+// parked list must merge across failures and survive a save and reload.
+func TestIndexerQueuePendingDocIDs(t *testing.T) {
+	t.Run("merges parks across collections and failures", func(t *testing.T) {
+		q := NewIndexerQueue()
+		q.ParkDocIDs(map[string][]string{testBlockCol: {docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000"}})
+		q.ParkDocIDs(map[string][]string{
+			testBlockCol: {docIDPrefix + "-550e8400-e29b-41d4-a716-446655440001"},
+			testTxCol:    {docIDPrefix + "-660e8400-e29b-41d4-a716-446655440002"},
+		})
+		q.ParkDocIDs(nil)
+		assert.Equal(t, 3, q.PendingCount())
+	})
+
+	t.Run("take swaps the list out and clears it", func(t *testing.T) {
+		q := NewIndexerQueue()
+		assert.Nil(t, q.TakePendingDocIDs())
+
+		parked := map[string][]string{testBlockCol: {docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000"}}
+		q.ParkDocIDs(parked)
+		taken := q.TakePendingDocIDs()
+		assert.Equal(t, parked, taken)
+		assert.Equal(t, 0, q.PendingCount())
+		assert.Nil(t, q.TakePendingDocIDs(), "a second take must not see the taken docIDs again")
+	})
+
+	t.Run("parked docIDs are parked, not queued", func(t *testing.T) {
+		q := NewIndexerQueue()
+		trackBlocks(t, q, 1, 2)
+		entriesBefore, docsBefore := q.Len(), q.DocCount()
+		q.ParkDocIDs(map[string][]string{testBlockCol: {docIDPrefix + "-550e8400-e29b-41d4-a716-446655440000"}})
+		assert.Equal(t, entriesBefore, q.Len(), "parking must not change the queue's entry count")
+		assert.Equal(t, int64(2), q.HighestBlockNumber(), "parking must not change the block numbers the queue reports")
+		assert.Equal(t, docsBefore, q.DocCount(), "parking must not change the document count")
+	})
+
+	t.Run("round-trips through the queue file including a pending-only queue", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		path := filepath.Join(tmpDir, "pending_test.gob")
+
+		q := NewIndexerQueue()
+		_, err := q.LoadFromFile(path)
+		require.NoError(t, err)
+		trackBlocks(t, q, 1)
+		q.ParkDocIDs(map[string][]string{testTxCol: {docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001"}})
+		require.NoError(t, q.Save())
+		require.FileExists(t, path)
+
+		reloaded := NewIndexerQueue()
+		count, err := reloaded.LoadFromFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+		assert.Equal(t, 1, reloaded.PendingCount())
+		taken := reloaded.TakePendingDocIDs()
+		assert.Equal(t, []string{docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001"}, taken[testTxCol])
+		assert.Equal(t, 1, reloaded.Len(), "the reloaded entry must survive the take")
+	})
+
+	t.Run("a pending-only queue keeps its file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "pending_only.gob")
+		q := NewIndexerQueue()
+		_, err := q.LoadFromFile(path)
+		require.NoError(t, err)
+		q.ParkDocIDs(map[string][]string{testTxCol: {docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001"}})
+		require.NoError(t, q.Save())
+
+		// The file removal must not fire while only parked docIDs remain:
+		// they would silently lose their record.
+		require.FileExists(t, path)
+		reloaded := NewIndexerQueue()
+		count, err := reloaded.LoadFromFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
+		assert.Equal(t, 1, reloaded.PendingCount())
+	})
 }
 
 func TestIndexerQueueDrainByDocCount_NotEnoughDocs(t *testing.T) {

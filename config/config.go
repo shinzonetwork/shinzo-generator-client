@@ -1,10 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -39,6 +41,14 @@ const DefaultBitcoinDialTimeoutSeconds = 10
 // SupportedChainAdapters is the adapter allowlist consumed by validateConfig.
 // Later chain integrations append their adapter and union this list.
 var SupportedChainAdapters = []string{DefaultChainAdapter, BitcoinAdapter} //nolint:gochecknoglobals
+// ErrChainUnset is returned when the config does not name the chain to index.
+var ErrChainUnset = errors.New("chain.name and chain.network are required")
+
+// ErrInvalidChainName is returned when the chain name or network cannot be part of a collection name.
+var ErrInvalidChainName = errors.New("chain name and network must each be an upper-case letter followed by letters or digits")
+
+// ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
+var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
@@ -105,10 +115,11 @@ func (d *DefraDBConfig) Host() string {
 
 // ChainConfig represents the chain being indexed.
 type ChainConfig struct {
-	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
-	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
-	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default) or BitcoinAdapter (env: CHAIN_ADAPTER)
+	Name    string `yaml:"name"`     // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
+	Network string `yaml:"network"`  // e.g. "Mainnet", "Testnet"
+	ChainID uint64 `yaml:"chain_id"` // EVM chain ID the RPC must report from eth_chainId, e.g. 1 for Ethereum mainnet (env: CHAIN_ID)
+	Hub     string `yaml:"hub"`      // ShinzoHub hostname only: no scheme, no port (e.g. "testnet.shinzo.network")
+	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default)  or BitcoinAdapter. Future: "cosmos", etc. (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -383,6 +394,17 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
+	if cfg.Chain.Name == "" || cfg.Chain.Network == "" {
+		return ErrChainUnset
+	}
+	if err := ValidateChainNames(cfg.Chain.Name, cfg.Chain.Network); err != nil {
+		return err
+	}
+	// chain_id is the EVM chain ID; other chain families identify their chain differently.
+	if cfg.Chain.Adapter == DefaultChainAdapter && cfg.Chain.ChainID == 0 {
+		return ErrChainIDUnset
+	}
+
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
 	}
@@ -440,6 +462,17 @@ func validateBitcoinConfig(b *BitcoinConfig) error {
 		return fmt.Errorf("bitcoin.confirmation_depth must be in %d..%d inclusive, got %d", DefaultBitcoinConfirmationDepth, maxBitcoinConfirmationDepth, b.ConfirmationDepth)
 	}
 
+// chainNamePattern is an upper-case letter followed by letters or digits, which keeps collection
+// names such as Ethereum__Mainnet__Block valid GraphQL with "__" as an unambiguous separator. The
+// upper-case first letter refuses a typo like mainnet that would create a second set of collections.
+var chainNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+// ValidateChainNames returns ErrInvalidChainName unless the chain name and network can be
+// joined into collection names.
+func ValidateChainNames(name, network string) error {
+	if !chainNamePattern.MatchString(name) || !chainNamePattern.MatchString(network) {
+		return fmt.Errorf("%w: got %q and %q", ErrInvalidChainName, name, network)
+	}
 	return nil
 }
 
@@ -448,7 +481,9 @@ func applyEnvOverrides(cfg *Config) error {
 	if err := applyDefraEnvOverrides(cfg); err != nil {
 		return err
 	}
-	applyChainEnvOverrides(cfg)
+	if err := applyChainEnvOverrides(cfg); err != nil {
+		return err
+	}
 	applyIndexerEnvOverrides(cfg)
 	applySchemaEnvOverrides(cfg)
 	applyPrunerEnvOverrides(cfg)
@@ -563,13 +598,20 @@ func envPositiveInt(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// applyChainEnvOverrides applies chain, Geth and Bitcoin environment variable overrides.
-func applyChainEnvOverrides(cfg *Config) {
+// applyChainEnvOverrides applies chain and Geth and Bitcoin environment variable overrides.
+func applyChainEnvOverrides(cfg *Config) error {
 	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
 		cfg.Chain.Name = chainName
 	}
 	if chainNetwork := os.Getenv("CHAIN_NETWORK"); chainNetwork != "" {
 		cfg.Chain.Network = chainNetwork
+	}
+	if raw := os.Getenv("CHAIN_ID"); raw != "" {
+		id, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid CHAIN_ID value %q: %w", raw, err)
+		}
+		cfg.Chain.ChainID = id
 	}
 	if shinzoHubHost := os.Getenv("SHINZOHUB_REST_BASE"); shinzoHubHost != "" {
 		cfg.Chain.Hub = shinzoHubHost

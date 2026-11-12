@@ -72,5 +72,5 @@ logs/
 # SDD Files
 specs/
 
-# Replay tests data
+# Replay test harness block data
 replay/testdata/

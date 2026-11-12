@@ -6,21 +6,9 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestNewCollections_NilConfig_DefaultsToEVM(t *testing.T) {
-	t.Parallel()
-
-	c, err := chains.NewCollections(nil)
-	require.NoError(t, err)
-	require.NotNil(t, c)
-
-	assert.Equal(t, evm.DefaultCollectionPrefix, c.Prefix())
-	assert.Equal(t, evm.DefaultCollections(), c.AllCollections())
-}
 
 func TestMergeSDL(t *testing.T) {
 	t.Parallel()

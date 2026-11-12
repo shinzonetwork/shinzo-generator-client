@@ -181,6 +181,20 @@ func (i *ChainIndexer) observePeers(ctx context.Context, o metric.Int64Observer)
 	return nil
 }
 
+// GetDefraDBURL returns the API URL of the embedded DefraDB node, or "" when
+// using external DefraDB or before the node has started.
+//
+// The node's own APIURL is the authoritative reachable address: an embedded
+// node binds a non-loopback (machine LAN) address with a random port, so the
+// bind address cannot be reconstructed from the port alone. The health server
+// is initialized with this same value for its connectivity probe.
+func (i *ChainIndexer) GetDefraDBURL() string {
+	if i.defraNode == nil {
+		return ""
+	}
+	return i.defraNode.APIURL
+}
+
 // CreateIndexer creates a new ChainIndexer with the provided configuration.
 func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 	if cfg == nil {
@@ -282,17 +296,19 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	}
 
 	// 2. Log prefix (uses converter only — no RPC needed)
-	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, i.converter.Collections().Prefix())
+	logger.Sugar.Infof("Indexing chain: %s", i.converter.Collections().Prefix())
 
-	// 3. Start DefraDB (uses converter.Collections() + converter.GetCollections())
+	// 3. Connect the fetcher before DefraDB starts, so an RPC endpoint that serves another chain
+	// is refused before the generator opens its store.
+	if err := i.fetcher.Connect(initCtx); err != nil {
+		return fmt.Errorf("failed to connect fetcher for %s %s (chain_id %d): %w",
+			cfg.Chain.Name, cfg.Chain.Network, cfg.Chain.ChainID, err)
+	}
+
+	// 4. Start DefraDB (uses converter.Collections() + converter.GetCollections())
 	ctx, err = i.initDefra(initCtx, cfg, defraStarted)
 	if err != nil {
 		return err
-	}
-
-	// 4. Connect fetcher (context-aware dial — was done in NewAdapter at construction)
-	if err := i.fetcher.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect fetcher: %w", err)
 	}
 
 	// 5. Create block handler (was done in adapter.Init)
@@ -1031,7 +1047,7 @@ func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 		return "ethereum", 1
 	}
 
-	return "", 0
+	return strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name)), i.cfg.Chain.ChainID
 }
 
 // GetNodePublicKey returns the DefraDB node's public key as a hex string.
