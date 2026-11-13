@@ -9,11 +9,8 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
-
-	// The blank import wires the default chain adapter into the registry;
-	// everything below resolves through the pkg/chains interfaces.
-	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
 
 // errChainFlagsUnset is returned when --chain or --network is missing. The
@@ -28,6 +25,9 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer) error {
+	// Registration is explicit: the evm adapter's factories enter the chain
+	// factory registry before collections resolution dispatches through it.
+	evm.Register()
 	fs := flag.NewFlagSet("build_schema", flag.ContinueOnError)
 	listFiles := fs.Bool("list-files", false, "List collection filenames in apply order, one per line")
 	chain := fs.String("chain", "", "Chain name for collection prefixes (e.g. Arbitrum). Required.")

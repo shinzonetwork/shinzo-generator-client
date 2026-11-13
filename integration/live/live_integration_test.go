@@ -37,6 +37,9 @@ var (
 func TestMain(m *testing.M) {
 	// Initialize logger for live integration tests first.
 	logger.InitConsoleOnly(true)
+	// Adapter registration is explicit now: CreateIndexer dispatches through
+	// the chain factory registry.
+	evm.Register()
 	logger.Test("TestMain - Starting live integration tests with real Ethereum data")
 
 	// Check required environment variables.

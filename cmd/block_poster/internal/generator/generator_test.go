@@ -19,12 +19,20 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestMain registers the evm adapter: Run dispatches fetcher and converter
+// construction through the chain factory registry, and TestRun_Collections
+// resolves collections the same way.
+func TestMain(m *testing.M) {
+	evm.Register()
+	os.Exit(m.Run())
+}
 
 func TestTruncateID(t *testing.T) {
 	t.Parallel()

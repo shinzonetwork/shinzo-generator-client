@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	shinzoerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -22,6 +23,10 @@ import (
 
 // TestMain sets up testing environment.
 func TestMain(m *testing.M) {
+	// Adapter registration is explicit now: testutils.SetupTestDefraDB resolves
+	// collections through the chain factory registry.
+	evm.Register()
+
 	// Initialize logger for all tests.
 	logger.InitConsoleOnly(true)
 

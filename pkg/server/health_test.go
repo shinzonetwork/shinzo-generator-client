@@ -34,6 +34,13 @@ func init() {
 	logger.InitConsoleOnly(true)
 }
 
+// TestMain registers the evm adapter: testutils.SetupTestDefraDB resolves
+// collections through the chain factory registry.
+func TestMain(m *testing.M) {
+	evm.Register()
+	os.Exit(m.Run())
+}
+
 type mockHealthChecker struct {
 	healthy       bool
 	currentBlock  int64

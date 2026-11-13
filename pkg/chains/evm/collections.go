@@ -3,6 +3,7 @@ package evm
 import (
 	"fmt"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
@@ -90,6 +91,19 @@ func (c *CollectionNames) SnapshotSignatureCollection() string {
 // collection name that stores block signature documents.
 func (c *CollectionNames) BlockSignatureCollection() string {
 	return c.BlockSignature
+}
+
+// NewCollectionsFromConfig creates the EVM collection names for the chain cfg
+// names. It returns config.ErrChainUnset when cfg is nil or has no chain name
+// or network, mirroring NewConverter, so no caller gets a prefix it did not
+// configure. It is the exported Collections factory the evm package registers
+// in the chain factory registry.
+func NewCollectionsFromConfig(cfg *config.Config) (chains.Collections, error) {
+	prefix, err := chainPrefixFromConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return NewCollectionNames(prefix), nil
 }
 
 // DefaultCollections returns the Ethereum Mainnet collection names as a slice.

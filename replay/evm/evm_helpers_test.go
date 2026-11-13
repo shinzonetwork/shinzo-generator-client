@@ -68,9 +68,12 @@ type replayFixture struct {
 	Blocks []fixtureBlock `json:"blocks"`
 }
 
-// TestMain initializes the console-only logger for the acceptance suite.
+// TestMain initializes the console-only logger for the acceptance suite and
+// registers the evm adapter: replay helpers resolve collections through the
+// chain factory registry.
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
+	evm.Register()
 	os.Exit(m.Run())
 }
 

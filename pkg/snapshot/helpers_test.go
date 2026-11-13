@@ -43,6 +43,9 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	// Adapter registration is explicit now: testutils.SetupTestDefraDB resolves
+	// collections through the chain factory registry.
+	evm.Register()
 	logger.InitConsoleOnly(true)
 	os.Exit(m.Run())
 }

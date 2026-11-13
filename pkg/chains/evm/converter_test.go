@@ -20,9 +20,9 @@ import (
 // Construction
 // ---------------------------------------------------------------------------
 
-// TestNewConverter_ChainUnset calls the converter and collections factories
-// through the chains registry, so the factories' error returns are covered as
-// well: neither may fill in a chain name or network.
+// TestNewConverter_ChainUnset calls the converter and collections constructors
+// directly, so their error returns are covered as well: neither may fill in a
+// chain name or network.
 func TestNewConverter_ChainUnset(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -37,9 +37,9 @@ func TestNewConverter_ChainUnset(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := chains.NewConverter(tc.cfg)
+			_, err := NewConverter(tc.cfg)
 			require.ErrorIs(t, err, config.ErrChainUnset)
-			_, err = chains.NewCollections(tc.cfg)
+			_, err = NewCollectionsFromConfig(tc.cfg)
 			require.ErrorIs(t, err, config.ErrChainUnset)
 		})
 	}

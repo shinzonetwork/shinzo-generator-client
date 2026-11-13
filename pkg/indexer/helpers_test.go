@@ -787,6 +787,9 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("NO_LOG_FILES", "1"); err != nil {
 		panic(err)
 	}
+	// Adapter registration is explicit now: dispatch via chains.NewFetcher and
+	// chains.NewConverter needs the evm factories in the registry.
+	evm.Register()
 	logger.InitConsoleOnly(true)
 	// Metrics are disabled in tests; tests that check metrics use their own provider.
 	otel.SetMeterProvider(noop.NewMeterProvider())

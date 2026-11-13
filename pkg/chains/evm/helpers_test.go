@@ -230,6 +230,9 @@ func (f *fakeRPCClient) Close() error {
 }
 
 func TestMain(m *testing.M) {
+	// Adapter registration is explicit now: tests that reach through the chain
+	// factory registry (directly or via testutils) need the evm factories.
+	Register()
 	logger.InitConsoleOnly(true)
 	os.Exit(m.Run())
 }
