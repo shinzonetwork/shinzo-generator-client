@@ -106,8 +106,8 @@ func (h *BlockHandler) SetNodeIdentity(id identity.Identity) {
 	h.nodeIdentity = id
 }
 
-// defaultSignBatch signs the collected CIDs using the node identity.
-func (h *BlockHandler) defaultSignBatch(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+// fullIdentity returns the node identity, set on the handler or carried by ctx, with its private key.
+func (h *BlockHandler) fullIdentity(ctx context.Context) (identity.FullIdentity, error) {
 	nodeIdent := h.nodeIdentity
 	if nodeIdent == nil {
 		id, ok := defracontext.IdentityFrom(ctx)
@@ -119,6 +119,15 @@ func (h *BlockHandler) defaultSignBatch(ctx context.Context, collector *node.Bat
 	fullIdent, ok := nodeIdent.(identity.FullIdentity)
 	if !ok {
 		return nil, fmt.Errorf("identity is not a FullIdentity") //nolint:err113
+	}
+	return fullIdent, nil
+}
+
+// defaultSignBatch signs the collected CIDs using the node identity.
+func (h *BlockHandler) defaultSignBatch(ctx context.Context, collector *node.BatchCIDCollector) (*node.BatchSignature, error) {
+	fullIdent, err := h.fullIdentity(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	cids := collector.GetCIDs()
@@ -267,7 +276,8 @@ func toInt64(v any) (int64, error) {
 // Processing is fail-fast: the first group stamp or write failure stops the
 // remaining groups, since a skipped parent would leave its dependents written
 // without links. The block signature is created over the collected CIDs when
-// signing identity is available.
+// signing identity is available. A BlockLast result is written by
+// storeBlockLast instead.
 func (h *BlockHandler) Store(
 	ctx context.Context,
 	result chains.ConversionResult,
@@ -276,20 +286,16 @@ func (h *BlockHandler) Store(
 		return nil, errors.NewConfigurationError("defra", "Store",
 			"store requires embedded DefraDB node", "", nil)
 	}
-	if len(result.Groups) == 0 {
-		return nil, fmt.Errorf("no document groups to store")
+	if result.BlockLast {
+		return h.storeBlockLast(ctx, result)
 	}
 
-	blockGroup := result.Groups[0]
-	if len(blockGroup.Docs) == 0 {
-		return nil, fmt.Errorf("no block document in groups")
-	}
-	blockData := blockGroup.Docs[0]
-	blockInt, err := toInt64(blockData[blockGroup.BlockNumField])
+	blockInt, blockHash, err := blockNumberAndHash(result)
 	if err != nil {
-		return nil, fmt.Errorf("invalid block number: %w", err)
+		return nil, err
 	}
-	blockHash, _ := blockData[blockGroup.BlockHashField].(string)
+	blockGroup := result.Groups[0]
+	blockData := blockGroup.Docs[0]
 
 	collector := node.NewBatchCIDCollector()
 	ctx = node.ContextWithBatchSigning(ctx, collector)
@@ -357,6 +363,25 @@ func (h *BlockHandler) Store(
 	}
 
 	return creationResult, nil
+}
+
+// blockNumberAndHash returns the block number and hash from the block document, the first
+// document of the first group.
+func blockNumberAndHash(result chains.ConversionResult) (int64, string, error) {
+	if len(result.Groups) == 0 {
+		return 0, "", fmt.Errorf("no document groups to store")
+	}
+	blockGroup := result.Groups[0]
+	if len(blockGroup.Docs) == 0 {
+		return 0, "", fmt.Errorf("no block document in groups")
+	}
+	blockData := blockGroup.Docs[0]
+	blockInt, err := toInt64(blockData[blockGroup.BlockNumField])
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid block number: %w", err)
+	}
+	blockHash, _ := blockData[blockGroup.BlockHashField].(string)
+	return blockInt, blockHash, nil
 }
 
 // stampBlockGroup stamps the block group before its write when the conversion

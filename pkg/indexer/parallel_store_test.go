@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"os"
 	"runtime/pprof"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -457,45 +456,49 @@ func TestParallelStores_CallbackOutsideProcessorLock(t *testing.T) {
 	assert.Empty(t, reorg.calls())
 }
 
-// TestParallelStores_RefusalThroughPoolFailsRun pins the refusal's fatal
-// classification on the async failure path: a deleted-docID refusal
-// surfaced by a pool worker stops the run with that refusal as the indexing
-// error instead of skipping the height. Retrying failed heights in place
-// does not change this.
+// TestParallelStores_RefusalThroughPoolFailsRun pins that each store refusal
+// retrying cannot clear, surfaced by a pool worker, stops the run as the
+// indexing error, with or without failed heights retried in place. The store
+// holds another block at 100, so a signal that reached the rollback would show
+// as a rollback call.
 func TestParallelStores_RefusalThroughPoolFailsRun(t *testing.T) {
 	t.Parallel()
-	for _, retryFailedHeights := range []bool{false, true} {
-		t.Run(fmt.Sprintf("retried in place %v", retryFailedHeights), func(t *testing.T) {
-			t.Parallel()
-			logger.InitConsoleOnly(true)
+	refusals := []struct {
+		name string
+		err  error
+	}{
+		{"deleted docID", fmt.Errorf("create block: a document with the given ID has been deleted")},
+		{"other header stored", fmt.Errorf("%w: block 100 has %s stored", defra.ErrStoredHeaderDiffers, orphanHash(100))},
+	}
+	for _, refusal := range refusals {
+		for _, retryFailedHeights := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, retried in place %v", refusal.name, retryFailedHeights), func(t *testing.T) {
+				t.Parallel()
+				logger.InitConsoleOnly(true)
+				refusingStorer := &mockBlockStorer{
+					storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
+						return nil, refusal.err
+					},
+				}
+				rec := &commitRecorder{}
+				reorg := &mockReorgHandler{storedHashes: map[int64]string{100: orphanHash(100)}}
+				p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), refusingStorer, reorg, 1, 0)
+				if retryFailedHeights {
+					p.RetryFailedHeights()
+				}
 
-			refusingStorer := &mockBlockStorer{
-				storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
-					return nil, fmt.Errorf("create block: a document with the given ID has been deleted")
-				},
-			}
-
-			rec := &commitRecorder{}
-			reorg := &mockReorgHandler{}
-			p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), refusingStorer, reorg, 1, 0)
-			if retryFailedHeights {
-				p.RetryFailedHeights()
-			}
-
-			_, errCh := runProcessor(p, 100, rec.record)
-
-			select {
-			case err := <-errCh:
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), "refused")
-				assert.Contains(t, strings.ToLower(err.Error()), "deleted")
-			case <-time.After(10 * time.Second):
-				t.Fatal("timed out waiting for the pool refusal to stop the run")
-			}
-
-			assert.Empty(t, rec.snapshot(), "the refused height must not commit or skip")
-			assert.Empty(t, reorg.calls())
-		})
+				_, errCh := runProcessor(p, 100, rec.record)
+				select {
+				case err := <-errCh:
+					require.ErrorIs(t, err, refusal.err)
+					assert.Contains(t, err.Error(), "refused")
+				case <-time.After(10 * time.Second):
+					t.Fatal("timed out waiting for the pool refusal to stop the run")
+				}
+				assert.Empty(t, rec.snapshot(), "the refused height must not commit or skip")
+				assert.Empty(t, reorg.calls(), "the refused height must not be rolled back")
+			})
+		}
 	}
 }
 

@@ -246,6 +246,7 @@ func (c *Converter) convertTokens(bundle *BlockBundle, blockInt int64) (chains.C
 	return chains.ConversionResult{
 		Groups:              groups,
 		SignatureCollection: c.collections.BlockAttestation,
+		BlockLast:           true,
 		Statement:           encoded,
 	}, nil
 }

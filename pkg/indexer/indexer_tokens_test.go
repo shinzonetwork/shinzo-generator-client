@@ -231,3 +231,20 @@ func TestResolveStartHeight_TokensModeHighestStored(t *testing.T) {
 		})
 	}
 }
+
+// Tokens mode starts only on a build with a version; full mode starts on any build.
+func TestCheckTokensBuild(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		mode    string
+		version string
+		wantErr error
+	}{
+		{config.ChainModeTokens, config.DevVersion, ErrDevBuildInTokensMode},
+		{config.ChainModeTokens, "v0.8.0-ethereum-mainnet", nil},
+		{config.ChainModeFull, config.DevVersion, nil},
+	}
+	for _, tc := range cases {
+		assert.ErrorIs(t, checkTokensBuild(tc.mode, tc.version), tc.wantErr, "%s %s", tc.mode, tc.version)
+	}
+}

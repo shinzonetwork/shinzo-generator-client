@@ -8,6 +8,13 @@ chain:
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
   chain_id: 1            # EVM chain ID the RPC must report; the generator refuses to start otherwise (env: CHAIN_ID)
   adapter: "evm"         # Chain adapter: "evm" (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+  mode: "full"           # full: blocks, transactions, logs and access-list entries; tokens: raw headers, each token's Evidence, supply captures every state_capture_interval blocks (a token whose proof fails every attempt is skipped at that block) and the signed statement (env: CHAIN_MODE)
+  # tokens:              # tokens mode: each token's contract address and the storage slot of its total supply, 0x-prefixed hex
+  #   - address: "0x..."
+  #     supply_slot: "0x..."   # (env: CHAIN_TOKENS, address:supply_slot pairs, comma-separated)
+  # state_capture_interval: N  # tokens mode: blocks between total-supply captures, at least 1 (env: CHAIN_STATE_CAPTURE_INTERVAL)
+  # finalized_poll_interval_ms: N  # tokens mode: milliseconds between finalized-height polls once dispatch has reached that height; unset or 0 means 1000 (env: CHAIN_FINALIZED_POLL_INTERVAL_MS)
+  # tokens mode refuses to start unless snapshot.enabled is false, defradb.p2p.accept_incoming is false, indexer.start_height is above 0, and pruner.max_blocks is at least twice indexer.concurrent_blocks
   hub: "testnet.shinzo.network"
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
@@ -64,6 +71,8 @@ geth:
   api_key_type: "${GETH_API_KEY_TYPE}"
   dial_timeout_seconds: 10     # Positive: bounds the startup WebSocket dial (seconds); WS timeout with HTTP connected starts HTTP-only. 0 or negative = unbounded (env: GETH_DIAL_TIMEOUT_SECONDS)
 indexer:
+  # tokens mode: lowering concurrent_blocks and pruner.max_blocks across a restart can resume past a height that was never stored, because resume assumes max_blocks covers the previous run's dispatch window
+  # tokens mode: lowering start_height below an existing store does not backfill the heights pruner.max_blocks or more below the highest stored height
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
   concurrent_blocks: 1      # Number of blocks to process concurrently
   receipt_workers: 8        # Concurrent receipt fetchers per block
