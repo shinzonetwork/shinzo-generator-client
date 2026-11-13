@@ -155,7 +155,8 @@ type Fetcher interface {
 	// FetchFinalizedBlockNumber returns the finalized block height known to
 	// the chain, with the safe height as the implementation-level fallback
 	// when the finalized tag is unsupported. Used as the lower floor of the
-	// reorg walk-back.
+	// reorg walk-back. In tokens mode it is also the dispatch ceiling, so an
+	// implementation must not fall back there.
 	FetchFinalizedBlockNumber(ctx context.Context) (int64, error)
 
 	// Close releases the underlying RPC connection.

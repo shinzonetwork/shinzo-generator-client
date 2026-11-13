@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/gorilla/websocket"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
@@ -111,6 +112,40 @@ func fakeReceipt(txHash string, blockNum int64) *TransactionReceipt {
 	}
 }
 
+// gethBundle returns a block with one signed transaction per entry of logs, emitting that entry's
+// logs, converted as the client converts a node's answers. The header's roots are built from them.
+func gethBundle(t *testing.T, num int64, logs ...[]*ethtypes.Log) *BlockBundle {
+	t.Helper()
+	key, _ := defaultTestKey()
+	signer := ethtypes.LatestSignerForChainID(big.NewInt(1))
+	txs := make(ethtypes.Transactions, len(logs))
+	receipts := make(ethtypes.Receipts, len(logs))
+	for i, txLogs := range logs {
+		txs[i] = ethtypes.MustSignNewTx(key, signer, &ethtypes.LegacyTx{
+			Nonce: uint64(i), To: &common.Address{1}, Value: big.NewInt(1), Gas: 21000, GasPrice: big.NewInt(1),
+		})
+		receipts[i] = &ethtypes.Receipt{
+			Status: ethtypes.ReceiptStatusSuccessful, CumulativeGasUsed: uint64(21000 * (i + 1)), Logs: txLogs,
+		}
+	}
+	header := &ethtypes.Header{Number: big.NewInt(num), Difficulty: big.NewInt(0)}
+	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{Transactions: txs}, receipts, trie.NewStackTrie(nil))
+
+	client := &EthereumClient{}
+	bundle := &BlockBundle{Block: client.convertGethBlock(gethBlock)}
+	var logIndex uint
+	for i, r := range receipts {
+		r.TxHash, r.BlockHash, r.BlockNumber, r.TransactionIndex = txs[i].Hash(), gethBlock.Hash(), big.NewInt(num), uint(i)
+		for _, l := range r.Logs {
+			l.TxHash, l.BlockHash, l.BlockNumber, l.TxIndex, l.Index = r.TxHash, r.BlockHash, uint64(num), uint(i), logIndex
+			logIndex++
+		}
+		bundle.Transactions = append(bundle.Transactions, &bundle.Block.Transactions[i])
+		bundle.Receipts = append(bundle.Receipts, client.convertGethReceipt(r))
+	}
+	return bundle
+}
+
 // storeTestBlockDoc writes a single block document through the same write
 // path used in production (buildBlockData → NewDocFromMap → AddDocument).
 func storeTestBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter, num int64) string {
@@ -176,6 +211,9 @@ type fakeRPCClient struct {
 	finalizedErr error
 	finalizedFn  func(ctx context.Context) (int64, error)
 
+	finalizedHeight    int64
+	finalizedHeightErr error
+
 	blockFn     func(ctx context.Context, n *big.Int) (*Block, error)
 	batchFn     func(ctx context.Context, hash string) ([]*TransactionReceipt, error)
 	txReceiptFn func(ctx context.Context, hash string) (*TransactionReceipt, error)
@@ -222,6 +260,10 @@ func (f *fakeRPCClient) GetFinalizedBlockNumber(ctx context.Context) (int64, err
 		return f.finalizedFn(ctx)
 	}
 	return f.finalizedNum, f.finalizedErr
+}
+
+func (f *fakeRPCClient) GetFinalizedHeight(_ context.Context) (int64, error) {
+	return f.finalizedHeight, f.finalizedHeightErr
 }
 
 func (f *fakeRPCClient) Close() error {
