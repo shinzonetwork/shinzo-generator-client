@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -40,6 +41,7 @@ func TestCreateIndexer(t *testing.T) {
 	tests := []struct {
 		name            string
 		cfg             *config.Config
+		factories       chains.ChainFactories
 		wantErr         bool
 		wantErrContains []string
 		wantURL         string
@@ -56,14 +58,27 @@ func TestCreateIndexer(t *testing.T) {
 					StartHeight: 100,
 				},
 			},
+			factories:      evm.Factories(),
 			wantURL:        "http://localhost:9181",
 			checkInitState: true,
 		},
 		{
 			name:            "nil config",
 			cfg:             nil,
+			factories:       evm.Factories(),
 			wantErr:         true,
 			wantErrContains: []string{"config is nil", "CONFIGURATION_ERROR"},
+		},
+		{
+			name: "incomplete chain factories",
+			cfg: &config.Config{
+				DefraDB: config.DefraDBConfig{
+					URL: "http://localhost:9181",
+				},
+			},
+			factories:       chains.ChainFactories{},
+			wantErr:         true,
+			wantErrContains: []string{"chain factories incomplete", "CONFIGURATION_ERROR"},
 		},
 		{
 			name: "custom config is preserved",
@@ -85,6 +100,7 @@ func TestCreateIndexer(t *testing.T) {
 					Development: true,
 				},
 			},
+			factories:       evm.Factories(),
 			wantURL:         "http://localhost:8888",
 			wantStartHeight: 500,
 		},
@@ -93,7 +109,7 @@ func TestCreateIndexer(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			indexer, err := CreateIndexer(tt.cfg)
+			indexer, err := CreateIndexer(tt.cfg, tt.factories)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -164,7 +180,7 @@ func TestGetDefraDBPort(t *testing.T) {
 				cfg := &config.Config{
 					DefraDB: config.DefraDBConfig{URL: testDefraURL},
 				}
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				require.NoError(t, err)
 				return indexer, -1, false
 			},

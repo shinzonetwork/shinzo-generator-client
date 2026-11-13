@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
@@ -43,7 +44,7 @@ func TestStopIndexingVariants(t *testing.T) {
 				cfg := &config.Config{
 					DefraDB: config.DefraDBConfig{URL: testDefraURL},
 				}
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				assert.NoError(t, err)
 				return indexer
 			},
@@ -67,7 +68,7 @@ func TestStopIndexingVariants(t *testing.T) {
 				cfg := &config.Config{
 					DefraDB: config.DefraDBConfig{URL: testDefraURL},
 				}
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				assert.NoError(t, err)
 
 				// Set some state.
@@ -102,7 +103,7 @@ func TestStopIndexingVariants(t *testing.T) {
 					},
 				}
 
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 
 				assert.NoError(t, err)
 				return indexer
@@ -393,7 +394,7 @@ func TestStopIndexing_DuringStart_WaitsForStart(t *testing.T) {
 		StartBuffer:      10,
 	})
 
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	errCh := startIndexingBackground(t, indexer)
@@ -511,7 +512,7 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 		StartBuffer:      10,
 	})
 
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	errCh := startIndexingBackground(t, indexer)

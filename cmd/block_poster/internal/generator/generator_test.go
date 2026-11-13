@@ -18,21 +18,12 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// TestMain registers the evm adapter: Run dispatches fetcher and converter
-// construction through the chain factory registry, and TestRun_Collections
-// resolves collections the same way.
-func TestMain(m *testing.M) {
-	evm.Register()
-	os.Exit(m.Run())
-}
 
 func TestTruncateID(t *testing.T) {
 	t.Parallel()
@@ -161,18 +152,18 @@ func TestPrintVersion(t *testing.T) {
 // TestRun is not parallel: some cases clear environment variables, which t.Setenv requires.
 func TestRun(t *testing.T) {
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
-		err := Run([]string{"verify"})
+		err := Run([]string{"verify"}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "usage:")
 	})
 
 	t.Run("verify subcommand with nonexistent file returns error", func(t *testing.T) {
-		err := Run([]string{"verify", "/nonexistent/snapshot.jsonl.gz"})
+		err := Run([]string{"verify", "/nonexistent/snapshot.jsonl.gz"}, evm.Factories())
 		require.Error(t, err)
 	})
 
 	t.Run("invalid config path returns error", func(t *testing.T) {
-		err := Run([]string{"-config", "/nonexistent/config.yaml"})
+		err := Run([]string{"-config", "/nonexistent/config.yaml"}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
@@ -185,13 +176,13 @@ func TestRun(t *testing.T) {
 		require.NoError(t, os.Chdir(tmpDir))
 		defer func() { _ = os.Chdir(origDir) }()
 
-		err = Run([]string{})
+		err = Run([]string{}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
 
 	t.Run("invalid flag returns error", func(t *testing.T) {
-		err := Run([]string{"-invalid-flag-that-does-not-exist"})
+		err := Run([]string{"-invalid-flag-that-does-not-exist"}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse flags")
 	})
@@ -205,12 +196,12 @@ func TestRun(t *testing.T) {
 		require.NoError(t, os.Chdir(tmpDir))
 		defer func() { _ = os.Chdir(origDir) }()
 
-		require.NoError(t, Run([]string{"-v"}))
-		require.NoError(t, Run([]string{"--version"}))
+		require.NoError(t, Run([]string{"-v"}, evm.Factories()))
+		require.NoError(t, Run([]string{"--version"}, evm.Factories()))
 	})
 
 	t.Run("version flag ignores invalid config path", func(t *testing.T) {
-		err := Run([]string{"-version", "-config", "/nonexistent/config.yaml"})
+		err := Run([]string{"-version", "-config", "/nonexistent/config.yaml"}, evm.Factories())
 		require.NoError(t, err)
 	})
 
@@ -255,7 +246,7 @@ logger:
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = Run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
 		assert.Contains(t, err.Error(), "failed to start DefraDB instance")
@@ -302,7 +293,7 @@ logger:
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = Run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
 		assert.Contains(t, err.Error(), "DefraDB failed to become ready")
@@ -367,7 +358,7 @@ logger:
 			_ = p.Signal(syscall.SIGTERM)
 		}()
 
-		err = Run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath}, evm.Factories())
 		assert.NoError(t, err)
 	})
 
@@ -393,7 +384,7 @@ indexer:
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = Run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
@@ -416,9 +407,9 @@ func TestLoadBSCConfig(t *testing.T) {
 	assert.Equal(t, "Mainnet", cfg.Chain.Network)
 	assert.Equal(t, "evm", cfg.Chain.Adapter)
 
-	// The chain identity must survive the adapter registry: the collection
+	// The chain identity must survive the factory bundle: the collection
 	// prefix is what the schema, documents, and signatures derive from.
-	collections, err := chains.NewCollections(cfg)
+	collections, err := evm.Factories().Collections(cfg)
 	require.NoError(t, err)
 	assert.Equal(t, "BSC__Mainnet", collections.Prefix())
 
@@ -698,7 +689,7 @@ func TestMain_VerifyValidSnapshot(t *testing.T) {
 
 	// This covers Main()'s delegation to Run(); since Run() returns nil,
 	// the error branch that would exit the process is not entered.
-	Main()
+	Main(evm.Factories())
 }
 
 // clearEndpointEnv clears the environment variables that override the config's RPC and DefraDB

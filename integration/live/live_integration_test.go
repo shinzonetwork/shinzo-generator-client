@@ -37,9 +37,6 @@ var (
 func TestMain(m *testing.M) {
 	// Initialize logger for live integration tests first.
 	logger.InitConsoleOnly(true)
-	// Adapter registration is explicit now: CreateIndexer dispatches through
-	// the chain factory registry.
-	evm.Register()
 	logger.Test("TestMain - Starting live integration tests with real Ethereum data")
 
 	// Check required environment variables.
@@ -79,7 +76,7 @@ func TestMain(m *testing.M) {
 		cfg.Geth.APIKey = os.Getenv("GETH_API_KEY")
 
 		// Start indexer with real connections - should succeed if env vars are set.
-		liveChainIndexer, err = indexer.CreateIndexer(cfg)
+		liveChainIndexer, err = indexer.CreateIndexer(cfg, evm.Factories())
 		if err != nil {
 			logger.Sugar.Errorf("create indexer failed: %v", err)
 			return

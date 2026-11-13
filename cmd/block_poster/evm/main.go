@@ -6,8 +6,7 @@ import (
 )
 
 func main() {
-	// Registration is explicit: the evm adapter's factories enter the chain
-	// factory registry here, before the runner dispatches through it.
-	evm.Register()
-	generator.Main()
+	// The runner receives the evm factories directly, so indexing dispatches
+	// through injected factories rather than the chain factory registry.
+	generator.Main(evm.Factories())
 }

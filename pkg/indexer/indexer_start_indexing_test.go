@@ -75,7 +75,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 					Logger: config.LoggerConfig{Development: true},
 				}
 
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				require.NoError(t, err)
 				return indexer
 			},
@@ -130,7 +130,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 					Logger: config.LoggerConfig{Development: true},
 				}
 
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				require.NoError(t, err)
 				return indexer
 			},
@@ -628,7 +628,7 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				cfg.Snapshot = *tc.snapshot(tmpDir)
 			}
 
-			indexer, err := CreateIndexer(cfg)
+			indexer, err := CreateIndexer(cfg, evm.Factories())
 			require.NoError(t, err)
 
 			stopped := false
@@ -790,7 +790,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		Logger: config.LoggerConfig{Development: true},
 	}
 
-	indexer1, err := CreateIndexer(cfg1)
+	indexer1, err := CreateIndexer(cfg1, evm.Factories())
 	require.NoError(t, err)
 
 	stopped1 := false
@@ -851,7 +851,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		Logger: config.LoggerConfig{Development: true},
 	}
 
-	indexer2, err := CreateIndexer(cfg2)
+	indexer2, err := CreateIndexer(cfg2, evm.Factories())
 	require.NoError(t, err)
 
 	stopped2 := false
@@ -970,7 +970,7 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 				Logger: config.LoggerConfig{Development: true},
 			}
 
-			indexer, err := CreateIndexer(cfg)
+			indexer, err := CreateIndexer(cfg, evm.Factories())
 			require.NoError(t, err)
 
 			cleanup := tc.setupSeam()

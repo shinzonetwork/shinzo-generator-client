@@ -67,9 +67,6 @@ const (
 // immediately instead of going through the warmup path.
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
-	// Adapter registration is explicit now: CreateIndexer dispatches through
-	// the chain factory registry.
-	evm.Register()
 	logger.Test("TestMain - Starting BSC live integration tests")
 
 	// Single tripwire, same as the Ethereum live suite: without an endpoint
@@ -106,7 +103,7 @@ func TestMain(m *testing.M) {
 	// receiver — nothing selects on the channel once tests are running).
 	bscIndexerErrs := make(chan error, 1)
 	go func() {
-		idx, err := indexer.CreateIndexer(cfg)
+		idx, err := indexer.CreateIndexer(cfg, evm.Factories())
 		if err != nil {
 			bscIndexerErrs <- fmt.Errorf("create BSC indexer: %w", err)
 			return

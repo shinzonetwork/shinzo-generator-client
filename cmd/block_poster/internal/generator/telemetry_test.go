@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -79,7 +80,7 @@ geth:
 `
 	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	err := Run([]string{"-config", configPath})
+	err := Run([]string{"-config", configPath}, evm.Factories())
 	require.ErrorIs(t, err, resource.ErrPartialResource)
 	assert.Contains(t, err.Error(), "telemetry setup")
 	assert.NoDirExists(t, storePath, "the indexer must not be created")

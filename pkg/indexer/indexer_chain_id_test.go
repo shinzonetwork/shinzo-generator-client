@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,7 @@ func TestStartIndexing_RPCServesAnotherChain(t *testing.T) {
 		Indexer: config.IndexerConfig{ReceiptWorkers: 1, MaxDocsPerTxn: 100},
 		Logger:  config.LoggerConfig{Development: true},
 	}
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	err = indexer.StartIndexing(false)
