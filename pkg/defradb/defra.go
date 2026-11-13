@@ -82,13 +82,16 @@ const (
 	defaultP2PResourceMemoryMiB       = 10240
 	defaultP2PResourceFileDescriptors = 8192
 	defaultP2PMaxStreamsPerPeer       = 4096
-	defaultP2PRetryBaseDelayMs        = 1000
-	defaultP2PReconnectIntervalMs     = 60000
-	secp256k1PrivKeyBytes             = 32
-	log2BytesPerMebibyte              = 20
-	defaultBadgerValueLogFileSizeMB   = 64
-	subscriptionResultChanCapacity    = 100_000
-	testKeyringSecret                 = "testSecret"
+	// libp2pDefaultMaxConnsPerIP is go-libp2p's built-in per-IPv4-address connection cap
+	// (rcmgr defaultMaxConcurrentConns). Only used to log the effective value.
+	libp2pDefaultMaxConnsPerIP      = 8
+	defaultP2PRetryBaseDelayMs      = 1000
+	defaultP2PReconnectIntervalMs   = 60000
+	secp256k1PrivKeyBytes           = 32
+	log2BytesPerMebibyte            = 20
+	defaultBadgerValueLogFileSizeMB = 64
+	subscriptionResultChanCapacity  = 100_000
+	testKeyringSecret               = "testSecret"
 )
 
 // Key Management Implementation Notes:
@@ -597,11 +600,18 @@ func applyP2PResourceLimits(nb *options.NodeOptionsBuilder, p2pCfg config.DefraD
 	nb.P2P().
 		SetResourceMemoryMiB(memoryMiB).
 		SetResourceFileDescriptors(fileDescriptors).
-		SetMaxStreamsPerPeer(maxStreamsPerPeer)
+		SetMaxStreamsPerPeer(maxStreamsPerPeer).
+		SetAllowlistCIDRs(p2pCfg.AllowlistCIDRs...).
+		SetMaxConnsPerIP(p2pCfg.MaxConnsPerIP)
 
+	// 0 means DefraDB leaves libp2p's own per-IP cap in place; log the effective value.
+	maxConnsPerIP := p2pCfg.MaxConnsPerIP
+	if maxConnsPerIP <= 0 {
+		maxConnsPerIP = libp2pDefaultMaxConnsPerIP
+	}
 	logger.Sugar.Infof(
-		"P2P resource limits configured: %dMiB memory, %d file descriptors, %d streams per peer",
-		memoryMiB, fileDescriptors, maxStreamsPerPeer,
+		"P2P resource limits configured: %dMiB memory, %d file descriptors, %d streams per peer, allowlist=%v max_conns_per_ip=%d",
+		memoryMiB, fileDescriptors, maxStreamsPerPeer, p2pCfg.AllowlistCIDRs, maxConnsPerIP,
 	)
 }
 

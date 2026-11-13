@@ -39,6 +39,15 @@ defradb:
     resource_memory_mib: 10240
     resource_file_descriptors: 8192   # Must be <= the process ulimit -n
     max_streams_per_peer: 4096        # Per direction. Must exceed 256, the unscaled base, or it is a no-op.
+    # Per-IP connection cap. libp2p allows 8 concurrent connections per IPv4 address (and per
+    # IPv6 /56) and closes the rest at accept; dialers see "failed to negotiate security
+    # protocol: EOF". Every host behind one source-NAT address shares that budget. 0 (default)
+    # keeps libp2p's 8. Env: DEFRADB_P2P_MAX_CONNS_PER_IP.
+    max_conns_per_ip: 8
+    # CIDRs whose connections bypass the resource manager's limits, including the per-IP cap.
+    # Invalid entries fail startup. Empty by default. Env: DEFRADB_P2P_ALLOWLIST_CIDRS
+    # (comma-separated). Example for a k8s cluster:
+    allowlist_cidrs: ["10.244.0.0/16"]   # k8s pod network, all in-cluster hosts share one NAT IP
   store:
     path: "./.defra-bsc"
     # Badger memory configuration
