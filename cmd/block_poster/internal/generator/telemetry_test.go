@@ -1,4 +1,4 @@
-package main
+package generator
 
 import (
 	"errors"
@@ -79,7 +79,7 @@ geth:
 `
 	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	err := run([]string{"-config", configPath})
+	err := Run([]string{"-config", configPath})
 	require.ErrorIs(t, err, resource.ErrPartialResource)
 	assert.Contains(t, err.Error(), "telemetry setup")
 	assert.NoDirExists(t, storePath, "the indexer must not be created")
