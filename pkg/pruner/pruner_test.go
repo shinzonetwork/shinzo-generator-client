@@ -21,9 +21,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// Adapter registration is explicit now: testutils.SetupTestDefraDB resolves
-	// collections through the chain factory registry.
-	evm.Register()
 	logger.Init(true)
 	os.Exit(m.Run())
 }
@@ -439,6 +436,9 @@ func TestGetBlockRange(t *testing.T) {
 func TestGetBlockRange_CorruptDataReturnsErrNoValidBlocks(t *testing.T) {
 	cfg := &config.PrunerConfig{Enabled: true, MaxBlocks: 100}
 	mock := &testutils.MockConverter{
+		CollectionsFn: func() chains.Collections {
+			return evm.NewCollectionNames(evm.DefaultCollectionPrefix)
+		},
 		GetLowestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) {
 			return 0, chains.ErrBlockNumberCorrupt
 		},

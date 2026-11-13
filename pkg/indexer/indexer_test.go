@@ -194,14 +194,14 @@ func TestGetDefraDBPort(t *testing.T) {
 		{
 			name: "embedded node returns its port",
 			setup: func(t *testing.T) (*ChainIndexer, int, bool) {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				return &ChainIndexer{defraNode: td.Node}, td.Port, true
 			},
 		},
 		{
 			name: "embedded node port is consistent and valid",
 			setup: func(t *testing.T) (*ChainIndexer, int, bool) {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				return &ChainIndexer{defraNode: td.Node}, td.Port, true
 			},
 		},
@@ -548,7 +548,7 @@ func TestGetPrunerMetrics(t *testing.T) {
 		{
 			name: "enabled pruner returns non-nil metrics",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				p := pruner.NewPruner(&config.PrunerConfig{
 					Enabled:   true,
 					MaxBlocks: 1000,

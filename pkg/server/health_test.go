@@ -34,13 +34,6 @@ func init() {
 	logger.InitConsoleOnly(true)
 }
 
-// TestMain registers the evm adapter: testutils.SetupTestDefraDB resolves
-// collections through the chain factory registry.
-func TestMain(m *testing.M) {
-	evm.Register()
-	os.Exit(m.Run())
-}
-
 type mockHealthChecker struct {
 	healthy       bool
 	currentBlock  int64
@@ -1120,7 +1113,7 @@ func TestSnapshotsListHandler_QuerySigError(t *testing.T) {
 
 func TestSnapshotImportHandler_Success(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	defraNode := td.Node
 
 	tempDir := t.TempDir()

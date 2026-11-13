@@ -96,8 +96,8 @@ func (c *CollectionNames) BlockSignatureCollection() string {
 // NewCollectionsFromConfig creates the EVM collection names for the chain cfg
 // names. It returns config.ErrChainUnset when cfg is nil or has no chain name
 // or network, mirroring NewConverter, so no caller gets a prefix it did not
-// configure. It is the exported Collections factory the evm package registers
-// in the chain factory registry.
+// configure. It is the Collections factory the evm package exposes in its
+// Factories() bundle.
 func NewCollectionsFromConfig(cfg *config.Config) (chains.Collections, error) {
 	prefix, err := chainPrefixFromConfig(cfg)
 	if err != nil {

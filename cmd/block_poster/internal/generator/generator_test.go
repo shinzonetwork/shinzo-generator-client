@@ -409,7 +409,7 @@ func TestLoadBSCConfig(t *testing.T) {
 
 	// The chain identity must survive the factory bundle: the collection
 	// prefix is what the schema, documents, and signatures derive from.
-	collections, err := evm.Factories().Collections(cfg)
+	collections, err := evm.NewCollectionsFromConfig(cfg)
 	require.NoError(t, err)
 	assert.Equal(t, "BSC__Mainnet", collections.Prefix())
 

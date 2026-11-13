@@ -55,7 +55,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 			// External DefraDB no longer sets defraNode, so StartIndexing
 			// returns "defraNode is required" after applying schema.
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				// The RPC reports the configured chain ID, so startup reaches DefraDB.
 				rpcServer := newMockRPCServer(func(string, json.RawMessage) (any, error) { return "0x1", nil })
 				t.Cleanup(rpcServer.Close)
@@ -667,7 +667,7 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	var blockCount atomic.Int64
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {

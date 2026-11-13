@@ -18,7 +18,6 @@ import (
 
 	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -68,12 +67,9 @@ type replayFixture struct {
 	Blocks []fixtureBlock `json:"blocks"`
 }
 
-// TestMain initializes the console-only logger for the acceptance suite and
-// registers the evm adapter: replay helpers resolve collections through the
-// chain factory registry.
+// TestMain initializes the console-only logger for the acceptance suite.
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
-	evm.Register()
 	os.Exit(m.Run())
 }
 
@@ -470,7 +466,7 @@ func runEVMReplay(t *testing.T, spec replaySpec) {
 	// is required: LoadSchemaSDL returns the raw embedded Ethereum__Mainnet
 	// content without the prefix swap, which would create the wrong
 	// collections.
-	cols, err := chains.NewCollections(cfg)
+	cols, err := evm.NewCollectionsFromConfig(cfg)
 	require.NoError(t, err)
 	sdl, err := schema.LoadSchemaSDLForChain(cols)
 	require.NoError(t, err)

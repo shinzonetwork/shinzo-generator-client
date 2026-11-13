@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -76,7 +77,7 @@ func TestCreateKVSnapshot_AndImportKV_Roundtrip(t *testing.T) {
 	require.NoError(t, err, "snapshot file should exist")
 
 	// Setup second DefraDB node
-	td2 := testutils.SetupTestDefraDB(t)
+	td2 := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	// Verify the second node has no blocks yet
 	s2 := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td2.Node, newTestChainFromNode(t, td2))
@@ -139,7 +140,7 @@ func TestCreateKVSnapshot_WithTransactionsAndLogs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 2000, 2002)
 
 	identCtx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
@@ -174,7 +175,7 @@ func TestCreateKVSnapshot_WithIdentity_SignsSnapshot(t *testing.T) {
 // works on any normal filesystem, so it is structurally difficult to test.
 
 func TestCreateKVSnapshot_OsCreateError(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 100, 102)
 
 	cfg := &config.SnapshotConfig{Dir: "/nonexistent/path/that/does/not/exist", BlocksPerFile: 1000}
@@ -191,7 +192,7 @@ func TestCreateKVSnapshot_OsCreateError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_TmpFileCleanedOnError(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	snapshotDir := filepath.Join(t.TempDir(), "readonly_dir")
 	err := os.MkdirAll(snapshotDir, 0o750)
@@ -230,7 +231,7 @@ func TestCreateKVSnapshot_ImportKV_LargerDataSet(t *testing.T) {
 	snapshotFile := filepath.Join(snapshotDir, "snapshot_100_109.kvsnap.gz")
 
 	// Import into second node
-	td2 := testutils.SetupTestDefraDB(t)
+	td2 := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	importResult, err := ImportKV(ctx, td2.Node, snapshotFile)
 	require.NoError(t, err)
 	require.NotNil(t, importResult)
@@ -420,7 +421,7 @@ func TestCreateKVSnapshot_WithBlockSignatures(t *testing.T) {
 // unreachable (see TestSignSnapshotWithRoots_ComputeRootFails).
 
 func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 700, 702)
 
 	// Insert block signatures
@@ -461,7 +462,7 @@ func TestCreateKVSnapshot_FullSigningFlow(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateKVSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	identCtx, _ := insertTestBlocksWithIdentity(t, td, 200, 204)
 
 	snapshotDir := t.TempDir()
@@ -513,7 +514,7 @@ func TestCreateKVSnapshot_ExportError(t *testing.T) {
 }
 
 func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 100, 102)
 
 	realChain := newTestChainFromNode(t, td)
@@ -521,6 +522,9 @@ func TestExportCollectionKVs_UsesChainGetDocIDsByBlockRange(t *testing.T) {
 	require.NoError(t, err)
 
 	mc := &testutils.MockConverter{
+		CollectionsFn: func() chains.Collections {
+			return evm.NewCollectionNames(evm.DefaultCollectionPrefix)
+		},
 		GetLowestStoredBlockNumberFn:  func(_ context.Context, _ *node.Node) (int64, error) { return 100, nil },
 		GetHighestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) { return 102, nil },
 		GetDocIDsByBlockRangeFn: func(_ context.Context, _ *node.Node, _, _ int64) (map[string][]string, error) {

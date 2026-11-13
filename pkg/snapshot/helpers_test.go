@@ -43,9 +43,6 @@ const (
 )
 
 func TestMain(m *testing.M) {
-	// Adapter registration is explicit now: testutils.SetupTestDefraDB resolves
-	// collections through the chain factory registry.
-	evm.Register()
 	logger.InitConsoleOnly(true)
 	os.Exit(m.Run())
 }
@@ -71,7 +68,7 @@ func newTestSnapshotter(t *testing.T) (*Snapshotter, string) {
 // Snapshotter over a fresh temp snapshot directory (accessible via s.cfg.Dir).
 func newTestSnapshotterWithDB(t *testing.T, blocksPerFile, start, end int64) (*Snapshotter, *testutils.TestDefraDB, context.Context) {
 	t.Helper()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	if start <= end {
 		insertTestBlocks(t, td, start, end)
 	}
