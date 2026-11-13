@@ -5,11 +5,6 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
-// AdapterName matches the "adapter" value in config files, so operators and
-// config validation refer to the EVM family by the same name this package
-// identifies with.
-const AdapterName = "evm"
-
 // Factories returns the EVM chain family's factory functions (Fetcher,
 // Converter, and Collections) as one bundle. Per-chain mains construct it and
 // inject it into the app, so every dispatch path uses the same three

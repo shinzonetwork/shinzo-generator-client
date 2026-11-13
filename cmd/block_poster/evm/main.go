@@ -7,6 +7,6 @@ import (
 
 func main() {
 	// The runner receives the evm factories directly, so indexing dispatches
-	// through injected factories rather than the chain factory registry.
+	// through injected factories with no global adapter state involved.
 	generator.Main(evm.Factories())
 }
