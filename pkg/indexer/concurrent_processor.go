@@ -31,6 +31,11 @@ const (
 	// head, so the interval bounds how far dispatch trails it.
 	FinalizedPollInterval = time.Second
 
+	// FailedHeightRetryDelay is the wait before a failed height is fetched or stored again when
+	// failed heights are retried in place. A failed fetch has by then been tried MaxRPCRetries times,
+	// with RPCErrorRetryBaseDelay backoff between tries, so this delay adds to that backoff.
+	FailedHeightRetryDelay = time.Second
+
 	// transactionConflictRetryBaseDelay is the base delay for retrying
 	// transaction conflicts on store.
 	transactionConflictRetryBaseDelay = 50 * time.Millisecond
@@ -216,6 +221,13 @@ type ConcurrentBlockProcessor struct {
 	finalizedPoll time.Duration
 	finalized     int64
 
+	// retryFailedHeights retries a height whose fetch, convert or store failed until it succeeds,
+	// instead of leaving it unstored.
+	retryFailedHeights bool
+
+	// stopOnReorg stops the run with ErrReorgStopped where a detected reorg would open an episode.
+	stopOnReorg bool
+
 	// bounded store pool: the collector never calls Store. Fetch/convert
 	// workers hand checked results to storeChan, pool goroutines run
 	// storeWithRetry, and completions flow back on completionChan for the
@@ -363,7 +375,8 @@ func NewConcurrentBlockProcessor(
 // range to the rollback below. Rollback failure, walk-back failure,
 // rollback-loop guard trips, and a re-store refused because a soft-deleted
 // content-derived docID cannot be re-added are all fatal: the run stops
-// loudly instead of leaving silently un-indexable heights behind.
+// loudly instead of leaving silently un-indexable heights behind. With
+// StopOnReorg a detected reorg is fatal too, and nothing is rolled back.
 //
 // The onBlockProcessed callback contract: it fires exactly once per
 // successfully committed height, in strict height order, always on one
@@ -592,7 +605,7 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 	for range p.workers {
 		wg.Go(func() {
 			for blockNum := range workChan {
-				result := p.fetchAndConvertBlock(ctx, blockNum)
+				result := p.retryInPlace(ctx, func() *BlockResult { return p.fetchAndConvertBlock(ctx, blockNum) })
 				select {
 				case p.resultChan <- result:
 				case <-ctx.Done():
@@ -625,7 +638,7 @@ func (p *ConcurrentBlockProcessor) startWorkers(ctx context.Context, onBlockProc
 // completion back to the collector's ordered apply. It runs only on pool
 // goroutines - the collector never stores.
 func (p *ConcurrentBlockProcessor) runStoreTask(ctx context.Context, item *BlockResult) {
-	computed := p.storeWithRetry(ctx, item.BlockNum, item.Converted)
+	computed := p.retryInPlace(ctx, func() *BlockResult { return p.storeWithRetry(ctx, item.BlockNum, item.Converted) })
 	completion := storeCompletion{item: item, computed: computed}
 	if computed.Error != nil && !errors.IsErrDocumentDeleted(computed.Error) && p.reorgHandler != nil {
 		completion.stale = p.detectStaleOrphan(ctx, item)
@@ -1111,6 +1124,9 @@ waiting:
 // inside finalize continues collecting further stale verifications before
 // the descent starts.
 func (p *ConcurrentBlockProcessor) openStaleEpisode(ctx context.Context, completion storeCompletion, onBlockProcessed func(blockNum int64)) {
+	if p.stoppedForReorg(*completion.stale) {
+		return
+	}
 	item := completion.item
 	logger.Sugar.Warnf(
 		"Reorg detected: stored block %d (hash %s) disagrees with chain-side block %d (hash %s); holding from height %d",
@@ -1167,6 +1183,9 @@ func (p *ConcurrentBlockProcessor) applyCommit(ctx context.Context, item *BlockR
 // is held back until the new chain is confirmed and the walk-back resolves
 // the fork point.
 func (p *ConcurrentBlockProcessor) startReorgEpisode(signal reorgSignal, parked *BlockResult) {
+	if p.stoppedForReorg(signal) {
+		return
+	}
 	logger.Sugar.Warnf(
 		"Reorg detected: stored block %d (hash %s) disagrees with chain-side block %d (hash %s); holding block %d back",
 		signal.rollbackFrom, signal.orphanHash, parked.BlockNum, signal.chainHash, parked.BlockNum,
@@ -1426,8 +1445,15 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 		p.pendingMu.Lock()
 		// The dispatch throttle anchors on the check cursor: dispatched
 		// fetches may not run more than DefaultWorkersAhead*workers heights
-		// ahead of the checked frontier.
-		tooFarAhead := nextBlock-p.nextToCommit >= int64(p.workers*DefaultWorkersAhead)
+		// ahead of the checked frontier. When failed heights are retried in
+		// place it anchors on the apply cursor, the lowest unstored height,
+		// except during a reorg confirmation wait, which needs later heights
+		// fetched to resolve.
+		anchor := p.nextToCommit
+		if p.retryFailedHeights && p.episode == nil {
+			anchor = p.applyCursor
+		}
+		tooFarAhead := nextBlock-anchor >= int64(p.workers*DefaultWorkersAhead)
 		p.pendingMu.Unlock()
 
 		if tooFarAhead {

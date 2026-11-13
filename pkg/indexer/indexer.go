@@ -38,6 +38,18 @@ var (
 	ErrMTLSNotImplemented = errors.New("mTLS auth mode is not yet implemented")
 	// ErrUnknownAuthMode is returned when an unrecognized schema authentication mode is provided.
 	ErrUnknownAuthMode = errors.New("unknown auth mode")
+	// ErrStartHeightUnset is returned in tokens mode when indexer.start_height is not set: without
+	// it a restart cannot tell whether the first height was ever stored.
+	ErrStartHeightUnset = errors.New("indexer.start_height must be set in tokens mode")
+	// ErrRetentionBelowDispatch is returned in tokens mode when the pruner retains fewer heights than
+	// dispatch can store above an unstored one, so a restart could take a never-stored height for a
+	// pruned one.
+	ErrRetentionBelowDispatch = errors.New("pruner.max_blocks must cover the heights dispatched ahead in tokens mode")
+	// ErrReorgStopped is returned when a processor set to stop on reorgs detects one. Tokens mode
+	// stops instead of rolling back: it dispatches finalized heights only, and DefraDB refuses to
+	// re-add a soft-deleted document ID, so a rolled-back height whose documents come back unchanged
+	// could not be stored again.
+	ErrReorgStopped = errors.New("reorg detected; indexing stopped instead of rolling back")
 
 	// errIndexingStopped is the cancel cause used when StopIndexing initiates a
 	// clean shutdown of the indexing loop; runConcurrentIndexing maps it to a
@@ -399,12 +411,28 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 // never consulted here; it intentionally retains rolled-back orphan heights
 // for the pruner's later local purge, so its highest entry would push resume
 // above the real DB tip.
+//
+// In tokens mode it resumes at the lowest unstored height the pruner still keeps:
+// at or above start_height and the highest stored height - max_blocks + 1. A
+// failed highest-height query stops the start, since reading it as an empty
+// store would index stored heights again.
 func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
+	if cfg.Chain.Mode == config.ChainModeTokens {
+		if configuredHeight == 0 {
+			return 0, ErrStartHeightUnset
+		}
+		if need := int64(cfg.Indexer.ConcurrentBlocks * DefaultWorkersAhead); cfg.Pruner.MaxBlocks < need {
+			return 0, fmt.Errorf("%w: max_blocks is %d, need at least %d", ErrRetentionBelowDispatch, cfg.Pruner.MaxBlocks, need)
+		}
+	}
 	var highestExisting int64
 
 	nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraNode)
 	if err != nil {
+		if cfg.Chain.Mode == config.ChainModeTokens && indexerErrors.GetErrorCode(err) != indexerErrors.CodeDocumentNotFound {
+			return 0, fmt.Errorf("highest stored block number: %w", err)
+		}
 		logger.Sugar.Debugf("No existing blocks found in DB: %v", err)
 	} else {
 		highestExisting = nBlock
@@ -418,6 +446,16 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	startBuffer := int64(cfg.Indexer.StartBuffer)
 
 	switch {
+	case highestExisting > 0 && cfg.Chain.Mode == config.ChainModeTokens:
+		// Only the heights from here up are read, so the list holds at most max_blocks heights
+		// whether or not the pruner runs.
+		from := max(configuredHeight, highestExisting-cfg.Pruner.MaxBlocks+1)
+		stored, err := i.converter.GetStoredBlockNumbers(ctx, i.defraNode, from)
+		if err != nil {
+			return 0, fmt.Errorf("list stored block numbers: %w", err)
+		}
+		cfg.Indexer.StartHeight = int(lowestMissing(stored, from))
+		logger.Sugar.Infof("Resuming from block %d, the lowest height not stored (highest existing: %d, chain tip: %d)", cfg.Indexer.StartHeight, highestExisting, chainTip)
 	case highestExisting > 0:
 		resumeFrom := highestExisting + 1
 		gap := chainTip - highestExisting
@@ -435,6 +473,20 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 	}
 
 	return int64(cfg.Indexer.StartHeight), nil
+}
+
+// lowestMissing returns the lowest height at or above from that is not in
+// stored, which is sorted ascending.
+func lowestMissing(stored []int64, from int64) int64 {
+	next := from
+	for _, height := range stored {
+		if height == next {
+			next++
+		} else if height > next {
+			break
+		}
+	}
+	return next
 }
 
 // newSchemaAuthenticator builds the authenticator for the schema endpoint and
@@ -592,6 +644,8 @@ func (i *ChainIndexer) runConcurrentIndexing(
 	)
 	if cfg.Chain.Mode == config.ChainModeTokens {
 		processor.DispatchFinalizedOnly(time.Duration(cfg.Chain.FinalizedPollIntervalMs) * time.Millisecond)
+		processor.RetryFailedHeights()
+		processor.StopOnReorg()
 	}
 
 	headCtx, stopHead := context.WithCancel(ctx)

@@ -568,6 +568,10 @@ func (c *TimedConverter) GetLowestStoredBlockNumber(ctx context.Context, n *node
 	return c.inner.GetLowestStoredBlockNumber(ctx, n)
 }
 
+func (c *TimedConverter) GetStoredBlockNumbers(ctx context.Context, n *node.Node, from int64) ([]int64, error) {
+	return c.inner.GetStoredBlockNumbers(ctx, n, from)
+}
+
 func (c *TimedConverter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
 	return c.inner.GetDocIDsByBlockRange(ctx, n, from, to)
 }

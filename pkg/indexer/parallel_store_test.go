@@ -460,34 +460,43 @@ func TestParallelStores_CallbackOutsideProcessorLock(t *testing.T) {
 // TestParallelStores_RefusalThroughPoolFailsRun pins the refusal's fatal
 // classification on the async failure path: a deleted-docID refusal
 // surfaced by a pool worker stops the run with that refusal as the indexing
-// error instead of skipping the height.
+// error instead of skipping the height. Retrying failed heights in place
+// does not change this.
 func TestParallelStores_RefusalThroughPoolFailsRun(t *testing.T) {
 	t.Parallel()
-	logger.InitConsoleOnly(true)
+	for _, retryFailedHeights := range []bool{false, true} {
+		t.Run(fmt.Sprintf("retried in place %v", retryFailedHeights), func(t *testing.T) {
+			t.Parallel()
+			logger.InitConsoleOnly(true)
 
-	refusingStorer := &mockBlockStorer{
-		storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
-			return nil, fmt.Errorf("create block: a document with the given ID has been deleted")
-		},
+			refusingStorer := &mockBlockStorer{
+				storeFn: func(_ context.Context, _ chains.ConversionResult) (*defra.BlockCreationResult, error) {
+					return nil, fmt.Errorf("create block: a document with the given ID has been deleted")
+				},
+			}
+
+			rec := &commitRecorder{}
+			reorg := &mockReorgHandler{}
+			p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), refusingStorer, reorg, 1, 0)
+			if retryFailedHeights {
+				p.RetryFailedHeights()
+			}
+
+			_, errCh := runProcessor(p, 100, rec.record)
+
+			select {
+			case err := <-errCh:
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "refused")
+				assert.Contains(t, strings.ToLower(err.Error()), "deleted")
+			case <-time.After(10 * time.Second):
+				t.Fatal("timed out waiting for the pool refusal to stop the run")
+			}
+
+			assert.Empty(t, rec.snapshot(), "the refused height must not commit or skip")
+			assert.Empty(t, reorg.calls())
+		})
 	}
-
-	rec := &commitRecorder{}
-	reorg := &mockReorgHandler{}
-	p := NewConcurrentBlockProcessor(canonicalOnlyFetcher(95, 115), chainConverter(), refusingStorer, reorg, 1, 0)
-
-	_, errCh := runProcessor(p, 100, rec.record)
-
-	select {
-	case err := <-errCh:
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "refused")
-		assert.Contains(t, strings.ToLower(err.Error()), "deleted")
-	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for the pool refusal to stop the run")
-	}
-
-	assert.Empty(t, rec.snapshot(), "the refused height must not commit or skip")
-	assert.Empty(t, reorg.calls())
 }
 
 // TestParallelStores_DrainWaitsForInFlightReports pins the drain handshake:
