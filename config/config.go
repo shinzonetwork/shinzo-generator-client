@@ -294,6 +294,9 @@ func LoadConfig(path string) (*Config, error) {
 	if err := validateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
+	if err := validateChainConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
 
 	return &cfg, nil
 }
@@ -308,15 +311,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Chain.Adapter == "" {
 		cfg.Chain.Adapter = DefaultChainAdapter
 	}
-	if cfg.Chain.Name == "" {
-		if cfg.Chain.Adapter == TronChainAdapter {
-			cfg.Chain.Name = "Tron"
-		} else {
-			cfg.Chain.Name = "Ethereum"
-		}
-	}
-	if cfg.Chain.Network == "" {
-		cfg.Chain.Network = "Mainnet"
+	if cfg.Chain.Name == "" && cfg.Chain.Adapter == TronChainAdapter {
+		// Only the tron adapter names its chain: a Tron deployment that omits
+		// chain.name must not end up with Ethereum-prefixed collections built
+		// from tron SDL. EVM chains must name themselves; validateChainConfig
+		// rejects an unnamed one.
+		cfg.Chain.Name = "Tron"
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
@@ -363,15 +363,14 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("tron adapter requires a non-empty tron.node_url (env: TRON_RPC_URL)")
 	}
 
-	if cfg.Chain.Name == "" || cfg.Chain.Network == "" {
-		return ErrChainUnset
-	}
-	if err := ValidateChainNames(cfg.Chain.Name, cfg.Chain.Network); err != nil {
-		return err
-	}
-	// chain_id is the EVM chain ID; other chain families identify their chain differently.
-	if cfg.Chain.Adapter == DefaultChainAdapter && cfg.Chain.ChainID == 0 {
-		return ErrChainIDUnset
+	// Validate the chain-name format as soon as both parts are known, before
+	// unrelated settings, so a typo like "Arbitrum One" surfaces on its own.
+	// Presence is enforced later by validateChainConfig: adapters may leave
+	// the name empty here (tron defaults it, EVM chains must name themselves).
+	if cfg.Chain.Name != "" && cfg.Chain.Network != "" {
+		if err := ValidateChainNames(cfg.Chain.Name, cfg.Chain.Network); err != nil {
+			return err
+		}
 	}
 
 	if cfg.Indexer.StartHeight < 0 {
@@ -412,6 +411,23 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+// validateChainConfig validates the chain identity: it must name the chain and
+// network it indexes, and an EVM chain must carry its chain ID. The name format
+// is checked in validateConfig as soon as both parts are present. Called by
+// LoadConfig after defaults, so the tron adapter's default name applies first;
+// validateConfig stays chain-agnostic so it can be exercised against a
+// partially filled Config.
+func validateChainConfig(cfg *Config) error {
+	if cfg.Chain.Name == "" || cfg.Chain.Network == "" {
+		return ErrChainUnset
+	}
+	// chain_id is the EVM chain ID; other chain families identify their chain differently.
+	if cfg.Chain.Adapter == DefaultChainAdapter && cfg.Chain.ChainID == 0 {
+		return ErrChainIDUnset
+	}
 	return nil
 }
 

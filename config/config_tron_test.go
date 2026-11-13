@@ -113,6 +113,7 @@ func TestLoadConfig_TronAdapter(t *testing.T) {
 chain:
   name: "Tron"
   network: "Mainnet"
+  chain_id: 0
   adapter: "tron"
 tron:
   node_url: "https://api.trongrid.io"
