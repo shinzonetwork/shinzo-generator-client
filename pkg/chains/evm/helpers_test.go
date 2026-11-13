@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/gorilla/websocket"
+	codecevm "github.com/shinzonetwork/shinzo-evidence-codec/evm"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
 
@@ -128,7 +129,7 @@ func gethBundle(t *testing.T, num int64, logs ...[]*ethtypes.Log) *BlockBundle {
 			Status: ethtypes.ReceiptStatusSuccessful, CumulativeGasUsed: uint64(21000 * (i + 1)), Logs: txLogs,
 		}
 	}
-	header := &ethtypes.Header{Number: big.NewInt(num), Difficulty: big.NewInt(0)}
+	header := &ethtypes.Header{Number: big.NewInt(num), Difficulty: big.NewInt(0), Time: 1_700_000_000}
 	gethBlock := ethtypes.NewBlock(header, &ethtypes.Body{Transactions: txs}, receipts, trie.NewStackTrie(nil))
 
 	client := &EthereumClient{}
@@ -217,6 +218,7 @@ type fakeRPCClient struct {
 	blockFn     func(ctx context.Context, n *big.Int) (*Block, error)
 	batchFn     func(ctx context.Context, hash string) ([]*TransactionReceipt, error)
 	txReceiptFn func(ctx context.Context, hash string) (*TransactionReceipt, error)
+	proofFn     func(ctx context.Context, account common.Address, slots []string, blockHash string) (codecevm.AccountProof, error)
 }
 
 func (f *fakeRPCClient) GetLatestBlockNumber(_ context.Context) (*big.Int, error) {
@@ -264,6 +266,13 @@ func (f *fakeRPCClient) GetFinalizedBlockNumber(ctx context.Context) (int64, err
 
 func (f *fakeRPCClient) GetFinalizedHeight(_ context.Context) (int64, error) {
 	return f.finalizedHeight, f.finalizedHeightErr
+}
+
+func (f *fakeRPCClient) GetProof(ctx context.Context, account common.Address, slots []string, blockHash string) (codecevm.AccountProof, error) {
+	if f.proofFn != nil {
+		return f.proofFn(ctx, account, slots, blockHash)
+	}
+	return codecevm.AccountProof{}, errors.New("no proof stubbed")
 }
 
 func (f *fakeRPCClient) Close() error {

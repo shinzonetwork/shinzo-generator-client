@@ -19,6 +19,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	codecevm "github.com/shinzonetwork/shinzo-evidence-codec/evm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -342,6 +343,24 @@ func (c *EthereumClient) GetHeaderByHash(ctx context.Context, hash string) (*eth
 	}
 
 	return header, nil
+}
+
+// GetProof returns the node's eth_getProof answer for account's slots at the block with blockHash,
+// which must be canonical, so a node that no longer holds that block refuses instead of answering
+// for another block at its height.
+func (c *EthereumClient) GetProof(ctx context.Context, account common.Address, slots []string, blockHash string) (codecevm.AccountProof, error) {
+	client := c.getPreferredClient()
+	if client == nil {
+		return codecevm.AccountProof{}, errNoClientAvailable
+	}
+	hash, err := normalizeBlockHash(blockHash)
+	if err != nil {
+		return codecevm.AccountProof{}, err
+	}
+	var proof codecevm.AccountProof
+	err = client.Client().CallContext(ctx, &proof, "eth_getProof", account, slots, ethrpc.BlockNumberOrHashWithHash(hash, true))
+	c.countRPCError(ctx, "eth_getProof", err)
+	return proof, utils.RedactHTTPError(err)
 }
 
 // normalizeBlockHash validates a 0x-prefixed 32-byte block-hash string.

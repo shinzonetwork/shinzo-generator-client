@@ -270,6 +270,8 @@ type ConversionResult struct {
 	Groups              []DocumentGroup
 	SignatureCollection string
 	LinkStamper         LinkStamper
+	// Statement is, in tokens mode, the block's statement in the codec's encoding.
+	Statement []byte
 }
 
 // ChainFactories bundles all chain-specific factory functions for a single
