@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -246,5 +250,73 @@ func TestCheckTokensBuild(t *testing.T) {
 	}
 	for _, tc := range cases {
 		assert.ErrorIs(t, checkTokensBuild(tc.mode, tc.version), tc.wantErr, "%s %s", tc.mode, tc.version)
+	}
+}
+
+// initHealthServer serves the fetcher's state proofs in tokens mode only, behind the schema routes'
+// authentication. The fetcher is not connected, so an authenticated, well-formed read that reaches it
+// is answered 502 with its error. An unset chain.mode is full mode.
+func TestInitHealthServer_StateEndpoint(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+	cases := []struct {
+		name        string
+		mode        string
+		wantNoKey   int
+		wantWithKey int
+	}{
+		{"full", config.ChainModeFull, http.StatusNotFound, http.StatusNotFound},
+		{"unset", "", http.StatusNotFound, http.StatusNotFound},
+		{"tokens", config.ChainModeTokens, http.StatusUnauthorized, http.StatusBadGateway},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: 1, Mode: tc.mode},
+				Indexer: config.IndexerConfig{
+					HealthServerPort: freeHealthPort(t),
+					SchemaAuthMode:   constants.SchemaAuthModeToken,
+					SchemaAPIKeys:    []string{"state-key"},
+				},
+			}
+			if tc.mode == config.ChainModeTokens {
+				cfg.Chain.Tokens = []config.Token{{Address: "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d", SupplySlot: "0x35"}}
+				cfg.Chain.StateCaptureInterval = 1
+			}
+			converter, err := evm.NewConverter(cfg)
+			require.NoError(t, err)
+			fetcher, err := evm.NewFetcherFromConfig(cfg)
+			require.NoError(t, err)
+			indexer := &ChainIndexer{cfg: cfg, converter: converter, fetcher: fetcher}
+			require.NoError(t, indexer.initHealthServer(cfg))
+			t.Cleanup(func() { _ = indexer.healthServer.Stop(context.Background()) })
+
+			url := fmt.Sprintf("http://localhost:%d/api/v1/state", cfg.Indexer.HealthServerPort)
+			body := `{"blockHash":"0x` + strings.Repeat("ab", 32) + `","contract":"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d","slots":["0x35"]}`
+			post := func(key string) (int, string) {
+				req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(body))
+				if err != nil {
+					return 0, err.Error()
+				}
+				if key != "" {
+					req.Header.Set("Authorization", "Bearer "+key)
+				}
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return 0, err.Error()
+				}
+				defer func() { _ = resp.Body.Close() }()
+				answer, _ := io.ReadAll(resp.Body)
+				return resp.StatusCode, string(answer)
+			}
+			assert.Eventually(t, func() bool { status, _ := post(""); return status == tc.wantNoKey },
+				5*time.Second, 50*time.Millisecond, "POST /api/v1/state without credentials")
+			status, answer := post("state-key")
+			assert.Equal(t, tc.wantWithKey, status)
+			if tc.wantWithKey == http.StatusBadGateway {
+				assert.Contains(t, answer, "fetcher not connected")
+			}
+		})
 	}
 }

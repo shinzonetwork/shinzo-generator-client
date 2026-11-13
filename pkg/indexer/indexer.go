@@ -594,6 +594,14 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 	if err := i.healthServer.EnableSchemaEndpoint(sdl, i.converter.Collections(), auth); err != nil {
 		return fmt.Errorf("enable schema endpoint: %w", err)
 	}
+	if i.defraNode != nil && cfg.Chain.Mode == config.ChainModeTokens {
+		i.healthServer.EnableDocumentsEndpoint(func(ctx context.Context, from, to int64) (map[string][]string, error) {
+			return i.converter.GetDocIDsByBlockRange(ctx, i.defraNode, from, to)
+		}, auth)
+	}
+	if prover, ok := i.fetcher.(chains.StateProver); ok && cfg.Chain.Mode == config.ChainModeTokens {
+		i.healthServer.EnableStateEndpoint(prover.ProveState, auth)
+	}
 	go func() {
 		if err := i.healthServer.Start(); err != nil {
 			logger.Sugar.Errorf("Health server failed: %v", err)

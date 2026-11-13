@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -209,6 +211,52 @@ func TestFetcher_CaptureSupplyStops(t *testing.T) {
 	_, err := f.captureSupply(ctx, 26307825, &Block{Hash: p.BlockHash, Header: &ethtypes.Header{Root: p.StateRoot}})
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, counts())
+}
+
+// ProveState reads the block's number from its header by hash and the node's proof by the same
+// hash, and returns the proof in the codec's encoding.
+func TestFetcher_ProveState(t *testing.T) {
+	t.Parallel()
+	p := loadSupplyProof(t)
+	var headerHash, proofHash string
+	f := NewFetcher(&fakeRPCClient{
+		headerByHashFn: func(_ context.Context, hash string) (*ethtypes.Header, error) {
+			headerHash = hash
+			return &ethtypes.Header{Number: big.NewInt(26307825), Root: p.StateRoot}, nil
+		},
+		proofFn: func(_ context.Context, account common.Address, slots []string, blockHash string) (codecevm.AccountProof, error) {
+			proofHash = blockHash
+			assert.Equal(t, p.Contract, account)
+			assert.Equal(t, []string{"0x35"}, slots)
+			return p.Proof, nil
+		},
+	}, 1)
+
+	number, proof, err := f.ProveState(context.Background(), p.BlockHash, p.Contract.Hex(), []string{"0x35"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(26307825), number)
+	assert.Equal(t, p.BlockHash, headerHash)
+	assert.Equal(t, p.BlockHash, proofHash)
+	want, err := codecevm.EncodeStateProof(p.Proof)
+	require.NoError(t, err)
+	assert.Equal(t, want, proof)
+}
+
+// A header-by-hash error reaches the state endpoint and the logs without the credentials in the node
+// endpoint's URL. GetProof redacts its own errors (TestGetProof_RedactsTheEndpoint).
+func TestFetcher_ProveStateRedactsTheEndpoint(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.NotFoundHandler())
+	endpoint := server.URL + "/secret-token"
+	server.Close()
+	client, err := NewEthereumClient(context.Background(), endpoint, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+	hash := "0x" + strings.Repeat("ab", 32)
+
+	_, _, err = NewFetcher(client, 1).ProveState(context.Background(), hash, "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d", []string{"0x35"})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "secret-token")
 }
 
 // FetchBlock captures supply only at multiples of the capture interval.
