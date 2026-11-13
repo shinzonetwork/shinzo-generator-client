@@ -172,10 +172,13 @@ type storeCompletion struct {
 }
 
 type processorMetrics struct {
-	blocks           metric.Int64Counter
-	storeDuration    metric.Float64Histogram
-	reorgs           metric.Int64Counter
-	success, failure metric.MeasurementOption
+	blocks              metric.Int64Counter
+	storeDuration       metric.Float64Histogram
+	reorgs              metric.Int64Counter
+	attestationFailures metric.Int64Counter
+	retryHeight         metric.Int64Gauge
+	retryFailures       metric.Int64Gauge
+	success, failure    metric.MeasurementOption
 }
 
 // BlockResult holds the result of processing a block.
@@ -222,8 +225,11 @@ type ConcurrentBlockProcessor struct {
 	finalized     int64
 
 	// retryFailedHeights retries a height whose fetch, convert or store failed until it succeeds,
-	// instead of leaving it unstored.
+	// instead of leaving it unstored. retrying holds the failed attempts so far of each height being
+	// retried, for the retry gauges.
 	retryFailedHeights bool
+	retryMu            sync.Mutex
+	retrying           map[int64]int64
 
 	// stopOnReorg stops the run with ErrReorgStopped where a detected reorg would open an episode.
 	stopOnReorg bool
@@ -345,6 +351,27 @@ func NewConcurrentBlockProcessor(
 	if err != nil {
 		otel.Handle(err)
 	}
+	attestationFailures, err := meter.Int64Counter("shinzo.generator.attestation.failures",
+		metric.WithDescription("Block store attempts that failed to sign the block's statement or whose signature did not verify."),
+		metric.WithUnit("{attempt}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	retryHeight, err := meter.Int64Gauge("shinzo.generator.retry.height",
+		metric.WithDescription("Lowest height being retried in place after a failed fetch or store, 0 when none."),
+		metric.WithUnit("{block}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
+	retryFailures, err := meter.Int64Gauge("shinzo.generator.retry.failures",
+		metric.WithDescription("Failed attempts so far at the lowest height being retried in place, 0 when none."),
+		metric.WithUnit("{attempt}"),
+	)
+	if err != nil {
+		otel.Handle(err)
+	}
 
 	return &ConcurrentBlockProcessor{
 		fetcher:         fetcher,
@@ -356,12 +383,16 @@ func NewConcurrentBlockProcessor(
 		resultChan:      make(chan *BlockResult, workers*DefaultWorkersAhead),
 		pending:         make(map[int64]*BlockResult),
 		configuredStart: math.MaxInt64,
+		retrying:        make(map[int64]int64),
 		metrics: processorMetrics{
-			blocks:        blocks,
-			storeDuration: storeDuration,
-			reorgs:        reorgs,
-			success:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
-			failure:       metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
+			blocks:              blocks,
+			storeDuration:       storeDuration,
+			reorgs:              reorgs,
+			attestationFailures: attestationFailures,
+			retryHeight:         retryHeight,
+			retryFailures:       retryFailures,
+			success:             metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "success"))),
+			failure:             metric.WithAttributeSet(attribute.NewSet(attribute.String("result", "error"))),
 		},
 	}
 }
@@ -1723,6 +1754,9 @@ func (p *ConcurrentBlockProcessor) storeWithRetry(ctx context.Context, blockNum 
 			outcome = p.metrics.failure
 		}
 		p.metrics.storeDuration.Record(ctx, time.Since(start).Seconds(), outcome)
+		if stderrors.Is(err, defra.ErrAttestation) {
+			p.metrics.attestationFailures.Add(ctx, 1)
+		}
 		if err == nil {
 			return &BlockResult{BlockNum: blockNum, BlockID: res.BlockID, Hash: blockHash, Success: true}
 		}

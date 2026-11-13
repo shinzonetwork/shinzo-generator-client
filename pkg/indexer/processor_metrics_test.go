@@ -102,3 +102,91 @@ func TestProcessBlocks_BlocksMetric(t *testing.T) {
 		t.Fatal("timed out waiting for ProcessBlocks to stop")
 	}
 }
+
+// A store attempt is counted as an attestation failure only when the block handler reports one.
+func TestStoreWithRetry_CountsAttestationFailures(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		storeErr error
+		want     int64
+	}{
+		{"attestation failed", fmt.Errorf("block 7: %w: signer unavailable", defra.ErrAttestation), 1},
+		{"other store error", fmt.Errorf("store exploded"), 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			storer := &mockBlockStorer{
+				storeFn: func(context.Context, chains.ConversionResult) (*defra.BlockCreationResult, error) {
+					return nil, tc.storeErr
+				},
+			}
+			p := NewConcurrentBlockProcessor(nil, nil, storer, nil, 1, 0)
+			reader := sdkmetric.NewManualReader()
+			failures, err := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test").Int64Counter("failures")
+			require.NoError(t, err)
+			p.metrics.attestationFailures = failures
+
+			result := p.storeWithRetry(context.Background(), 7, chains.ConversionResult{BlockLast: true})
+			require.Error(t, result.Error)
+
+			var rm metricdata.ResourceMetrics
+			require.NoError(t, reader.Collect(t.Context(), &rm))
+			var got int64
+			for _, sm := range rm.ScopeMetrics {
+				for _, m := range sm.Metrics {
+					for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+						got += dp.Value
+					}
+				}
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// While a height is retried in place, the retry gauges report the lowest height being retried and
+// its failed attempts so far; once no height is, they report 0.
+func TestRetryInPlace_RetryGauges(t *testing.T) {
+	t.Parallel()
+	p := NewConcurrentBlockProcessor(nil, nil, nil, nil, 1, 0)
+	p.RetryFailedHeights()
+	reader := sdkmetric.NewManualReader()
+	meter := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter("test")
+	var err error
+	p.metrics.retryHeight, err = meter.Int64Gauge("height")
+	require.NoError(t, err)
+	p.metrics.retryFailures, err = meter.Int64Gauge("failures")
+	require.NoError(t, err)
+	gauges := func() map[string]int64 {
+		var rm metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(t.Context(), &rm))
+		values := map[string]int64{}
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				for _, dp := range m.Data.(metricdata.Gauge[int64]).DataPoints {
+					values[m.Name] = dp.Value
+				}
+			}
+		}
+		return values
+	}
+
+	ctx := context.Background()
+	p.recordRetry(ctx, 105, 4)
+	attempts := 0
+	result := p.retryInPlace(ctx, func() *BlockResult {
+		attempts++
+		if attempts < 3 {
+			return &BlockResult{BlockNum: 101, Error: fmt.Errorf("store failed")}
+		}
+		assert.Equal(t, map[string]int64{"height": 101, "failures": 2}, gauges(), "101 is below 105")
+		return &BlockResult{BlockNum: 101, Success: true}
+	})
+	require.True(t, result.Success)
+	assert.Equal(t, map[string]int64{"height": 105, "failures": 4}, gauges(), "105 is still retried")
+
+	p.recordRetry(ctx, 105, 0)
+	assert.Equal(t, map[string]int64{"height": 0, "failures": 0}, gauges())
+}
