@@ -45,8 +45,7 @@ defradb:
     # keeps libp2p's 8. Env: DEFRADB_P2P_MAX_CONNS_PER_IP.
     max_conns_per_ip: 8
     # CIDRs whose connections bypass the resource manager's limits, including the per-IP cap.
-    # Invalid entries fail startup. Empty by default. Env: DEFRADB_P2P_ALLOWLIST_CIDRS
-    # (comma-separated). Example for a k8s cluster:
+    # Invalid entries fail startup. Env: DEFRADB_P2P_ALLOWLIST_CIDRS
     allowlist_cidrs: ["10.244.0.0/16"]   # k8s pod network, all in-cluster hosts share one NAT IP
   store:
     path: "./.defra-bsc"
