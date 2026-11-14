@@ -1023,12 +1023,25 @@ func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRe
 	}, nil
 }
 
-// GetSourceChainInfo returns the source chain this generator registers on ShinzoHub: the
-// configured chain name in lower case and the configured chain ID.
+// GetSourceChainInfo returns the ShinzoHub registration source chain metadata
+// for this indexer. Chain IDs are EVM-only (EIP-155), so non-EVM chains
+// register with ID 0. Only mainnet mappings are known: a testnet or unknown
+// combo reports an empty chain name, the same treatment as ethereum +
+// sepolia.
 func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
 		return "", 0
 	}
+
+	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
+	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
+	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
+		return "ethereum", 1
+	}
+	if name == "tron" && network == "mainnet" {
+		return "tron", 0
+	}
+
 	return strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name)), i.cfg.Chain.ChainID
 }
 
