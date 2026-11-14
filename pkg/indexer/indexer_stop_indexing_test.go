@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
@@ -43,7 +44,7 @@ func TestStopIndexingVariants(t *testing.T) {
 				cfg := &config.Config{
 					DefraDB: config.DefraDBConfig{URL: testDefraURL},
 				}
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				assert.NoError(t, err)
 				return indexer
 			},
@@ -67,7 +68,7 @@ func TestStopIndexingVariants(t *testing.T) {
 				cfg := &config.Config{
 					DefraDB: config.DefraDBConfig{URL: testDefraURL},
 				}
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				assert.NoError(t, err)
 
 				// Set some state.
@@ -102,7 +103,7 @@ func TestStopIndexingVariants(t *testing.T) {
 					},
 				}
 
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 
 				assert.NoError(t, err)
 				return indexer
@@ -121,7 +122,7 @@ func TestStopIndexingVariants(t *testing.T) {
 		{
 			name: "embedded node is closed and nilled",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				return &ChainIndexer{
 					defraNode:   td.Node,
@@ -164,7 +165,7 @@ func TestStopIndexingVariants(t *testing.T) {
 		{
 			name: "pruner is stopped and nilled",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				p := pruner.NewPruner(&config.PrunerConfig{
 					Enabled:   true,
 					MaxBlocks: 1000,
@@ -201,7 +202,7 @@ func TestStopIndexingVariants(t *testing.T) {
 		{
 			name: "all components are stopped and nilled",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				// Create fetcher, converter, and block handler wired to a mock RPC server.
 				rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
@@ -272,7 +273,7 @@ func TestStopIndexingVariants(t *testing.T) {
 			// unstarted components (isRunning=false → early return).
 			name: "unstarted pruner and snapshotter tolerated",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				p := pruner.NewPruner(&config.PrunerConfig{
 					Enabled:        true,
@@ -393,7 +394,7 @@ func TestStopIndexing_DuringStart_WaitsForStart(t *testing.T) {
 		StartBuffer:      10,
 	})
 
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	errCh := startIndexingBackground(t, indexer)
@@ -511,7 +512,7 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 		StartBuffer:      10,
 	})
 
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	errCh := startIndexingBackground(t, indexer)
@@ -579,7 +580,7 @@ func TestStopIndexing_ConcurrentNodeReaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 			ix := &ChainIndexer{defraNode: td.Node, cfg: &config.Config{}}
 
 			stop := make(chan struct{})

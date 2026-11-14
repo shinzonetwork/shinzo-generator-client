@@ -142,7 +142,7 @@ func preStoreGroupDoc(ctx context.Context, t *testing.T, db blockDB, colName str
 
 func TestNewBlockHandler_WithNode(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestNewBlockHandler_WithNode(t *testing.T) {
 
 func TestNewBlockHandler_DefaultMaxDocsWithNode(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 0)
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestNewBlockHandler_DefaultMaxDocsWithNode(t *testing.T) {
 
 func TestGetPort_WithNode(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	port := GetPort(td.Node)
 	assert.Equal(t, td.Port, port)
 }
@@ -182,7 +182,7 @@ func TestGetPort_WithNode(t *testing.T) {
 
 func TestStore_BlockOnly(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -196,7 +196,7 @@ func TestStore_BlockOnly(t *testing.T) {
 
 func TestStore_WithTransaction(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -240,7 +240,7 @@ func TestStore_WithTransaction(t *testing.T) {
 
 func TestStore_WithAccessList(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -279,7 +279,7 @@ func TestStore_InvalidBlockNumber(t *testing.T) {
 
 func TestStore_DuplicateBlock(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestStore_NilDefraNode(t *testing.T) {
 
 func TestStore_WithDocIDTracker(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -330,7 +330,7 @@ func TestStore_WithDocIDTracker(t *testing.T) {
 
 func TestStore_NilTransaction(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -347,7 +347,7 @@ func TestStore_NilTransaction(t *testing.T) {
 
 func TestStore_NilReceipt(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -368,7 +368,7 @@ func TestStore_NilReceipt(t *testing.T) {
 
 func TestStore_BatchedMode(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -387,7 +387,7 @@ func TestStore_BatchedMode(t *testing.T) {
 
 func TestStore_BatchedMode_WithTracker(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -415,7 +415,7 @@ func TestStore_BatchedMode_WithTracker(t *testing.T) {
 
 func TestStore_BatchedMode_DuplicateBlock(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -440,7 +440,7 @@ func TestStore_BatchedMode_DuplicateBlock(t *testing.T) {
 
 func TestStore_MultipleTransactionsNoReceipts(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -460,7 +460,7 @@ func TestStore_MultipleTransactionsNoReceipts(t *testing.T) {
 
 func TestStore_BatchedMode_WithAccessList(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -502,7 +502,7 @@ func ctxWithIdentity(t *testing.T) context.Context {
 
 func TestStore_WithSigningIdentity_BlockOnly(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -517,7 +517,7 @@ func TestStore_WithSigningIdentity_BlockOnly(t *testing.T) {
 
 func TestStore_WithSigningIdentity_FullBlock(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -541,7 +541,7 @@ func TestStore_WithSigningIdentity_FullBlock(t *testing.T) {
 
 func TestStore_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -567,7 +567,7 @@ func TestStore_WithSigningIdentity_AndTracker(t *testing.T) {
 
 func TestStore_DuplicateWithIdentity(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -590,7 +590,7 @@ func TestStore_DuplicateWithIdentity(t *testing.T) {
 
 func TestStore_BatchedMode_WithSigningIdentity(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
 
@@ -609,7 +609,7 @@ func TestStore_BatchedMode_WithSigningIdentity(t *testing.T) {
 
 func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -646,7 +646,7 @@ func TestStore_BatchedMode_WithSigningIdentity_AndTracker(t *testing.T) {
 
 func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -704,7 +704,7 @@ func TestStore_BatchedMode_SignsOverCommittedDocumentCIDs(t *testing.T) {
 
 func TestStore_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -735,7 +735,7 @@ func TestStore_BatchedMode_DuplicateWithIdentity(t *testing.T) {
 // and the block stores and signs normally with zero batch errors.
 func TestStore_BatchedMode_RepeatedAccessListEntrySignsNormally(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -806,7 +806,7 @@ func TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 			handler, err := NewBlockHandler(td.Node, 2)
 			require.NoError(t, err)
 
@@ -881,7 +881,7 @@ func TestCreateDocsInTxn_AlreadyExistsFallsBackPerDoc(t *testing.T) {
 // a second one.
 func TestStore_UnwritableDuplicateIsTruthfulAndUnsigned(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -929,7 +929,7 @@ func TestStore_UnwritableDuplicateIsTruthfulAndUnsigned(t *testing.T) {
 
 func TestStore_BatchedMode_NilTransactionsInBatch(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -951,7 +951,7 @@ func TestStore_BatchedMode_NilTransactionsInBatch(t *testing.T) {
 
 func TestStore_BatchedMode_NilReceipts(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -973,7 +973,7 @@ func TestStore_BatchedMode_NilReceipts(t *testing.T) {
 
 func TestStore_BatchedMode_ManyLogs(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -1047,7 +1047,7 @@ func TestSignExisting_NilDefraNode(t *testing.T) {
 
 func TestSignExisting_Success(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -1068,7 +1068,7 @@ func TestSignExisting_Success(t *testing.T) {
 
 func TestSignExisting_WithAccessList(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -1095,7 +1095,7 @@ func TestSignExisting_WithAccessList(t *testing.T) {
 
 func TestSignExisting_NilTransactionsAndReceipts(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -1114,7 +1114,7 @@ func TestSignExisting_NilTransactionsAndReceipts(t *testing.T) {
 
 func TestSignExisting_NilTxInList(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -1136,7 +1136,7 @@ func TestSignExisting_NilTxInList(t *testing.T) {
 
 func TestSignExisting_NoIdentity(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -1153,7 +1153,7 @@ func TestSignExisting_NoIdentity(t *testing.T) {
 
 func TestSignExisting_RefusesIncompleteBlock(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
 
@@ -1200,7 +1200,7 @@ func TestSignExisting_RefusesIncompleteBlock(t *testing.T) {
 
 func TestStore_TxWithNoMatchingReceipt(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -1221,7 +1221,7 @@ func TestStore_TxWithNoMatchingReceipt(t *testing.T) {
 
 func TestStore_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -1243,7 +1243,7 @@ func TestStore_BatchedMode_TxWithNoMatchingReceipt(t *testing.T) {
 
 func TestStore_BatchedMode_ManyAccessListEntries(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 2)
 	require.NoError(t, err)
@@ -1278,7 +1278,7 @@ func TestStore_BatchedMode_ManyAccessListEntries(t *testing.T) {
 
 func TestStore_BatchedMode_TransactionsMultipleBatches(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1)
 	require.NoError(t, err)
@@ -1345,7 +1345,7 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 			handler, err := NewBlockHandler(td.Node, 1000)
 			require.NoError(t, err)
 
@@ -1428,7 +1428,7 @@ func TestStore_MalformedDoc_StampErrorSuppressesSignature(t *testing.T) {
 
 func TestStore_Rearrival_SignsOverStoredCIDs(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	cols := evm.NewCollectionNames("Ethereum__Mainnet")
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)

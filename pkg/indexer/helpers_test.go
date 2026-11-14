@@ -543,7 +543,7 @@ func waitForIndexerStart(t *testing.T, indexer *ChainIndexer) {
 func setupSignMessagesDirect(t *testing.T, keyringSecret string) *ChainIndexer {
 	t.Helper()
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	return &ChainIndexer{
 		defraNode: td.Node,
 		cfg: &config.Config{
@@ -586,7 +586,7 @@ func startSignMessagesIndexer(t *testing.T, keyringSecret, defraURL string, p2p 
 		cfg.DefraDB.URL = defraURL
 	}
 
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	waitForIndexerStart(t, indexer)
@@ -787,6 +787,8 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("NO_LOG_FILES", "1"); err != nil {
 		panic(err)
 	}
+	// CreateIndexer receives chain factories directly from its callers; there
+	// is no package-level adapter wiring to initialize here.
 	logger.InitConsoleOnly(true)
 	// Metrics are disabled in tests; tests that check metrics use their own provider.
 	otel.SetMeterProvider(noop.NewMeterProvider())

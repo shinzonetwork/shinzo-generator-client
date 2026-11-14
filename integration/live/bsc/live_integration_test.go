@@ -103,7 +103,7 @@ func TestMain(m *testing.M) {
 	// receiver — nothing selects on the channel once tests are running).
 	bscIndexerErrs := make(chan error, 1)
 	go func() {
-		idx, err := indexer.CreateIndexer(cfg)
+		idx, err := indexer.CreateIndexer(cfg, evm.Factories())
 		if err != nil {
 			bscIndexerErrs <- fmt.Errorf("create BSC indexer: %w", err)
 			return

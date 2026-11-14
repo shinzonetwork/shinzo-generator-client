@@ -229,6 +229,8 @@ func (f *fakeRPCClient) Close() error {
 	return nil
 }
 
+// TestMain initializes the console-only logger for the package tests so
+// DefraDB startup does not write a logs directory into the source tree.
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
 	os.Exit(m.Run())

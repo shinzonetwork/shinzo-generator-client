@@ -20,9 +20,9 @@ import (
 // Construction
 // ---------------------------------------------------------------------------
 
-// TestNewConverter_ChainUnset calls the converter and collections factories
-// through the chains registry, so the factories' error returns are covered as
-// well: neither may fill in a chain name or network.
+// TestNewConverter_ChainUnset calls the converter and collections constructors
+// directly, so their error returns are covered as well: neither may fill in a
+// chain name or network.
 func TestNewConverter_ChainUnset(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -37,9 +37,9 @@ func TestNewConverter_ChainUnset(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := chains.NewConverter(tc.cfg)
+			_, err := NewConverter(tc.cfg)
 			require.ErrorIs(t, err, config.ErrChainUnset)
-			_, err = chains.NewCollections(tc.cfg)
+			_, err = NewCollectionsFromConfig(tc.cfg)
 			require.ErrorIs(t, err, config.ErrChainUnset)
 		})
 	}
@@ -581,7 +581,7 @@ func TestGetHighestStoredBlockNumber_NoBlocks(t *testing.T) {
 	c, err := NewConverter(cfg)
 	require.NoError(t, err)
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	_, err = c.GetHighestStoredBlockNumber(context.Background(), td.Node)
 	assert.Error(t, err)
 }
@@ -592,7 +592,7 @@ func TestGetLowestStoredBlockNumber_NoBlocks(t *testing.T) {
 	c, err := NewConverter(cfg)
 	require.NoError(t, err)
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	_, err = c.GetLowestStoredBlockNumber(context.Background(), td.Node)
 	assert.Error(t, err)
 }
@@ -603,7 +603,7 @@ func TestGetDocIDsByBlockRange_Empty(t *testing.T) {
 	c, err := NewConverter(cfg)
 	require.NoError(t, err)
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	result, err := c.GetDocIDsByBlockRange(context.Background(), td.Node, 1, 100)
 	require.NoError(t, err)
 	assert.Empty(t, result)
@@ -614,7 +614,7 @@ func TestGetStoredBlockNumbers_WithBlocks(t *testing.T) {
 	cfg := testConfig()
 	c, err := NewConverter(cfg)
 	require.NoError(t, err)
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	for _, num := range []int64{100, 101, 102} {
@@ -641,7 +641,7 @@ func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
 	cfg := testConfig()
 	c, err := NewConverter(cfg)
 	require.NoError(t, err)
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	for _, num := range []int64{100, 101, 102, 103, 104} {
@@ -723,7 +723,7 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 			cfg := testConfig()
 			c, err := NewConverter(cfg)
 			require.NoError(t, err)
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 			ctx := context.Background()
 
 			tc.setup(ctx, t, td, c)
@@ -781,7 +781,7 @@ func TestQueryBlockNumber_CustomLimits(t *testing.T) {
 	cfg := testConfig()
 	c, err := NewConverter(cfg)
 	require.NoError(t, err)
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	for _, num := range []int64{100, 101, 102, 103, 104} {
@@ -847,7 +847,7 @@ func TestGetLowestStoredBlockNumber_ConfigWindow(t *testing.T) {
 	cfg.Converter.LowestBlockQueryLimit = 2
 	c, err := NewConverter(cfg)
 	require.NoError(t, err)
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	for _, num := range []int64{100, 101, 102, 103, 104} {
@@ -881,6 +881,15 @@ func TestMockConverter_ConvertNotSet(t *testing.T) {
 	_, err := m.Convert(context.Background(), nil)
 	assert.ErrorIs(t, err, testutils.ErrMockConvertFnNotSet)
 	assert.Len(t, m.ConvertCalls, 1)
+}
+
+func TestMockConverter_CollectionsNotSetPanics(t *testing.T) {
+	t.Parallel()
+	m := &testutils.MockConverter{}
+	assert.PanicsWithValue(t, "MockConverter.Collections: CollectionsFn not set", func() {
+		m.Collections()
+	})
+	assert.Equal(t, 1, m.CollectionsCalls)
 }
 
 func TestMockConverter_ConvertFn(t *testing.T) {

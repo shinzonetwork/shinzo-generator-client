@@ -2,9 +2,11 @@ package main
 
 import (
 	"github.com/shinzonetwork/shinzo-generator-client/cmd/block_poster/internal/generator"
-	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
 
 func main() {
-	generator.Main()
+	// The runner receives the evm factories directly, so indexing dispatches
+	// through injected factories with no global adapter state involved.
+	generator.Main(evm.Factories())
 }

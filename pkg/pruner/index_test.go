@@ -21,7 +21,7 @@ import (
 // its lifecycle status rather than its presence.
 func TestSchemaIndexesBlockNumberField(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	cols := evm.NewCollectionNames(evm.DefaultCollectionPrefix)
