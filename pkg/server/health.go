@@ -133,7 +133,7 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string) *HealthSe
 
 	hs := &HealthServer{
 		server: &http.Server{
-			Addr:         fmt.Sprintf(":%d", port),
+			Addr:         fmt.Sprintf("127.0.0.1:%d", port),
 			Handler:      mux,
 			ReadTimeout:  10 * time.Second, //nolint:mnd
 			WriteTimeout: 5 * time.Minute,  //nolint:mnd // large snapshot files need time to transfer.

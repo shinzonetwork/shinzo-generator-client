@@ -130,6 +130,13 @@ func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if addr := firstUsableP2PAddress(p2p.Self.Addresses); addr != "" {
 		return fmt.Sprintf("%s/p2p/%s", addr, p2p.Self.ID)
 	}
+	// Local onboarding test only: the quick tunnel serves HTTP, not P2P TCP.
+	if r != nil {
+		host := strings.ToLower(r.Host)
+		if strings.HasSuffix(host, ".trycloudflare.com") {
+			return fmt.Sprintf("/dns4/%s/tcp/%s/p2p/%s", host, port, p2p.Self.ID)
+		}
+	}
 	return ""
 }
 
