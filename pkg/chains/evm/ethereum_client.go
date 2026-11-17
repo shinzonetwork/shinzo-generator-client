@@ -357,6 +357,11 @@ func (c *EthereumClient) GetProof(ctx context.Context, account common.Address, s
 	if err != nil {
 		return codecevm.AccountProof{}, err
 	}
+	// go-ethereum refuses null for the storage keys argument, so a read of the account alone sends
+	// an empty list.
+	if slots == nil {
+		slots = []string{}
+	}
 	var proof codecevm.AccountProof
 	err = client.Client().CallContext(ctx, &proof, "eth_getProof", account, slots, ethrpc.BlockNumberOrHashWithHash(hash, true))
 	c.countRPCError(ctx, "eth_getProof", err)
