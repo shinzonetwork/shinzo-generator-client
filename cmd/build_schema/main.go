@@ -30,6 +30,7 @@ func run(args []string, stdout io.Writer) error {
 	chain := fs.String("chain", "", "Chain name for collection prefixes (e.g. Arbitrum). Required.")
 	network := fs.String("network", "", "Network name for collection prefixes (e.g. Mainnet). Required.")
 	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from. Empty selects the default adapter.")
+	mode := fs.String("mode", config.ChainModeFull, "Chain mode whose tables to print: full or tokens.")
 	file := fs.String("file", "", "Single collection file to output (e.g. block.graphql). Default: full merged SDL.")
 	// The prefix flag is still declared so legacy invocations get a targeted
 	// migration error instead of a generic unknown-flag failure.
@@ -40,21 +41,10 @@ func run(args []string, stdout io.Writer) error {
 	if *prefix != "" {
 		return errors.New("--prefix is no longer supported; use --chain, --network, and --adapter instead")
 	}
-	if *chain == "" || *network == "" {
-		return errChainFlagsUnset
-	}
-	if err := config.ValidateChainNames(*chain, *network); err != nil {
+	cfg, err := chainConfig(*chain, *network, *adapter, *mode)
+	if err != nil {
 		return err
 	}
-	if *adapter != "" && *adapter != config.DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", *adapter, config.DefaultChainAdapter)
-	}
-
-	cfg := &config.Config{Chain: config.ChainConfig{
-		Name:    *chain,
-		Network: *network,
-		Adapter: *adapter,
-	}}
 	c, err := evm.NewCollectionsFromConfig(cfg)
 	if err != nil {
 		return err
@@ -84,6 +74,28 @@ func run(args []string, stdout io.Writer) error {
 	}
 	_, err = io.WriteString(stdout, sdl)
 	return err
+}
+
+// chainConfig returns the config of the chain the flags select, or why they select none.
+func chainConfig(chain, network, adapter, mode string) (*config.Config, error) {
+	if chain == "" || network == "" {
+		return nil, errChainFlagsUnset
+	}
+	if err := config.ValidateChainNames(chain, network); err != nil {
+		return nil, err
+	}
+	if adapter != "" && adapter != config.DefaultChainAdapter {
+		return nil, fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", adapter, config.DefaultChainAdapter)
+	}
+	if mode != config.ChainModeFull && mode != config.ChainModeTokens {
+		return nil, fmt.Errorf("%w: got %q", config.ErrInvalidChainMode, mode)
+	}
+	return &config.Config{Chain: config.ChainConfig{
+		Name:    chain,
+		Network: network,
+		Adapter: adapter,
+		Mode:    mode,
+	}}, nil
 }
 
 // collectionSDLByFile looks up a single collection file's SDL from the chain's

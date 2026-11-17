@@ -49,15 +49,15 @@ type Converter struct {
 // Compile-time guarantee that Converter implements chains.Converter.
 var _ chains.Converter = (*Converter)(nil)
 
-// NewConverter creates a Converter for the chain cfg names. It returns
-// config.ErrChainUnset when cfg is nil or has no chain name or network.
+// NewConverter creates a Converter for the chain and mode cfg names. It
+// returns config.ErrChainUnset when cfg is nil or has no chain name or network.
 func NewConverter(cfg *config.Config) (*Converter, error) {
-	prefix, err := chainPrefixFromConfig(cfg)
+	collections, err := collectionNamesFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 	return &Converter{
-		collections: NewCollectionNames(prefix),
+		collections: collections,
 		cfg:         cfg,
 	}, nil
 }
@@ -304,16 +304,24 @@ func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node
 // for every relevant collection whose block-number field falls in [from, to]
 // inclusive. SnapshotSignature is excluded; BlockSignature is included.
 func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
-	cols := []struct {
+	type rangeCollection struct {
 		name  string
 		field string
-	}{
+	}
+	cols := []rangeCollection{
 		{c.collections.Block, constants.NumberFieldName},
 		{c.collections.Transaction, constants.BlockNumberFieldName},
 		{c.collections.Log, constants.BlockNumberFieldName},
 		{c.collections.AccessListEntry, constants.BlockNumberFieldName},
-		{c.collections.BlockSignature, constants.BlockNumberFieldName},
 	}
+	if c.collections.tokenMode() {
+		cols = []rangeCollection{
+			{c.collections.Header, constants.NumberFieldName},
+			{c.collections.Evidence, constants.BlockNumberFieldName},
+			{c.collections.StateCapture, constants.BlockNumberFieldName},
+		}
+	}
+	cols = append(cols, rangeCollection{c.collections.BlockSignatureCollection(), constants.BlockNumberFieldName})
 
 	result := make(map[string][]string)
 	for _, col := range cols {
@@ -428,7 +436,7 @@ func (c *Converter) buildALEData(ale *AccessListEntry, blockNumber int64) map[st
 // Rows that still arrive unparseable are skipped and reported; all errors
 // are tagged with opName.
 func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
-	blockCol := c.collections.Block
+	blockCol := c.collections.BlockCollection()
 	field := constants.NumberFieldName
 	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { ` + field + ` _docID }}`
 

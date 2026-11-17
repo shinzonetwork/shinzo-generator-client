@@ -21,52 +21,62 @@ import (
 // its lifecycle status rather than its presence.
 func TestSchemaIndexesBlockNumberField(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
-	ctx := context.Background()
+	for _, mode := range []struct {
+		name string
+		cols *evm.CollectionNames
+	}{
+		{"full", evm.NewCollectionNames(evm.DefaultCollectionPrefix)},
+		{"tokens", evm.NewTokenCollectionNames(evm.DefaultCollectionPrefix)},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			t.Parallel()
+			cols := mode.cols
+			td := testutils.SetupTestDefraDB(t, cols)
+			ctx := context.Background()
 
-	cols := evm.NewCollectionNames(evm.DefaultCollectionPrefix)
-
-	type indexCase struct {
-		collection string
-		field      string
-	}
-	var cases []indexCase
-	for _, name := range cols.AllCollections() {
-		// The pruner never queries snapshot signatures by block number
-		// (block-range docID queries exclude that collection), so they carry
-		// no block-number index contract here.
-		if name == cols.SnapshotSignatureCollection() {
-			continue
-		}
-		field := constants.BlockNumberFieldName
-		if name == cols.BlockCollection() {
-			field = constants.NumberFieldName
-		}
-		cases = append(cases, indexCase{name, field})
-	}
-
-	for _, c := range cases {
-		t.Run(c.collection, func(t *testing.T) {
-			col, err := td.Node.DB.GetCollectionByName(ctx, c.collection)
-			require.NoError(t, err)
-
-			indexes, err := col.ListIndexes(ctx)
-			require.NoError(t, err)
-
-			var leading *client.ListIndexesResult
-			for i := range indexes {
-				fields := indexes[i].Description.Fields
-				if len(fields) > 0 && fields[0].Name == c.field {
-					leading = &indexes[i]
-					break
+			type indexCase struct {
+				collection string
+				field      string
+			}
+			var cases []indexCase
+			for _, name := range cols.AllCollections() {
+				// The pruner never queries snapshot signatures by block number
+				// (block-range docID queries exclude that collection), so they carry
+				// no block-number index contract here.
+				if name == cols.SnapshotSignatureCollection() {
+					continue
 				}
+				field := constants.BlockNumberFieldName
+				if name == cols.BlockCollection() {
+					field = constants.NumberFieldName
+				}
+				cases = append(cases, indexCase{name, field})
 			}
 
-			require.NotNil(t, leading, "no index leads with %s", c.field)
-			require.NotEqual(t, client.ErroredActionStatus, leading.Execution.Status,
-				"index %s errored: %s", leading.Description.Name, leading.Execution.Reason)
-			require.NotEqual(t, client.InProgressActionStatus, leading.Execution.Status,
-				"index %s has not finished building", leading.Description.Name)
+			for _, c := range cases {
+				t.Run(c.collection, func(t *testing.T) {
+					col, err := td.Node.DB.GetCollectionByName(ctx, c.collection)
+					require.NoError(t, err)
+
+					indexes, err := col.ListIndexes(ctx)
+					require.NoError(t, err)
+
+					var leading *client.ListIndexesResult
+					for i := range indexes {
+						fields := indexes[i].Description.Fields
+						if len(fields) > 0 && fields[0].Name == c.field {
+							leading = &indexes[i]
+							break
+						}
+					}
+
+					require.NotNil(t, leading, "no index leads with %s", c.field)
+					require.NotEqual(t, client.ErroredActionStatus, leading.Execution.Status,
+						"index %s errored: %s", leading.Description.Name, leading.Execution.Reason)
+					require.NotEqual(t, client.InProgressActionStatus, leading.Execution.Status,
+						"index %s has not finished building", leading.Description.Name)
+				})
+			}
 		})
 	}
 }

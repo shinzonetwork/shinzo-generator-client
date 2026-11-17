@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -104,5 +105,32 @@ func TestBlockAndSignatureCollections(t *testing.T) {
 			assert.Equal(t, tt.expectedBlockSigCol, c.BlockSignatureCollection())
 			assert.Equal(t, tt.expectedSnapshotSigCol, c.SnapshotSignatureCollection())
 		})
+	}
+}
+
+func TestNewTokenCollectionNames(t *testing.T) {
+	t.Parallel()
+
+	c := NewTokenCollectionNames("Bsc__Mainnet")
+
+	assert.Equal(t, []string{"Bsc__Mainnet__Header", "Bsc__Mainnet__Evidence", "Bsc__Mainnet__StateCapture", "Bsc__Mainnet__BlockAttestation"}, c.AllCollections())
+	assert.Equal(t, "Bsc__Mainnet__Header", c.BlockCollection())
+	assert.Equal(t, "Bsc__Mainnet__BlockAttestation", c.BlockSignatureCollection())
+	assert.Empty(t, c.SnapshotSignatureCollection())
+}
+
+// No tokens-mode table name may begin another. DefraDB finds a collection's schema history by key
+// prefix with no separator (defradb internal/keys/headstore_collection_definition.go), so such a
+// table would read the other's history.
+func TestTokenCollectionNames_NoNameBeginsAnother(t *testing.T) {
+	t.Parallel()
+
+	names := NewTokenCollectionNames("Bsc__Mainnet").AllCollections()
+	for _, a := range names {
+		for _, b := range names {
+			if a != b {
+				assert.False(t, strings.HasPrefix(b, a), "%s begins %s", a, b)
+			}
+		}
 	}
 }

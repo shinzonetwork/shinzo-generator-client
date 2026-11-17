@@ -1,0 +1,10 @@
+# One document per block, written with the block's Header. statement is the encoded statement the
+# generator signs; signature is its ES256K signature over the statement, and signer its public key.
+type Ethereum__Mainnet__BlockAttestation {
+    blockNumber: Int @index
+    blockHash: String
+    statement: Blob
+    signatureType: String
+    signer: String
+    signature: String
+}

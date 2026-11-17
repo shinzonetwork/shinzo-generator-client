@@ -1,0 +1,9 @@
+# One document per listed token at a capture height. value is the token's total supply in decimal
+# base units, and proof is the eth_getProof proof of its supply slot against the header's state root.
+type Ethereum__Mainnet__StateCapture {
+    blockNumber: Int @index
+    blockHash: String
+    asset: String
+    value: String
+    proof: Blob
+}
