@@ -45,7 +45,7 @@ func assertCollectionEmptyForRange(ctx context.Context, t *testing.T, handler *B
 // content-identical collision can occur.
 func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestReorgRoller_RollbackBlocks_RemovesAllFiveCollections(t *testing.T) {
 // soft-deleted docs).
 func TestReorgRoller_GetStoredBlockHash(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -172,7 +172,7 @@ func TestReorgRoller_GetStoredBlockHash(t *testing.T) {
 // TestNewReorgRoller_RejectsNilArgs covers the constructor validation.
 func TestNewReorgRoller_RejectsNilArgs(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	_, err := NewReorgRoller(nil, newTestConverter(t))
 	require.Error(t, err)
@@ -214,7 +214,7 @@ func (t *queueRollbackTracker) TrackBlock(_ context.Context, blockNumber int64, 
 // swept-then-re-fetched identical block would be silently lost.
 func TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -266,7 +266,7 @@ func TestReorgRoller_RollbackBlocks_RestoringDeletedContentIsRefused(t *testing.
 // docs lose their only purge driver and leak in storage forever.
 func TestReorgRoller_RollbackBlocks_RetainsQueueEntries(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -308,7 +308,7 @@ func TestReorgRoller_RollbackBlocks_RetainsQueueEntries(t *testing.T) {
 // or deleting anything from a wrong guess.
 func TestReorgRoller_GetStoredBlockHash_MultiRowErrors(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)
@@ -360,7 +360,7 @@ func TestReorgRoller_GetStoredBlockHash_MultiRowErrors(t *testing.T) {
 // rollback instead of the retained-entry flow.
 func TestReorgRoller_QueueRetainedOrphansAreHardPurgeable(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	handler, err := NewBlockHandler(td.Node, 1000)
 	require.NoError(t, err)

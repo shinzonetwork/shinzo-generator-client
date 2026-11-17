@@ -848,6 +848,6 @@ type testDefraDB struct {
 
 func testutilsSetupDefraDB(t *testing.T) *testDefraDB {
 	t.Helper()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	return &testDefraDB{DB: td.Node.DB}
 }

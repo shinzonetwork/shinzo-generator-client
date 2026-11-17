@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,12 +67,21 @@ func TestRun_OutputWithChainMatchesFacade(t *testing.T) {
 	assert.Equal(t, expected, buf.String())
 }
 
+func TestRun_ExplicitEVMAdapter(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--adapter", config.DefaultChainAdapter}, &buf))
+	assert.Contains(t, buf.String(), "Ethereum__Mainnet__Block")
+}
+
 func TestRun_UnknownAdapterFails(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	err := run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--adapter", "cosmos"}, &buf)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, chains.ErrChainFactoryNotRegistered)
+	assert.Contains(t, err.Error(), `chain adapter "cosmos" not yet implemented`)
+	assert.Contains(t, err.Error(), "only \"evm\" is supported")
+	assert.Empty(t, buf.String())
 }
 
 func TestRun_SingleFile(t *testing.T) {

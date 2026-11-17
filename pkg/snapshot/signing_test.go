@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -212,7 +213,7 @@ func TestComputeSnapshotMerkleRoot_PowerOfTwoRoots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetBlockSigMerkleRoots_EmptyDB(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -223,7 +224,7 @@ func TestGetBlockSigMerkleRoots_EmptyDB(t *testing.T) {
 }
 
 func TestGetBlockSigMerkleRoots_WithBlocks(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 100, 102) // 3 blocks, each creates a BlockSignature
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
@@ -238,7 +239,7 @@ func TestGetBlockSigMerkleRoots_WithBlocks(t *testing.T) {
 }
 
 func TestGetBlockSigMerkleRoots_OutOfRange(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 100, 102)
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
@@ -254,7 +255,7 @@ func TestGetBlockSigMerkleRoots_OutOfRange(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQuerySnapshotSignatures_EmptyDB(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	sigs, err := QuerySnapshotSignatures(ctx, td.Node, testSnapshotSignatureCollection)
@@ -268,7 +269,7 @@ func TestQuerySnapshotSignatures_EmptyDB(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -316,7 +317,7 @@ func TestCreateSnapshotSignatureDoc_And_QuerySnapshotSignatures(t *testing.T) {
 }
 
 func TestCreateSnapshotSignatureDoc_MultipleDocs(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -399,7 +400,7 @@ func TestSignMerkleRoot(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_NoRoots(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -412,7 +413,7 @@ func TestSignSnapshotWithRoots_NoRoots(t *testing.T) {
 }
 
 func TestSignSnapshotWithRoots_NoIdentity(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background() // No identity in context
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -425,7 +426,7 @@ func TestSignSnapshotWithRoots_NoIdentity(t *testing.T) {
 }
 
 func TestSignSnapshotWithRoots_WithIdentity(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
 	ctx, _ := newIdentityCtx(t, crypto.KeyTypeEd25519)
@@ -473,7 +474,7 @@ func TestSignMerkleRoot_IdentityNotFull(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -514,7 +515,7 @@ func TestCreateSnapshotSignatureDoc_WithBlockSigMerkleRoots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQuerySnapshotSignatures_EmptySnapshotFileSkipped(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -546,7 +547,7 @@ func TestQuerySnapshotSignatures_EmptySnapshotFileSkipped(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetBlockSigMerkleRoots_CoverParsing(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 400, 404)
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
@@ -571,7 +572,7 @@ func TestGetBlockSigMerkleRoots_CoverParsing(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	ctx, _ := newIdentityCtx(t, crypto.KeyTypeSecp256k1)
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
@@ -603,7 +604,7 @@ func TestSignSnapshotWithRoots_MultipleRoots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_ComputeRootFails(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	// Empty roots array triggers early return (already tested)
@@ -689,7 +690,7 @@ func TestGetBlockSigMerkleRoots_InsertVariants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 			ctx := context.Background()
 			s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -713,7 +714,7 @@ func TestGetBlockSigMerkleRoots_InsertVariants(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_FullFlowWithBlockSigs(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 600, 602)
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -777,7 +778,7 @@ func TestSignMerkleRoot_UnsupportedKeyType(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSignSnapshotWithRoots_UnsupportedKeyType(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	ctx, _ := newIdentityCtx(t, crypto.KeyTypeSecp256r1)
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
@@ -831,7 +832,7 @@ func TestSignMerkleRoot_ProducesVerifiableSignature(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
@@ -876,7 +877,7 @@ func TestQuerySnapshotSignatures_MultipleDocsWithBlockSigRoots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetBlockSigMerkleRoots_ViaIdentityInsertedBlocks(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx, _ := insertTestBlocksWithIdentity(t, td, 100, 102)
 	s := New(&config.SnapshotConfig{Dir: t.TempDir(), BlocksPerFile: 1000}, td.Node, newTestChainFromNode(t, td))
 
