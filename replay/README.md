@@ -38,7 +38,7 @@ export GETH_RPC_URL=https://your-node-archival-node:8545   # GETH_* names are hi
 export GETH_API_KEY=...                          # optional
 export GETH_API_KEY_TYPE=x-api-key               # optional header name
 
-make build                              # produces ./bin/block_poster and ./bin/fetch_blocks (loads .env itself)
+make build                              # produces ./bin/block_poster_evm and ./bin/fetch_blocks (loads .env itself)
 ./bin/fetch_blocks --chain ethereum --network mainnet --from 24001000 --to 24001150
 
 make replay-fetch                    # same, via go run (100 blocks ending at the current tip)
@@ -128,7 +128,7 @@ the chain's BPS.
 
 The config boots from the suite's shipped yaml (`config/config.yaml` for
 Ethereum, `config/config_bsc.yaml` for BSC), the same files production runs
-(`block_poster -config ...`), so chain
+(`block_poster_evm -config ...`), so chain
 identity, batch sizes, badger caches, `prune_history: true` and the per-cycle
 prune cap are production values, not bench approximations. Only what the
 bench cannot take from it is overridden: the mock endpoint, the temp store and

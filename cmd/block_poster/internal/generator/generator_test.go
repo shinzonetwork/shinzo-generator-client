@@ -1,4 +1,4 @@
-package main
+package generator
 
 import (
 	"bytes"
@@ -6,13 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	stderrors "errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -21,6 +19,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
@@ -154,18 +153,18 @@ func TestPrintVersion(t *testing.T) {
 // TestRun is not parallel: some cases clear environment variables, which t.Setenv requires.
 func TestRun(t *testing.T) {
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
-		err := run([]string{"verify"})
+		err := Run([]string{"verify"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "usage:")
 	})
 
 	t.Run("verify subcommand with nonexistent file returns error", func(t *testing.T) {
-		err := run([]string{"verify", "/nonexistent/snapshot.jsonl.gz"})
+		err := Run([]string{"verify", "/nonexistent/snapshot.jsonl.gz"})
 		require.Error(t, err)
 	})
 
 	t.Run("invalid config path returns error", func(t *testing.T) {
-		err := run([]string{"-config", "/nonexistent/config.yaml"})
+		err := Run([]string{"-config", "/nonexistent/config.yaml"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
@@ -178,13 +177,13 @@ func TestRun(t *testing.T) {
 		require.NoError(t, os.Chdir(tmpDir))
 		defer func() { _ = os.Chdir(origDir) }()
 
-		err = run([]string{})
+		err = Run([]string{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
 
 	t.Run("invalid flag returns error", func(t *testing.T) {
-		err := run([]string{"-invalid-flag-that-does-not-exist"})
+		err := Run([]string{"-invalid-flag-that-does-not-exist"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse flags")
 	})
@@ -198,12 +197,12 @@ func TestRun(t *testing.T) {
 		require.NoError(t, os.Chdir(tmpDir))
 		defer func() { _ = os.Chdir(origDir) }()
 
-		require.NoError(t, run([]string{"-v"}))
-		require.NoError(t, run([]string{"--version"}))
+		require.NoError(t, Run([]string{"-v"}))
+		require.NoError(t, Run([]string{"--version"}))
 	})
 
 	t.Run("version flag ignores invalid config path", func(t *testing.T) {
-		err := run([]string{"-version", "-config", "/nonexistent/config.yaml"})
+		err := Run([]string{"-version", "-config", "/nonexistent/config.yaml"})
 		require.NoError(t, err)
 	})
 
@@ -248,7 +247,7 @@ logger:
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
 		assert.Contains(t, err.Error(), "failed to start DefraDB instance")
@@ -295,7 +294,7 @@ logger:
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
 		assert.Contains(t, err.Error(), "DefraDB failed to become ready")
@@ -307,7 +306,7 @@ logger:
 
 		// Start a TCP listener that accepts connections but never responds.
 		// The RPC and DefraDB both point at it, so startup blocks on its first
-		// request, giving the SIGTERM time to win the select race in run().
+		// request, giving the SIGTERM time to win the select race in Run().
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
 		defer func() { _ = ln.Close() }()
@@ -360,7 +359,7 @@ logger:
 			_ = p.Signal(syscall.SIGTERM)
 		}()
 
-		err = run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath})
 		assert.NoError(t, err)
 	})
 
@@ -386,7 +385,7 @@ indexer:
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
@@ -649,33 +648,6 @@ func TestVerifySnapshots_AllValid_ReturnsNil(t *testing.T) {
 	assert.Contains(t, stdout.String(), "PASS:")
 }
 
-func TestMain_ErrorExitsNonZero(t *testing.T) {
-	// Use the subprocess test pattern: re-invoke the test binary with a
-	// sentinel environment variable, then verify the exit code.
-	if os.Getenv("TEST_MAIN_EXIT") == "1" {
-		// When invoked as a subprocess, run main() with args that will cause
-		// run() to fail (invalid config path).
-		os.Args = []string{"block_poster", "-config", "/nonexistent/config.yaml"}
-		main() // calls os.Exit(1) inside
-		return
-	}
-
-	// Parent process: run ourselves as a subprocess
-	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_ErrorExitsNonZero$") //nolint:gosec
-	cmd.Env = append(os.Environ(), "TEST_MAIN_EXIT=1")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-
-	// Expect a non-zero exit code
-	require.Error(t, err, "expected non-zero exit code from main() on error")
-	var exitErr *exec.ExitError
-	require.True(t, stderrors.As(err, &exitErr), "expected *exec.ExitError, got %T", err)
-	assert.NotEqual(t, 0, exitErr.ExitCode())
-	// The error message should be written to stderr
-	assert.Contains(t, stderr.String(), "failed to load config")
-}
-
 func TestMain_VerifyValidSnapshot(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -713,12 +685,12 @@ func TestMain_VerifyValidSnapshot(t *testing.T) {
 	defer func() { os.Args = origArgs }()
 
 	// Set os.Args to simulate: block_poster verify <valid_snapshot>
-	// Since run() returns nil for a valid verify, main() won't call os.Exit
+	// Since Run() returns nil for a valid verify, Main() won't call os.Exit
 	os.Args = []string{"block_poster", "verify", snapshotPath}
 
-	// This covers the main() function's first statement (line 18: calling run())
-	// Since run() returns nil, the if-block is not entered.
-	main()
+	// This covers Main()'s delegation to Run(); since Run() returns nil,
+	// the error branch that would exit the process is not entered.
+	Main()
 }
 
 // clearEndpointEnv clears the environment variables that override the config's RPC and DefraDB
