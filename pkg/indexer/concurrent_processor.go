@@ -26,6 +26,11 @@ const (
 	// DispatchThrottleDelay is the delay when the processor is too far ahead of committed blocks.
 	DispatchThrottleDelay = 100 * time.Millisecond
 
+	// FinalizedPollInterval is how often dispatch asks for the finalized height once it has reached
+	// it, when chain.finalized_poll_interval_ms is unset. On BSC the finalized tag moves with the
+	// head, so the interval bounds how far dispatch trails it.
+	FinalizedPollInterval = time.Second
+
 	// transactionConflictRetryBaseDelay is the base delay for retrying
 	// transaction conflicts on store.
 	transactionConflictRetryBaseDelay = 50 * time.Millisecond
@@ -203,6 +208,13 @@ type ConcurrentBlockProcessor struct {
 	pendingMu       sync.Mutex
 	pending         map[int64]*BlockResult
 	nextToCommit    int64
+
+	// finalizedOnly bounds dispatch at the fetcher's finalized height, asked for every
+	// finalizedPoll. finalized is the last height the fetcher reported; only the dispatch loop
+	// uses it.
+	finalizedOnly bool
+	finalizedPoll time.Duration
+	finalized     int64
 
 	// bounded store pool: the collector never calls Store. Fetch/convert
 	// workers hand checked results to storeChan, pool goroutines run
@@ -1425,6 +1437,13 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 				return ctx.Err()
 			case <-time.After(DispatchThrottleDelay):
 				continue
+			}
+		}
+
+		if p.finalizedOnly {
+			if err := p.waitForFinalized(ctx, nextBlock); err != nil {
+				shutdown()
+				return err
 			}
 		}
 

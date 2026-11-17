@@ -50,6 +50,7 @@ func TestNewFetcherFromConfig(t *testing.T) {
 		wantAPIKey      string
 		wantAPIKeyType  string
 		wantDialTimeout time.Duration
+		wantTokensMode  bool
 	}{
 		{
 			name:    "NilConfig",
@@ -89,6 +90,16 @@ func TestNewFetcherFromConfig(t *testing.T) {
 			wantNodeURL:     "http://localhost:8545",
 			wantDialTimeout: 15 * time.Second,
 		},
+		{
+			name: "TokensMode",
+			cfg: &config.Config{
+				Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", Mode: config.ChainModeTokens},
+				Geth:  config.GethConfig{NodeURL: "http://localhost:8545"},
+			},
+			wantReceipt:    16,
+			wantNodeURL:    "http://localhost:8545",
+			wantTokensMode: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -107,6 +118,7 @@ func TestNewFetcherFromConfig(t *testing.T) {
 			assert.Equal(t, tc.wantAPIKey, f.apiKey)
 			assert.Equal(t, tc.wantAPIKeyType, f.apiKeyType)
 			assert.Equal(t, tc.wantDialTimeout, f.dialTimeout)
+			assert.Equal(t, tc.wantTokensMode, f.tokensMode)
 			assert.Nil(t, f.client, "should not have a connected client")
 		})
 	}
