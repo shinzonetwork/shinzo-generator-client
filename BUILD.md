@@ -16,16 +16,18 @@ go mod download
 make build
 ```
 
-The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `make build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain) plus `bin/fetch_blocks`.
+The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `make build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain), `bin/block_poster_tron` (the tron adapter, configured via `config/config_tron.yml` with the wallet-API `TRON_RPC_URL` endpoint), plus `bin/fetch_blocks`.
 
 ## Useful commands
 
 | Command | What it does |
 | --- | --- |
-| `make build` | Build all binaries (evm generator + fetch_blocks). |
+| `make build` | Build all binaries (evm + tron generators + fetch_blocks). |
 | `make evm-build` | Build only `bin/block_poster_evm`. |
+| `make tron-build` | Build only `bin/block_poster_tron`. |
 | `make ethereum-start` | Run `bin/block_poster_evm` with the Ethereum config. |
 | `make bsc-start` | Run `bin/block_poster_evm` with the BSC config. |
+| `make tron-start` | Run `bin/block_poster_tron` with the Tron config. |
 | `make test` | Run all tests with a summary. |
 | `make integration-test` | Run mock and live integration tests. The mock phase covers the EVM and Tron suites; the Tron live smoke runs when `TRON_RPC_URL` is set. |
 | `make ethereum-live-test` | Run live integration tests for Ethereum |

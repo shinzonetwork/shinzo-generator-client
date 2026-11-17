@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build ethereum-start bsc-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test
+.PHONY: deps env build evm-build tron-build ethereum-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -32,7 +32,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # injection identical between evm-build and any future per-chain build target.
 LDFLAGS := -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)"
 
-build: evm-build
+build: evm-build tron-build
 	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 
 evm-build:
@@ -45,12 +45,25 @@ evm-build:
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
 	fi
 
+tron-build:
+	go build $(LDFLAGS) -o bin/block_poster_tron ./cmd/block_poster/tron/
+	@if [ "$(VERSION)" = "dev" ]; then \
+		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+	elif grep -aFq "$(VERSION)" bin/block_poster_tron; then \
+		echo "✅ version injected: $(VERSION)"; \
+	else \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' - check the -X symbol path"; exit 1; \
+	fi
+
 ethereum-start:
 	./bin/block_poster_evm
 
 bsc-start:
 	./bin/block_poster_evm -config config/config_bsc.yaml
-	
+
+tron-start:
+	./bin/block_poster_tron -config config/config_tron.yml
+
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
@@ -280,8 +293,9 @@ help:
 	@echo "=================================================="
 	@echo ""
 	@echo "📦 Build & Test:"
-	@echo "  build              - Build all binaries (evm generator + fetch_blocks)"
+	@echo "  build              - Build all binaries (evm + tron generators + fetch_blocks)"
 	@echo "  evm-build          - Build only bin/block_poster_evm"
+	@echo "  tron-build         - Build only bin/block_poster_tron"
 	@echo "  test               - Run all tests with summary"
 	@echo "  integration-test   - Fast mock integration suite (no chain endpoint, no credentials)"
 	@echo "  coverage           - Run tests with coverage report"
@@ -311,6 +325,7 @@ help:
 	@echo "  defra-start        - Start DefraDB"
 	@echo "  ethereum-start     - Start the evm generator binary with the Ethereum config"
 	@echo "  bsc-start          - Start the evm generator with the BSC config"
+	@echo "  tron-start         - Start the tron generator binary with the Tron config"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
