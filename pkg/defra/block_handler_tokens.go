@@ -25,6 +25,10 @@ var (
 	ErrStoredHeaderDiffers = stderrors.New("another header is stored at the height")
 )
 
+// ErrAttestation wraps a failure to sign a block's statement, or a signature that does not verify.
+// The block is not stored.
+var ErrAttestation = stderrors.New("block attestation failed")
+
 // signStatement signs statement with the node's key and returns the public key and the DER
 // signature in hex, the ES256K form an attestation carries. A key that is not secp256k1 gives a
 // signature commitBlock rejects, so the block is not stored and the height is retried.
@@ -121,10 +125,10 @@ func (h *BlockHandler) commitBlock(ctx context.Context, result chains.Conversion
 
 	signer, signature, err := h.signStatement(ctx, result.Statement)
 	if err != nil {
-		return fmt.Errorf("block %d: %w", blockInt, err)
+		return fmt.Errorf("block %d: %w: %w", blockInt, ErrAttestation, err)
 	}
 	if err := codecsig.VerifyStatement(result.Statement, signer, codecsig.TypeES256K, signature); err != nil {
-		return fmt.Errorf("block %d: own attestation: %w", blockInt, err)
+		return fmt.Errorf("block %d: %w: own signature: %w", blockInt, ErrAttestation, err)
 	}
 	attestationCol, err := txnCollection(ctx, txn, result.SignatureCollection)
 	if err != nil {
