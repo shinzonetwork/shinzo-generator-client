@@ -2,8 +2,10 @@ package indexer
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
@@ -16,6 +18,48 @@ func (p *ConcurrentBlockProcessor) DispatchFinalizedOnly(poll time.Duration) {
 	if poll == 0 {
 		p.finalizedPoll = FinalizedPollInterval
 	}
+}
+
+// RetryFailedHeights makes a height whose fetch, convert or store failed retry until it succeeds,
+// and stores nothing DefaultWorkersAhead*workers or more above it before it. A store refusal that
+// retrying cannot clear still stops the run. Call it before ProcessBlocks.
+func (p *ConcurrentBlockProcessor) RetryFailedHeights() {
+	p.retryFailedHeights = true
+}
+
+// StopOnReorg makes a detected reorg stop the run with ErrReorgStopped instead of rolling the
+// orphaned heights back, so nothing stored is deleted. Call it before ProcessBlocks.
+func (p *ConcurrentBlockProcessor) StopOnReorg() {
+	p.stopOnReorg = true
+}
+
+// stoppedForReorg stops the run on signal when the processor stops on reorgs, and reports whether
+// it did.
+func (p *ConcurrentBlockProcessor) stoppedForReorg(signal reorgSignal) bool {
+	if !p.stopOnReorg {
+		return false
+	}
+	p.failRun(fmt.Errorf("%w: stored block %d has hash %s, the chain has %s", ErrReorgStopped,
+		signal.rollbackFrom, signal.orphanHash, signal.chainHash))
+	return true
+}
+
+// retryInPlace calls attempt and, when failed heights are retried in place, again every
+// FailedHeightRetryDelay until it succeeds, ctx is done, or a store is refused in a way retrying
+// cannot clear. It returns the last result.
+func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt func() *BlockResult) *BlockResult {
+	result := attempt()
+	for p.retryFailedHeights && result.Error != nil && !errors.IsErrDocumentDeleted(result.Error) &&
+		ctx.Err() == nil {
+		logger.Sugar.Warnf("Block %d failed, retrying in %v: %v", result.BlockNum, FailedHeightRetryDelay, result.Error)
+		select {
+		case <-ctx.Done():
+			return result
+		case <-time.After(FailedHeightRetryDelay):
+		}
+		result = attempt()
+	}
+	return result
 }
 
 // waitForFinalized returns once the fetcher reports height as finalized, asking every
