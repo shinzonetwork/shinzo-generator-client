@@ -48,9 +48,6 @@ func run(args []string, stdout io.Writer) error {
 	if err := config.ValidateChainNames(*chain, *network); err != nil {
 		return err
 	}
-	if *adapter != "" && *adapter != config.DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", *adapter, config.DefaultChainAdapter)
-	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
 		Name:    *chain,
