@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
@@ -62,7 +63,7 @@ func TestInitServices_MTLSMode_ReturnsError(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	cfg := &config.Config{
 		DefraDB: config.DefraDBConfig{

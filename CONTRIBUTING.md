@@ -7,7 +7,10 @@ Open an issue to discuss your proposed change before submitting a PR. This avoid
 ## Making changes
 
 ```plaintext
-cmd/                 Application entry point (block_poster)
+cmd/                 Application entry points, one binary per chain adapter
+  block_poster/
+    evm/             evm adapter main (Ethereum, BSC, ...); wires the adapter
+    internal/generator/  shared adapter-agnostic runner (flags, verify, indexing)
 config/              YAML + env-var configuration loading and build-time version
 pkg/
   constants/         Collection name helpers

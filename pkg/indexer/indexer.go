@@ -81,6 +81,7 @@ const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 // ChainIndexer is the main indexer that processes blockchain blocks.
 type ChainIndexer struct {
 	cfg                       *config.Config
+	factories                 chains.ChainFactories // Chain factories injected by the per-chain main; never a registry lookup.
 	fetcher                   chains.Fetcher
 	converter                 chains.Converter
 	blockHandler              *defra.BlockHandler
@@ -195,8 +196,11 @@ func (i *ChainIndexer) GetDefraDBURL() string {
 	return i.defraNode.APIURL
 }
 
-// CreateIndexer creates a new ChainIndexer with the provided configuration.
-func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
+// CreateIndexer creates a new ChainIndexer with the provided configuration and
+// the chain factories the caller injects (the per-chain main builds them from
+// its adapter package). All factory fields must be set: a partial bundle is a
+// configuration error here, not a dispatch failure mid-indexing.
+func CreateIndexer(cfg *config.Config, factories chains.ChainFactories) (*ChainIndexer, error) {
 	if cfg == nil {
 		return nil, indexerErrors.NewConfigurationError(
 			"indexer",
@@ -207,8 +211,18 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 			indexerErrors.WithMetadata("host", "nil"),
 			indexerErrors.WithMetadata("port", "nil"))
 	}
+	if factories.Fetcher == nil || factories.Converter == nil || factories.Collections == nil {
+		return nil, indexerErrors.NewConfigurationError(
+			"indexer",
+			"CreateIndexer",
+			"chain factories incomplete: fetcher, converter, and collections must all be set",
+			fmt.Sprintf("fetcher=%t, converter=%t, collections=%t",
+				factories.Fetcher != nil, factories.Converter != nil, factories.Collections != nil),
+			nil)
+	}
 	i := &ChainIndexer{
 		cfg:                       cfg,
+		factories:                 factories,
 		shouldIndex:               false,
 		isStarted:                 false,
 		hasIndexedAtLeastOneBlock: false,
@@ -284,13 +298,13 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	i.beginStart(initCancel)
 	defer i.markStartSettled()
 
-	// 1. Create fetcher (no dial yet) + converter — via factory dispatch, no evm import
-	fetcher, err := chains.NewFetcher(cfg)
+	// 1. Create fetcher (no dial yet) + converter from the injected factories
+	fetcher, err := i.factories.Fetcher(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create fetcher: %w", err)
 	}
 	i.fetcher = fetcher
-	i.converter, err = chains.NewConverter(cfg)
+	i.converter, err = i.factories.Converter(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create converter: %w", err)
 	}
