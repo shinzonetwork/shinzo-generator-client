@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/tron"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
@@ -46,23 +48,38 @@ func run(args []string, stdout io.Writer) error {
 	if err := config.ValidateChainNames(*chain, *network); err != nil {
 		return err
 	}
-	if *adapter != "" && *adapter != config.DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", *adapter, config.DefaultChainAdapter)
-	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
 		Name:    *chain,
 		Network: *network,
 		Adapter: *adapter,
 	}}
-	c, err := evm.NewCollectionsFromConfig(cfg)
+	c, err := resolveCollections(*adapter, cfg)
 	if err != nil {
 		return err
 	}
+	return emit(c, *listFiles, *file, stdout)
+}
 
-	var sdl string
-	switch {
-	case *listFiles:
+// resolveCollections builds the collection names for the requested adapter.
+// The empty adapter keeps resolving to evm so pre-tron invocations behave as
+// before; anything unknown fails loudly instead of silently defaulting.
+func resolveCollections(adapter string, cfg *config.Config) (chains.Collections, error) {
+	switch adapter {
+	case "", config.DefaultChainAdapter:
+		return evm.NewCollectionsFromConfig(cfg)
+	case config.TronChainAdapter:
+		return tron.NewCollectionsFromConfig(cfg)
+	default:
+		return nil, fmt.Errorf("chain adapter %q not supported: supported adapters are %s",
+			adapter, strings.Join(config.SupportedChainAdapters, ", "))
+	}
+}
+
+// emit writes the requested output for the resolved collections: the ordered
+// collection file list, a single collection's SDL, or the full merged SDL.
+func emit(c chains.Collections, listFiles bool, file string, stdout io.Writer) error {
+	if listFiles {
 		files, err := c.CollectionFiles()
 		if err != nil {
 			return err
@@ -73,12 +90,14 @@ func run(args []string, stdout io.Writer) error {
 			}
 		}
 		return nil
-	case *file != "":
-		sdl, err = collectionSDLByFile(c, *file)
-	default:
+	}
+	var sdl string
+	var err error
+	if file != "" {
+		sdl, err = collectionSDLByFile(c, file)
+	} else {
 		sdl, err = schema.LoadSchemaSDLForChain(c)
 	}
-
 	if err != nil {
 		return err
 	}
