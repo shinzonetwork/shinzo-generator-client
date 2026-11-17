@@ -35,13 +35,14 @@ import (
 // shipped config yaml is the only input the config loader sees. The Makefile
 // exports the developer's .env into every target, and without this a stray
 // INDEXER_MAX_DOCS_PER_TXN or badger cache value would silently change the
-// measured configuration between machines. Originals are restored after the
-// test so nothing outside LoadConfig's window observes the scrub.
+// measured configuration between machines (TRON_ joins GETH_: config_tron.yml
+// expands ${TRON_*} placeholders the same way). Originals are restored after
+// the test so nothing outside LoadConfig's window observes the scrub.
 func scrubReplayEnv(t *testing.T) {
 	t.Helper()
 
 	prefixes := [...]string{
-		"CHAIN_", "GETH_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
+		"CHAIN_", "GETH_", "TRON_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
 		"SCHEMA_", "CONVERTER_", "LOGGER_", "SHINZOHUB_",
 	}
 
@@ -140,17 +141,22 @@ func replayServiceInt(t *testing.T, env string, def int) int {
 
 // NewReplayConfig boots from the suite's shipped config yaml, the same file
 // production block_poster runs with -config, and overrides only what the
-// harness cannot take from it: the mock node as endpoint, the temp store,
-// P2P off, no health server, open schema, the throwaway keyring, and the
-// forced-fast pruner + snapshotter cadence. Everything else (chain identity,
-// batch sizes, prune_history, the per-cycle cap, badger caches, the 128 MB
-// value log) is exactly what production runs, and the env scrub keeps
-// developer .env values out of the measurement.
+// harness cannot take from it: the temp store, P2P off, no health server,
+// open schema, the throwaway keyring, and the forced-fast pruner +
+// snapshotter cadence. Everything else (chain identity, batch sizes,
+// prune_history, the per-cycle cap, badger caches, the 128 MB value log) is
+// exactly what production runs, and the env scrub keeps developer .env
+// values out of the measurement.
+//
+// overrideEndpoints is the suite's endpoint hook: the mock node replaces the
+// chain adapter's endpoint section and its key fields are blanked. Each suite
+// supplies its own closure (EVM zeroes the Geth section, Tron the Tron
+// section); a nil hook leaves the loaded yaml untouched.
 //
 // expectedChain and expectedNetwork fail the run when the shipped yaml does
 // not define the chain the suite claims: loading the wrong family's config
 // would create the wrong collections and poison every measurement downstream.
-func NewReplayConfig(t *testing.T, configPath, expectedChain, expectedNetwork, nodeURL, storePath string) *config.Config {
+func NewReplayConfig(t *testing.T, configPath, expectedChain, expectedNetwork, storePath string, overrideEndpoints func(cfg *config.Config)) *config.Config {
 	t.Helper()
 
 	scrubReplayEnv(t)
@@ -168,13 +174,10 @@ func NewReplayConfig(t *testing.T, configPath, expectedChain, expectedNetwork, n
 	require.Equal(t, expectedChain, cfg.Chain.Name, "config yaml must define the %s chain", expectedChain)
 	require.Equal(t, expectedNetwork, cfg.Chain.Network, "config yaml must target %s", expectedNetwork)
 
-	// The mock server replaces the endpoint; the geth section name is
-	// historical (any JSON-RPC endpoint works), and the ${GETH_*} yaml
-	// placeholders are zeroed so no literal leaks to a future consumer.
-	cfg.Geth.NodeURL = nodeURL
-	cfg.Geth.WsURL = ""
-	cfg.Geth.APIKey = ""
-	cfg.Geth.APIKeyType = ""
+	// The suite's endpoint wiring: the mock node replaces the adapter's endpoint section.
+	if overrideEndpoints != nil {
+		overrideEndpoints(cfg)
+	}
 
 	// Harness-only DefraDB settings: temp store, no peers, throwaway signing
 	// identity derived from the chain label so each run also fills its own

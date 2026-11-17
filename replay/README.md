@@ -4,7 +4,8 @@ Answers the question **"can we index a chain's blocks at the tip"** with a hard,
 repeatable verdict: capture real blocks once, replay them through the
 production pipeline and orchestration on any machine, and assert the
 effective per-block interval stays within the chain's block time (12 seconds on Ethereum;
-450 ms on BSC mainnet since the Fermi hardfork in January 2026).
+450 ms on BSC mainnet since the Fermi hardfork in January 2026;
+3 seconds on Tron mainnet).
 
 ```
 capture (one-time, needs a real endpoint)          acceptance (make ethereum-acceptance-test)
@@ -47,6 +48,35 @@ go run ./cmd/fetch_blocks --chain ethereum --network mainnet --out my_fixture.js
 go run ./cmd/fetch_blocks --chain arbitrum --network mainnet  # any EVM-compatible chain
 ```
 
+### Tron (wallet API capture)
+
+```sh
+export TRON_RPC_URL=https://api.trongrid.io           # java-tron FullNode wallet-API base URL (TronGrid serves full history by height)
+export TRON_API_KEY=...                               # optional, recommended to avoid TronGrid rate limits
+export TRON_API_KEY_TYPE=tron-pro-api-key             # optional header name override
+
+make tron-replay-fetch                    # 100 blocks ending at the current tip
+make tron-replay-fetch FROM=52700000 TO=52700099
+go run ./cmd/fetch_blocks --chain tron --network mainnet --adapter tron --out my_fixture.json
+```
+
+The Tron capture backend (`--adapter tron`) speaks the java-tron wallet API:
+tip via `/wallet/getnowblock`, blocks via `/wallet/getblockbynum`, receipts via
+`/wallet/gettransactioninfobyblocknum` (recorded as `receipt_mode: "block"` -
+the wallet API has a single per-block receipts endpoint and no batch/per-tx
+duality). Retries, backoff, interrupt handling, partial fixtures, atomic
+writes, and redaction are shared with the EVM path unchanged.
+
+- **No archival-node caveat**: TronGrid serves full block and receipt history
+  by height, so arbitrary historical ranges capture fine on a public endpoint.
+- **Block numbers are decimal**: the wallet API has no hex encoding, so
+  `number` holds a decimal height (`"52700235"`) where the EVM modes hold a
+  hex quantity; the on-disk envelope is identical and the chain label
+  distinguishes the encoding.
+- **Receipt-count validation**: the capture accepts a block only when the
+  node returns one receipt per transaction, so the replay never times a block
+  without its receipt work.
+
 Semantics:
 
 - **Archival node required**: an arbitrary historical block range needs full
@@ -81,6 +111,7 @@ Semantics:
 ```sh
 make ethereum-acceptance-test   # Ethereum suite (ETHEREUM_* env vars)
 make bsc-acceptance-test        # BSC suite (BSC_* env vars)
+make tron-acceptance-test       # Tron suite (TRON_* env vars)
 ```
 
 Both suites share one implementation. The chain-agnostic harness (timing
@@ -88,7 +119,10 @@ collection, report format, verdicts, background services, config
 bootstrapping) lives in `replay/harness_helpers.go` behind the `acceptance`
 build tag and is imported only by tests. `replay/evm/` carries the EVM mock
 JSON-RPC node, the fixture handling, and the per-chain specs and test entry
-points (`ethereum_replay_test.go`, `bsc_replay_test.go`).
+points (`ethereum_replay_test.go`, `bsc_replay_test.go`); `replay/tron/`
+carries the same shape for the Tron wallet API (mock serving
+`/wallet/*` and `/walletsolidity/*` fixture bytes verbatim, decimal
+block numbers, and the `TestTronReplayAcceptance` entry point).
 
 - Build tag `acceptance`: excluded from `go test ./...` and CI, like the live
   suites.
@@ -115,6 +149,19 @@ fixture), `BSC_REPLAY_PRUNER`, `BSC_REPLAY_PRUNER_INTERVAL_SECONDS`,
 (same defaults as Ethereum), and boots from the shipped
 `config/config_bsc.yaml`.
 
+The Tron suite mirrors every knob with the `TRON_*` prefix:
+`TRON_REPLAY_FIXTURE`, `TRON_REPLAY_MAX_BLOCKS`, `TRON_TARGET_BLOCK_TIME`
+(default `3s`, Tron mainnet's block interval), `TRON_REPLAY_PRUNER`,
+`TRON_REPLAY_PRUNER_INTERVAL_SECONDS`, `TRON_REPLAY_PRUNER_MAX_BLOCKS`,
+`TRON_REPLAY_SNAPSHOT`, `TRON_REPLAY_SNAPSHOT_INTERVAL_SECONDS`,
+`TRON_REPLAY_SNAPSHOT_BLOCKS_PER_FILE`
+(same defaults as Ethereum), and boots from the shipped
+`config/config_tron.yml`. The endpoint hook zeroes the Tron section
+(`tron.node_url` points at the mock, `solidity_url` empty resolves
+`/walletsolidity/*` to the same host, which the mock serves), and the env
+scrub strips `TRON_*` like `GETH_*` so a developer `.env` cannot leak into
+the measurement.
+
 The loop runs through the generator's **`ConcurrentBlockProcessor`** — the real
 production orchestration (worker pool, retry classification, in-order commit,
 per-block `Committed block N` info logs). The worker count comes from the
@@ -127,7 +174,8 @@ processor's rate limiter) because it measures raw pipeline capacity against
 the chain's BPS.
 
 The config boots from the suite's shipped yaml (`config/config.yaml` for
-Ethereum, `config/config_bsc.yaml` for BSC), the same files production runs
+Ethereum, `config/config_bsc.yaml` for BSC, `config/config_tron.yml` for
+Tron), the same files production runs
 (`block_poster_evm -config ...`), so chain
 identity, batch sizes, badger caches, `prune_history: true` and the per-cycle
 prune cap are production values, not bench approximations. Only what the
