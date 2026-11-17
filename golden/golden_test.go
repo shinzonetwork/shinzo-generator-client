@@ -13,6 +13,7 @@ package golden
 // with -golden-update and review the diff before committing it.
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"os"
@@ -24,9 +25,12 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client/options"
+	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -84,10 +88,29 @@ var (
 )
 
 // chainCase binds a fixture folder to its chain config: a new chain is a
-// fixture folder under golden/ plus one entry here.
+// fixture folder under golden/ plus one entry here. captures is how many
+// supply captures a tokens-mode case's block carries.
 type chainCase struct {
-	folder string
-	cfg    *config.Config
+	folder   string
+	cfg      *config.Config
+	captures int
+}
+
+// usd1 is the USD1 contract on Ethereum and BSC; its total supply is in
+// storage slot 0x35 on both.
+const usd1 = "0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d"
+
+// tokensConfig is a tokens-mode config listing USD1, capturing its supply at
+// every height that is a multiple of interval.
+func tokensConfig(name string, chainID uint64, interval int64) *config.Config {
+	return &config.Config{
+		Chain: config.ChainConfig{
+			Name: name, Network: "Mainnet", Mode: config.ChainModeTokens, ChainID: chainID,
+			Tokens:               []config.Token{{Address: usd1, SupplySlot: "0x35"}},
+			StateCaptureInterval: interval,
+		},
+		Indexer: config.IndexerConfig{MaxDocsPerTxn: 1000, ReceiptWorkers: 8},
+	}
 }
 
 func goldenCases() []chainCase {
@@ -106,7 +129,22 @@ func goldenCases() []chainCase {
 				},
 			},
 		},
+		// Ethereum 26378186 is not a multiple of 4, so it carries no capture.
+		{folder: "ethereum-tokens", cfg: tokensConfig("Ethereum", 1, 4)},
+		// BSC 132610290 is a multiple of 10, so it carries USD1's supply.
+		{folder: "bsc-tokens", cfg: tokensConfig("Bsc", 56, 10), captures: 1},
 	}
+}
+
+// goldenIdentity is a fixed secp256k1 identity, so the attestations a
+// tokens-mode case signs are the same on every run.
+func goldenIdentity(t *testing.T) identity.FullIdentity {
+	t.Helper()
+	key, err := crypto.PrivateKeyFromBytes(crypto.KeyTypeSecp256k1, bytes.Repeat([]byte{1}, 32))
+	require.NoError(t, err)
+	ident, err := identity.FromPrivateKey(key)
+	require.NoError(t, err)
+	return ident
 }
 
 func TestGoldenTypedPath(t *testing.T) {
@@ -139,16 +177,29 @@ func runChainGolden(t *testing.T, tc chainCase, mode receiptMode) map[string][]b
 	require.NoError(t, err, "%s: converter for %s", mode.name, tc.folder)
 	require.NoError(t, defradb.ApplyCollectionSchemas(ctx, defraNode, converter.Collections()), "%s: apply schema for %s", mode.name, tc.folder)
 
-	server := newFixtureRPCServer(fixtures, mode.failBatchReceipts)
+	server := newFixtureRPCServer(fixtures, mode.failBatchReceipts, tc.cfg.Chain.ChainID)
 	defer server.Close()
 
 	// The HTTP dial is lazy, so an httptest URL works; no WebSocket is
-	// configured, matching the plain-HTTP production profile.
-	client, err := evm.NewEthereumClient(ctx, server.URL, "", "", "X-Api-Key", 0)
-	require.NoError(t, err)
-	defer func() { _ = client.Close() }()
-
-	fetcher := evm.NewFetcher(client, 4)
+	// configured, matching the plain-HTTP production profile. A tokens-mode
+	// fetcher is built from its config, as production builds it, and signs
+	// with a fixed identity.
+	tokens := tc.cfg.Chain.Mode == config.ChainModeTokens
+	var fetcher *evm.Fetcher
+	if tokens {
+		cfg := *tc.cfg
+		cfg.Geth.NodeURL = server.URL
+		fetcher, err = evm.NewFetcherFromConfig(&cfg)
+		require.NoError(t, err)
+		require.NoError(t, fetcher.Connect(ctx), "%s: connect to the fixture server", mode.name)
+		defer func() { _ = fetcher.Close() }()
+		ctx = defracontext.WithIdentity(ctx, goldenIdentity(t))
+	} else {
+		client, err := evm.NewEthereumClient(ctx, server.URL, "", "", "X-Api-Key", 0)
+		require.NoError(t, err)
+		defer func() { _ = client.Close() }()
+		fetcher = evm.NewFetcher(client, 4)
+	}
 
 	handler, err := defra.NewBlockHandler(defraNode, 1000)
 	require.NoError(t, err)
@@ -159,7 +210,11 @@ func runChainGolden(t *testing.T, tc chainCase, mode receiptMode) map[string][]b
 
 		bundle, ok := raw.(*evm.BlockBundle)
 		require.True(t, ok, "%s: fetch block %d: expected *evm.BlockBundle, got %T", mode.name, fixture.height, raw)
-		assertBundleCoverage(t, bundle)
+		if tokens {
+			require.Len(t, bundle.StateCaptures, tc.captures, "%s: supply captures at block %d", mode.name, fixture.height)
+		} else {
+			assertBundleCoverage(t, bundle)
+		}
 
 		result, err := converter.Convert(ctx, bundle)
 		require.NoError(t, err, "%s: convert block %d", mode.name, fixture.height)
@@ -173,8 +228,12 @@ func runChainGolden(t *testing.T, tc chainCase, mode receiptMode) map[string][]b
 	// freeze the whole store state of the chain, the way production
 	// accumulates it.
 	names := converter.Collections().(*evm.CollectionNames)
-	frozen := make(map[string][]byte, len(goldenCollections))
-	for _, collection := range goldenCollections {
+	collections := goldenCollections
+	if tokens {
+		collections = tokenCollections
+	}
+	frozen := make(map[string][]byte, len(collections))
+	for _, collection := range collections {
 		rows := readCollectionDocs(ctx, t, defraNode, collection.column(names), collection.fields)
 		actual, err := stableJSON(rows)
 		require.NoError(t, err, "%s: serialize %s golden", mode.name, collection.name)
