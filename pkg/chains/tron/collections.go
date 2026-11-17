@@ -3,6 +3,7 @@ package tron
 import (
 	"fmt"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
@@ -53,6 +54,14 @@ func NewCollectionNames(prefix string) *CollectionNames {
 // Prefix returns the chain prefix (e.g. "Tron__Mainnet").
 func (c *CollectionNames) Prefix() string {
 	return c.prefix
+}
+
+// NewCollectionsFromConfig creates the Tron collection names for the chain
+// cfg names. It keeps the adapter's lenient contract: a nil config or empty
+// chain name/network falls back to the Tron default prefix, so it only ever
+// errors to satisfy the ChainFactories signature.
+func NewCollectionsFromConfig(cfg *config.Config) (chains.Collections, error) {
+	return NewCollectionNames(chainPrefixFromConfig(cfg)), nil
 }
 
 // AllCollections returns all collection names as a slice in P2P filter

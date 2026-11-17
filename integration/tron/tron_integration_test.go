@@ -166,7 +166,7 @@ func testTronConfig() *config.Config {
 // way the live suite does: StartIndexing(false) lets the indexer own its
 // embedded DefraDB node. Init failures are captured for the polling loops.
 func startTronIndexer(t *testing.T) *tronIndexerRun {
-	idx, err := indexer.CreateIndexer(testTronConfig())
+	idx, err := indexer.CreateIndexer(testTronConfig(), tron.Factories())
 	if err != nil {
 		t.Fatalf("CreateIndexer: %v", err)
 	}

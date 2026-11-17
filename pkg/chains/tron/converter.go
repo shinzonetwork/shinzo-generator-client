@@ -16,9 +16,9 @@ import (
 
 // chainPrefixFromConfig derives the collection prefix (e.g.
 // "Tron__Mainnet") from the chain config, applying Tron fallbacks where the
-// config leaves name or network empty. A nil config keeps the Tron default,
-// matching the chains.NewCollections(nil) fallback contract; the nil-config
-// callers in pkg/server stay evm-default, which is fine.
+// config leaves name or network empty. A nil config keeps the Tron default;
+// every Tron prefix derivation follows this lenient fallback contract, while
+// the nil-config callers in pkg/server stay evm-default, which is fine.
 func chainPrefixFromConfig(cfg *config.Config) string {
 	if cfg == nil {
 		return DefaultCollectionPrefix

@@ -82,7 +82,7 @@ func TestMain(m *testing.M) {
 
 	cfg := tronLiveConfig(storeDir, lanIP, defraPort)
 
-	idx, err := indexer.CreateIndexer(cfg)
+	idx, err := indexer.CreateIndexer(cfg, tron.Factories())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TestMain: cannot create the indexer: %v\n", err)
 		_ = os.RemoveAll(storeDir)
