@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+
+	stderrors "errors"
 )
 
 // DispatchFinalizedOnly bounds dispatch at the height the fetcher reports as finalized, so no
@@ -50,7 +53,7 @@ func (p *ConcurrentBlockProcessor) stoppedForReorg(signal reorgSignal) bool {
 func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt func() *BlockResult) *BlockResult {
 	result := attempt()
 	for p.retryFailedHeights && result.Error != nil && !errors.IsErrDocumentDeleted(result.Error) &&
-		ctx.Err() == nil {
+		!stderrors.Is(result.Error, defra.ErrStoredHeaderDiffers) && ctx.Err() == nil {
 		logger.Sugar.Warnf("Block %d failed, retrying in %v: %v", result.BlockNum, FailedHeightRetryDelay, result.Error)
 		select {
 		case <-ctx.Done():
