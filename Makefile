@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build tron-build ethereum-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test
+.PHONY: deps env build evm-build tron-build ethereum-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test tron-replay-fetch
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -276,6 +276,21 @@ replay-fetch:
 ethereum-acceptance-test:
 	go test -tags=acceptance ./replay/evm -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
 
+# tron-replay-fetch captures a raw replay fixture over the Tron wallet API
+# via cmd/fetch_blocks --adapter tron (one-time; needs a TronGrid or
+# java-tron endpoint). FROM/TO are overridable block numbers; the default
+# captures 100 blocks ending at the current tip. Fixtures land in
+# replay/testdata/ (gitignored) as tron_blocks_<from>_<to>.json. TronGrid
+# serves full block and receipt history by height, so the archival-node
+# caveat of the EVM capture does not apply.
+tron-replay-fetch:
+	@if [ -z "$(TRON_RPC_URL)" ]; then \
+		echo "❌ TRON_RPC_URL not set - fixture capture needs a Tron wallet-API endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p replay/testdata
+	go run ./cmd/fetch_blocks --chain tron --network mainnet --adapter tron --from $(FROM) --to $(TO)
+
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
 	@echo "=================================================="
@@ -297,6 +312,9 @@ help:
 	@echo "⏱  BSC tip-indexing acceptance (replay):"
 	@echo "  bsc-replay-fetch   - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
 	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
+	@echo ""
+	@echo "🌅 Tron tip-indexing acceptance (replay):"
+	@echo "  tron-replay-fetch  - Capture a replay fixture (FROM/TO blocks; requires TRON_RPC_URL)"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
