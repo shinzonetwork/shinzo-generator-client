@@ -1,0 +1,13 @@
+[
+  {
+    "hash": "00000000054030c52a706814aedb72540b4e3a4454a1c2591ec7ea4ce2bc35d8",
+    "number": 88092869,
+    "parentHash": "00000000054030c4cf751ebf7df519ddc6318114313d0a9fd88991e90222b31b",
+    "timestamp": 1794952611000,
+    "transactionCount": 231,
+    "txTrieRoot": "92cef16778b817e103551d990d27206a2476480c1e592fb9bc9e6cb2af465659",
+    "version": 39,
+    "witnessAddress": "41c189fa6fc9ed7a3580c3fe291915d5c6a6259be7",
+    "witnessSignature": "9d6dd70d7479dd80f1406dcae139b14eda88337a889c091a1e97369ab28df0d94fa750cf555e4910d8c3c861afaa668cd6abc97ebe90782fcf53333177d632b600"
+  }
+]
