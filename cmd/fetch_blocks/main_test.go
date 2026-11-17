@@ -494,7 +494,7 @@ func TestCaptureRangeNamesCompleteFixture(t *testing.T) {
 
 	server := captureTestServer(t, zeroTxBlock)
 	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
-	require.NoError(t, captureRange(context.Background(), testEnv(server), opts, 1, 1))
+	require.NoError(t, captureRange(context.Background(), &evmBackend{env: testEnv(server)}, opts, 1, 1))
 
 	// A complete capture keeps the plain range name — no _partial suffix.
 	data, err := os.ReadFile(filepath.Join(defaultOutDir, "bsc_blocks_1_1"+fixtureExt))
@@ -520,7 +520,7 @@ func TestCaptureRangeInterruptWithZeroBlocksWritesNothing(t *testing.T) {
 	cancel()
 
 	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
-	err := captureRange(ctx, testEnv(server), opts, 10, 12)
+	err := captureRange(ctx, &evmBackend{env: testEnv(server)}, opts, 10, 12)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "interrupted before any block completed")
 
@@ -588,7 +588,7 @@ func TestCaptureRangeInterruptMidRunSavesPartialFixture(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
-	require.NoError(t, captureRange(ctx, testEnv(server), opts, 10, 12))
+	require.NoError(t, captureRange(ctx, &evmBackend{env: testEnv(server)}, opts, 10, 12))
 
 	data, err := os.ReadFile(filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt))
 	require.NoError(t, err)
