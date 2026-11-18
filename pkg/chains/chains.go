@@ -15,22 +15,11 @@ package chains
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/sourcenetwork/defradb/node"
 )
-
-// ErrChainFactoryNotRegistered is returned by NewFetcher, NewConverter, and
-// NewCollections when the configured chain adapter has no registered factories.
-var ErrChainFactoryNotRegistered = errors.New("chain factory not registered")
-
-// ErrChainFactoryIncomplete is returned by NewFetcher, NewConverter, or
-// NewCollections when the chain adapter is registered but the specific
-// factory field is nil (partial registration).
-var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 
 // ErrBlockNumberCorrupt indicates that a block document exists in the store
 // but its "number" field is missing or has an unparseable type. It must NOT
@@ -39,9 +28,6 @@ var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 // (benign no-op). Chain converters wrap it when a stored block-number query
 // cannot find any usable number.
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
-
-// DefaultAdapterName is the default name value to be used in ChainFactories.
-const DefaultAdapterName = "evm"
 
 // CollectionFile pairs a collection's identity with its schema SDL. Every
 // field is provided literally by the chain implementation — no field is
@@ -271,106 +257,11 @@ type ConversionResult struct {
 }
 
 // ChainFactories bundles all chain-specific factory functions for a single
-// chain family. Each chain package registers one via RegisterChain in its
-// init(), and the binary blank-imports the package so the registration runs.
+// chain family. Per-chain main packages (e.g. cmd/block_poster/evm) construct
+// one via the chain package's Factories() and inject it into the app, so
+// dispatch never consults global state.
 type ChainFactories struct {
 	Fetcher     func(cfg *config.Config) (Fetcher, error)
 	Converter   func(cfg *config.Config) (Converter, error)
 	Collections func(cfg *config.Config) (Collections, error)
-}
-
-// chainFactoryRegistryMu protects chainFactoryRegistry. Writes happen only in
-// init() today, but reads happen at runtime — the mutex makes the registry
-// safe-by-default if runtime registration is ever added (plugins, hot-reload).
-var (
-	chainFactoryRegistry   = map[string]ChainFactories{} //nolint:gochecknoglobals
-	chainFactoryRegistryMu sync.RWMutex                  //nolint:gochecknoglobals
-)
-
-// RegisterChain registers all factories for a chain family under the given
-// name (e.g. "evm"). Called from each chain package's init().
-// It panics if any factory field is nil, failing fast on partial registration
-// rather than deferring the error to dispatch time.
-func RegisterChain(name string, factories ChainFactories) {
-	if factories.Fetcher == nil || factories.Converter == nil || factories.Collections == nil {
-		panic(fmt.Sprintf("RegisterChain(%q): all factory fields must be non-nil", name))
-	}
-	chainFactoryRegistryMu.Lock()
-	defer chainFactoryRegistryMu.Unlock()
-	chainFactoryRegistry[name] = factories
-}
-
-// UnregisterChainForTest removes a chain family from the factory registry.
-// Intended for test cleanup to avoid polluting the global registry.
-func UnregisterChainForTest(name string) {
-	chainFactoryRegistryMu.Lock()
-	defer chainFactoryRegistryMu.Unlock()
-	delete(chainFactoryRegistry, name)
-}
-
-// adapterName resolves the chain adapter name from config, defaulting to
-// DefaultAdapterName when cfg is nil or the adapter field is empty.
-func adapterName(cfg *config.Config) string {
-	if cfg == nil || cfg.Chain.Adapter == "" {
-		return DefaultAdapterName
-	}
-	return cfg.Chain.Adapter
-}
-
-// NewFetcher constructs the chain fetcher for the configured chain backend.
-// A nil cfg defaults to the "evm" adapter.
-func NewFetcher(cfg *config.Config) (Fetcher, error) {
-	name := adapterName(cfg)
-	chainFactoryRegistryMu.RLock()
-	factories, ok := chainFactoryRegistry[name]
-	chainFactoryRegistryMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
-	}
-	// Defensive: RegisterChain panics on nil fields, so this should never
-	// trigger for a registered adapter. Kept as defense-in-depth in case the
-	// registry is bypassed (e.g. direct map mutation in tests).
-	if factories.Fetcher == nil {
-		return nil, fmt.Errorf("%w: %q has no fetcher", ErrChainFactoryIncomplete, name)
-	}
-	return factories.Fetcher(cfg)
-}
-
-// NewConverter constructs the chain converter for the configured chain backend.
-// A nil cfg selects the "evm" adapter, which returns config.ErrChainUnset for it.
-func NewConverter(cfg *config.Config) (Converter, error) {
-	name := adapterName(cfg)
-	chainFactoryRegistryMu.RLock()
-	factories, ok := chainFactoryRegistry[name]
-	chainFactoryRegistryMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
-	}
-	// Defensive: RegisterChain panics on nil fields, so this should never
-	// trigger for a registered adapter. Kept as defense-in-depth in case the
-	// registry is bypassed (e.g. direct map mutation in tests).
-	if factories.Converter == nil {
-		return nil, fmt.Errorf("%w: %q has no converter", ErrChainFactoryIncomplete, name)
-	}
-	return factories.Converter(cfg)
-}
-
-// NewCollections constructs the chain Collections for the configured chain
-// backend. A nil cfg selects the "evm" adapter, which returns
-// config.ErrChainUnset for it.
-func NewCollections(cfg *config.Config) (Collections, error) {
-	name := adapterName(cfg)
-	chainFactoryRegistryMu.RLock()
-	factories, ok := chainFactoryRegistry[name]
-	chainFactoryRegistryMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
-	}
-	// Defensive: RegisterChain panics on nil fields, so this should never
-	// trigger for a registered adapter. Kept as defense-in-depth in case the
-	// registry is bypassed (e.g. direct map mutation in tests).
-	if factories.Collections == nil {
-		return nil, fmt.Errorf("%w: %q has no collections", ErrChainFactoryIncomplete, name)
-	}
-	return factories.Collections(cfg)
 }

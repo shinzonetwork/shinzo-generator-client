@@ -11,10 +11,10 @@ endif
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 build:
-	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
+	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster_evm ./cmd/block_poster/evm/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
-	elif grep -aFq "$(VERSION)" bin/block_poster; then \
+	elif grep -aFq "$(VERSION)" bin/block_poster_evm; then \
 		echo "✅ version injected: $(VERSION)"; \
 	else \
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \

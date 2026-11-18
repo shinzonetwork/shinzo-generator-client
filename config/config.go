@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -61,6 +62,13 @@ type DefraDBP2PConfig struct {
 	// Too low and peers get their streams reset with network.StreamResourceLimitExceeded (4098);
 	// CAR exchange, bitswap and pubsub all share these connections.
 	MaxStreamsPerPeer int `yaml:"max_streams_per_peer"`
+	// AllowlistCIDRs are IPv4/IPv6 CIDRs (e.g. "10.244.0.0/16") whose connections bypass the
+	// resource manager's limits, including the per-IP connection cap. Use it for trusted hosts
+	// that reach this node through one shared source address, such as in-cluster pods behind SNAT.
+	AllowlistCIDRs []string `yaml:"allowlist_cidrs"`
+	// MaxConnsPerIP caps concurrent connections from one IPv4 address (or IPv6 /56). Zero keeps
+	// libp2p's default of 8.
+	MaxConnsPerIP int `yaml:"max_conns_per_ip"`
 }
 
 // DefraDBStoreConfig represents store configuration for DefraDB.
@@ -319,6 +327,10 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("start_height must be >= 0")
 	}
 
+	if err := validateP2PConnLimits(cfg.DefraDB.P2P); err != nil {
+		return err
+	}
+
 	switch cfg.Indexer.SchemaAuthMode {
 	case constants.SchemaAuthModeNone, constants.SchemaAuthModeToken, constants.SchemaAuthModeMTLS:
 	default:
@@ -417,20 +429,8 @@ func applyDefraEnvOverrides(cfg *Config) error {
 			cfg.DefraDB.P2P.AcceptIncoming = parsed
 		}
 	}
-	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_MEMORY_MIB"); err != nil {
+	if err := applyP2PLimitEnvOverrides(&cfg.DefraDB.P2P); err != nil {
 		return err
-	} else if ok {
-		cfg.DefraDB.P2P.ResourceMemoryMiB = n
-	}
-	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_FILE_DESCRIPTORS"); err != nil {
-		return err
-	} else if ok {
-		cfg.DefraDB.P2P.ResourceFileDescriptors = n
-	}
-	if n, ok, err := envPositiveInt("DEFRADB_P2P_MAX_STREAMS_PER_PEER"); err != nil {
-		return err
-	} else if ok {
-		cfg.DefraDB.P2P.MaxStreamsPerPeer = n
 	}
 	if storePath := os.Getenv("DEFRADB_STORE_PATH"); storePath != "" {
 		cfg.DefraDB.Store.Path = storePath
@@ -658,4 +658,58 @@ func applyConverterEnvOverrides(cfg *Config) {
 			cfg.Converter.LowestBlockQueryLimit = n
 		}
 	}
+}
+
+// validateP2PConnLimits rejects a malformed allowlist or per-IP cap at startup, so a typo is a
+// config error rather than a node that silently keeps refusing the hosts it was meant to admit.
+func validateP2PConnLimits(p2p DefraDBP2PConfig) error {
+	if p2p.MaxConnsPerIP < 0 {
+		return fmt.Errorf("invalid defradb.p2p.max_conns_per_ip %d: must be >= 0 (0 keeps libp2p's default of 8)", p2p.MaxConnsPerIP)
+	}
+	for _, cidr := range p2p.AllowlistCIDRs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("invalid defradb.p2p.allowlist_cidrs entry %q: want a CIDR such as 10.244.0.0/16: %w", cidr, err)
+		}
+	}
+	return nil
+}
+
+// splitCommaList splits a comma-separated env value, trimming spaces and dropping empty entries.
+func splitCommaList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// applyP2PLimitEnvOverrides applies the libp2p resource-manager and connection-limit env overrides.
+func applyP2PLimitEnvOverrides(p2p *DefraDBP2PConfig) error {
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_MEMORY_MIB"); err != nil {
+		return err
+	} else if ok {
+		p2p.ResourceMemoryMiB = n
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_FILE_DESCRIPTORS"); err != nil {
+		return err
+	} else if ok {
+		p2p.ResourceFileDescriptors = n
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_MAX_STREAMS_PER_PEER"); err != nil {
+		return err
+	} else if ok {
+		p2p.MaxStreamsPerPeer = n
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_MAX_CONNS_PER_IP"); err != nil {
+		return err
+	} else if ok {
+		p2p.MaxConnsPerIP = n
+	}
+	if cidrs, ok := os.LookupEnv("DEFRADB_P2P_ALLOWLIST_CIDRS"); ok {
+		p2p.AllowlistCIDRs = splitCommaList(cidrs)
+	}
+	return nil
 }

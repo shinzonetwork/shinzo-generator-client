@@ -16,15 +16,16 @@ go mod download
 make build
 ```
 
-The compiled binary goes into `./bin`.
+The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `make build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain) plus `bin/fetch_blocks`.
 
 ## Useful commands
 
 | Command | What it does |
 | --- | --- |
-| `make build` | Build the generator binary (standard mode). |
-| `make start` | Run the compiled binary for Ethereum. |
-| `make start-bsc` | Run the compiled binary for BSC. |
+| `make build` | Build all binaries (evm generator + fetch_blocks). |
+| `make evm-build` | Build only `bin/block_poster_evm`. |
+| `make ethereum-start` | Run `bin/block_poster_evm` with the Ethereum config. |
+| `make bsc-start` | Run `bin/block_poster_evm` with the BSC config. |
 | `make test` | Run all tests with a summary. |
 | `make integration-test` | Run the fast mock integration suite (embedded DefraDB, synthetic data, no chain endpoint). |
 | `make ethereum-live-test` | Run live integration tests for Ethereum |

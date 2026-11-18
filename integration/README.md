@@ -36,7 +36,7 @@ same EVM pipeline used for Ethereum — chain identity comes purely from config
 (`BSC__Mainnet__*` collections).
 
 The suite boots from the bundled `config/config_bsc.yaml` — the same file
-operators run via `block_poster -config config/config_bsc.yaml` — so production
+operators run via `block_poster_evm -config config/config_bsc.yaml` — so production
 tuning (badger store settings, batch sizes, `blocks_per_minute`, pruner and
 snapshot lifecycle) is exercised as shipped, along with the standard
 `GETH_*` / `DEFRADB_*` / `INDEXER_*` / `SCHEMA_AUTH_MODE` environment override
