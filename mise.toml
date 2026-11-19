@@ -73,8 +73,8 @@ description = "Running Ethereum golden tests."
 extends = "test:golden"
 
 [task_templates."test:replay"]
-vars = { chain-family = "evm", replay-test = "TestEthereumReplayAcceptance" }
-run = "go test -tags=acceptance ./replay/{{ vars.chain-family }} -run {{ vars.replay-test }} -count=1 -v -timeout 30m"
+vars = { adapter = "evm", test = "TestEthereumReplayAcceptance" }
+run = "go test -tags=acceptance ./replay/{{ vars.adapter }} -run {{ vars.test }} -count=1 -v -timeout 30m"
 
 [tasks.ethereum-replay]
 description = "Running Ethereum replay test."
@@ -83,7 +83,7 @@ extends = "test:replay"
 [tasks.bsc-replay]
 description = "Running BSC replay test."
 extends = "test:replay"
-vars = { replay-test = "TestBSCReplayAcceptance" }
+vars = { test = "TestBSCReplayAcceptance" }
 
 [tasks.replay-fetch]
 description = "Fetch blocks for the replay test harness."
@@ -123,7 +123,7 @@ extends = "generator:build"
 
 [tasks.build-all]
 description = "Building block_poster, fetch_blocks, and build_schema binaries."
-depends = "build"
+depends = "evm-build"
 run = [
     "go build -o bin/fetch_blocks ./cmd/fetch_blocks/",
     "go build -o bin/build_schema ./cmd/build_schema/",
