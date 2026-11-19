@@ -528,6 +528,26 @@ func wireTxHash(rawTx json.RawMessage) string {
 	return h.Hex()
 }
 
+// wireTxType extracts the node-reported transaction type from a raw tx
+// object and renders it in the decimal string format the typed path emits.
+// An adapter that maps a non-standard envelope onto the closest standard
+// one carries the substituted envelope's type, so the response's own value
+// is the faithful one. A missing, malformed, or out-of-range type yields
+// "", letting the caller keep the envelope's type rather than fail the
+// fetch.
+func wireTxType(rawTx json.RawMessage) string {
+	if len(rawTx) == 0 {
+		return ""
+	}
+	var wire struct {
+		Type *hexutil.Uint64 `json:"type"`
+	}
+	if err := json.Unmarshal(rawTx, &wire); err != nil || wire.Type == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", uint64(*wire.Type))
+}
+
 // GetFinalizedBlockNumber returns the finalized chain height, falling back to
 // the safe height when the node rejects the finalized tag (older nodes,
 // unfinalized chains). Both tags failing is an error; callers (the reorg
@@ -846,6 +866,14 @@ func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, raw
 		txHash = wire
 	}
 
+	// The response's type field wins for the same reason: a mapped
+	// envelope carries its substituted type, while the node reported the
+	// real one. An unusable wire type keeps the envelope's type.
+	txType := fmt.Sprintf("%d", tx.Type())
+	if wire := wireTxType(rawTx); wire != "" {
+		txType = wire
+	}
+
 	localTx := Transaction{
 		Hash:                 txHash,
 		BlockHash:            blockHash,
@@ -860,7 +888,7 @@ func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, raw
 		Input:                "0x" + common.Bytes2Hex(tx.Data()),
 		Nonce:                fmt.Sprintf("%d", tx.Nonce()),
 		TransactionIndex:     index,
-		Type:                 fmt.Sprintf("%d", tx.Type()),
+		Type:                 txType,
 		ChainID:              getChainID(tx),
 		AccessList:           accessList,
 		V:                    v.String(),

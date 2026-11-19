@@ -249,7 +249,7 @@ func TestGetBlockByNumber_RawPath_NonStandardEnvelope(t *testing.T) {
 	tx := block.Transactions[0]
 	assert.Equal(t, "0x1111111111111111111111111111111111111111", tx.From)
 	assert.Equal(t, "0x0", tx.YParity)
-	assert.Equal(t, "0", tx.Type, "0x71 must map onto the closest standard envelope")
+	assert.Equal(t, "113", tx.Type, "the response's own type must win over the mapped envelope's type")
 	assert.Equal(t, "1000000000", tx.GasPrice)
 	assert.Equal(t, rawBlockHash, tx.BlockHash)
 	assert.Equal(t, strconv.Itoa(testBlockNumber), tx.BlockNumber)
@@ -341,6 +341,60 @@ func TestGetBlockByNumber_RawPath_WireHashFallback(t *testing.T) {
 			require.Len(t, block.Transactions, 1)
 			assert.Equal(t, twin.Hash().Hex(), block.Transactions[0].Hash,
 				"an unusable wire hash must fall back to the re-derived hash")
+		})
+	}
+}
+
+// TestGetBlockByNumber_RawPath_WireTypeFallback is the type mirror of the
+// wire-hash fallback: a missing or malformed type field cannot fail the
+// fetch, and the conversion keeps the decoded envelope's type. The decode
+// is adapter-owned, so a fixed-output adapter stands in for any adapter
+// whose decode succeeds independently of the wire type key; the stub's own
+// policy of requiring the exact 0x71 string is exercised by the other
+// raw-path tests.
+func TestGetBlockByNumber_RawPath_WireTypeFallback(t *testing.T) {
+	t.Parallel()
+
+	// The adapter decodes to exactly this legacy transaction without
+	// reading the raw JSON, so its type is the expected fallback value.
+	to := new(common.HexToAddress("0x0000000000000000000000000000000000000002"))
+	twin := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(0x3b9aca00),
+		Gas:      0x5208,
+		To:       to,
+		Value:    big.NewInt(1),
+		Data:     common.Hex2Bytes("deadbeef"),
+	})
+	adapter := fakeTxAdapter{needsRaw: true, txs: []*ethtypes.Transaction{twin}}
+
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "MissingType", mutate: func(tx map[string]any) { delete(tx, "type") }},
+		{name: "MalformedType", mutate: func(tx map[string]any) { tx["type"] = "not-hex" }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			txObj := zksyncStyleTx()
+			tc.mutate(txObj)
+			server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+				if method == ethGetBlockByNumber {
+					return rawZksyncBlockResponseWithTxs([]any{txObj}), nil
+				}
+				return "0x1", nil
+			})
+			defer server.Close()
+
+			client := newRawPathClient(t, server.URL, adapter)
+			block, err := client.GetBlockByNumber(context.Background(), big.NewInt(testBlockNumber))
+			require.NoError(t, err)
+			require.Len(t, block.Transactions, 1)
+			assert.Equal(t, fmt.Sprintf("%d", twin.Type()), block.Transactions[0].Type,
+				"an unusable wire type must fall back to the adapter's decoded envelope's type")
 		})
 	}
 }
