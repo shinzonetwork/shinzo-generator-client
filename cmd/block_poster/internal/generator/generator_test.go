@@ -1,4 +1,4 @@
-package main
+package generator
 
 import (
 	"bytes"
@@ -6,17 +6,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	stderrors "errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/stretchr/testify/assert"
@@ -137,21 +139,31 @@ func TestVerifySnapshots(t *testing.T) {
 	})
 }
 
-func TestRun(t *testing.T) {
+func TestPrintVersion(t *testing.T) {
 	t.Parallel()
+	var buf bytes.Buffer
+	printVersion(&buf)
+
+	// Compared against the config var so the test holds with or without
+	// build-time ldflags injection.
+	assert.Equal(t, config.Version+"\n", buf.String())
+}
+
+// TestRun is not parallel: some cases clear environment variables, which t.Setenv requires.
+func TestRun(t *testing.T) {
 	t.Run("verify subcommand with no args returns error", func(t *testing.T) {
-		err := run([]string{"verify"})
+		err := Run([]string{"verify"}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "usage:")
 	})
 
 	t.Run("verify subcommand with nonexistent file returns error", func(t *testing.T) {
-		err := run([]string{"verify", "/nonexistent/snapshot.jsonl.gz"})
+		err := Run([]string{"verify", "/nonexistent/snapshot.jsonl.gz"}, evm.Factories())
 		require.Error(t, err)
 	})
 
 	t.Run("invalid config path returns error", func(t *testing.T) {
-		err := run([]string{"-config", "/nonexistent/config.yaml"})
+		err := Run([]string{"-config", "/nonexistent/config.yaml"}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
@@ -164,25 +176,48 @@ func TestRun(t *testing.T) {
 		require.NoError(t, os.Chdir(tmpDir))
 		defer func() { _ = os.Chdir(origDir) }()
 
-		err = run([]string{})
+		err = Run([]string{}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
 
 	t.Run("invalid flag returns error", func(t *testing.T) {
-		err := run([]string{"-invalid-flag-that-does-not-exist"})
+		err := Run([]string{"-invalid-flag-that-does-not-exist"}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse flags")
 	})
 
+	t.Run("version flag prints version without loading config", func(t *testing.T) {
+		// Change to a temp dir so the default config/config.yaml does not
+		// exist; the version flags must short-circuit before any config load.
+		origDir, err := os.Getwd()
+		require.NoError(t, err)
+		tmpDir := t.TempDir()
+		require.NoError(t, os.Chdir(tmpDir))
+		defer func() { _ = os.Chdir(origDir) }()
+
+		require.NoError(t, Run([]string{"-v"}, evm.Factories()))
+		require.NoError(t, Run([]string{"--version"}, evm.Factories()))
+	})
+
+	t.Run("version flag ignores invalid config path", func(t *testing.T) {
+		err := Run([]string{"-version", "-config", "/nonexistent/config.yaml"}, evm.Factories())
+		require.NoError(t, err)
+	})
+
 	t.Run("valid config with embedded defra fails at StartIndexing", func(t *testing.T) {
+		clearEndpointEnv(t)
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
 		// Embedded=true means useExternalDefra=false, so StartIndexing(false) is called.
-		// StartDefraInstance will start a real DefraDB node in the temp dir.
-		// The test will fail at the Ethereum connection step (invalid geth URL).
+		// The RPC reports the configured chain ID, so startup reaches StartDefraInstance,
+		// which fails because the config sets no keyring secret.
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: ""
   embedded: true
@@ -191,7 +226,7 @@ defradb:
   store:
     path: "%s/defra"
 geth:
-  node_url: "http://127.0.0.1:1"
+  node_url: "%s"
   ws_url: ""
 indexer:
   start_height: 1
@@ -206,23 +241,30 @@ snapshot:
   enabled: false
 logger:
   development: true
-`, tmpDir)
+`, tmpDir, chainIDOnlyRPC(t))
 
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
+		assert.Contains(t, err.Error(), "failed to start DefraDB instance")
 	})
 
 	t.Run("valid config with external defra fails at StartIndexing", func(t *testing.T) {
+		clearEndpointEnv(t)
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
 		// Embedded=false means useExternalDefra=true, so StartIndexing(true) is called.
-		// WaitForDefraDB will fail because the URL is unreachable.
+		// The RPC reports the configured chain ID, so startup reaches WaitForDefraDB,
+		// which fails because the DefraDB URL is unreachable.
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://127.0.0.1:1"
   embedded: false
@@ -231,7 +273,7 @@ defradb:
   store:
     path: "%s/defra"
 geth:
-  node_url: "http://127.0.0.1:1"
+  node_url: "%s"
   ws_url: ""
 indexer:
   start_height: 1
@@ -246,22 +288,24 @@ snapshot:
   enabled: false
 logger:
   development: true
-`, tmpDir)
+`, tmpDir, chainIDOnlyRPC(t))
 
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to start indexing")
+		assert.Contains(t, err.Error(), "DefraDB failed to become ready")
 	})
 	t.Run("signal handling shuts down gracefully", func(t *testing.T) {
+		clearEndpointEnv(t)
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
 		// Start a TCP listener that accepts connections but never responds.
-		// This makes WaitForDefraDB's HTTP client hang indefinitely, giving
-		// the SIGTERM time to win the select race in run().
+		// The RPC and DefraDB both point at it, so startup blocks on its first
+		// request, giving the SIGTERM time to win the select race in Run().
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
 		defer func() { _ = ln.Close() }()
@@ -276,6 +320,10 @@ logger:
 		}()
 
 		configContent := fmt.Sprintf(`
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://%s"
   embedded: false
@@ -284,7 +332,7 @@ defradb:
   store:
     path: "%s/defra"
 geth:
-  node_url: "http://127.0.0.1:1"
+  node_url: "http://%s"
   ws_url: ""
 indexer:
   start_height: 1
@@ -299,7 +347,7 @@ snapshot:
   enabled: false
 logger:
   development: true
-`, ln.Addr().String(), tmpDir)
+`, ln.Addr().String(), tmpDir, ln.Addr().String())
 
 		err = os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
@@ -310,7 +358,7 @@ logger:
 			_ = p.Signal(syscall.SIGTERM)
 		}()
 
-		err = run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath}, evm.Factories())
 		assert.NoError(t, err)
 	})
 
@@ -321,6 +369,10 @@ logger:
 		// Write YAML that is valid YAML but produces an invalid config
 		// (start_height < 0 fails validation)
 		configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://localhost:9181"
   embedded: false
@@ -332,10 +384,76 @@ indexer:
 		err := os.WriteFile(configPath, []byte(configContent), 0o600)
 		require.NoError(t, err)
 
-		err = run([]string{"-config", configPath})
+		err = Run([]string{"-config", configPath}, evm.Factories())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to load config")
 	})
+}
+
+// TestLoadBSCConfig verifies the bundled BSC config works through the same
+// -config path operators use: it must parse, pass validation with no
+// environment help, and identify BSC Mainnet on the evm adapter — the chain
+// identity every collection name (BSC__Mainnet__*) derives from.
+func TestLoadBSCConfig(t *testing.T) {
+	// CHAIN_* env overrides would masquerade as the file's own chain section,
+	// so scrub them before loading the bundled file.
+	scrubChainEnv(t)
+
+	root := findProjectRoot(t)
+	cfg, err := config.LoadConfig(filepath.Join(root, "config", "config_bsc.yaml"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "BSC", cfg.Chain.Name)
+	assert.Equal(t, "Mainnet", cfg.Chain.Network)
+	assert.Equal(t, "evm", cfg.Chain.Adapter)
+
+	// The chain identity must survive the factory bundle: the collection
+	// prefix is what the schema, documents, and signatures derive from.
+	collections, err := evm.NewCollectionsFromConfig(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "BSC__Mainnet", collections.Prefix())
+
+	blockCol := collections.BlockCollection()
+	assert.Equal(t, "BSC__Mainnet__Block", blockCol)
+
+	sigCol := collections.BlockSignatureCollection()
+	assert.Equal(t, "BSC__Mainnet__BlockSignature", sigCol)
+}
+
+// findProjectRoot walks up to the directory containing go.mod so bundled
+// config paths resolve regardless of the go test working directory.
+func findProjectRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("could not locate project root (no go.mod found)")
+		}
+		dir = parent
+	}
+}
+
+// scrubChainEnv unsets the CHAIN_* environment overrides for the test and
+// restores them afterwards, so the bundled config file's chain section is
+// what LoadConfig sees rather than values from a developer .env.
+func scrubChainEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"CHAIN_NAME", "CHAIN_NETWORK", "CHAIN_ADAPTER"} {
+		old, had := os.LookupEnv(key)
+		require.NoError(t, os.Unsetenv(key))
+		t.Cleanup(func() {
+			if had {
+				require.NoError(t, os.Setenv(key, old))
+			} else {
+				require.NoError(t, os.Unsetenv(key))
+			}
+		})
+	}
 }
 
 // createTestSnapshot creates a gzipped JSONL snapshot file containing block_signature
@@ -529,33 +647,6 @@ func TestVerifySnapshots_AllValid_ReturnsNil(t *testing.T) {
 	assert.Contains(t, stdout.String(), "PASS:")
 }
 
-func TestMain_ErrorExitsNonZero(t *testing.T) {
-	// Use the subprocess test pattern: re-invoke the test binary with a
-	// sentinel environment variable, then verify the exit code.
-	if os.Getenv("TEST_MAIN_EXIT") == "1" {
-		// When invoked as a subprocess, run main() with args that will cause
-		// run() to fail (invalid config path).
-		os.Args = []string{"block_poster", "-config", "/nonexistent/config.yaml"}
-		main() // calls os.Exit(1) inside
-		return
-	}
-
-	// Parent process: run ourselves as a subprocess
-	cmd := exec.Command(os.Args[0], "-test.run=^TestMain_ErrorExitsNonZero$") //nolint:gosec
-	cmd.Env = append(os.Environ(), "TEST_MAIN_EXIT=1")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-
-	// Expect a non-zero exit code
-	require.Error(t, err, "expected non-zero exit code from main() on error")
-	var exitErr *exec.ExitError
-	require.True(t, stderrors.As(err, &exitErr), "expected *exec.ExitError, got %T", err)
-	assert.NotEqual(t, 0, exitErr.ExitCode())
-	// The error message should be written to stderr
-	assert.Contains(t, stderr.String(), "failed to load config")
-}
-
 func TestMain_VerifyValidSnapshot(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -593,10 +684,42 @@ func TestMain_VerifyValidSnapshot(t *testing.T) {
 	defer func() { os.Args = origArgs }()
 
 	// Set os.Args to simulate: block_poster verify <valid_snapshot>
-	// Since run() returns nil for a valid verify, main() won't call os.Exit
+	// Since Run() returns nil for a valid verify, Main() won't call os.Exit
 	os.Args = []string{"block_poster", "verify", snapshotPath}
 
-	// This covers the main() function's first statement (line 18: calling run())
-	// Since run() returns nil, the if-block is not entered.
-	main()
+	// This covers Main()'s delegation to Run(); since Run() returns nil,
+	// the error branch that would exit the process is not entered.
+	Main(evm.Factories())
+}
+
+// clearEndpointEnv clears the environment variables that override the config's RPC and DefraDB
+// endpoints, so the test's config file decides where the generator connects.
+func clearEndpointEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"GETH_RPC_URL", "GETH_WS_URL", "GETH_API_KEY", "GETH_API_KEY_TYPE", "DEFRADB_URL", "DEFRADB_HOST", "DEFRADB_PORT"} {
+		t.Setenv(name, "")
+	}
+}
+
+// chainIDOnlyRPC starts a JSON-RPC server that reports chain ID 1 and fails every other method, so
+// a generator configured for chain 1 passes its chain ID check and fails at its next RPC request.
+func chainIDOnlyRPC(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		resp := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+		if req.Method == "eth_chainId" {
+			resp["result"] = "0x1"
+		} else {
+			resp["error"] = map[string]any{"code": -32601, "message": "method not found"}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }

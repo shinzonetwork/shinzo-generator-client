@@ -15,22 +15,11 @@ package chains
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/sourcenetwork/defradb/node"
 )
-
-// ErrChainFactoryNotRegistered is returned by NewFetcher, NewConverter, and
-// NewCollections when the configured chain adapter has no registered factories.
-var ErrChainFactoryNotRegistered = errors.New("chain factory not registered")
-
-// ErrChainFactoryIncomplete is returned by NewFetcher, NewConverter, or
-// NewCollections when the chain adapter is registered but the specific
-// factory field is nil (partial registration).
-var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 
 // ErrBlockNumberCorrupt indicates that a block document exists in the store
 // but its "number" field is missing or has an unparseable type. It must NOT
@@ -39,9 +28,6 @@ var ErrChainFactoryIncomplete = errors.New("chain factory incomplete")
 // (benign no-op). Chain converters wrap it when a stored block-number query
 // cannot find any usable number.
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
-
-// DefaultAdapterName is the default name value to be used in ChainFactories.
-const DefaultAdapterName = "evm"
 
 // CollectionFile pairs a collection's identity with its schema SDL. Every
 // field is provided literally by the chain implementation — no field is
@@ -107,7 +93,16 @@ type Collections interface {
 	SnapshotSignatureCollection() string
 }
 
-// ------ Phase 2 ------
+// BlockHeader carries the chain-agnostic subset of block header fields the
+// reorg walk-back consumes: the block height, its content hash, and its
+// parent hash. FetchBlockHeaderByHash returns it, so the processor reads
+// header fields directly without chain SDK knowledge or document
+// conversion.
+type BlockHeader struct {
+	Number     int64
+	Hash       string
+	ParentHash string
+}
 
 // Fetcher is the RPC I/O layer: fetches raw block data from the chain node.
 // Concrete implementations (e.g. EVMFetcher) live in chain-specific packages.
@@ -127,9 +122,26 @@ type Fetcher interface {
 	// an EVM block bundle); callers type-assert or pass it to a Converter.
 	FetchBlock(ctx context.Context, height int64) (any, error)
 
+	// FetchBlockHeaderByHash retrieves only the header fields (height,
+	// content hash, parent hash) of the block with the given content hash,
+	// regardless of which branch of the chain it sits on. It performs no
+	// receipt fetches and needs no conversion, so the reorg walk-back can
+	// follow parent hashes down the new chain without paying for bundle
+	// data, and without the by-number receipt fetch mixing branches on
+	// orphan blocks. A hash the node does not know must surface as a
+	// not-found error recognized by pkg/errors.IsErrNotFound, matching
+	// by-height fetch retry semantics.
+	FetchBlockHeaderByHash(ctx context.Context, hash string) (BlockHeader, error)
+
 	// FetchHighestBlockNumber returns the latest block number known to the
 	// chain (the on-chain tip), querying the RPC endpoint directly.
 	FetchHighestBlockNumber(ctx context.Context) (int64, error)
+
+	// FetchFinalizedBlockNumber returns the finalized block height known to
+	// the chain, with the safe height as the implementation-level fallback
+	// when the finalized tag is unsupported. Used as the lower floor of the
+	// reorg walk-back.
+	FetchFinalizedBlockNumber(ctx context.Context) (int64, error)
 
 	// Close releases the underlying RPC connection.
 	Close() error
@@ -193,6 +205,12 @@ type DocumentGroup struct {
 	// hash (tx/log/ale). Used by generic extractBlockHash to find the block
 	// hash without chain-specific collection-name knowledge.
 	BlockHashField string
+
+	// ParentHashField is the field name in each doc that holds the parent
+	// block hash (e.g. "parentHash" for block docs). Empty for groups that
+	// don't carry a parent hash. Used by generic extractBlockParentHash for
+	// the processor's parentHash continuity check, mirroring BlockHashField.
+	ParentHashField string
 }
 
 // LinkStamper resolves cross-document link fields (_blockID, _transactionID)
@@ -239,105 +257,11 @@ type ConversionResult struct {
 }
 
 // ChainFactories bundles all chain-specific factory functions for a single
-// chain family. Each chain package registers one via RegisterChain in its
-// init(), and the binary blank-imports the package so the registration runs.
+// chain family. Per-chain main packages (e.g. cmd/block_poster/evm) construct
+// one via the chain package's Factories() and inject it into the app, so
+// dispatch never consults global state.
 type ChainFactories struct {
 	Fetcher     func(cfg *config.Config) (Fetcher, error)
 	Converter   func(cfg *config.Config) (Converter, error)
 	Collections func(cfg *config.Config) (Collections, error)
-}
-
-// chainFactoryRegistryMu protects chainFactoryRegistry. Writes happen only in
-// init() today, but reads happen at runtime — the mutex makes the registry
-// safe-by-default if runtime registration is ever added (plugins, hot-reload).
-var (
-	chainFactoryRegistry   = map[string]ChainFactories{} //nolint:gochecknoglobals
-	chainFactoryRegistryMu sync.RWMutex                  //nolint:gochecknoglobals
-)
-
-// RegisterChain registers all factories for a chain family under the given
-// name (e.g. "evm"). Called from each chain package's init().
-// It panics if any factory field is nil, failing fast on partial registration
-// rather than deferring the error to dispatch time.
-func RegisterChain(name string, factories ChainFactories) {
-	if factories.Fetcher == nil || factories.Converter == nil || factories.Collections == nil {
-		panic(fmt.Sprintf("RegisterChain(%q): all factory fields must be non-nil", name))
-	}
-	chainFactoryRegistryMu.Lock()
-	defer chainFactoryRegistryMu.Unlock()
-	chainFactoryRegistry[name] = factories
-}
-
-// UnregisterChainForTest removes a chain family from the factory registry.
-// Intended for test cleanup to avoid polluting the global registry.
-func UnregisterChainForTest(name string) {
-	chainFactoryRegistryMu.Lock()
-	defer chainFactoryRegistryMu.Unlock()
-	delete(chainFactoryRegistry, name)
-}
-
-// adapterName resolves the chain adapter name from config, defaulting to
-// DefaultAdapterName when cfg is nil or the adapter field is empty.
-func adapterName(cfg *config.Config) string {
-	if cfg == nil || cfg.Chain.Adapter == "" {
-		return DefaultAdapterName
-	}
-	return cfg.Chain.Adapter
-}
-
-// NewFetcher constructs the chain fetcher for the configured chain backend.
-// A nil cfg defaults to the "evm" adapter.
-func NewFetcher(cfg *config.Config) (Fetcher, error) {
-	name := adapterName(cfg)
-	chainFactoryRegistryMu.RLock()
-	factories, ok := chainFactoryRegistry[name]
-	chainFactoryRegistryMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
-	}
-	// Defensive: RegisterChain panics on nil fields, so this should never
-	// trigger for a registered adapter. Kept as defense-in-depth in case the
-	// registry is bypassed (e.g. direct map mutation in tests).
-	if factories.Fetcher == nil {
-		return nil, fmt.Errorf("%w: %q has no fetcher", ErrChainFactoryIncomplete, name)
-	}
-	return factories.Fetcher(cfg)
-}
-
-// NewConverter constructs the chain converter for the configured chain backend.
-// A nil cfg defaults to the "evm" adapter.
-func NewConverter(cfg *config.Config) (Converter, error) {
-	name := adapterName(cfg)
-	chainFactoryRegistryMu.RLock()
-	factories, ok := chainFactoryRegistry[name]
-	chainFactoryRegistryMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
-	}
-	// Defensive: RegisterChain panics on nil fields, so this should never
-	// trigger for a registered adapter. Kept as defense-in-depth in case the
-	// registry is bypassed (e.g. direct map mutation in tests).
-	if factories.Converter == nil {
-		return nil, fmt.Errorf("%w: %q has no converter", ErrChainFactoryIncomplete, name)
-	}
-	return factories.Converter(cfg)
-}
-
-// NewCollections constructs the chain Collections for the configured chain
-// backend. A nil cfg defaults to the "evm" adapter.
-func NewCollections(cfg *config.Config) (Collections, error) {
-	name := adapterName(cfg)
-	chainFactoryRegistryMu.RLock()
-	factories, ok := chainFactoryRegistry[name]
-	chainFactoryRegistryMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrChainFactoryNotRegistered, name)
-	}
-	// Defensive: RegisterChain panics on nil fields, so this should never
-	// trigger for a registered adapter. Kept as defense-in-depth in case the
-	// registry is bypassed (e.g. direct map mutation in tests).
-	if factories.Collections == nil {
-		return nil, fmt.Errorf("%w: %q has no collections", ErrChainFactoryIncomplete, name)
-	}
-	return factories.Collections(cfg)
 }

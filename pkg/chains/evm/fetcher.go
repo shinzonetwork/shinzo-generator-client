@@ -2,14 +2,18 @@ package evm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	shinzoerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
@@ -19,8 +23,15 @@ import (
 type rpcClient interface {
 	GetLatestBlockNumber(ctx context.Context) (*big.Int, error)
 	GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*Block, error)
-	GetBlockReceipts(ctx context.Context, blockNumber *big.Int) ([]*TransactionReceipt, error)
+	// GetHeaderByHash fetches only the header of the by-hash block (no
+	// transaction bodies requested or decoded) for the walk-back descent.
+	GetHeaderByHash(ctx context.Context, hash string) (*ethtypes.Header, error)
+	// GetBlockReceipts fetches all receipts for a block in a single RPC
+	// call, selected by the block's content hash so the receipts always
+	// stay on the branch of the block the fetcher already holds.
+	GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error)
 	GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
+	GetFinalizedBlockNumber(ctx context.Context) (int64, error)
 	Close() error
 }
 
@@ -57,6 +68,8 @@ type Fetcher struct {
 	apiKey      string
 	apiKeyType  string
 	dialTimeout time.Duration
+	// chainID is the chain ID Connect requires the endpoint to report.
+	chainID uint64
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -77,7 +90,7 @@ func NewFetcher(client rpcClient, receiptWorkers int) *Fetcher {
 // FetchBlock/FetchHighestBlockNumber.
 func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 	if cfg == nil {
-		return nil, errors.NewConfigurationError("chain", "NewFetcherFromConfig", "config is nil", "", nil)
+		return nil, shinzoerrors.NewConfigurationError("chain", "NewFetcherFromConfig", "config is nil", "", nil)
 	}
 	receiptWorkers := cfg.Indexer.ReceiptWorkers
 	if receiptWorkers <= 0 {
@@ -89,17 +102,22 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		apiKey:         cfg.Geth.APIKey,
 		apiKeyType:     cfg.Geth.APIKeyType,
 		dialTimeout:    time.Duration(cfg.Geth.DialTimeoutSeconds) * time.Second,
+		chainID:        cfg.Chain.ChainID,
 		receiptWorkers: receiptWorkers,
 		chainName:      cfg.Chain.Name,
 	}, nil
 }
 
-// Connect dials the RPC endpoint using the connection-config fields. The
-// provided context governs the dial; f.dialTimeout (GethConfig's
-// dial_timeout_seconds) may additionally bound the WebSocket dial phase.
-// The ClientAdapter is resolved by the configured chain name, falling back
-// to the default adapter for unknown names. If the fetcher was built via
-// NewFetcher (pre-connected client), Connect is a no-op.
+// errChainIDMismatch reports that the endpoint serves a chain other than the configured one.
+var errChainIDMismatch = errors.New("node serves another chain")
+
+// Connect dials the RPC endpoint using the connection-config fields and returns
+// errChainIDMismatch when the endpoint reports a chain ID other than the
+// configured one, so a generator pointed at another chain's RPC does not index
+// that chain under its own collection names. The provided context governs the
+// dial; f.dialTimeout (GethConfig's dial_timeout_seconds) may additionally bound
+// the WebSocket dial phase. If the fetcher was built via NewFetcher
+// (pre-connected client), Connect is a no-op.
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
@@ -108,13 +126,24 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create ethereum client: %w", err)
 	}
+	chainID, err := client.GetChainID(ctx)
+	if err != nil {
+		_ = client.Close()
+		return fmt.Errorf("read chain id: %w", err)
+	}
+	if !chainID.IsUint64() || chainID.Uint64() != f.chainID {
+		_ = client.Close()
+		return fmt.Errorf("endpoint reports chain id %s: %w", chainID, errChainIDMismatch)
+	}
 	f.client = client
 	return nil
 }
 
 // FetchBlock implements chains.Fetcher. It retrieves the block at the given
 // height along with its transactions and receipts, returning them bundled in a
-// *BlockBundle (typed as any per the interface).
+// *BlockBundle (typed as any per the interface). The receipts are pinned to
+// the fetched block's own hash, so a reorg between the block fetch and the
+// receipt fetch cannot serve receipts from the new chain's block.
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
@@ -147,6 +176,42 @@ func (f *Fetcher) FetchHighestBlockNumber(ctx context.Context) (int64, error) {
 	return n.Int64(), nil
 }
 
+// FetchBlockHeaderByHash implements chains.Fetcher. It retrieves only the
+// header fields (height, content hash, parent hash) of the block with the
+// given 0x-prefixed content hash through a header-only by-hash RPC: no
+// transaction bodies are requested or decoded, so the reorg walk-back pays
+// one header per descent step instead of a full block download and cannot
+// trip the typed transaction decoder on chains with custom transaction
+// types. The returned hash echoes the requested hash: a locally recomputed
+// header.Hash() can differ from the node's hash on chains with extra header
+// fields. Not-found errors from the client keep their message, so
+// pkg/errors.IsErrNotFound continues to classify them for the shared retry
+// logic.
+func (f *Fetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chains.BlockHeader, error) {
+	if f.client == nil {
+		return chains.BlockHeader{}, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlockHeaderByHash")
+	}
+	header, err := f.client.GetHeaderByHash(ctx, hash)
+	if err != nil {
+		return chains.BlockHeader{}, err
+	}
+	return chains.BlockHeader{
+		Number:     header.Number.Int64(),
+		Hash:       hash, // the hash we asked for; a recomputed header.Hash() can differ on chains with extra header fields
+		ParentHash: header.ParentHash.Hex(),
+	}, nil
+}
+
+// FetchFinalizedBlockNumber implements chains.Fetcher. It returns the
+// finalized chain height (the client falls back to the safe height when the
+// finalized tag is unavailable), used as the floor of the reorg walk-back.
+func (f *Fetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
+	if f.client == nil {
+		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchFinalizedBlockNumber")
+	}
+	return f.client.GetFinalizedBlockNumber(ctx)
+}
+
 // Close implements chains.Fetcher. It closes the underlying RPC client.
 func (f *Fetcher) Close() error {
 	if f.client != nil {
@@ -164,23 +229,70 @@ func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error
 	return f.client.GetBlockByNumber(ctx, big.NewInt(blockNum))
 }
 
-// fetchTransactionsAndReceipts builds the transaction pointer slice and fetches
-// receipts, falling back to individual fetches when the batch call fails.
+// fetchTransactionsAndReceipts builds the transaction pointer slice and
+// fetches receipts, pinned to the block's own content hash so the receipts
+// always belong to the block the caller holds, whichever branch it sits on
+// (a by-number receipts call would race a reorg between the two reads).
+// The batch path is verified: every served receipt must carry the pinned
+// hash AND cover every transaction in the block. Any failure, including a
+// hash mismatch or an incomplete batch, degrades to the per-tx fallback.
+// eth_getTransactionReceipt resolves to the tx's canonical inclusion, so
+// each fallback receipt is verified against the pinned hash too, and a
+// mismatch fails the fetch instead of bundling cross-branch data.
 func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionReceipt, error) {
 	transactions := make([]*Transaction, len(block.Transactions))
 	for i := range block.Transactions {
 		transactions[i] = &block.Transactions[i]
 	}
 
-	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, big.NewInt(blockNum))
-	if batchErr == nil {
+	batchReceipts, batchErr := f.client.GetBlockReceipts(ctx, block.Hash)
+	if batchErr == nil && receiptHashesMatch(batchReceipts, block.Hash) && batchCoversTransactions(transactions, batchReceipts) {
+		mergeReceiptsOntoTransactions(transactions, batchReceipts)
 		return transactions, batchReceipts, nil
+	}
+	if batchErr == nil {
+		// The batch result was rejected: either the receipts came back
+		// for a different block than the one the caller holds, or the
+		// node served only some of the block's transactions. Treat it as
+		// failed and fall back rather than bundling cross-branch content
+		// or letting an unseen outcome default to success.
+		if !receiptHashesMatch(batchReceipts, block.Hash) {
+			batchErr = fmt.Errorf("served receipts do not belong to block hash %s", block.Hash)
+		} else {
+			batchErr = fmt.Errorf("served %d receipts for %d transactions", len(batchReceipts), len(block.Transactions))
+		}
 	}
 
 	if ctx.Err() == nil {
-		logger.Sugar.Debugf("Block %d: eth_getBlockReceipts not available, falling back to individual fetches: %v", blockNum, batchErr)
+		logger.Sugar.Debugf("Block %d: pinned eth_getBlockReceipts not usable, falling back to individual fetches: %v", blockNum, batchErr)
 	}
 
+	receipts := f.fetchReceiptsIndividually(ctx, block)
+
+	var failed int
+	for _, r := range receipts {
+		if r == nil {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return transactions, receipts, fmt.Errorf("block %d: %d/%d transaction receipts could not be fetched", blockNum, failed, len(receipts))
+	}
+
+	mergeReceiptsOntoTransactions(transactions, receipts)
+	return transactions, receipts, nil
+}
+
+// fetchReceiptsIndividually fetches one receipt per transaction, so the
+// result slice is positional with len(block.Transactions) slots and nil
+// slots mark transactions whose receipt could not be fetched. Receipts
+// fetch concurrently, bounded by the configured worker count, and failures
+// are only warned, never aborted, so every tx always gets its own attempt.
+// eth_getTransactionReceipt resolves to the tx's canonical inclusion, so
+// each receipt is verified against the pinned hash too, and a mismatch
+// leaves the slot nil for the caller to fail on instead of bundling
+// cross-branch data.
+func (f *Fetcher) fetchReceiptsIndividually(ctx context.Context, block *Block) []*TransactionReceipt {
 	receipts := make([]*TransactionReceipt, len(block.Transactions))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, f.receiptWorkers)
@@ -202,20 +314,92 @@ func (f *Fetcher) fetchTransactionsAndReceipts(ctx context.Context, block *Block
 				}
 				return
 			}
+			if receipt == nil || !strings.EqualFold(receipt.BlockHash, block.Hash) {
+				// The node resolved the tx to another block: ours is no
+				// longer canonical. Leave the slot nil so the fetch fails
+				// and retries.
+				if ctx.Err() == nil && logger.Sugar != nil {
+					logger.Sugar.Warnf("Receipt for tx %s does not belong to block %s; the block is no longer canonical", txHash, block.Hash)
+				}
+				return
+			}
 			receipts[idx] = receipt
 		}(i, tx.Hash)
 	}
 	wg.Wait()
 
-	var failed int
+	return receipts
+}
+
+// mergeReceiptsOntoTransactions copies execution results from the receipts
+// onto their transactions so the bundle carries outcome data, not only the
+// signed payloads. Matching is by the transaction's own hash because both
+// receipt paths key receipts that way. The batch path is accepted only when
+// it covers every transaction, and a per-tx miss fails the fallback fetch,
+// so a miss here is a defensive no-op (logged, fields untouched) rather than
+// a behavior callers can rely on.
+func mergeReceiptsOntoTransactions(txs []*Transaction, receipts []*TransactionReceipt) {
+	byHash := make(map[string]*TransactionReceipt, len(receipts))
 	for _, r := range receipts {
-		if r == nil {
-			failed++
+		if r != nil {
+			byHash[r.TransactionHash] = r
 		}
 	}
-	if failed > 0 {
-		return transactions, receipts, fmt.Errorf("block %d: %d/%d transaction receipts could not be fetched", blockNum, failed, len(receipts))
+	for _, tx := range txs {
+		if tx == nil {
+			continue
+		}
+		r, ok := byHash[tx.Hash]
+		if !ok || r == nil {
+			// Both callers verify full coverage before merging, so a miss
+			// means verified data and the receipt set disagree: surface it
+			// instead of silently persisting conversion defaults.
+			if logger.Sugar != nil {
+				logger.Sugar.Warnf("No receipt matched transaction %s; keeping conversion defaults", tx.Hash)
+			}
+			continue
+		}
+		// The comparison targets the client's converted status format
+		// (getReceiptStatus emits decimal "1"/"0"), not the wire's hex
+		// quantity form.
+		tx.Status = r.Status == "1"
+		tx.GasUsed = r.GasUsed
+		tx.CumulativeGasUsed = r.CumulativeGasUsed
+		tx.EffectiveGasPrice = r.EffectiveGasPrice
 	}
+}
 
-	return transactions, receipts, nil
+// receiptHashesMatch reports whether every receipt belongs to the pinned
+// block hash, case-insensitively. An empty receipt list always matches: a
+// receiptless block leaves nothing to verify.
+func receiptHashesMatch(receipts []*TransactionReceipt, blockHash string) bool {
+	for _, r := range receipts {
+		if r == nil || !strings.EqualFold(r.BlockHash, blockHash) {
+			return false
+		}
+	}
+	return true
+}
+
+// batchCoversTransactions reports whether every transaction has a receipt in
+// the batch result, matched by the transaction's own hash case-insensitively.
+// An incomplete batch must not be accepted: a transaction without a receipt
+// would keep the signed payload's conversion defaults and report success for
+// an execution outcome the node never told us about.
+func batchCoversTransactions(txs []*Transaction, receipts []*TransactionReceipt) bool {
+	served := make(map[string]struct{}, len(receipts))
+	for _, r := range receipts {
+		if r != nil {
+			served[strings.ToLower(r.TransactionHash)] = struct{}{}
+		}
+	}
+	for _, tx := range txs {
+		if tx == nil {
+			continue
+		}
+		if _, ok := served[strings.ToLower(tx.Hash)]; !ok {
+			return false
+		}
+	}
+	return true
 }

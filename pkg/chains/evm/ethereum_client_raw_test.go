@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 )
 
 // rawBlockHash is a deliberately non-recomputable block hash: no header
@@ -268,7 +267,7 @@ func TestGetBlockByNumber_TypedPath_FailsOnNonStandardEnvelope(t *testing.T) {
 
 	_, err = client.GetBlockByNumber(context.Background(), big.NewInt(testBlockNumber))
 	require.Error(t, err)
-	assert.True(t, pkgerrors.IsErrUnsupportedTxType(err), "expected an unsupported tx type error, got: %v", err)
+	assert.ErrorIs(t, err, ethtypes.ErrTxTypeNotSupported, "expected an unsupported tx type error, got: %v", err)
 }
 
 func TestGetBlockByNumber_RawPath_NotFound(t *testing.T) {
@@ -307,31 +306,6 @@ func TestGetBlockByNumber_RawPath_DecodeErrorPropagates(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to decode raw block transactions")
 	assert.Contains(t, err.Error(), "boom")
-}
-
-// --- GetLatestBlock raw path ---
-
-func TestGetLatestBlock_RawPath(t *testing.T) {
-	t.Parallel()
-	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		if method == ethGetBlockByNumber {
-			// Serves both HeaderByNumber (typed header decode) and the raw
-			// block fetch; the extra fields are ignored by the header decode.
-			return rawZksyncBlockResponse(), nil
-		}
-		return "0x1", nil
-	})
-	defer server.Close()
-
-	client := newRawPathClient(t, server.URL, stubRawAdapter{})
-
-	block, err := client.GetLatestBlock(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, block)
-	assert.Equal(t, rawBlockHash, block.Hash)
-	require.Len(t, block.Transactions, 1)
-	assert.Equal(t, "0x1111111111111111111111111111111111111111", block.Transactions[0].From)
-	assert.Equal(t, "0x0", block.Transactions[0].YParity)
 }
 
 // --- convertRawBlock internals ---

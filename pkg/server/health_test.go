@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -130,6 +131,9 @@ func TestHealthHandler_JSONResponse_NilIndexer(t *testing.T) {
 	var resp HealthResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "healthy", resp.Status)
+	// Compared against the config var so the test holds with or without
+	// build-time ldflags injection.
+	assert.Equal(t, config.Version, resp.Version)
 }
 
 func TestHealthHandler_JSONResponse_HealthyIndexer(t *testing.T) {
@@ -289,6 +293,7 @@ func TestRegistrationHandler_WithSignedRegistration(t *testing.T) {
 	assert.Equal(t, "/ip4/192.0.2.1/tcp/9171/p2p/"+testIndexerPeerID, resp.Registration.ConnectionString)
 	assert.Equal(t, "ethereum", resp.Registration.SourceChain)
 	assert.Equal(t, uint64(1), resp.Registration.SourceChainID)
+	assert.Equal(t, config.Version, resp.Version)
 	assert.NotContains(t, rec.Body.String(), "peer_id_registration")
 }
 
@@ -423,6 +428,7 @@ func TestMetricsHandler_NilIndexer(t *testing.T) {
 	var resp MetricsResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, int64(0), resp.CurrentBlock)
+	assert.Equal(t, config.Version, resp.Version)
 }
 
 func TestMetricsHandler_WithIndexer(t *testing.T) {
@@ -455,6 +461,9 @@ func TestRootHandler_RootPath(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "Shinzo Network Indexer", resp["service"])
+	// The root endpoint must report the injected generator version, never a
+	// hardcoded constant.
+	assert.Equal(t, config.Version, resp["version"])
 }
 
 func TestRootHandler_EndpointsIncludesCollections(t *testing.T) {
@@ -976,6 +985,7 @@ func TestSnapshotImportHandler_ImportError(t *testing.T) {
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
+	hs.collections = evm.NewCollectionNames(testNetwork)
 	hs.SetSnapshotter(s)
 
 	rec := httptest.NewRecorder()
@@ -1030,6 +1040,7 @@ func TestSnapshotImportHandler_InvalidGzipFile(t *testing.T) {
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = &node.Node{}
+	hs.collections = evm.NewCollectionNames(testNetwork)
 	hs.SetSnapshotter(s)
 
 	rec := httptest.NewRecorder()
@@ -1102,7 +1113,7 @@ func TestSnapshotsListHandler_QuerySigError(t *testing.T) {
 
 func TestSnapshotImportHandler_Success(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	defraNode := td.Node
 
 	tempDir := t.TempDir()
@@ -1111,21 +1122,17 @@ func TestSnapshotImportHandler_Success(t *testing.T) {
 
 	hs := NewHealthServer(0, nil, "")
 	hs.defraNode = defraNode
+	hs.collections = evm.NewCollectionNames(testNetwork)
 	hs.SetSnapshotter(s)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/snapshots/import?file="+filename, nil)
 	hs.snapshotImportHandler(rec, req)
 
-	// ImportKV reads a valid header then calls ImportRawKVs on the real DB.
-	// With no KV data after the header, it either succeeds (0 pairs) or errors.
-	// Either way we cover the handler path.
-	if rec.Code == http.StatusOK {
-		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "ok", resp["status"])
-	} else {
-		// Error path is already covered by other tests, but don't fail
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	}
+	// The snapshot holds a header and no KV pairs, so the import writes nothing
+	// and the handler rebuilds the indexes of hs.collections.
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ok", resp["status"])
 }

@@ -4,12 +4,16 @@ package indexer
 // indexer state/lifecycle transitions exercised through them (table-driven).
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
@@ -19,6 +23,7 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 // ---------------------------------------------------------------------------.
@@ -39,7 +44,7 @@ func TestStopIndexingVariants(t *testing.T) {
 				cfg := &config.Config{
 					DefraDB: config.DefraDBConfig{URL: testDefraURL},
 				}
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				assert.NoError(t, err)
 				return indexer
 			},
@@ -63,7 +68,7 @@ func TestStopIndexingVariants(t *testing.T) {
 				cfg := &config.Config{
 					DefraDB: config.DefraDBConfig{URL: testDefraURL},
 				}
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				assert.NoError(t, err)
 
 				// Set some state.
@@ -98,7 +103,7 @@ func TestStopIndexingVariants(t *testing.T) {
 					},
 				}
 
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 
 				assert.NoError(t, err)
 				return indexer
@@ -117,7 +122,7 @@ func TestStopIndexingVariants(t *testing.T) {
 		{
 			name: "embedded node is closed and nilled",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				return &ChainIndexer{
 					defraNode:   td.Node,
@@ -160,7 +165,7 @@ func TestStopIndexingVariants(t *testing.T) {
 		{
 			name: "pruner is stopped and nilled",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				p := pruner.NewPruner(&config.PrunerConfig{
 					Enabled:   true,
 					MaxBlocks: 1000,
@@ -197,12 +202,15 @@ func TestStopIndexingVariants(t *testing.T) {
 		{
 			name: "all components are stopped and nilled",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				// Create fetcher, converter, and block handler wired to a mock RPC server.
-				rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+				rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 					switch method {
 					case ethGetBlockByNumber:
+						if requested, ok := requestedBlockNumber(params); ok {
+							return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+						}
 						return fullBlockResponse("0x1", nil), nil
 					case ethGetBlockReceipts:
 						return []any{}, nil
@@ -265,7 +273,7 @@ func TestStopIndexingVariants(t *testing.T) {
 			// unstarted components (isRunning=false → early return).
 			name: "unstarted pruner and snapshotter tolerated",
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				p := pruner.NewPruner(&config.PrunerConfig{
 					Enabled:        true,
@@ -363,6 +371,9 @@ func TestStopIndexing_DuringStart_WaitsForStart(t *testing.T) {
 					return fullBlockResponse("0x100", nil), nil
 				}
 			}
+			if requested, ok := requestedBlockNumber(params); ok {
+				return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+			}
 			return fullBlockResponse("0x100", nil), nil
 		case ethBlockNumber:
 			return "0x100", nil
@@ -383,7 +394,7 @@ func TestStopIndexing_DuringStart_WaitsForStart(t *testing.T) {
 		StartBuffer:      10,
 	})
 
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	errCh := startIndexingBackground(t, indexer)
@@ -452,9 +463,12 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 		switch method {
 		case ethGetBlockByNumber:
+			if requested, ok := requestedBlockNumber(params); ok {
+				return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+			}
 			return fullBlockResponse("0x100", nil), nil
 		case ethBlockNumber:
 			return "0x100", nil
@@ -498,7 +512,7 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 		StartBuffer:      10,
 	})
 
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	errCh := startIndexingBackground(t, indexer)
@@ -549,4 +563,44 @@ func TestStopIndexing_ConcurrentStopsAfterInitError(t *testing.T) {
 	assert.False(t, indexer.shouldIndex, "indexer should not be indexing")
 	assert.Nil(t, indexer.fetcher, "fetcher should be torn down exactly once, without a data race")
 	assert.Nil(t, indexer.defraNode, "defraNode should be torn down exactly once, without a data race")
+}
+
+// TestStopIndexing_ConcurrentNodeReaders runs teardown while readers that run
+// on other goroutines (metrics collection, health server) access the node, so
+// -race catches unsynchronized access to defraNode/networkHandler.
+func TestStopIndexing_ConcurrentNodeReaders(t *testing.T) {
+	tests := []struct {
+		name string
+		read func(ix *ChainIndexer)
+	}{
+		{name: "peers gauge", read: func(ix *ChainIndexer) { _ = ix.observePeers(context.Background(), noop.Int64Observer{}) }},
+		{name: "peer info", read: func(ix *ChainIndexer) { _, _ = ix.GetPeerInfo() }},
+		{name: "defra port", read: func(ix *ChainIndexer) { _ = ix.GetDefraDBPort() }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+			ix := &ChainIndexer{defraNode: td.Node, cfg: &config.Config{}}
+
+			stop := make(chan struct{})
+			var wg sync.WaitGroup
+			wg.Go(func() {
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+						tt.read(ix)
+					}
+				}
+			})
+
+			ix.StopIndexing()
+			close(stop)
+			wg.Wait()
+
+			assert.Nil(t, ix.defraNode)
+		})
+	}
 }

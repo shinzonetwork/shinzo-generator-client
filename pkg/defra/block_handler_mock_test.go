@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -59,7 +60,7 @@ func (m *mockBlockDB) ExecRequest(ctx context.Context, request string, opts ...o
 
 func execReqFnWithDocIDs() func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
 	return func(_ context.Context, _ string, _ ...options.Enumerable[options.ExecRequestOptions]) *client.RequestResult {
-		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		arr := []any{map[string]any{docIDFieldName: "test-doc-id-1"}}
 		return &client.RequestResult{
 			GQL: client.GQLResult{
 				Data: map[string]any{
@@ -94,7 +95,7 @@ func execReqFnWithDocIDsExceptCol(targetCol string) func(_ context.Context, requ
 				GQL: client.GQLResult{Errors: []error{fmt.Errorf("query error for %s", targetCol)}},
 			}
 		}
-		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		arr := []any{map[string]any{docIDFieldName: "test-doc-id-1"}}
 		return &client.RequestResult{
 			GQL: client.GQLResult{
 				Data: map[string]any{
@@ -115,7 +116,7 @@ func execReqFnWithDocIDsForCol(targetCol string) func(_ context.Context, request
 		if !strings.Contains(request, targetCol) {
 			return &client.RequestResult{GQL: client.GQLResult{Data: map[string]any{}}}
 		}
-		arr := []any{map[string]any{"_docID": "test-doc-id-1"}}
+		arr := []any{map[string]any{docIDFieldName: "test-doc-id-1"}}
 		return &client.RequestResult{
 			GQL: client.GQLResult{
 				Data: map[string]any{
@@ -165,9 +166,17 @@ func testReceipt() *evm.TransactionReceipt {
 	return mockReceipt("0xabc1000000000000000000000000000000000000000000000000000000000001", "0x64")
 }
 
+// newTestConverter returns the EVM converter for Ethereum mainnet.
+func newTestConverter(t *testing.T) *evm.Converter {
+	t.Helper()
+	c, err := evm.NewConverter(&config.Config{Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet"}})
+	require.NoError(t, err)
+	return c
+}
+
 func buildSigGroups(t *testing.T, block *evm.Block, txs []*evm.Transaction, receipts []*evm.TransactionReceipt) chains.ConversionResult {
 	t.Helper()
-	result, err := evm.NewConverter(nil).Convert(context.Background(), &evm.BlockBundle{
+	result, err := newTestConverter(t).Convert(context.Background(), &evm.BlockBundle{
 		Block:        block,
 		Transactions: txs,
 		Receipts:     receipts,
@@ -839,6 +848,6 @@ type testDefraDB struct {
 
 func testutilsSetupDefraDB(t *testing.T) *testDefraDB {
 	t.Helper()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	return &testDefraDB{DB: td.Node.DB}
 }

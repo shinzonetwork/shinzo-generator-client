@@ -6,6 +6,7 @@
 chain:
   name: "Ethereum"       # Chain name (env: CHAIN_NAME)
   network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
+  chain_id: 1            # EVM chain ID the RPC must report; the generator refuses to start otherwise (env: CHAIN_ID)
   adapter: "evm"         # Chain adapter: "evm" (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
 defradb:
@@ -38,7 +39,21 @@ defradb:
     resource_memory_mib: 10240
     resource_file_descriptors: 8192   # Must be <= the process ulimit -n
     max_streams_per_peer: 4096        # Per direction. Must exceed 256, the unscaled base, or it is a no-op.
+    # Per-IP connection cap. libp2p allows 8 concurrent connections per IPv4 address (and per
+    # IPv6 /56) and closes the rest at accept; dialers see "failed to negotiate security
+    # protocol: EOF". Every host behind one source-NAT address shares that budget. 0 (default)
+    # keeps libp2p's 8. Env: DEFRADB_P2P_MAX_CONNS_PER_IP.
+    max_conns_per_ip: 8
+    # CIDRs whose connections bypass the resource manager's limits, including the per-IP cap.
+    # Invalid entries fail startup. Empty by default. Env: DEFRADB_P2P_ALLOWLIST_CIDRS
+    # (comma-separated). Example for a k8s cluster:
+    allowlist_cidrs: ["10.244.0.0/16"]   # k8s pod network, all in-cluster hosts share one NAT IP
   store:
+    # The node identity keyring lives in a keys/ directory beside this store
+    # directory (./keys for the default path). A keyring found inside the store
+    # or a legacy plaintext defra_identity.key in the store path is migrated
+    # there automatically on first start, so the identity survives store wipes
+    # and restores.
     path: "./.defra"
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size
@@ -88,11 +103,11 @@ pruner:
 snapshot:
   enabled: true             # Set to true to enable automatic snapshots before pruning
   dir: "./.defra/snapshots" # Directory to store snapshot files
-  blocks_per_file: 100      # Aligned ranges: [N*1000 .. N*1000+999]
-  interval_seconds: 30 
+  blocks_per_file: 100      # Snapshot granularity (blocks per snapshot file)
+  interval_seconds: 30      # How often to check and create snapshots
   max_snapshots: 100        # Keep the N newest snapshot files
-  # Older files (and their signature docs) are purged. -1 = unlimited (env: SNAPSHOT_MAX_SNAPSHOTS). 
-  # Must satisfy: max_snapshots * blocks_per_file >= pruner.max_blocks     # How often to check and create snapshots
+  # Older files (and their signature docs) are purged. -1 = unlimited (env: SNAPSHOT_MAX_SNAPSHOTS).
+  # Must satisfy: max_snapshots * blocks_per_file >= pruner.max_blocks
 converter:
   lowest_block_query_limit: 1   # Row window for the lowest-block number query (env: CONVERTER_LOWEST_BLOCK_QUERY_LIMIT).
   # ⚠ >1 makes the query skip purge residue: block rows left behind by DefraDB purges

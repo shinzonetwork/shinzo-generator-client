@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -112,6 +113,7 @@ type HealthResponse struct {
 	UptimeSeconds    float64              `json:"uptime_seconds"`
 	P2P              *P2PInfo             `json:"p2p,omitempty"`
 	Registration     *DisplayRegistration `json:"registration,omitempty"`
+	Version          string               `json:"version"`
 	BuildTags        string               `json:"build_tags,omitempty"`
 	SchemaType       string               `json:"schema_type,omitempty"`
 }
@@ -122,6 +124,7 @@ type MetricsResponse struct {
 	CurrentBlock      int64     `json:"current_block"`
 	LastProcessedTime time.Time `json:"last_processed_time"`
 	Uptime            string    `json:"uptime"`
+	Version           string    `json:"version"`
 }
 
 // NewHealthServer creates a new health server.
@@ -214,6 +217,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		DefraDBConnected: hs.checkDefraDB(),
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
+		Version:          config.Version,
 	}
 
 	if hs.indexer != nil {
@@ -262,6 +266,7 @@ func (hs *HealthServer) registrationHandler(w http.ResponseWriter, r *http.Reque
 		DefraDBConnected: defraConnected,
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
+		Version:          config.Version,
 	}
 
 	if hs.indexer != nil {
@@ -296,7 +301,8 @@ func (hs *HealthServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	metrics := MetricsResponse{
-		Uptime: time.Since(hs.startTime).String(),
+		Uptime:  time.Since(hs.startTime).String(),
+		Version: config.Version,
 	}
 
 	if hs.indexer != nil {
@@ -318,7 +324,7 @@ func (hs *HealthServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]any{
 		"service":   "Shinzo Network Indexer",
-		"version":   "1.0.0",
+		"version":   config.Version,
 		"status":    "running",
 		"timestamp": time.Now(),
 		"endpoints": []string{
@@ -467,6 +473,14 @@ func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// The index rebuild after the import needs the chain's collections, so the
+	// handler refuses before it writes anything. EnableSchemaEndpoint sets them,
+	// and the indexer calls it before Start.
+	if hs.collections == nil {
+		http.Error(w, "Import not available (no chain collections set)", http.StatusInternalServerError)
+		return
+	}
+
 	result, err := snapshot.ImportKV(r.Context(), hs.defraNode, filePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -482,24 +496,7 @@ func (hs *HealthServer) snapshotImportHandler(w http.ResponseWriter, r *http.Req
 	// ImportRawKVs writes raw KV pairs directly to the rootstore, bypassing
 	// the document layer. Index entries are not included in the export, so
 	// we must rebuild them from the imported document data.
-	collections := hs.collections
-	if collections == nil {
-		// Servers that never enabled the schema endpoint (tests) fall back to
-		// the default collection set, matching the pre-chain-abstraction
-		// constants.DefaultCollections() behavior.
-		fallback, err := chains.NewCollections(nil)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":  fmt.Sprintf("resolve collections for index rebuild: %v", err),
-				"result": result,
-			})
-			return
-		}
-		collections = fallback
-	}
-	if rebuildErr := snapshot.RebuildAllIndexes(r.Context(), hs.defraNode, collections.AllCollections()); rebuildErr != nil {
+	if rebuildErr := snapshot.RebuildAllIndexes(r.Context(), hs.defraNode, hs.collections.AllCollections()); rebuildErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]any{

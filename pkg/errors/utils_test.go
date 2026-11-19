@@ -71,7 +71,7 @@ func TestIsErrTransactionConflict(t *testing.T) {
 	}
 }
 
-func TestIsErrUnsupportedTxType(t *testing.T) {
+func TestIsErrDocumentDeleted(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -79,15 +79,16 @@ func TestIsErrUnsupportedTxType(t *testing.T) {
 		expected bool
 	}{
 		{"nil", nil, false},
-		{"not supported", errors.New("transaction type not supported"), true}, //nolint: err113
-		{"invalid type", errors.New("invalid transaction type"), true},        //nolint: err113
-		{"unrelated", errors.New("timeout"), false},                           //nolint: err113
+		{"deleted doc", errors.New("a document with the given ID has been deleted"), true},               //nolint: err113
+		{"wrapped", errors.New("create block: a document with the given ID has been deleted"), true},     //nolint: err113
+		{"previously stored", errors.New("block batch: 3 of 5 documents were previously stored"), false}, //nolint: err113
+		{"unrelated", errors.New("timeout"), false},                                                      //nolint: err113
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsErrUnsupportedTxType(tt.err); got != tt.expected {
-				t.Errorf("IsErrUnsupportedTxType() = %v, want %v", got, tt.expected)
+			if got := IsErrDocumentDeleted(tt.err); got != tt.expected {
+				t.Errorf("IsErrDocumentDeleted() = %v, want %v", got, tt.expected)
 			}
 		})
 	}

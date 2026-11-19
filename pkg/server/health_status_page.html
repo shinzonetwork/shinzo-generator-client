@@ -290,6 +290,10 @@
                 <div class="info-group">
                     <h2>Configuration</h2>
                     <div class="info-row">
+                        <span class="info-label">Version</span>
+                        <span class="info-value" id="versionValue">-</span>
+                    </div>
+                    <div class="info-row">
                         <span class="info-label">Build Tags</span>
                         <span class="info-value" id="buildTagsValue">-</span>
                     </div>
@@ -592,6 +596,7 @@
                 document.getElementById('uptimeValue').textContent = parseDurationToHMS(data.uptime) || '-';
 
                 // Update configuration section
+                document.getElementById('versionValue').textContent = data.version || '-';
                 document.getElementById('buildTagsValue').textContent = data.build_tags || '-';
                 document.getElementById('schemaTypeValue').textContent = data.schema_type || '-';
                 document.getElementById('timestampValue').textContent = formatTime(data.timestamp) || '-';

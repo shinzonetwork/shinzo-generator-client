@@ -4,9 +4,6 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -15,107 +12,46 @@ import (
 	"github.com/sourcenetwork/defradb/node"
 )
 
-const keyFileName string = "defra_identity.key"
+// loadIdentityFromStore loads the DefraDB identity from the keyring in the
+// keys directory beside the store path. Opening the keyring runs the one-time
+// migrations (in-store keyring copy, plaintext key import), so the keyring is
+// the only source the signer reads; there is no file fallback.
+func loadIdentityFromStore(cfg *config.Config) (identity.FullIdentity, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config with a keyring secret is required to load the identity")
+	}
 
-// loadIdentityFromFile loads the DefraDB identity from a file.
-func loadIdentityFromFile(storePath string) (identity.FullIdentity, error) {
-	keyPath := filepath.Join(storePath, keyFileName)
-
-	// Read the stored key file
-	keyHex, err := os.ReadFile(filepath.Clean(keyPath))
+	kr, err := defradb.OpenKeyring(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read key file at %s: %w", keyPath, err)
+		return nil, fmt.Errorf("failed to open keyring: %w", err)
 	}
 
-	// Decode hex string to bytes
-	keyBytes, err := hex.DecodeString(strings.TrimSpace(string(keyHex)))
+	id, err := defradb.LoadIdentityFromKeyring(kr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode key hex: %w", err)
+		return nil, fmt.Errorf("failed to load identity from keyring: %w", err)
 	}
 
-	// Reconstruct private key from bytes
-	privateKey, err := crypto.PrivateKeyFromBytes(crypto.KeyTypeSecp256k1, keyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reconstruct private key: %w", err)
+	full, ok := id.(identity.FullIdentity)
+	if !ok {
+		return nil, fmt.Errorf("identity from keyring is not a FullIdentity")
 	}
 
-	// Reconstruct identity from private key
-	fullIdentity, err := identity.FromPrivateKey(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to reconstruct identity from private key: %w", err)
-	}
-
-	return fullIdentity, nil
-}
-
-// loadIdentityFromStore loads the DefraDB identity, trying the keyring first
-// (via pkg/defradb's shared helpers) and falling back to the file-based store
-// if the keyring is unconfigured, missing the entry, or unreadable. The keyring
-// path is the modern DefraDB default; the file fallback supports older
-// installations that pre-date keyring storage.
-func loadIdentityFromStore(cfg *config.Config, storePath string) (identity.FullIdentity, error) {
-	// Try keyring first if config is available
-	if cfg != nil {
-		if kr, err := defradb.OpenKeyring(cfg); err == nil {
-			if id, err := defradb.LoadIdentityFromKeyring(kr); err == nil {
-				if full, ok := id.(identity.FullIdentity); ok {
-					return full, nil
-				}
-			}
-		}
-	}
-
-	// Fall back to file-based storage
-	return loadIdentityFromFile(storePath)
-}
-
-// getStorePath attempts to determine the store path from the config or node.
-// If config is provided and has a store path, it uses that.
-// Otherwise, it tries common locations and returns the first one that contains the key file.
-func getStorePath(_ *node.Node, cfg *config.Config) (string, error) {
-	// If config is provided and has a store path, use it
-	if cfg != nil && cfg.DefraDB.Store.Path != "" {
-		return cfg.DefraDB.Store.Path, nil
-	}
-
-	// Try common locations for file-based fallback
-	possiblePaths := []string{
-		".defra", // Default relative path
-		filepath.Join(os.Getenv("HOME"), ".defradb"), // Default DefraDB path
-	}
-
-	// Try each path to see if it contains the key file
-	for _, path := range possiblePaths {
-		// The candidate paths come from this function's own hardcoded list and
-		// the local environment, never from remote input; Clean+Join keeps the
-		// probe inside those roots.
-		keyPath := filepath.Clean(filepath.Join(path, keyFileName))
-		if _, err := os.Stat(keyPath); err == nil { //nolint:gosec
-			return path, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not find defra_identity.key in any common location. Please ensure the key file exists or provide a store path in config")
+	return full, nil
 }
 
 // SignWithDefraKeys signs a message using the DefraDB identity's private key (secp256k1).
-// The signature is returned as a hex-encoded string.
-// If cfg is provided and has a KeyringSecret, it will use the keyring; otherwise falls back to file-based storage.
+// The signature is returned as a hex-encoded string. The identity is loaded
+// from the keyring beside the store path, so cfg must carry a KeyringSecret.
 func SignWithDefraKeys(message string, defraNode *node.Node, cfg *config.Config) (string, error) {
 	return signWithDefraKeysInternal(message, defraNode, cfg, loadIdentityFromStore)
 }
 
 func signWithDefraKeysInternal(
-	message string, defraNode *node.Node, cfg *config.Config,
-	loadFn func(*config.Config, string) (identity.FullIdentity, error),
+	message string, _ *node.Node, cfg *config.Config,
+	loadFn func(*config.Config) (identity.FullIdentity, error),
 ) (string, error) {
-	storePath, err := getStorePath(defraNode, cfg)
-	if err != nil {
-		return "", fmt.Errorf("failed to get store path: %w", err)
-	}
-
-	// Load the identity from storage (tries keyring first, then file)
-	fullIdentity, err := loadFn(cfg, storePath)
+	// Load the identity from the keyring beside the store path
+	fullIdentity, err := loadFn(cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to load identity: %w", err)
 	}
@@ -137,22 +73,17 @@ func signWithDefraKeysInternal(
 }
 
 // SignWithP2PKeys signs a message using the LibP2P private key (Ed25519) derived from the DefraDB identity.
-// The signature is returned as a hex-encoded string.
-// If cfg is provided and has a KeyringSecret, it will use the keyring; otherwise falls back to file-based storage.
+// The signature is returned as a hex-encoded string. The identity is loaded
+// from the keyring beside the store path, so cfg must carry a KeyringSecret.
 func SignWithP2PKeys(message string, defraNode *node.Node, cfg *config.Config) (string, error) {
 	return signWithP2PKeysInternal(message, defraNode, cfg, loadIdentityFromStore)
 }
 
 func signWithP2PKeysInternal(
-	message string, defraNode *node.Node, cfg *config.Config,
-	loadFn func(*config.Config, string) (identity.FullIdentity, error),
+	message string, _ *node.Node, cfg *config.Config,
+	loadFn func(*config.Config) (identity.FullIdentity, error),
 ) (string, error) {
-	storePath, err := getStorePath(defraNode, cfg)
-	if err != nil {
-		return "", fmt.Errorf("failed to get store path: %w", err)
-	}
-
-	fullIdentity, err := loadFn(cfg, storePath)
+	fullIdentity, err := loadFn(cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to load identity: %w", err)
 	}
@@ -186,21 +117,17 @@ func signWithP2PKeysInternal(
 }
 
 // GetDefraPublicKey returns the DefraDB identity's public key as a hex-encoded string.
-// If cfg is provided and has a KeyringSecret, it will use the keyring; otherwise falls back to file-based storage.
+// The identity is loaded from the keyring beside the store path, so cfg must
+// carry a KeyringSecret.
 func GetDefraPublicKey(defraNode *node.Node, cfg *config.Config) (string, error) {
 	return getDefraPublicKeyInternal(defraNode, cfg, loadIdentityFromStore)
 }
 
 func getDefraPublicKeyInternal(
-	defraNode *node.Node, cfg *config.Config,
-	loadFn func(*config.Config, string) (identity.FullIdentity, error),
+	_ *node.Node, cfg *config.Config,
+	loadFn func(*config.Config) (identity.FullIdentity, error),
 ) (string, error) {
-	storePath, err := getStorePath(defraNode, cfg)
-	if err != nil {
-		return "", fmt.Errorf("failed to get store path: %w", err)
-	}
-
-	fullIdentity, err := loadFn(cfg, storePath)
+	fullIdentity, err := loadFn(cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to load identity: %w", err)
 	}
@@ -214,21 +141,17 @@ func getDefraPublicKeyInternal(
 }
 
 // GetP2PPublicKey returns the LibP2P public key (Ed25519) derived from the DefraDB identity as a hex-encoded string.
-// If cfg is provided and has a KeyringSecret, it will use the keyring; otherwise falls back to file-based storage.
+// The identity is loaded from the keyring beside the store path, so cfg must
+// carry a KeyringSecret.
 func GetP2PPublicKey(defraNode *node.Node, cfg *config.Config) (string, error) {
 	return getP2PPublicKeyInternal(defraNode, cfg, loadIdentityFromStore)
 }
 
 func getP2PPublicKeyInternal(
-	defraNode *node.Node, cfg *config.Config,
-	loadFn func(*config.Config, string) (identity.FullIdentity, error),
+	_ *node.Node, cfg *config.Config,
+	loadFn func(*config.Config) (identity.FullIdentity, error),
 ) (string, error) {
-	storePath, err := getStorePath(defraNode, cfg)
-	if err != nil {
-		return "", fmt.Errorf("failed to get store path: %w", err)
-	}
-
-	fullIdentity, err := loadFn(cfg, storePath)
+	fullIdentity, err := loadFn(cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to load identity: %w", err)
 	}

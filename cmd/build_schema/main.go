@@ -9,12 +9,13 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
-
-	// The blank import wires the default chain adapter into the registry;
-	// everything below resolves through the pkg/chains interfaces.
-	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 )
+
+// errChainFlagsUnset is returned when --chain or --network is missing. The
+// collection prefix is built from both, so neither has a default.
+var errChainFlagsUnset = errors.New("--chain and --network are required")
 
 func main() {
 	if err := run(os.Args, os.Stdout); err != nil {
@@ -26,9 +27,9 @@ func main() {
 func run(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("build_schema", flag.ContinueOnError)
 	listFiles := fs.Bool("list-files", false, "List collection filenames in apply order, one per line")
-	chain := fs.String("chain", "", "Chain name for collection prefixes (e.g. Arbitrum). Defaults to the adapter's default when empty.")
-	network := fs.String("network", "", "Network name for collection prefixes (e.g. Mainnet). Defaults to the adapter's default when empty.")
-	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from. Defaults to the built-in default when empty.")
+	chain := fs.String("chain", "", "Chain name for collection prefixes (e.g. Arbitrum). Required.")
+	network := fs.String("network", "", "Network name for collection prefixes (e.g. Mainnet). Required.")
+	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from. Empty selects the default adapter.")
 	file := fs.String("file", "", "Single collection file to output (e.g. block.graphql). Default: full merged SDL.")
 	// The prefix flag is still declared so legacy invocations get a targeted
 	// migration error instead of a generic unknown-flag failure.
@@ -39,13 +40,22 @@ func run(args []string, stdout io.Writer) error {
 	if *prefix != "" {
 		return errors.New("--prefix is no longer supported; use --chain, --network, and --adapter instead")
 	}
+	if *chain == "" || *network == "" {
+		return errChainFlagsUnset
+	}
+	if err := config.ValidateChainNames(*chain, *network); err != nil {
+		return err
+	}
+	if *adapter != "" && *adapter != config.DefaultChainAdapter {
+		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", *adapter, config.DefaultChainAdapter)
+	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
 		Name:    *chain,
 		Network: *network,
 		Adapter: *adapter,
 	}}
-	c, err := chains.NewCollections(cfg)
+	c, err := evm.NewCollectionsFromConfig(cfg)
 	if err != nil {
 		return err
 	}

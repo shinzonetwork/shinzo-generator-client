@@ -7,6 +7,7 @@ import (
 	"context"
 	crypto_rand "crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/server"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
@@ -189,7 +191,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 		{
 			name: "embedded node",
 			indexer: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				return &ChainIndexer{defraNode: td.Node}
 			},
 			assert: func(t *testing.T, info *server.P2PInfo, err error) {
@@ -207,7 +209,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 		{
 			name: "embedded node with nil network handler",
 			indexer: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				// networkHandler is nil but defraNode is set - covers the line networkActive = false.
 				return &ChainIndexer{
 					defraNode:      td.Node,
@@ -223,7 +225,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 		{
 			name: "deduplication branch with zero peers",
 			indexer: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				// Create indexer with embedded node — exercise all code paths in GetPeerInfo.
 				return &ChainIndexer{
@@ -243,7 +245,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 		{
 			name: "self info",
 			indexer: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 				return &ChainIndexer{defraNode: td.Node}
 			},
 			assert: func(t *testing.T, info *server.P2PInfo, err error) {
@@ -262,7 +264,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 		{
 			name: "self info construction",
 			indexer: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				return &ChainIndexer{
 					defraNode:      td.Node,
@@ -287,7 +289,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 		{
 			name: "embedded node without p2p tolerates error",
 			indexer: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				return &ChainIndexer{
 					defraNode: td.Node,
@@ -320,7 +322,7 @@ func TestGetPeerInfo_SingleNode(t *testing.T) {
 
 				// Use testutils SetupTestDefraDB — P2P is disabled in that helper.
 				// Instead we'll create the node directly with P2P enabled.
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 				return &ChainIndexer{
 					defraNode: td.Node,
@@ -549,9 +551,12 @@ func TestSignMessagesVariants(t *testing.T) {
 					testDefraRandomURL,
 					testDefraP2PDisabled,
 					func() *httptest.Server {
-						return newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+						return newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
 							switch method {
 							case ethGetBlockByNumber:
+								if requested, ok := requestedBlockNumber(params); ok {
+									return fullBlockResponse(fmt.Sprintf("0x%x", requested), nil), nil
+								}
 								return fullBlockResponse("0x186a0", nil), nil
 							case ethGetBlockReceipts:
 								return []any{}, nil
@@ -663,7 +668,7 @@ func TestPublicKeyAccessorsWithEmbeddedNode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			logger.InitConsoleOnly(true)
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 			indexer := &ChainIndexer{
 				defraNode: td.Node,

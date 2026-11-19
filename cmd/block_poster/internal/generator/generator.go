@@ -1,4 +1,7 @@
-package main
+// Package generator holds the adapter-agnostic block_poster runner: flags,
+// version handling, snapshot verification, telemetry, and the indexing loop.
+// Per-chain main packages wire their adapter and call Main.
+package generator
 
 import (
 	"context"
@@ -8,21 +11,31 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
 )
 
-func main() {
-	if err := run(os.Args[1:]); err != nil {
+const otelShutdownTimeout = 10 * time.Second
+
+// Main is the process entry point: it runs the generator with the chain
+// factories the per-chain main provides and exits the process with a non-zero
+// code on error.
+func Main(factories chains.ChainFactories) {
+	if err := Run(os.Args[1:], factories); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
+// Run parses args, dispatches the verify subcommand and version flags, then
+// sets up telemetry and starts indexing. The verify and version paths never
+// touch the factories; only the indexing path dispatches through them.
+func Run(args []string, factories chains.ChainFactories) error {
 	// Check for subcommands before parsing flags
 	if len(args) > 0 {
 		if args[0] == "verify" { //nolint:goconst
@@ -32,8 +45,17 @@ func run(args []string) error {
 
 	fs := flag.NewFlagSet("block_poster", flag.ContinueOnError)
 	configPath := fs.String("config", "config/config.yaml", "Path to configuration file")
+	showVersion := fs.Bool("version", false, "Print the generator version and exit")
+	showVersionShort := fs.Bool("v", false, "Print the generator version and exit (shorthand)")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
+	}
+
+	// The version flags are handled before any config load so the version can
+	// be printed without a valid configuration file on disk.
+	if *showVersion || *showVersionShort {
+		printVersion(os.Stdout)
+		return nil
 	}
 
 	// Load configuration
@@ -42,15 +64,31 @@ func run(args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	logger.Init(cfg.Logger.Development)
+
+	// Set up graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Set up telemetry before creating the indexer, so a node with telemetry
+	// enabled but misconfigured exits before it opens DefraDB or connects.
+	otelShutdown, err := setupOTel(ctx, cfg.Chain)
+	if err != nil {
+		return fmt.Errorf("telemetry setup: %w", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+		defer cancel()
+		if err := otelShutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "telemetry shutdown: %v\n", err)
+		}
+	}()
+
 	// Create and start indexer
-	chainIndexer, err := indexer.CreateIndexer(cfg)
+	chainIndexer, err := indexer.CreateIndexer(cfg, factories)
 	if err != nil {
 		return fmt.Errorf("failed to create indexer: %w", err)
 	}
-
-	// Set up graceful shutdown
-	_, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Channel to listen for interrupt signals
 	sigChan := make(chan os.Signal, 1)
@@ -80,6 +118,15 @@ func run(args []string) error {
 	}
 
 	return nil
+}
+
+// printVersion writes the generator version to w as a single bare line so
+// scripts can parse it directly.
+func printVersion(w io.Writer) {
+	// Write errors are intentionally ignored: printing the version to stdout
+	// must not fail the command, matching the blank-assignment convention
+	// used for Fprint calls elsewhere in this file.
+	_, _ = fmt.Fprintln(w, config.Version)
 }
 
 // verifySnapshots verifies one or more snapshot files and reports results.

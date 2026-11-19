@@ -1,0 +1,278 @@
+package defra
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"sort"
+
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+	"github.com/sourcenetwork/defradb/node"
+)
+
+// ReorgHandler is the rollback primitive used when the chain reorgs.
+type ReorgHandler interface {
+	// RollbackBlocks soft-deletes the verified orphan documents for the
+	// height range [from, to]: per height, the stored block hash is
+	// compared against the caller-verified new chain's hash, keyed by
+	// height in chainHashes, and only heights whose stored hash disagrees
+	// are deleted, with children collections first and the block document
+	// last, and heights processed in descending order so an interrupted
+	// rollback leaves the lowest orphan visible for the resumed walk-back.
+	// ChainHashes heights the map does not cover (or covers with an empty
+	// hash) stay untouched, because nothing may be deleted without a
+	// hash-verified proof that it is an orphan.
+	// Deletions replicate to hosts; prune-queue entries are retained
+	// so the pruner can hard-purge the soft-deleted docs later.
+	RollbackBlocks(ctx context.Context, from, to int64, chainHashes map[int64]string) error
+
+	// GetStoredBlockHash returns the stored block hash at a height; ""
+	// when none stored.
+	GetStoredBlockHash(ctx context.Context, blockNumber int64) (string, error)
+}
+
+// ReorgRoller implements ReorgHandler against an embedded DefraDB node.
+// Rollback deletions are ordinary DAG commits, not local purges, so they
+// replicate to peers and hosts drop the orphan docs; the deletion commits
+// also let hosts distinguish the delete (old docID) from the canonical
+// re-insert (new docID) during re-indexing.
+type ReorgRoller struct {
+	defraNode *node.Node
+	converter chains.Converter
+}
+
+// Compile-time guarantee that ReorgRoller implements ReorgHandler.
+var _ ReorgHandler = (*ReorgRoller)(nil)
+
+// SetDocIDTracker is kept for call-site compatibility only and does
+// nothing: the rollback intentionally retains every prune-queue entry so
+// the pruner can hard-purge the soft-deleted orphan docIDs later, and the
+// resume height no longer reads the queue. Trackers are wired to the block
+// handler only.
+func (r *ReorgRoller) SetDocIDTracker(_ DocIDTrackerInterface) {}
+
+// NewReorgRoller creates a ReorgRoller over the given embedded DefraDB node,
+// using the converter for collection-name resolution and range docID queries.
+func NewReorgRoller(defraNode *node.Node, converter chains.Converter) (*ReorgRoller, error) {
+	if defraNode == nil {
+		return nil, errors.NewConfigurationError("defra", "NewReorgRoller",
+			"defraNode is nil", "", nil)
+	}
+	if converter == nil {
+		return nil, errors.NewConfigurationError("defra", "NewReorgRoller",
+			"converter is nil", "", nil)
+	}
+	return &ReorgRoller{
+		defraNode: defraNode,
+		converter: converter,
+	}, nil
+}
+
+// deleteOrder orders the collections to delete for one height so the
+// crash-recovery invariant holds: the block document goes last, and the
+// children go before it in reverse of the chain's registered collection
+// order (dependents first), with any other collection cleared
+// alphabetically in between. Block-last keeps the dangerous direction safe
+// and detectable: a rollback dying midway leaves the orphan's block doc
+// visible, so the next run's seed check re-detects the mismatch and
+// repeats the rollback (defect 8; alphabetical ordering never achieves
+// this because BlockSignature sorts after Block, while the reverse
+// registered order places the block-signature collection before the
+// block).
+func (r *ReorgRoller) deleteOrder(cols []string) []string {
+	ordered := make([]string, 0, len(cols))
+	known := r.converter.Collections().AllCollections()
+	blockCol := r.converter.Collections().BlockCollection()
+
+	for _, k := range slices.Backward(known) {
+		if k != blockCol && slices.Contains(cols, k) {
+			ordered = append(ordered, k)
+		}
+	}
+
+	for _, col := range cols {
+		if col == blockCol || slices.Contains(ordered, col) {
+			continue
+		}
+		ordered = append(ordered, col)
+	}
+	if slices.Contains(cols, blockCol) {
+		ordered = append(ordered, blockCol)
+	}
+	return ordered
+}
+
+// RollbackBlocks implements ReorgHandler. It verifies every height in
+// [from, to] against the new chain's hash, delivered by the caller through
+// the chainHashes parameter, and soft-deletes only the proven orphans: a
+// height is deleted exactly when a stored block hash exists at it and
+// disagrees with the verified new-chain hash. Heights without a verified
+// chain hash - above the processor's confirmed segment, say - and heights
+// matching the new chain are kept untouched, never guessed at. An orphan
+// left behind on that unverifiable path keeps its visible block doc, so
+// the next run's seed check re-detects the mismatch and repeats the
+// rollback.
+//
+// Verified orphans are deleted in descending height order: an interrupted
+// multi-height rollback (crash or mid-range error) then leaves the LOWEST
+// orphan visible, so a resumed run's walk-back descends onto the stored
+// mismatch and finds the real fork point, re-rolling everything above it.
+// Deleting lowest-first would instead empty the fork-adjacent height
+// first, and the resumed walk-back would take that emptied height as its
+// lowest-stored boundary, silently skipping it and leaving a permanent
+// hole at the fork seam while the orphans above survive.
+//
+// Per verified orphan the docIDs are resolved via the converter's
+// chain-agnostic range query - whose default queries already exclude
+// soft-deleted documents, so a re-run over an already rolled-back height
+// selects nothing and deletes nothing - and are soft-deleted collection by
+// collection, children first and the block document last.
+//
+// The deletes are NOT transactional across collections: a failure midway
+// leaves the height partly soft-deleted, which is safe because only
+// visible documents are selectable (the next rollback picks up where this
+// one left off) and the caller stops indexing on error. Block-last is the
+// crash-recovery invariant: whatever survives keeps the orphan's block doc
+// visible, so the mismatch stays re-detectable (defect 8).
+//
+// The prune-queue entries of deleted docs are intentionally retained: the
+// pruner is the only mechanism that hard-purges the soft-deleted docIDs
+// locally.
+func (r *ReorgRoller) RollbackBlocks(ctx context.Context, from, to int64, chainHashes map[int64]string) error {
+	if from <= to && len(chainHashes) == 0 {
+		logger.Sugar.Warnf("Rollback [%d, %d]: no verified new-chain hashes provided; no height can be verified or deleted",
+			from, to)
+	}
+
+	for height := to; height >= from; height-- {
+		chainHash, verified := chainHashes[height]
+		verified = verified && chainHash != ""
+		if !verified {
+			continue
+		}
+
+		stored, err := r.GetStoredBlockHash(ctx, height)
+		if err != nil {
+			return fmt.Errorf("rollback blocks [%d, %d]: %w", from, to, err) //nolint:err113
+		}
+		if stored == "" || stored == chainHash {
+			continue
+		}
+
+		logger.Sugar.Infof("Rollback: deleting the verified orphan at height %d (stored hash %s, new-chain hash %s)",
+			height, stored, chainHash)
+
+		docIDsByCollection, err := r.converter.GetDocIDsByBlockRange(ctx, r.defraNode, height, height)
+		if err != nil {
+			return fmt.Errorf("rollback blocks [%d, %d]: query docIDs at height %d: %w", from, to, height, err) //nolint:err113
+		}
+
+		cols := make([]string, 0, len(docIDsByCollection))
+		for col := range docIDsByCollection {
+			cols = append(cols, col)
+		}
+		sort.Strings(cols)
+		ordered := r.deleteOrder(cols)
+
+		for _, colName := range ordered {
+			if err := r.softDeleteCollectionDocs(ctx, colName, docIDsByCollection[colName]); err != nil {
+				return fmt.Errorf("rollback blocks [%d, %d]: %w", from, to, err) //nolint:err113
+			}
+		}
+	}
+	return nil
+}
+
+// softDeleteCollectionDocs soft-deletes the given documents of one collection,
+// chunked so no single delete filter carries more than chunkSize docIDs. The
+// filter targets only default-visible docs (soft-deleted ones are excluded
+// from selection), which keeps repeated rollbacks error-free rather than
+// failing on an already-deleted document.
+func (r *ReorgRoller) softDeleteCollectionDocs(ctx context.Context, colName string, docIDs []string) error {
+	const chunkSize = 100
+	if len(docIDs) == 0 {
+		return nil
+	}
+	col, err := r.defraNode.DB.GetCollectionByName(ctx, colName)
+	if err != nil {
+		return fmt.Errorf("get collection %s: %w", colName, err) //nolint:err113
+	}
+
+	for chunkStart := 0; chunkStart < len(docIDs); chunkStart += chunkSize {
+		chunk := docIDs[chunkStart:min(chunkStart+chunkSize, len(docIDs))]
+
+		conditions := make([]any, len(chunk))
+		for i, id := range chunk {
+			conditions[i] = id
+		}
+		filter := map[string]any{
+			docIDFieldName: map[string]any{"_in": conditions},
+		}
+		res, err := col.DeleteDocumentsWithFilter(ctx, filter)
+		if err != nil {
+			return fmt.Errorf("soft-delete documents from %s: %w", colName, err) //nolint:err113
+		}
+		logger.Sugar.Infof("Rollback: soft-deleted %d/%d documents from %s", res.Count, len(chunk), colName)
+	}
+	return nil
+}
+
+// GetStoredBlockHash implements ReorgHandler. It queries the block collection
+// at the given height through the same ExecRequest pattern as the converter's
+// range queries; since default queries exclude soft-deleted docs, a
+// rolled-back height reports as not stored. More than one visible block doc
+// at one height (the number field is indexed but not unique) is an
+// inconsistent store that the continuity checks feed on, so it errors
+// instead of guessing a row: a wrong guess can false-rollback a good block,
+// and stopping indexing loudly is the safe response.
+func (r *ReorgRoller) GetStoredBlockHash(ctx context.Context, blockNumber int64) (string, error) {
+	blockCol := r.converter.Collections().BlockCollection()
+
+	query := fmt.Sprintf(
+		`query { %s(filter: {%s: {_eq: %d}}) { %s %s } }`,
+		blockCol, constants.NumberFieldName, blockNumber, constants.HashFieldName, docIDFieldName,
+	)
+
+	result := r.defraNode.DB.ExecRequest(ctx, query)
+	if len(result.GQL.Errors) > 0 {
+		return "", fmt.Errorf("query stored block %d: %w", blockNumber, result.GQL.Errors[0]) //nolint:err113
+	}
+
+	data, ok := result.GQL.Data.(map[string]any)
+	if !ok {
+		return "", nil
+	}
+
+	rows := gqlRows(data[blockCol])
+	if len(rows) == 0 {
+		return "", nil
+	}
+	if len(rows) > 1 {
+		return "", fmt.Errorf("query stored block %d: %d visible block documents share the height; the store state is inconsistent",
+			blockNumber, len(rows)) //nolint:err113
+	}
+
+	hash, _ := rows[0][constants.HashFieldName].(string)
+	return hash, nil
+}
+
+// gqlRows flattens a GraphQL result field into row maps. The rows arrive as
+// []any or []map[string]any depending on the driver path; both shapes are
+// handled by the existing ExecRequest consumers.
+func gqlRows(raw any) []map[string]any {
+	var rows []map[string]any
+	switch typed := raw.(type) {
+	case []any:
+		for _, item := range typed {
+			if m, ok := item.(map[string]any); ok {
+				rows = append(rows, m)
+			}
+		}
+	case []map[string]any:
+		rows = typed
+	}
+	return rows
+}
