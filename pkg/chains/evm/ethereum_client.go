@@ -400,7 +400,9 @@ type rawBlockMeta struct {
 // ignored), the block hash, size, total difficulty and uncle hashes come
 // from the RPC response instead of being recomputed, and transactions come
 // from the adapter's DecodeTransactions with each raw tx object kept
-// alongside its decoded form for the adapter hooks.
+// alongside its decoded form for the adapter hooks. Each transaction's hash
+// also comes from the response: a mapped envelope re-derives a different
+// RLP hash, and the receipt merge plus the log join key on the node's hash.
 func (c *EthereumClient) convertRawBlock(rawBlock json.RawMessage) (*Block, error) {
 	var head *ethtypes.Header
 	if err := json.Unmarshal(rawBlock, &head); err != nil {
@@ -500,6 +502,30 @@ func normalizeBlockHash(hash string) (common.Hash, error) {
 		return common.Hash{}, fmt.Errorf("block hash %q: not a 0x-prefixed %d-byte hex hash", trimmed, common.HashLength)
 	}
 	return h, nil
+}
+
+// wireTxHash extracts the node-reported transaction hash from a raw tx
+// object. An adapter that maps a non-standard envelope onto the closest
+// standard one re-derives a different RLP hash, so the response's own hash
+// field is the only faithful identifier, and the fetcher's receipt
+// coverage check, receipt merge, per-tx receipt lookups, and log join all
+// key on the node's hash. A missing or malformed hash yields "", letting
+// the caller keep the re-derived hash rather than fail the fetch.
+func wireTxHash(rawTx json.RawMessage) string {
+	if len(rawTx) == 0 {
+		return ""
+	}
+	var wire struct {
+		Hash string `json:"hash"`
+	}
+	if err := json.Unmarshal(rawTx, &wire); err != nil {
+		return ""
+	}
+	h, err := normalizeBlockHash(wire.Hash)
+	if err != nil {
+		return ""
+	}
+	return h.Hex()
 }
 
 // GetFinalizedBlockNumber returns the finalized chain height, falling back to
@@ -810,8 +836,18 @@ func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, raw
 		}
 	}
 
+	// The raw response's hash field is the authoritative identifier on the
+	// raw path: an adapter-mapped envelope re-derives a different RLP hash,
+	// while the receipt merge, the per-tx receipt lookups, and the log join
+	// key on the node's hash. An unusable wire hash keeps the re-derived
+	// one rather than failing the fetch.
+	txHash := tx.Hash().Hex()
+	if wire := wireTxHash(rawTx); wire != "" {
+		txHash = wire
+	}
+
 	localTx := Transaction{
-		Hash:                 tx.Hash().Hex(),
+		Hash:                 txHash,
 		BlockHash:            blockHash,
 		BlockNumber:          fmt.Sprintf("%d", blockNumber),
 		From:                 fromAddrStr,
@@ -831,7 +867,7 @@ func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, raw
 		R:                    r.String(),
 		S:                    s.String(),
 		YParity:              c.getAdapter().YParity(tx, rawTx),
-		Status:               true, // Default to true, will be updated from receipt.
+		Status:               true, // signed payloads carry no execution outcome, so status defaults to true; the fetcher's receipt merge overwrites it with the executed result
 	}
 
 	return &localTx

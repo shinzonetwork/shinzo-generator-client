@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum"
@@ -29,6 +30,12 @@ import (
 // derived from the standard fields could ever produce it, so any assertion
 // matching it proves the hash came from the RPC response.
 const rawBlockHash = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+
+// rawTxHash is the wire transaction hash the raw fixture carries: the stub
+// adapter maps the 0x71 envelope onto a legacy transaction whose re-derived
+// RLP hash differs, so any assertion matching this value proves the hash
+// came from the response's own hash field.
+const rawTxHash = "0x0000000000000000000000000000000000000000000000000000000000000abc"
 
 // stubRawAdapter declares NeedsRawBlock and maps a ZKsync-style 0x71
 // envelope onto a legacy transaction, the closest standard envelope, so the
@@ -155,7 +162,7 @@ func (f fakeTxAdapter) YParity(_ *ethtypes.Transaction, _ json.RawMessage) strin
 func zksyncStyleTx() map[string]any {
 	return map[string]any{
 		"type":     "0x71",
-		"hash":     "0x0000000000000000000000000000000000000000000000000000000000000abc",
+		"hash":     rawTxHash,
 		"nonce":    "0x1",
 		"gasPrice": "0x3b9aca00",
 		"gas":      "0x5208",
@@ -246,6 +253,8 @@ func TestGetBlockByNumber_RawPath_NonStandardEnvelope(t *testing.T) {
 	assert.Equal(t, "1000000000", tx.GasPrice)
 	assert.Equal(t, rawBlockHash, tx.BlockHash)
 	assert.Equal(t, strconv.Itoa(testBlockNumber), tx.BlockNumber)
+	assert.Equal(t, rawTxHash, tx.Hash,
+		"the mapped envelope re-derives a different RLP hash, so the response's own hash field must win")
 }
 
 func TestGetBlockByNumber_TypedPath_FailsOnNonStandardEnvelope(t *testing.T) {
@@ -285,6 +294,117 @@ func TestGetBlockByNumber_RawPath_NotFound(t *testing.T) {
 	_, err := client.GetBlockByNumber(context.Background(), big.NewInt(testBlockNumber))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ethereum.NotFound)
+}
+
+// TestGetBlockByNumber_RawPath_WireHashFallback proves a raw tx object with
+// a missing or malformed hash field cannot fail the fetch: the conversion
+// keeps the re-derived hash of the adapter's decoded envelope.
+func TestGetBlockByNumber_RawPath_WireHashFallback(t *testing.T) {
+	t.Parallel()
+
+	// The stub adapter maps the fixture onto exactly this legacy
+	// transaction, so its re-derived hash is the expected fallback value.
+	to := new(common.HexToAddress("0x0000000000000000000000000000000000000002"))
+	twin := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(0x3b9aca00),
+		Gas:      0x5208,
+		To:       to,
+		Value:    big.NewInt(1),
+		Data:     common.Hex2Bytes("deadbeef"),
+	})
+
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "MissingHash", mutate: func(tx map[string]any) { delete(tx, "hash") }},
+		{name: "MalformedHash", mutate: func(tx map[string]any) { tx["hash"] = "0x123" }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			txObj := zksyncStyleTx()
+			tc.mutate(txObj)
+			server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+				if method == ethGetBlockByNumber {
+					return rawZksyncBlockResponseWithTxs([]any{txObj}), nil
+				}
+				return "0x1", nil
+			})
+			defer server.Close()
+
+			client := newRawPathClient(t, server.URL, stubRawAdapter{})
+			block, err := client.GetBlockByNumber(context.Background(), big.NewInt(testBlockNumber))
+			require.NoError(t, err)
+			require.Len(t, block.Transactions, 1)
+			assert.Equal(t, twin.Hash().Hex(), block.Transactions[0].Hash,
+				"an unusable wire hash must fall back to the re-derived hash")
+		})
+	}
+}
+
+// --- raw path receipt machinery ---
+
+// rawPathFailedReceiptResponse builds the receipt a node serves for the raw
+// fixture transaction: a standard-shaped failed receipt keyed by the wire
+// hash, so the fetcher's receipt machinery can only match it when the
+// conversion carries the node's hash.
+func rawPathFailedReceiptResponse() map[string]any {
+	return map[string]any{
+		"transactionHash":   rawTxHash,
+		"transactionIndex":  "0x0",
+		"blockHash":         rawBlockHash,
+		"blockNumber":       testBlockNumberHex,
+		"cumulativeGasUsed": "0x5208",
+		"gasUsed":           "0x5208",
+		"logsBloom":         "0x" + strings.Repeat("0", ethtypes.BloomByteLength*2),
+		"logs":              []any{},
+		"status":            "0x0",
+		"effectiveGasPrice": "0x4a817c800",
+	}
+}
+
+// TestRawPathFetchBlockMergesReceiptOutcome proves the fetcher's receipt
+// machinery works end to end on the raw path: the batch receipt keyed by the
+// node's wire hash is accepted as covering the block, and the failed
+// execution outcome overrides the conversion default. When the conversion
+// carries the re-derived hash instead, the batch is rejected as incomplete
+// coverage and the per-tx lookups with that hash resolve to nothing,
+// failing every raw-path block fetch.
+func TestRawPathFetchBlockMergesReceiptOutcome(t *testing.T) {
+	t.Parallel()
+	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
+		switch method {
+		case ethGetBlockByNumber:
+			return rawZksyncBlockResponse(), nil
+		case ethGetBlockReceipts:
+			return []any{rawPathFailedReceiptResponse()}, nil
+		default:
+			return "0x1", nil
+		}
+	})
+	defer server.Close()
+
+	client := newRawPathClient(t, server.URL, stubRawAdapter{})
+	f := NewFetcher(client, 8)
+
+	raw, err := f.FetchBlock(context.Background(), testBlockNumber)
+	require.NoError(t, err)
+	bundle, ok := raw.(*BlockBundle)
+	require.True(t, ok)
+
+	require.Len(t, bundle.Transactions, 1)
+	tx := bundle.Transactions[0]
+	assert.Equal(t, rawTxHash, tx.Hash, "the receipt merge must key on the node's hash")
+	assert.False(t, tx.Status, "the receipt's failed outcome must override the conversion default")
+	assert.Equal(t, "21000", tx.GasUsed)
+	assert.Equal(t, "21000", tx.CumulativeGasUsed)
+	assert.Equal(t, "20000000000", tx.EffectiveGasPrice)
+
+	require.Len(t, bundle.Receipts, 1)
+	assert.Equal(t, rawTxHash, bundle.Receipts[0].TransactionHash)
 }
 
 func TestGetBlockByNumber_RawPath_DecodeErrorPropagates(t *testing.T) {
