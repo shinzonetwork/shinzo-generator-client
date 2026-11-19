@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -140,12 +139,15 @@ func forkChainHashes(anchor, depth int64) map[int64]common.Hash {
 }
 
 // mockTxJSON is one legacy transaction served inside every block response.
-// go-ethereum re-derives the tx hash from the RLP content, so the same JSON
-// carries the same tx hash in every block; the transaction DOCUMENT content
-// still differs per branch because the converter stamps the containing
-// block's hash into it, exactly the re-included-transaction shape.
+// The raw conversion path takes the tx identity from the response itself,
+// so the same JSON carries the same explicit hash and from in every block;
+// the transaction DOCUMENT content still differs per branch because the
+// converter stamps the containing block's hash into it, exactly the
+// re-included-transaction shape.
 func mockTxJSON() map[string]any {
 	return map[string]any{
+		"hash":     "0x0000000000000000000000000000000000000000000000000000000000000001",
+		"from":     "0x0000000000000000000000000000000000000001",
 		"nonce":    "0x1",
 		"gasPrice": "0x1",
 		"gas":      "0x5208",
@@ -153,9 +155,8 @@ func mockTxJSON() map[string]any {
 		"value":    "0x0",
 		"input":    "0x",
 		"v":        "0x1b",
-		// r/s must be canonical hexutil.Big quantities: no leading zero
-		// digits. The dummy signature fails sender recovery deterministically
-		// and the converter falls back to the zero address.
+		// r/s are dummy signature quantities; sender recovery never happens
+		// on the raw path, so no signer falls back to the zero address.
 		"r": "0x1",
 		"s": "0x2",
 	}
@@ -221,29 +222,11 @@ func requestedBlockHash(params json.RawMessage) (string, bool) {
 	return bh.BlockHash, true
 }
 
-// reorgMockTx rebuilds the legacy transaction the mock serves inside every
-// block response, so anything re-derived from the wire content (the tx
-// hash) can reference the served tx. Mirrors mockTxJSON field for field:
-// nonce 1, gasPrice 1, gas 0x5208, value 0, empty input, and the dummy
-// canonical signature (v 27, r 1, s 2) that fails sender recovery.
-func reorgMockTx() *ethtypes.Transaction {
-	to := common.HexToAddress("0x0000000000000000000000000000000000000002")
-	return ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    1,
-		GasPrice: big.NewInt(1),
-		Gas:      0x5208,
-		To:       &to,
-		Value:    new(big.Int),
-		V:        big.NewInt(27),
-		R:        big.NewInt(1),
-		S:        big.NewInt(2),
-	})
-}
-
-// reorgMockTxHash is the hash go-ethereum derives from the served mock
-// transaction's RLP content: the key the fetcher's by-tx coverage check
-// matches batch receipts against.
-var reorgMockTxHash = reorgMockTx().Hash()
+// reorgMockTxHash is the hash the mock serves inside every block response's
+// transaction: the raw conversion path takes tx identity from the wire, so
+// the fetcher's by-tx coverage check matches batch receipts against this
+// served value instead of a re-derived RLP hash.
+const reorgMockTxHash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 
 // reorgReceiptResponse builds the receipt for the scenario block at height n
 // served under the requested block-hash variant (canonical or orphan, so a
@@ -253,7 +236,7 @@ var reorgMockTxHash = reorgMockTx().Hash()
 // scenario must serve them; zero logs keep the no-log-documents property.
 func reorgReceiptResponse(blockHashHex string, n int64) map[string]any {
 	return map[string]any{
-		"transactionHash":   reorgMockTxHash.Hex(),
+		"transactionHash":   reorgMockTxHash,
 		"transactionIndex":  "0x0",
 		"blockHash":         blockHashHex,
 		"blockNumber":       fmt.Sprintf("0x%x", n),

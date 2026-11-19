@@ -9,8 +9,11 @@ package golden
 // and compared with the committed golden files. Every chain case runs twice,
 // once through the batch receipt path and once through the per-tx fallback,
 // and both runs must freeze identical documents. The freeze is the
-// no-unintended-change gate for the typed pipeline: regenerate deliberately
-// with -golden-update and review the diff before committing it.
+// no-unintended-change gate for the single raw pipeline: the fetcher pulls
+// the raw eth_getBlockByNumber response and the adapter's tolerant
+// passthrough converts it, so a captured fixture replays exactly as a real
+// node would serve it. Regenerate deliberately with -golden-update and
+// review the diff before committing it.
 
 import (
 	"context"
@@ -155,7 +158,7 @@ func runChainGolden(t *testing.T, tc chainCase, mode receiptMode) map[string][]b
 
 	for _, fixture := range fixtures {
 		raw, err := fetcher.FetchBlock(ctx, fixture.height)
-		require.NoError(t, err, "%s: fetch block %d through the typed pipeline", mode.name, fixture.height)
+		require.NoError(t, err, "%s: fetch block %d through the single raw pipeline", mode.name, fixture.height)
 
 		bundle, ok := raw.(*evm.BlockBundle)
 		require.True(t, ok, "%s: fetch block %d: expected *evm.BlockBundle, got %T", mode.name, fixture.height, raw)

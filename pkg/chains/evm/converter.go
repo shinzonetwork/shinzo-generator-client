@@ -26,7 +26,27 @@ func chainPrefixFromConfig(cfg *config.Config) (string, error) {
 	if cfg == nil || cfg.Chain.Name == "" || cfg.Chain.Network == "" {
 		return "", config.ErrChainUnset
 	}
-	return fmt.Sprintf("%s__%s", cfg.Chain.Name, cfg.Chain.Network), nil
+	return fmt.Sprintf("%s__%s", collectionPrefixLabel(cfg.Chain.Name), collectionPrefixLabel(cfg.Chain.Network)), nil
+}
+
+// collectionPrefixLabel sanitizes a config label into a valid GraphQL
+// identifier fragment. The prefix is substituted verbatim into the embedded
+// SDL type names (type <prefix>__Block), and vetted chain names like
+// "Arbitrum One" or "Avalanche C-Chain" carry spaces and dashes that
+// GraphQL identifiers cannot contain. Single-word labels, including the
+// deployed "Ethereum" and "BSC", pass through unchanged.
+func collectionPrefixLabel(label string) string {
+	var b strings.Builder
+	b.Grow(len(label))
+	for _, r := range label {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 // Converter is the EVM chain-specific knowledge layer. It implements

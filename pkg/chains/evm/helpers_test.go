@@ -2,7 +2,6 @@ package evm
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,9 +13,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/websocket"
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
@@ -398,16 +395,6 @@ func newWSMockServer() *httptest.Server {
 			}
 		}
 	}))
-}
-
-func defaultTestKey() (*ecdsa.PrivateKey, common.Address) {
-	// Use a fixed test private key
-	key, err := crypto.HexToECDSA("fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19")
-	if err != nil {
-		panic(fmt.Sprintf("failed to parse test key: %v", err))
-	}
-	addr := crypto.PubkeyToAddress(key.PublicKey)
-	return key, addr
 }
 
 // newHangingWSServer returns a server that accepts the TCP connection and the

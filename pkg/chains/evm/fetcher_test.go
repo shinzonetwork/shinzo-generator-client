@@ -128,14 +128,15 @@ func TestNewFetcherFromConfig_ChainName(t *testing.T) {
 }
 
 // TestFetcher_Connect_InstallsDefaultAdapter proves the Connect seam
-// resolves the ClientAdapter by chain name. Only the default adapter is
-// registered today, so every current name must resolve to it.
+// enforces the vetted-chain allowlist: vetted and empty names connect and
+// resolve to the default adapter, an unknown non-empty name fails
+// construction with the fixture-requirement error.
 func TestFetcher_Connect_InstallsDefaultAdapter(t *testing.T) {
 	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	for _, name := range []string{"", "Ethereum", "BSC", "UnknownChain"} {
+	for _, name := range []string{"", "Ethereum", "BSC"} {
 		cfg := testConfig()
 		cfg.Chain.Name = name
 		// simpleRPCServer reports chain id 1, so the config must carry the
@@ -145,12 +146,50 @@ func TestFetcher_Connect_InstallsDefaultAdapter(t *testing.T) {
 		f, err := NewFetcherFromConfig(cfg)
 		require.NoError(t, err)
 
-		require.NoError(t, f.Connect(t.Context()))
+		require.NoError(t, f.Connect(t.Context()), "chain %q is vetted and must connect", name)
 		ec, ok := f.client.(*EthereumClient)
 		require.True(t, ok, "Connect must build an *EthereumClient")
 		assert.Equal(t, defaultAdapter, ec.getAdapter(), "chain %q must resolve to the default adapter", name)
 		require.NoError(t, f.Close())
 	}
+
+	cfg := testConfig()
+	cfg.Chain.Name = "UnknownChain"
+	cfg.Chain.ChainID = 1
+	cfg.Geth.NodeURL = server.URL
+	f, err := NewFetcherFromConfig(cfg)
+	require.NoError(t, err)
+
+	connectErr := f.Connect(t.Context())
+	require.Error(t, connectErr, "an unvetted chain name must fail construction")
+	assert.Contains(t, connectErr.Error(), "vetted chain allowlist")
+}
+
+// TestFetcher_Connect_RegisteredAdapter proves registration selects the
+// converter: a chain name registered in chainAdapters resolves to that
+// override through the whole Connect path, not to the default adapter.
+func TestFetcher_Connect_RegisteredAdapter(t *testing.T) {
+	// Not parallel: mutates the shared chainAdapters registry.
+	server := simpleRPCServer()
+	defer server.Close()
+
+	const registered = "testchain-connect"
+	chainAdapters[registered] = fakeConvertAdapter{}
+	t.Cleanup(func() { delete(chainAdapters, registered) })
+
+	cfg := testConfig()
+	cfg.Chain.Name = "TestChain-Connect"
+	cfg.Chain.ChainID = 1
+	cfg.Geth.NodeURL = server.URL
+	f, err := NewFetcherFromConfig(cfg)
+	require.NoError(t, err)
+
+	require.NoError(t, f.Connect(t.Context()))
+	ec, ok := f.client.(*EthereumClient)
+	require.True(t, ok, "Connect must build an *EthereumClient")
+	assert.Equal(t, ClientAdapter(fakeConvertAdapter{}), ec.getAdapter(),
+		"the registered ConvertBlock override must be selected by chain name")
+	require.NoError(t, f.Close())
 }
 
 // ---------------------------------------------------------------------------
