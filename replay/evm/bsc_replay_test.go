@@ -20,7 +20,7 @@ var bscSpec = replaySpec{
 	fixtureGlob:        "bsc_blocks_*.json",
 	defaultTarget:      450 * time.Millisecond,
 	targetDurationHint: "450ms or 750ms",
-	skipHint:           "make bsc-replay-fetch",
+	skipHint:           "mise run replay-fetch --chain bsc --from START_BLOCK --to END_BLOCK",
 }
 
 // TestBSCReplayAcceptance replays the newest captured BSC fixture through
