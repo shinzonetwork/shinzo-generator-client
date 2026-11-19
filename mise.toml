@@ -115,10 +115,10 @@ depends = ["test-unit", "evm-integration", "ethereum-golden"]
 # Binary building tasks & templates
 [task_templates."generator:build"]
 description = "Building the generator binary."
-vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"' }
-run = "go build -ldflags {{ vars.ldflags }} -o bin/block_poster ./cmd/block_poster/"
+vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"' , adapter = "evm"}
+run = "go build -ldflags {{ vars.ldflags }} -o bin/block_poster_{{ vars.adapter }} ./cmd/block_poster/{{ vars.adapter }}/"
 
-[tasks.build]
+[tasks.evm-build]
 extends = "generator:build"
 
 [tasks.build-all]
@@ -131,8 +131,8 @@ run = [
 
 # Generator startup tasks & templates
 [task_templates."generator:start"]
-vars = { config = "./config/config.yaml" }
-run = "./bin/block_poster --config {{ vars.config }}"
+vars = { adapter="evm", config = "./config/config.yaml" }
+run = "./bin/block_poster_{{ vars.adapter }} --config {{ vars.config }}"
 
 [tasks.ethereum-start]
 description = "Starting Ethereum generator binary."
