@@ -54,25 +54,17 @@ func adapterForChain(chainName string) ClientAdapter {
 // vettedChains is the allowlist of chain names whose passthrough
 // correctness is pinned by a checked-in golden fixture under golden/.
 // Each entry is the vetting artifact: a chain goes live only together with
-// its fixture. Ethereum, BSC, Polygon, Arbitrum One, OP Mainnet, Base and
-// ZKsync Era are the confirmed pre-Rust scope; Linea, Monad and Avalanche
-// C-Chain are the researched followers that follow the same pattern.
+// its fixture. The live scope is intentionally narrow: Ethereum and BSC
+// only. Any further chain must first land its golden fixture under
+// golden/<chain>/testdata and then join this list.
 var vettedChains = map[string]struct{}{ //nolint:gochecknoglobals // static allowlist, read on every construction
-	"ethereum":          {},
-	"bsc":               {},
-	"polygon":           {},
-	"arbitrum one":      {},
-	"op mainnet":        {},
-	"base":              {},
-	"zksync era":        {},
-	"linea":             {},
-	"monad":             {},
-	"avalanche c-chain": {},
+	"ethereum": {},
+	"bsc":      {},
 }
 
 // normalizeChainName lowercases and trims a chain name. It is the single
 // normalization shared by the allowlist lookup and the adapter registry,
-// so "Arbitrum One" and "  arbitrum one  " resolve to the same entry.
+// so "Ethereum" and "  ethereum  " resolve to the same entry.
 func normalizeChainName(chainName string) string {
 	return strings.ToLower(strings.TrimSpace(chainName))
 }

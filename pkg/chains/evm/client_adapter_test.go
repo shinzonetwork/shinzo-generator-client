@@ -36,14 +36,6 @@ func TestValidateChainName_VettedNamesPass(t *testing.T) {
 	for _, name := range []string{
 		"Ethereum", "ethereum", "  Ethereum  ",
 		"BSC", "bsc",
-		"Polygon", "polygon",
-		"Arbitrum One", "arbitrum one",
-		"OP Mainnet", "op mainnet",
-		"Base", "base",
-		"ZKsync Era", "zksync era",
-		"Linea", "linea",
-		"Monad", "monad",
-		"Avalanche C-Chain", "avalanche c-chain",
 	} {
 		assert.NoError(t, validateChainName(name), "vetted chain %q must pass, case-insensitively and whitespace-tolerantly", name)
 	}
@@ -51,7 +43,10 @@ func TestValidateChainName_VettedNamesPass(t *testing.T) {
 
 func TestValidateChainName_UnknownNameFailsWithFixtureRequirement(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"UnknownChain", "arbitrum", "OP", "ShinzoHub"} {
+	// "Polygon" and "Arbitrum One" were researched candidates, so they pin
+	// the rule: a researched but unvetted name must fail until its golden
+	// fixture lands.
+	for _, name := range []string{"UnknownChain", "Polygon", "Arbitrum One", "ShinzoHub"} {
 		err := validateChainName(name)
 		require.Error(t, err, "an unknown non-empty chain name must fail construction: %q", name)
 		assert.Contains(t, err.Error(), "vetted chain allowlist",
@@ -85,7 +80,7 @@ func TestNewEthereumClientForChain_UnknownChainFailsFast(t *testing.T) {
 
 func TestAdapterForChain_FallsBackToDefault(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"", "Ethereum", "BSC", "Arbitrum One", "TotallyUnknownChain"} {
+	for _, name := range []string{"", "Ethereum", "BSC", "Unknown Chain", "TotallyUnknownChain"} {
 		assert.Equal(t, defaultAdapter, adapterForChain(name), "chain %q must resolve to the default adapter", name)
 	}
 }

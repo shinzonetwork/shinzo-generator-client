@@ -31,10 +31,10 @@ func chainPrefixFromConfig(cfg *config.Config) (string, error) {
 
 // collectionPrefixLabel sanitizes a config label into a valid GraphQL
 // identifier fragment. The prefix is substituted verbatim into the embedded
-// SDL type names (type <prefix>__Block), and vetted chain names like
-// "Arbitrum One" or "Avalanche C-Chain" carry spaces and dashes that
-// GraphQL identifiers cannot contain. Single-word labels, including the
-// deployed "Ethereum" and "BSC", pass through unchanged.
+// SDL type names (type <prefix>__Block), and a chain label from operator
+// config can carry spaces or dashes that GraphQL identifiers cannot
+// contain. Single-word labels, including the deployed "Ethereum" and
+// "BSC", pass through unchanged.
 func collectionPrefixLabel(label string) string {
 	var b strings.Builder
 	b.Grow(len(label))

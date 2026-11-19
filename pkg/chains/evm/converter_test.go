@@ -62,8 +62,8 @@ func TestNewConverter_CustomPrefix(t *testing.T) {
 	assert.Equal(t, "Arbitrum__One", c.collections.Prefix())
 }
 
-// TestNewConverter_SpacedChainPrefix pins the prefix sanitization: vetted
-// chain names like "Arbitrum One" carry spaces and dashes, and the prefix is
+// TestNewConverter_SpacedChainPrefix pins the prefix sanitization: a chain
+// label from operator config can carry spaces and dashes, and the prefix is
 // substituted verbatim into the SDL type names, which must stay valid
 // GraphQL identifiers. Single-word labels pass through unchanged.
 func TestNewConverter_SpacedChainPrefix(t *testing.T) {
