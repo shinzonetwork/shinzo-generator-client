@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build ethereum-start bsc-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test
+.PHONY: deps env build evm-build solana-build ethereum-start bsc-start solana-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test solana-live-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -11,6 +11,10 @@ GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
 
+# Solana JSON-RPC endpoints
+SOLANA_RPC_URL ?=
+SOLANA_WS_URL ?=
+SOLANA_API_KEY ?=
 
 # Capture range for replay-fetch. 0 = auto: latest 100 blocks from the
 # current chain tip. Without these defaults a bare `make replay-fetch`
@@ -24,29 +28,43 @@ TO ?= 0
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 # One generator binary per chain adapter (see specs/features/BINARY-SPLIT.md):
-# the evm adapter produces bin/block_poster_evm. LDFLAGS keeps the version
-# injection identical between evm-build and any future per-chain build target.
+# the evm adapter produces bin/block_poster_evm and the solana adapter produces
+# bin/block_poster_solana. LDFLAGS keeps the version injection identical
+# between per-chain build targets.
 LDFLAGS := -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)"
 
-build: evm-build
+build: evm-build solana-build
 	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 
 evm-build:
 	go build $(LDFLAGS) -o bin/block_poster_evm ./cmd/block_poster/evm/
-	@if [ "$(VERSION)" = "dev" ]; then \
-		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
-	elif grep -aFq "$(VERSION)" bin/block_poster_evm; then \
-		echo "✅ version injected: $(VERSION)"; \
-	else \
-		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
-	fi
+	$(call version-check,bin/block_poster_evm)
+
+solana-build:
+	go build $(LDFLAGS) -o bin/block_poster_solana ./cmd/block_poster/solana/
+	$(call version-check,bin/block_poster_solana)
+
+# version-check verifies the -X injected version string is present in the
+# built binary, so a wrong symbol path fails the build instead of silently
+# shipping a binary without version metadata.
+define version-check
+@if [ "$(VERSION)" = "dev" ]; then \
+	echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+elif grep -aFq "$(VERSION)" $(1); then \
+	echo "✅ version injected: $(VERSION)"; \
+else \
+	echo "❌ version injection failed: binary does not contain '$(VERSION)'; check the -X symbol path"; exit 1; \
+fi
+endef
 
 ethereum-start:
 	./bin/block_poster_evm
 
 bsc-start:
 	./bin/block_poster_evm -config config/config_bsc.yaml
-	
+
+solana-start:
+	./bin/block_poster_solana -config config/config_solana.yaml	
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
@@ -111,6 +129,33 @@ test-local:
 integration-test:
 	@echo "🧪 Running integration tests..."
 	@go test -tags=integration -v ./integration/ ./golden/
+	@go test -tags=integration -v ./integration/solana/
+	@echo ""
+	@echo "🌐 Live tests (requires environment variables):"
+	@if [ -n "$(GETH_RPC_URL)" ]; then \
+		go test -tags=live -v ./integration/live/ -timeout=20s; \
+	else \
+		echo "⚠️  Skipping EVM live tests - GETH_RPC_URL not set"; \
+	fi
+	@if [ -n "$(SOLANA_RPC_URL)" ]; then \
+		go test -tags=live -v ./integration/live/solana/ -timeout=120s; \
+	else \
+		echo "⚠️  Skipping Solana live smoke - SOLANA_RPC_URL not set"; \
+	fi
+
+# Solana live smoke against a real JSON-RPC endpoint (a paid endpoint, or the
+# suggested public devnet for a quick wiring check). The package skips with
+# exit 0 when SOLANA_RPC_URL is unset; the gate here enforces the setup hint
+# for explicit runs.
+solana-live-test:
+	@echo "🧪 Running solana live integration tests..."
+	@if [ -z "$(SOLANA_RPC_URL)" ]; then \
+		echo "❌ SOLANA_RPC_URL not set. Please export it first:"; \
+		echo "   export SOLANA_RPC_URL=<your-json-rpc-url>  (for example https://api.devnet.solana.com)"; \
+		exit 1; \
+	fi
+	@go test -tags=live -v ./integration/live/solana/ -timeout=120s
+
 coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
@@ -250,8 +295,9 @@ help:
 	@echo "=================================================="
 	@echo ""
 	@echo "📦 Build & Test:"
-	@echo "  build              - Build all binaries (evm generator + fetch_blocks)"
+	@echo "  build              - Build all binaries (evm and solana generators + fetch_blocks)"
 	@echo "  evm-build          - Build only bin/block_poster_evm"
+	@echo "  solana-build       - Build only bin/block_poster_solana"
 	@echo "  test               - Run all tests with summary"
 	@echo "  integration-test   - Fast mock integration suite (no chain endpoint, no credentials)"
 	@echo "  coverage           - Run tests with coverage report"
@@ -279,6 +325,7 @@ help:
 	@echo "  defra-start        - Start DefraDB"
 	@echo "  ethereum-start     - Start the evm generator binary with the Ethereum config"
 	@echo "  bsc-start          - Start the evm generator with the BSC config"
+	@echo "  solana-start       - Start the Solana generator"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
@@ -286,6 +333,12 @@ help:
 	@echo "  GETH_API_KEY   - API key for authentication (optional)"
 	@echo "  GETH_WS_URL    - WebSocket endpoint (optional)"
 	@echo "  (GETH_* names are historical; any compatible JSON-RPC/WS endpoint works)"
+	@echo ""
+	@echo "🔧 Environment Variables for solana-live-test:"
+	@echo "  SOLANA_RPC_URL          - Solana JSON-RPC endpoint (required; public devnet example https://api.devnet.solana.com)"
+	@echo "  SOLANA_WS_URL           - WebSocket endpoint for slot hints (optional)"
+	@echo "  SOLANA_API_KEY          - API key sent on every request (optional)"
+	@echo "  SOLANA_LIVE_NETWORK     - Chain network segment, Devnet default (optional)"
 	@echo ""
 	@echo "💡 Example Usage:"
 	@echo "  export GETH_RPC_URL=http://xx.xx.xx.xx:port"

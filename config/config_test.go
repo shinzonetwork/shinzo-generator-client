@@ -576,15 +576,16 @@ func TestChainAdapter_EnvOverrideEmptyIgnored(t *testing.T) {
 func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name         string
-		chainAdapter string
-		shouldError  bool
-		errContains  string
+		name          string
+		chainAdapter  string
+		solanaNodeURL string
+		shouldError   bool
+		errContains   string
 	}{
-		{"evm valid", DefaultChainAdapter, false, ""},
-		{"cosmos rejected", "cosmos", true, "not yet implemented"},
-		{"solana rejected", "solana", true, "not yet implemented"},
-		{"empty rejected", "", true, "not yet implemented"},
+		{"evm valid", DefaultChainAdapter, "", false, ""},
+		{"solana valid", SolanaAdapter, "http://localhost:8899", false, ""},
+		{"cosmos rejected", "cosmos", "", true, "not yet implemented"},
+		{"empty rejected", "", "", true, "not yet implemented"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -593,6 +594,10 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 			cfg.DefraDB.Embedded = true
 			cfg.Chain = testChain
 			cfg.Chain.Adapter = tt.chainAdapter
+			cfg.Solana.NodeURL = tt.solanaNodeURL
+			if tt.chainAdapter == SolanaAdapter {
+				cfg.Solana.Commitment = DefaultSolanaCommitment
+			}
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			err := validateConfig(cfg)
 			if tt.shouldError {

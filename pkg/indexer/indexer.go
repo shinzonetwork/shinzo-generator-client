@@ -1043,6 +1043,12 @@ func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
 		return "", 0
 	}
+
+	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
+	if i.cfg.Chain.Adapter == config.SolanaAdapter && network == "mainnet" {
+		return "solana", 0
+	}
+
 	return strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name)), i.cfg.Chain.ChainID
 }
 
