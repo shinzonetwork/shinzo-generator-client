@@ -1,4 +1,4 @@
-.PHONY: deps env build start-ethereum start-bsc start-bitcoin clean defradb gitpush test testrpc coverage playground stop integration-test ethereum-integration-test bitcoin-integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test bitcoin-live-test bsc-live-test bsc-acceptance-test deadcode-check
+.PHONY: deps env build evm-build bitcoin-build ethereum-start bsc-start bitcoin-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -29,26 +29,42 @@ TO ?= 0
 # commit offset and dirty state; falls back to "dev" outside a git repo).
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-build:
-	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
+# One generator binary per chain adapter (see specs/features/BINARY-SPLIT.md):
+# the evm adapter produces bin/block_poster_evm. LDFLAGS keeps the version
+# injection identical between evm-build and any future per-chain build target.
+LDFLAGS := -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)"
+
+build: evm-build bitcoin-build
 	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
+
+evm-build:
+	go build $(LDFLAGS) -o bin/block_poster_evm ./cmd/block_poster/evm/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
-	elif grep -aFq "$(VERSION)" bin/block_poster; then \
+	elif grep -aFq "$(VERSION)" bin/block_poster_evm; then \
 		echo "✅ version injected: $(VERSION)"; \
 	else \
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
 	fi
 
-start-ethereum:
-	./bin/block_poster -config config/config.yaml
+bitcoin-build:
+	go build $(LDFLAGS) -o bin/block_poster_btc ./cmd/block_poster/btc/
+	@if [ "$(VERSION)" = "dev" ]; then \
+		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+	elif grep -aFq "$(VERSION)" bin/block_poster_evm; then \
+		echo "✅ version injected: $(VERSION)"; \
+	else \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
+	fi
 
-start-bitcoin:
-	./bin/block_poster -config config/config_bitcoin.yaml
+ethereum-start:
+	./bin/block_poster_evm
 
-start-bsc:
-	./bin/block_poster -config config/config_bsc.yaml
-	
+bsc-start:
+	./bin/block_poster_evm -config config/config_bsc.yaml
+
+bitcoin-start:
+	./bin/block_poster_btc -config config/config_bitcoin.yaml
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
@@ -290,7 +306,8 @@ help:
 	@echo "=================================================="
 	@echo ""
 	@echo "📦 Build & Test:"
-	@echo "  build              - Build the generator binary"
+	@echo "  build              - Build all binaries (evm generator + fetch_blocks)"
+	@echo "  evm-build          - Build only bin/block_poster_evm"
 	@echo "  test               - Run all tests with summary"
 	@echo "  integration-test   - Run the Ethereum and Bitcoin integration suites (no chain endpoint, no credentials)"
 	@echo "  ethereum-integration-test - Run the Ethereum mock and live legs"
@@ -319,8 +336,8 @@ help:
 	@echo ""
 	@echo "🏃 Services:"
 	@echo "  defra-start        - Start DefraDB"
-	@echo "  start              - Start the generator"
-	@echo "  start-bsc          - Start the generator with the BSC config"
+	@echo "  ethereum-start     - Start the evm generator binary with the Ethereum config"
+	@echo "  bsc-start          - Start the evm generator with the BSC config"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"

@@ -76,7 +76,7 @@ func TestMain(m *testing.M) {
 		cfg.Geth.APIKey = os.Getenv("GETH_API_KEY")
 
 		// Start indexer with real connections - should succeed if env vars are set.
-		liveChainIndexer, err = indexer.CreateIndexer(cfg)
+		liveChainIndexer, err = indexer.CreateIndexer(cfg, evm.Factories())
 		if err != nil {
 			logger.Sugar.Errorf("create indexer failed: %v", err)
 			return

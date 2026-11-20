@@ -1,4 +1,7 @@
-package main
+// Package generator holds the adapter-agnostic block_poster runner: flags,
+// version handling, snapshot verification, telemetry, and the indexing loop.
+// Per-chain main packages wire their adapter and call Main.
+package generator
 
 import (
 	"context"
@@ -11,8 +14,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
-	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/bitcoin"
-	_ "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
@@ -20,14 +22,20 @@ import (
 
 const otelShutdownTimeout = 10 * time.Second
 
-func main() {
-	if err := run(os.Args[1:]); err != nil {
+// Main is the process entry point: it runs the generator with the chain
+// factories the per-chain main provides and exits the process with a non-zero
+// code on error.
+func Main(factories chains.ChainFactories) {
+	if err := Run(os.Args[1:], factories); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
+// Run parses args, dispatches the verify subcommand and version flags, then
+// sets up telemetry and starts indexing. The verify and version paths never
+// touch the factories; only the indexing path dispatches through them.
+func Run(args []string, factories chains.ChainFactories) error {
 	// Check for subcommands before parsing flags
 	if len(args) > 0 {
 		if args[0] == "verify" { //nolint:goconst
@@ -77,7 +85,7 @@ func run(args []string) error {
 	}()
 
 	// Create and start indexer
-	chainIndexer, err := indexer.CreateIndexer(cfg)
+	chainIndexer, err := indexer.CreateIndexer(cfg, factories)
 	if err != nil {
 		return fmt.Errorf("failed to create indexer: %w", err)
 	}
