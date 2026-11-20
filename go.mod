@@ -451,3 +451,5 @@ require (
 )
 
 tool golang.org/x/tools/cmd/deadcode
+
+replace github.com/dgraph-io/badger/v4 => github.com/shinzonetwork/badger/v4 v4.9.7-0.20261119170544-dafc7e78f1b5
