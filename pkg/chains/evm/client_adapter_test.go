@@ -1,16 +1,14 @@
 package evm
 
-// Tests for the ClientAdapter extension surface: the vetted-chain allowlist
-// enforced at construction, and the chain-name registry that selects a
-// registered ConvertBlock override.
+// Tests for the ClientAdapter extension surface: the chain-name registry
+// that selects a registered ConvertBlock override, and the default
+// passthrough adapter every unregistered name resolves to.
 
 import (
 	"encoding/json"
-	stderrors "errors"
 	"strings"
 	"testing"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,65 +20,11 @@ func (fakeConvertAdapter) ConvertBlock(_ json.RawMessage) (*Block, error) {
 	return &Block{Hash: "0xoverride"}, nil
 }
 
-// --- validateChainName (the construction-time allowlist) ---
-
-func TestValidateChainName_EmptyKeepsDefault(t *testing.T) {
-	t.Parallel()
-	for _, name := range []string{"", "   ", "\t"} {
-		require.NoError(t, validateChainName(name), "an empty chain name keeps the Ethereum default: %q", name)
-	}
-}
-
-func TestValidateChainName_VettedNamesPass(t *testing.T) {
-	t.Parallel()
-	for _, name := range []string{
-		"Ethereum", "ethereum", "  Ethereum  ",
-		"BSC", "bsc",
-	} {
-		assert.NoError(t, validateChainName(name), "vetted chain %q must pass, case-insensitively and whitespace-tolerantly", name)
-	}
-}
-
-func TestValidateChainName_UnknownNameFailsWithFixtureRequirement(t *testing.T) {
-	t.Parallel()
-	// "Polygon" and "Arbitrum One" were researched candidates, so they pin
-	// the rule: a researched but unvetted name must fail until its golden
-	// fixture lands.
-	for _, name := range []string{"UnknownChain", "Polygon", "Arbitrum One", "ShinzoHub"} {
-		err := validateChainName(name)
-		require.Error(t, err, "an unknown non-empty chain name must fail construction: %q", name)
-		assert.Contains(t, err.Error(), "vetted chain allowlist",
-			"the error must name the allowlist so the operator sees the misconfiguration: %q", name)
-		assert.Contains(t, err.Error(), "golden fixture",
-			"the error must name the fixture requirement: %q", name)
-	}
-}
-
-func TestValidateChainName_ConfigurationErrorClassification(t *testing.T) {
-	t.Parallel()
-	err := validateChainName("UnknownChain")
-	require.Error(t, err)
-	idxErr, ok := stderrors.AsType[errors.IndexerError](err)
-	require.True(t, ok, "the allowlist rejection must be a package IndexerError, got: %T", err)
-	assert.Equal(t, errors.CodeConfigurationError, idxErr.Code(), "a misconfigured chain name is a configuration error")
-}
-
-// --- construction rejects an unknown chain before dialing ---
-
-func TestNewEthereumClientForChain_UnknownChainFailsFast(t *testing.T) {
-	t.Parallel()
-	// Empty URLs and an unknown name: the allowlist check runs before any
-	// dial, so no server is needed to prove the fail-fast.
-	_, err := NewEthereumClientForChain(t.Context(), "", "", "", "", 0, "UnknownChain")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vetted chain allowlist")
-}
-
 // --- adapterForChain (the registry) ---
 
 func TestAdapterForChain_FallsBackToDefault(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"", "Ethereum", "BSC", "Unknown Chain", "TotallyUnknownChain"} {
+	for _, name := range []string{"", "   ", "\t", "Ethereum", "BSC", "Unknown Chain", "TotallyUnknownChain"} {
 		assert.Equal(t, defaultAdapter, adapterForChain(name), "chain %q must resolve to the default adapter", name)
 	}
 }

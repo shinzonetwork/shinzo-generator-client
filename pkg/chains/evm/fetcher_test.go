@@ -128,15 +128,15 @@ func TestNewFetcherFromConfig_ChainName(t *testing.T) {
 }
 
 // TestFetcher_Connect_InstallsDefaultAdapter proves the Connect seam
-// enforces the vetted-chain allowlist: vetted and empty names connect and
-// resolve to the default adapter, an unknown non-empty name fails
-// construction with the fixture-requirement error.
+// resolves every chain name to the default passthrough adapter: unknown
+// and empty names connect exactly like named ones, because registration
+// in chainAdapters is the only way to select a different conversion.
 func TestFetcher_Connect_InstallsDefaultAdapter(t *testing.T) {
 	t.Parallel()
 	server := simpleRPCServer()
 	defer server.Close()
 
-	for _, name := range []string{"", "Ethereum", "BSC"} {
+	for _, name := range []string{"", "Ethereum", "BSC", "UnknownChain"} {
 		cfg := testConfig()
 		cfg.Chain.Name = name
 		// simpleRPCServer reports chain id 1, so the config must carry the
@@ -146,23 +146,12 @@ func TestFetcher_Connect_InstallsDefaultAdapter(t *testing.T) {
 		f, err := NewFetcherFromConfig(cfg)
 		require.NoError(t, err)
 
-		require.NoError(t, f.Connect(t.Context()), "chain %q is vetted and must connect", name)
+		require.NoError(t, f.Connect(t.Context()), "chain %q must connect", name)
 		ec, ok := f.client.(*EthereumClient)
 		require.True(t, ok, "Connect must build an *EthereumClient")
 		assert.Equal(t, defaultAdapter, ec.getAdapter(), "chain %q must resolve to the default adapter", name)
 		require.NoError(t, f.Close())
 	}
-
-	cfg := testConfig()
-	cfg.Chain.Name = "UnknownChain"
-	cfg.Chain.ChainID = 1
-	cfg.Geth.NodeURL = server.URL
-	f, err := NewFetcherFromConfig(cfg)
-	require.NoError(t, err)
-
-	connectErr := f.Connect(t.Context())
-	require.Error(t, connectErr, "an unvetted chain name must fail construction")
-	assert.Contains(t, connectErr.Error(), "vetted chain allowlist")
 }
 
 // TestFetcher_Connect_RegisteredAdapter proves registration selects the

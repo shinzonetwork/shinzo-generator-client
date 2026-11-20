@@ -60,10 +60,10 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 
 // NewEthereumClientForChain creates a new JSON-RPC Ethereum client whose
 // chain-specific behaviour comes from the ClientAdapter resolved by
-// adapterForChain(chainName). The chain name must be on the vetted-chain
-// allowlist (an unknown non-empty name fails construction naming the
-// fixture requirement); an empty name keeps the Ethereum default so
-// existing construction paths are unchanged.
+// adapterForChain(chainName). Lookup is case-insensitive and
+// whitespace-tolerant; an unknown or empty chain name resolves to the
+// default passthrough adapter, so every construction path has a working
+// conversion without registration.
 //
 // The provided context governs the dial phase and is NOT retained by the
 // returned client (dial-only per go-ethereum's rpc.Dial contract); its
@@ -77,10 +77,6 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 // leaves the WebSocket dial unbounded, with the caller's context solely
 // governing.
 func NewEthereumClientForChain(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHeader string, dialTimeout time.Duration, chainName string) (*EthereumClient, error) {
-	if err := validateChainName(chainName); err != nil {
-		return nil, err
-	}
-
 	if err := ctx.Err(); err != nil {
 		return nil, errors.NewRPCConnectionFailed("rpc", "NewEthereumClient", "all endpoints",
 			fmt.Errorf("dial context cancelled before connecting: %w", err))
