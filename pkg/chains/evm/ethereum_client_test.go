@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,68 +223,6 @@ func TestNilClient_Guards(t *testing.T) {
 	}
 }
 
-// --- GetFromAddress ---
-
-func TestGetFromAddress(t *testing.T) {
-	t.Parallel()
-	tx := ethtypes.NewTransaction(1, common.HexToAddress("0xto"), big.NewInt(1000), 21000, big.NewInt(20000000000), []byte("data"))
-
-	// Unsigned transaction - should fail gracefully
-	addr, err := GetFromAddress(tx)
-	// Either returns an address (from homestead/frontier recovery) or an error
-	if err != nil {
-		assert.Nil(t, addr)
-	}
-}
-
-func TestGetFromAddress_SignedEIP155(t *testing.T) {
-	t.Parallel()
-	chainID := big.NewInt(1)
-	key, expectedAddr := defaultTestKey()
-
-	inner := &ethtypes.LegacyTx{
-		Nonce:    1,
-		GasPrice: big.NewInt(20000000000),
-		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
-		Value:    big.NewInt(1000),
-	}
-
-	signer := ethtypes.NewEIP155Signer(chainID)
-	tx, err := ethtypes.SignNewTx(key, signer, inner)
-	require.NoError(t, err)
-
-	addr, err := GetFromAddress(tx)
-	require.NoError(t, err)
-	require.NotNil(t, addr)
-	assert.Equal(t, expectedAddr, *addr)
-}
-
-func TestGetFromAddress_SignedDynamicFee(t *testing.T) {
-	t.Parallel()
-	chainID := big.NewInt(1)
-	key, expectedAddr := defaultTestKey()
-
-	inner := &ethtypes.DynamicFeeTx{
-		ChainID:   chainID,
-		Nonce:     1,
-		GasTipCap: big.NewInt(1000000000),
-		GasFeeCap: big.NewInt(2000000000),
-		Gas:       21000,
-		To:        new(common.HexToAddress("0xto")),
-		Value:     big.NewInt(1000),
-	}
-
-	signer := ethtypes.NewLondonSigner(chainID)
-	tx, err := ethtypes.SignNewTx(key, signer, inner)
-	require.NoError(t, err)
-
-	addr, err := GetFromAddress(tx)
-	require.NoError(t, err)
-	require.NotNil(t, addr)
-	assert.Equal(t, expectedAddr, *addr)
-}
-
 // --- Close ---
 
 func TestClose_NilClients(t *testing.T) {
@@ -323,79 +259,6 @@ func TestClose_WithBothClients(t *testing.T) {
 
 	err = client.Close()
 	assert.NoError(t, err)
-}
-
-// --- GetFromAddress pre-EIP-155 (Homestead signer) ---
-
-func TestGetFromAddress_HomesteadSigner(t *testing.T) {
-	t.Parallel()
-	key, expectedAddr := defaultTestKey()
-
-	inner := &ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(20000000000),
-		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
-		Value:    big.NewInt(1000),
-	}
-
-	// Sign with HomesteadSigner (pre-EIP-155, no chain ID)
-	signer := ethtypes.HomesteadSigner{}
-	tx, err := ethtypes.SignNewTx(key, signer, inner)
-	require.NoError(t, err)
-
-	addr, err := GetFromAddress(tx)
-	require.NoError(t, err)
-	require.NotNil(t, addr)
-	assert.Equal(t, expectedAddr, *addr)
-}
-
-func TestGetFromAddress_FrontierSigner(t *testing.T) {
-	t.Parallel()
-	key, expectedAddr := defaultTestKey()
-
-	inner := &ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(20000000000),
-		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
-		Value:    big.NewInt(1000),
-	}
-
-	// Sign with FrontierSigner
-	signer := ethtypes.FrontierSigner{}
-	tx, err := ethtypes.SignNewTx(key, signer, inner)
-	require.NoError(t, err)
-
-	addr, err := GetFromAddress(tx)
-	require.NoError(t, err)
-	require.NotNil(t, addr)
-	assert.Equal(t, expectedAddr, *addr)
-}
-
-// --- GetFromAddress all signers fail ---
-
-func TestGetFromAddress_AllSignersFail(t *testing.T) {
-	t.Parallel()
-	// Create a DynamicFeeTx with a non-zero chain ID but completely invalid signature
-	// so that all post-EIP-155 signers fail
-	inner := &ethtypes.DynamicFeeTx{
-		ChainID:   big.NewInt(1),
-		Nonce:     0,
-		GasTipCap: big.NewInt(1000000000),
-		GasFeeCap: big.NewInt(2000000000),
-		Gas:       21000,
-		To:        new(common.HexToAddress("0xto")),
-		Value:     big.NewInt(0),
-	}
-	// Create unsigned DynamicFeeTx — has non-zero ChainID but no valid signature
-	tx := ethtypes.NewTx(inner)
-
-	addr, err := GetFromAddress(tx)
-	// Should try all post-EIP-155 signers and fail
-	assert.Error(t, err)
-	assert.Nil(t, addr)
-	assert.Contains(t, err.Error(), "no sender")
 }
 
 // --- NewEthereumClient WebSocket without API key (invalid, falls back to HTTP) ---
@@ -542,103 +405,6 @@ func TestNewEthereumClient_WSFallback_WithAPIKey(t *testing.T) {
 	assert.NotNil(t, client.httpClient)
 	// The WS client should be set via the fallback path
 	assert.NotNil(t, client.wsClient)
-}
-
-// --- GetFromAddress pre-EIP-155 where both Homestead and Frontier fail ---
-
-func TestGetFromAddress_PreEIP155_BothSignersFail(t *testing.T) {
-	t.Parallel()
-	// Create a legacy tx with V=27 (pre-EIP-155 marker) and R=0, S=0.
-	// deriveChainId(27) returns 0, so ChainId().Sign() == 0, entering the pre-EIP-155 path.
-	// Both HomesteadSigner and FrontierSigner will fail to recover a sender
-	// because ecrecover cannot work with zero R,S values.
-	inner := &ethtypes.LegacyTx{
-		Nonce:    0,
-		GasPrice: big.NewInt(20000000000),
-		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
-		Value:    big.NewInt(1000),
-		V:        big.NewInt(27),
-		R:        big.NewInt(0),
-		S:        big.NewInt(0),
-	}
-	tx := ethtypes.NewTx(inner)
-
-	addr, err := GetFromAddress(tx)
-	assert.Error(t, err)
-	assert.Nil(t, addr)
-	assert.Contains(t, err.Error(), "pre-EIP-155")
-}
-
-// --- GetFromAddress FrontierSigner fallback (high-s value) ---
-
-func TestGetFromAddress_FrontierSigner_HighS(t *testing.T) {
-	t.Parallel()
-	// Craft a pre-EIP-155 tx where HomesteadSigner rejects (s > secp256k1HalfN)
-	// but FrontierSigner accepts. We sign normally, then flip s to s' = N - s
-	// and adjust v, producing a valid but "non-canonical" signature.
-	key, expectedAddr := defaultTestKey()
-
-	inner := &ethtypes.LegacyTx{
-		Nonce:    42,
-		GasPrice: big.NewInt(20000000000),
-		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
-		Value:    big.NewInt(1000),
-	}
-
-	// Sign with FrontierSigner to get a valid pre-EIP-155 signature
-	signer := ethtypes.FrontierSigner{}
-	signedTx, err := ethtypes.SignNewTx(key, signer, inner)
-	require.NoError(t, err)
-
-	// Extract V, R, S
-	v, r, s := signedTx.RawSignatureValues()
-
-	// secp256k1 curve order N
-	secp256k1N, _ := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
-	secp256k1HalfN := new(big.Int).Div(secp256k1N, big.NewInt(2))
-
-	// If s is already > halfN, the original signature works. Otherwise flip it.
-	newS := new(big.Int).Set(s)
-	newV := new(big.Int).Set(v)
-	if s.Cmp(secp256k1HalfN) <= 0 {
-		// Flip s: s' = N - s
-		newS.Sub(secp256k1N, s)
-		// Flip recovery bit: 27 ↔ 28
-		if v.Int64() == 27 {
-			newV.SetInt64(28)
-		} else {
-			newV.SetInt64(27)
-		}
-	}
-
-	// Create a new tx with the high-s signature
-	highSTx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    42,
-		GasPrice: big.NewInt(20000000000),
-		Gas:      21000,
-		To:       new(common.HexToAddress("0xto")),
-		Value:    big.NewInt(1000),
-		V:        newV,
-		R:        r,
-		S:        newS,
-	})
-
-	// Verify: HomesteadSigner should reject (s > halfN)
-	_, homesteadErr := ethtypes.Sender(ethtypes.HomesteadSigner{}, highSTx)
-	require.Error(t, homesteadErr, "HomesteadSigner should reject high-s signature")
-
-	// Verify: FrontierSigner should accept
-	from, frontierErr := ethtypes.Sender(ethtypes.FrontierSigner{}, highSTx)
-	require.NoError(t, frontierErr, "FrontierSigner should accept high-s signature")
-	assert.Equal(t, expectedAddr, from)
-
-	// Now test GetFromAddress — it should succeed via the FrontierSigner fallback path
-	addr, err := GetFromAddress(highSTx)
-	require.NoError(t, err)
-	require.NotNil(t, addr)
-	assert.Equal(t, expectedAddr, *addr)
 }
 
 // --- normalizeHeaderName Tests ---

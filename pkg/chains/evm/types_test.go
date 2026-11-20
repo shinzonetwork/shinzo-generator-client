@@ -2,6 +2,7 @@ package evm
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -150,5 +151,30 @@ func TestLogJSONMarshaling(t *testing.T) {
 	}
 	if unmarshaled.Removed != log.Removed {
 		t.Errorf("Removed mismatch: got %t, want %t", unmarshaled.Removed, log.Removed)
+	}
+}
+
+// TestTransactionJSONOmitsEmptyYParity pins the JSON contract: a tx without
+// a yParity from the RPC omits the field, so the JSON output stays
+// byte-identical, and a yParity the wire carries is present verbatim.
+func TestTransactionJSONOmitsEmptyYParity(t *testing.T) {
+	t.Parallel()
+
+	data, err := json.Marshal(fakeTx("0xabc"))
+	if err != nil {
+		t.Fatalf("Failed to marshal Transaction: %v", err)
+	}
+	if strings.Contains(string(data), "yParity") {
+		t.Errorf("a tx without a yParity from the RPC must omit the field, got: %s", data)
+	}
+
+	txWithParity := fakeTx("0xabc")
+	txWithParity.YParity = "0x1"
+	data, err = json.Marshal(txWithParity)
+	if err != nil {
+		t.Fatalf("Failed to marshal Transaction: %v", err)
+	}
+	if !strings.Contains(string(data), `"yParity":"0x1"`) {
+		t.Errorf("a yParity the wire carries must be present verbatim, got: %s", data)
 	}
 }

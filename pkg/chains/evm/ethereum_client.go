@@ -27,11 +27,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
-const (
-	// ZeroAddress is the Ethereum zero address used as fallback for unsigned transactions.
-	ZeroAddress = "0x0000000000000000000000000000000000000000"
-)
-
 var (
 	// errWSDialAborted reports that a WebSocket dial ended because the
 	// caller's context died mid-dial: construction was aborted by shutdown,
@@ -65,8 +60,10 @@ func NewEthereumClient(ctx context.Context, httpNodeURL, wsURL, apiKey, apiKeyHe
 
 // NewEthereumClientForChain creates a new JSON-RPC Ethereum client whose
 // chain-specific behaviour comes from the ClientAdapter resolved by
-// adapterForChain(chainName); unknown or empty names fall back to the
-// default adapter, which reproduces the Ethereum and BSC behaviour exactly.
+// adapterForChain(chainName). Lookup is case-insensitive and
+// whitespace-tolerant; an unknown or empty chain name resolves to the
+// default passthrough adapter, so every construction path has a working
+// conversion without registration.
 //
 // The provided context governs the dial phase and is NOT retained by the
 // returned client (dial-only per go-ethereum's rpc.Dial contract); its
@@ -330,27 +327,16 @@ func (c *EthereumClient) GetBlockByNumber(ctx context.Context, blockNumber *big.
 }
 
 // fetchAndConvertBlock fetches and converts a block through the adapter:
-// the raw eth_getBlockByNumber response plus adapter decoding when the
-// adapter declares NeedsRawBlock, today's ethclient typed decode otherwise.
-// Errors are returned unwrapped so callers keep their existing wrapping.
+// the raw eth_getBlockByNumber response plus ConvertBlock, unconditionally.
+// There is one pipeline for every chain; a per-chain difference is a
+// registered ConvertBlock override, never a second path. Errors are
+// returned unwrapped so callers keep their existing wrapping.
 func (c *EthereumClient) fetchAndConvertBlock(ctx context.Context, blockNumber *big.Int) (*Block, error) {
-	if c.getAdapter().NeedsRawBlock() {
-		rawBlock, err := c.fetchRawBlockByNumber(ctx, blockNumber)
-		if err != nil {
-			return nil, err
-		}
-		return c.convertRawBlock(rawBlock)
-	}
-
-	client := c.getPreferredClient()
-	if client == nil {
-		return nil, errNoClientAvailable
-	}
-	gethBlock, err := client.BlockByNumber(ctx, blockNumber)
+	rawBlock, err := c.fetchRawBlockByNumber(ctx, blockNumber)
 	if err != nil {
 		return nil, err
 	}
-	return c.convertGethBlock(gethBlock), nil
+	return c.getAdapter().ConvertBlock(rawBlock)
 }
 
 // fetchRawBlockByNumber fetches the raw eth_getBlockByNumber response with
@@ -376,90 +362,11 @@ func (c *EthereumClient) fetchRawBlockByNumber(ctx context.Context, blockNumber 
 
 	// An empty result or a JSON null both mean the block does not exist,
 	// matching ethclient's missing-block behaviour without paying for a
-	// header decode here: convertRawBlock parses the full header anyway.
-	if len(raw) == 0 || string(raw) == "null" {
+	// header decode here: ConvertBlock parses the full header anyway.
+	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil, ethereum.NotFound
 	}
 	return raw, nil
-}
-
-// rawBlockMeta carries the RPC-provided values no go-ethereum type can
-// recompute faithfully once chain-unique header fields are dropped by the
-// tolerant header decode: the block hash, size, total difficulty, uncle
-// hashes, and the raw transaction objects kept alongside their decoded form.
-type rawBlockMeta struct {
-	Hash            *common.Hash      `json:"hash"`
-	Size            *hexutil.Uint64   `json:"size"`
-	TotalDifficulty *hexutil.Big      `json:"totalDifficulty"`
-	Uncles          []common.Hash     `json:"uncles"`
-	Transactions    []json.RawMessage `json:"transactions"`
-}
-
-// convertRawBlock converts a raw eth_getBlockByNumber response into our
-// Block type. The header is decoded tolerantly (chain-unique fields are
-// ignored), the block hash, size, total difficulty and uncle hashes come
-// from the RPC response instead of being recomputed, and transactions come
-// from the adapter's DecodeTransactions with each raw tx object kept
-// alongside its decoded form for the adapter hooks. Each transaction's hash
-// also comes from the response: a mapped envelope re-derives a different
-// RLP hash, and the receipt merge plus the log join key on the node's hash.
-func (c *EthereumClient) convertRawBlock(rawBlock json.RawMessage) (*Block, error) {
-	var head *ethtypes.Header
-	if err := json.Unmarshal(rawBlock, &head); err != nil {
-		return nil, fmt.Errorf("failed to decode raw block header: %w", err)
-	}
-	if head == nil {
-		return nil, ethereum.NotFound
-	}
-	if head.Number == nil {
-		return nil, fmt.Errorf("raw block header has no number")
-	}
-
-	var meta rawBlockMeta
-	if err := json.Unmarshal(rawBlock, &meta); err != nil {
-		return nil, fmt.Errorf("failed to decode raw block metadata: %w", err)
-	}
-
-	txs, err := c.getAdapter().DecodeTransactions(meta.Transactions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode raw block transactions: %w", err)
-	}
-
-	// The skeleton block reuses convertGethBlock's exact field formatting
-	// for header-derived values; values the tolerant header decode cannot
-	// recompute faithfully are overridden from the RPC response below.
-	skeleton := ethtypes.NewBlockWithHeader(head)
-	block := c.convertGethBlock(skeleton)
-
-	if meta.Hash != nil {
-		block.Hash = meta.Hash.Hex()
-	}
-	if meta.Size != nil {
-		block.Size = fmt.Sprintf("%d", uint64(*meta.Size))
-	}
-	if meta.TotalDifficulty != nil {
-		block.TotalDifficulty = (*big.Int)(meta.TotalDifficulty).String()
-	}
-	if len(meta.Uncles) > 0 {
-		uncles := make([]string, len(meta.Uncles))
-		for i, uncle := range meta.Uncles {
-			uncles[i] = uncle.Hex()
-		}
-		block.Uncles = uncles
-	}
-
-	rawTxs := meta.Transactions
-	if len(rawTxs) != len(txs) {
-		return nil, fmt.Errorf("raw block %s: adapter decoded %d transactions but the response carries %d raw tx objects",
-			block.Hash, len(txs), len(rawTxs))
-	}
-
-	blockNumber := head.Number.Uint64()
-	for i, tx := range txs {
-		block.Transactions = append(block.Transactions, *c.convertTransactionWithRaw(tx, rawTxs[i], block.Hash, blockNumber, i))
-	}
-
-	return block, nil
 }
 
 // GetHeaderByHash fetches only the header of the block with the given
@@ -502,50 +409,6 @@ func normalizeBlockHash(hash string) (common.Hash, error) {
 		return common.Hash{}, fmt.Errorf("block hash %q: not a 0x-prefixed %d-byte hex hash", trimmed, common.HashLength)
 	}
 	return h, nil
-}
-
-// wireTxHash extracts the node-reported transaction hash from a raw tx
-// object. An adapter that maps a non-standard envelope onto the closest
-// standard one re-derives a different RLP hash, so the response's own hash
-// field is the only faithful identifier, and the fetcher's receipt
-// coverage check, receipt merge, per-tx receipt lookups, and log join all
-// key on the node's hash. A missing or malformed hash yields "", letting
-// the caller keep the re-derived hash rather than fail the fetch.
-func wireTxHash(rawTx json.RawMessage) string {
-	if len(rawTx) == 0 {
-		return ""
-	}
-	var wire struct {
-		Hash string `json:"hash"`
-	}
-	if err := json.Unmarshal(rawTx, &wire); err != nil {
-		return ""
-	}
-	h, err := normalizeBlockHash(wire.Hash)
-	if err != nil {
-		return ""
-	}
-	return h.Hex()
-}
-
-// wireTxType extracts the node-reported transaction type from a raw tx
-// object and renders it in the decimal string format the typed path emits.
-// An adapter that maps a non-standard envelope onto the closest standard
-// one carries the substituted envelope's type, so the response's own value
-// is the faithful one. A missing, malformed, or out-of-range type yields
-// "", letting the caller keep the envelope's type rather than fail the
-// fetch.
-func wireTxType(rawTx json.RawMessage) string {
-	if len(rawTx) == 0 {
-		return ""
-	}
-	var wire struct {
-		Type *hexutil.Uint64 `json:"type"`
-	}
-	if err := json.Unmarshal(rawTx, &wire); err != nil || wire.Type == nil {
-		return ""
-	}
-	return fmt.Sprintf("%d", uint64(*wire.Type))
 }
 
 // GetFinalizedBlockNumber returns the finalized chain height, falling back to
@@ -627,354 +490,62 @@ func (c *EthereumClient) GetLatestBlockNumber(ctx context.Context) (*big.Int, er
 	return latestHeader.Number, nil
 }
 
-// GetTransactionReceipt fetches a transaction receipt by hash.
+// GetTransactionReceipt fetches a transaction receipt by hash. The raw
+// eth_getTransactionReceipt response unmarshals directly into the package's
+// receipt representation through the raw mirror; a JSON null maps to
+// ethereum.NotFound, mirroring ethclient's missing-receipt behaviour so the
+// fetcher's retry and error classification are untouched.
 func (c *EthereumClient) GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, errNoClientAvailable
 	}
 
-	hash := common.HexToHash(txHash)
-	receipt, err := client.TransactionReceipt(ctx, hash)
+	var raw json.RawMessage
+	err := client.Client().CallContext(ctx, &raw, "eth_getTransactionReceipt", common.HexToHash(txHash))
 	c.countRPCError(ctx, "eth_getTransactionReceipt", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction receipt: %w", utils.RedactHTTPError(err))
 	}
-	return c.convertGethReceipt(receipt), nil
+	if len(raw) == 0 || string(raw) == jsonNull {
+		return nil, ethereum.NotFound
+	}
+	receipt, err := convertRawReceipt(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
+	}
+	return receipt, nil
 }
 
 // GetBlockReceipts fetches all receipts for a block in a single RPC call,
 // pinned to the block's content hash. The hash parameter keeps the receipts
 // on the same branch as the block the caller already holds: a reorg between
 // the block fetch and the receipt fetch can no longer serve receipts from
-// the new chain's differently numbered block.
+// the new chain's differently numbered block. A JSON null result maps to an
+// empty receipt list without error, matching ethclient's behaviour so the
+// fetcher's batch-acceptance check and per-tx fallback behave identically.
 func (c *EthereumClient) GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error) {
 	client := c.getPreferredClient()
 	if client == nil {
 		return nil, errNoClientAvailable
 	}
-	receipts, err := client.BlockReceipts(ctx, ethrpc.BlockNumberOrHashWithHash(common.HexToHash(blockHash), false))
+
+	var raws []json.RawMessage
+	err := client.Client().CallContext(ctx, &raws, "eth_getBlockReceipts", ethrpc.BlockNumberOrHashWithHash(common.HexToHash(blockHash), false))
 	c.countRPCError(ctx, "eth_getBlockReceipts", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get block receipts for block hash %s: %w", blockHash, utils.RedactHTTPError(err))
 	}
-	result := make([]*TransactionReceipt, len(receipts))
-	for i, receipt := range receipts {
-		result[i] = c.convertGethReceipt(receipt)
+
+	result := make([]*TransactionReceipt, 0, len(raws))
+	for i, raw := range raws {
+		receipt, convErr := convertRawReceipt(raw)
+		if convErr != nil {
+			return nil, fmt.Errorf("failed to get block receipts for block hash %s: receipt %d: %w", blockHash, i, convErr)
+		}
+		result = append(result, receipt)
 	}
 	return result, nil
-}
-
-// convertGethReceipt converts go-ethereum receipt to our custom receipt type.
-func (c *EthereumClient) convertGethReceipt(receipt *ethtypes.Receipt) *TransactionReceipt {
-	if receipt == nil {
-		return nil
-	}
-
-	// Convert logs.
-	logs := make([]Log, len(receipt.Logs))
-	for i, log := range receipt.Logs {
-		logs[i] = c.convertGethLog(log)
-	}
-
-	return &TransactionReceipt{
-		TransactionHash:   receipt.TxHash.Hex(),
-		TransactionIndex:  fmt.Sprintf("%d", receipt.TransactionIndex),
-		BlockHash:         receipt.BlockHash.Hex(),
-		BlockNumber:       receipt.BlockNumber.String(),
-		CumulativeGasUsed: fmt.Sprintf("%d", receipt.CumulativeGasUsed),
-		GasUsed:           fmt.Sprintf("%d", receipt.GasUsed),
-		EffectiveGasPrice: getEffectiveGasPrice(receipt),
-		ContractAddress:   getContractAddress(receipt),
-		Logs:              logs,
-		Status:            getReceiptStatus(receipt),
-	}
-}
-
-// convertGethLog converts go-ethereum log to our custom log type.
-func (c *EthereumClient) convertGethLog(log *ethtypes.Log) Log {
-	// Convert topics
-	topics := make([]string, len(log.Topics))
-	for i, topic := range log.Topics {
-		topics[i] = topic.Hex()
-	}
-
-	return Log{
-		Address:          log.Address.Hex(),
-		Topics:           topics,
-		Data:             common.Bytes2Hex(log.Data),
-		BlockNumber:      fmt.Sprintf("%d", log.BlockNumber),
-		TransactionHash:  log.TxHash.Hex(),
-		TransactionIndex: int(log.TxIndex), //nolint:gosec
-		BlockHash:        log.BlockHash.Hex(),
-		LogIndex:         int(log.Index), //nolint:gosec
-		Removed:          log.Removed,
-	}
-}
-
-// Helper functions for receipt conversion.
-func getContractAddress(receipt *ethtypes.Receipt) string {
-	if receipt.ContractAddress == (common.Address{}) {
-		return ""
-	}
-	return receipt.ContractAddress.Hex()
-}
-
-// getReceiptStatus maps the receipt's execution outcome to the converted
-// decimal "1"/"0" format. Pre-Byzantium receipts carry a post-state root
-// instead of a status field, and go-ethereum leaves Status at its zero
-// value for them, so a non-empty PostState would otherwise be read as
-// failed. Root-only receipts are indexed as successful, matching how
-// explorers report pre-Byzantium transactions.
-func getReceiptStatus(receipt *ethtypes.Receipt) string {
-	if len(receipt.PostState) > 0 {
-		return "1"
-	}
-	if receipt.Status == ethtypes.ReceiptStatusSuccessful {
-		return "1"
-	}
-	return "0"
-}
-
-// getEffectiveGasPrice formats the receipt's effective gas price as a decimal
-// string, matching the GasUsed formatting. Nodes that omit the field
-// (EffectiveGasPrice nil) yield an empty string.
-func getEffectiveGasPrice(receipt *ethtypes.Receipt) string {
-	if receipt.EffectiveGasPrice == nil {
-		return ""
-	}
-	return receipt.EffectiveGasPrice.String()
-}
-
-// convertGethBlock converts go-ethereum Block to our custom Block type.
-func (c *EthereumClient) convertGethBlock(gethBlock *ethtypes.Block) *Block {
-	if gethBlock == nil {
-		return nil
-	}
-
-	// Convert transactions.
-	transactions := make([]Transaction, 0, len(gethBlock.Transactions()))
-
-	for i, tx := range gethBlock.Transactions() {
-		localTx := c.convertTransaction(tx, gethBlock, i)
-		transactions = append(transactions, *localTx)
-	}
-
-	// Convert uncles.
-	uncles := make([]string, len(gethBlock.Uncles()))
-	for i, uncle := range gethBlock.Uncles() {
-		uncles[i] = uncle.Hash().Hex()
-	}
-
-	// Convert the block.
-	return &Block{
-		Hash:             gethBlock.Hash().Hex(),
-		Number:           fmt.Sprintf("%d", gethBlock.NumberU64()),
-		Timestamp:        fmt.Sprintf("%d", gethBlock.Time()),
-		ParentHash:       gethBlock.ParentHash().Hex(),
-		Difficulty:       gethBlock.Difficulty().String(),
-		TotalDifficulty:  "", // Will be populated separately if needed
-		GasUsed:          fmt.Sprintf("%d", gethBlock.GasUsed()),
-		GasLimit:         fmt.Sprintf("%d", gethBlock.GasLimit()),
-		BaseFeePerGas:    getBaseFeePerGas(gethBlock),
-		Nonce:            fmt.Sprintf("%d", gethBlock.Nonce()),
-		Miner:            gethBlock.Coinbase().Hex(),
-		Size:             fmt.Sprintf("%d", gethBlock.Size()),
-		StateRoot:        gethBlock.Root().Hex(),
-		Sha3Uncles:       gethBlock.UncleHash().Hex(),
-		TransactionsRoot: gethBlock.TxHash().Hex(),
-		ReceiptsRoot:     gethBlock.ReceiptHash().Hex(),
-		LogsBloom:        common.Bytes2Hex(gethBlock.Bloom().Bytes()),
-		ExtraData:        common.Bytes2Hex(gethBlock.Extra()),
-		MixHash:          gethBlock.MixDigest().Hex(),
-		Uncles:           uncles,
-		Transactions:     transactions,
-	}
-}
-
-// convertTransaction safely converts a single transaction from a typed
-// block, where no raw tx JSON exists.
-func (c *EthereumClient) convertTransaction(tx *ethtypes.Transaction, gethBlock *ethtypes.Block, index int) *Transaction {
-	return c.convertTransactionWithRaw(tx, nil, gethBlock.Hash().Hex(), gethBlock.NumberU64(), index)
-}
-
-// convertTransactionWithRaw is the shared transaction conversion core.
-// rawTx carries the raw JSON tx object when the block came from the raw
-// fetch path (nil on the typed path), letting the adapter override the
-// sender via ResolveFrom and populate YParity.
-func (c *EthereumClient) convertTransactionWithRaw(tx *ethtypes.Transaction, rawTx json.RawMessage, blockHash string, blockNumber uint64, index int) *Transaction {
-	// The adapter's explicit sender wins; otherwise recover the sender via
-	// GetFromAddress with the zero address fallback.
-	var fromAddrStr string
-	if from, ok := c.getAdapter().ResolveFrom(tx, rawTx); ok {
-		fromAddrStr = from
-	} else {
-		fromAddr, fromErr := GetFromAddress(tx)
-		switch {
-		case fromErr != nil:
-			// For unsigned transactions or other errors, use zero address.
-			logger.Sugar.Warnf("Warning: Failed to convert transaction %s: %v", tx.Hash().Hex(), fromErr)
-			fromAddrStr = ZeroAddress
-		case fromAddr != nil:
-			fromAddrStr = fromAddr.Hex()
-		default:
-			fromAddrStr = ZeroAddress
-		}
-	}
-	toAddr := getToAddress(tx)
-
-	// Handle different transaction types.
-	var gasPrice *big.Int
-	switch tx.Type() {
-	case ethtypes.LegacyTxType, ethtypes.AccessListTxType:
-		gasPrice = tx.GasPrice()
-	case ethtypes.DynamicFeeTxType:
-		// For EIP-1559 transactions, use effective gas price if available.
-		// Fall back to gas fee cap if not.
-		gasPrice = tx.GasFeeCap()
-	default:
-		// For unknown transaction types, try to get gas price.
-		// If it fails, we'll catch it in the calling function.
-		gasPrice = tx.GasPrice()
-	}
-
-	// Extract signature components.
-	v, r, s := tx.RawSignatureValues()
-
-	// Get access list for EIP-2930/EIP-1559 transactions.
-	accessList := make([]AccessListEntry, 0)
-	if tx.AccessList() != nil {
-		for _, entry := range tx.AccessList() {
-			storageKeys := make([]string, len(entry.StorageKeys))
-			for i, key := range entry.StorageKeys {
-				storageKeys[i] = key.Hex()
-			}
-			accessList = append(accessList, AccessListEntry{
-				Address:     entry.Address.Hex(),
-				StorageKeys: storageKeys,
-			})
-		}
-	}
-
-	// The raw response's hash field is the authoritative identifier on the
-	// raw path: an adapter-mapped envelope re-derives a different RLP hash,
-	// while the receipt merge, the per-tx receipt lookups, and the log join
-	// key on the node's hash. An unusable wire hash keeps the re-derived
-	// one rather than failing the fetch.
-	txHash := tx.Hash().Hex()
-	if wire := wireTxHash(rawTx); wire != "" {
-		txHash = wire
-	}
-
-	// The response's type field wins for the same reason: a mapped
-	// envelope carries its substituted type, while the node reported the
-	// real one. An unusable wire type keeps the envelope's type.
-	txType := fmt.Sprintf("%d", tx.Type())
-	if wire := wireTxType(rawTx); wire != "" {
-		txType = wire
-	}
-
-	localTx := Transaction{
-		Hash:                 txHash,
-		BlockHash:            blockHash,
-		BlockNumber:          fmt.Sprintf("%d", blockNumber),
-		From:                 fromAddrStr,
-		To:                   toAddr,
-		Value:                tx.Value().String(),
-		Gas:                  fmt.Sprintf("%d", tx.Gas()),
-		GasPrice:             gasPrice.String(),
-		MaxFeePerGas:         getMaxFeePerGas(tx),
-		MaxPriorityFeePerGas: getMaxPriorityFeePerGas(tx),
-		Input:                "0x" + common.Bytes2Hex(tx.Data()),
-		Nonce:                fmt.Sprintf("%d", tx.Nonce()),
-		TransactionIndex:     index,
-		Type:                 txType,
-		ChainID:              getChainID(tx),
-		AccessList:           accessList,
-		V:                    v.String(),
-		R:                    r.String(),
-		S:                    s.String(),
-		YParity:              c.getAdapter().YParity(tx, rawTx),
-		Status:               true, // signed payloads carry no execution outcome, so status defaults to true; the fetcher's receipt merge overwrites it with the executed result
-	}
-
-	return &localTx
-}
-
-// GetFromAddress recovers the sender address from a transaction.
-func GetFromAddress(tx *ethtypes.Transaction) (*common.Address, error) {
-	chainID := tx.ChainId()
-
-	// Handle pre-EIP-155 transactions (before block 2,675,000).
-	if chainID == nil || chainID.Sign() <= 0 {
-		// Use HomesteadSigner for pre-EIP-155 transactions
-		homesteadSigner := ethtypes.HomesteadSigner{}
-		if from, err := ethtypes.Sender(homesteadSigner, tx); err == nil {
-			return &from, nil
-		}
-
-		// Fallback to FrontierSigner for even older transactions.
-		frontierSigner := ethtypes.FrontierSigner{}
-		if from, err := ethtypes.Sender(frontierSigner, tx); err == nil {
-			return &from, nil
-		}
-
-		return nil, fmt.Errorf("unable to recover sender from pre-EIP-155 transaction")
-	}
-
-	// Try different signers to handle various transaction types (post-EIP-155).
-	signers := []ethtypes.Signer{
-		ethtypes.LatestSignerForChainID(chainID),
-		ethtypes.NewEIP155Signer(chainID),
-		ethtypes.NewLondonSigner(chainID),
-	}
-
-	for _, signer := range signers {
-		if from, err := ethtypes.Sender(signer, tx); err == nil {
-			return &from, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no sender (from) address found")
-}
-
-func getToAddress(tx *ethtypes.Transaction) string {
-	if tx.To() == nil {
-		return "" // Contract creation
-	}
-	return tx.To().Hex()
-}
-
-// getBaseFeePerGas extracts base fee from EIP-1559 blocks.
-func getBaseFeePerGas(block *ethtypes.Block) string {
-	if block.BaseFee() == nil {
-		return "" // Not an EIP-1559 block
-	}
-	return block.BaseFee().String()
-}
-
-// getMaxFeePerGas extracts max fee per gas from EIP-1559 transactions.
-func getMaxFeePerGas(tx *ethtypes.Transaction) string {
-	if tx.Type() == ethtypes.DynamicFeeTxType {
-		return tx.GasFeeCap().String()
-	}
-	return ""
-}
-
-// getMaxPriorityFeePerGas extracts max priority fee per gas from EIP-1559 transactions.
-func getMaxPriorityFeePerGas(tx *ethtypes.Transaction) string {
-	if tx.Type() == ethtypes.DynamicFeeTxType {
-		return tx.GasTipCap().String()
-	}
-	return ""
-}
-
-// getChainID extracts chain ID from transaction.
-func getChainID(tx *ethtypes.Transaction) string {
-	if tx.ChainId() == nil {
-		return ""
-	}
-	return tx.ChainId().String()
 }
 
 // Close closes the connections.

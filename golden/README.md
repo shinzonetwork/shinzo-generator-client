@@ -1,6 +1,7 @@
 # Golden Tests
 
-End-to-end freeze of the typed EVM pipeline. The suite replays captured chain
+End-to-end freeze of the single raw EVM pipeline. The suite replays captured
+chain
 fixtures through a local mock RPC endpoint, runs the real fetcher, converter,
 and block handler against an embedded headless DefraDB node, reads every stored
 document back, and compares the result with the committed golden files. Any
