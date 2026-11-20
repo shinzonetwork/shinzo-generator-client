@@ -22,14 +22,11 @@ type TestDefraDB struct {
 	Port int
 }
 
-// SetupTestDefraDB creates and starts an in-memory DefraDB node with schema applied.
-// It uses a temporary directory and a random free port to avoid conflicts.
-// Call the returned cleanup function (or use t.Cleanup) when done.
-func SetupTestDefraDB(t *testing.T) *TestDefraDB {
-	collections, err := chains.NewCollections(nil)
-	if err != nil {
-		t.Fatalf("failed to create collections: %v", err)
-	}
+// SetupTestDefraDB creates and starts an in-memory DefraDB node with the
+// schema derived from the given collections. It uses a temporary directory and
+// a random free port to avoid conflicts. Call the returned cleanup function
+// (or use t.Cleanup) when done.
+func SetupTestDefraDB(t *testing.T, collections chains.Collections) *TestDefraDB {
 	sdl, err := schema.LoadSchemaSDLForChain(collections)
 	if err != nil {
 		t.Fatalf("GetSchema: %v", err)

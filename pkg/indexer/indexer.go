@@ -81,6 +81,7 @@ const defaultListenAddress string = "/ip4/127.0.0.1/tcp/9171"
 // ChainIndexer is the main indexer that processes blockchain blocks.
 type ChainIndexer struct {
 	cfg                       *config.Config
+	factories                 chains.ChainFactories // Chain factories injected by the per-chain main; never a registry lookup.
 	fetcher                   chains.Fetcher
 	converter                 chains.Converter
 	blockHandler              *defra.BlockHandler
@@ -181,8 +182,25 @@ func (i *ChainIndexer) observePeers(ctx context.Context, o metric.Int64Observer)
 	return nil
 }
 
-// CreateIndexer creates a new ChainIndexer with the provided configuration.
-func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
+// GetDefraDBURL returns the API URL of the embedded DefraDB node, or "" when
+// using external DefraDB or before the node has started.
+//
+// The node's own APIURL is the authoritative reachable address: an embedded
+// node binds a non-loopback (machine LAN) address with a random port, so the
+// bind address cannot be reconstructed from the port alone. The health server
+// is initialized with this same value for its connectivity probe.
+func (i *ChainIndexer) GetDefraDBURL() string {
+	if i.defraNode == nil {
+		return ""
+	}
+	return i.defraNode.APIURL
+}
+
+// CreateIndexer creates a new ChainIndexer with the provided configuration and
+// the chain factories the caller injects (the per-chain main builds them from
+// its adapter package). All factory fields must be set: a partial bundle is a
+// configuration error here, not a dispatch failure mid-indexing.
+func CreateIndexer(cfg *config.Config, factories chains.ChainFactories) (*ChainIndexer, error) {
 	if cfg == nil {
 		return nil, indexerErrors.NewConfigurationError(
 			"indexer",
@@ -193,8 +211,18 @@ func CreateIndexer(cfg *config.Config) (*ChainIndexer, error) {
 			indexerErrors.WithMetadata("host", "nil"),
 			indexerErrors.WithMetadata("port", "nil"))
 	}
+	if factories.Fetcher == nil || factories.Converter == nil || factories.Collections == nil {
+		return nil, indexerErrors.NewConfigurationError(
+			"indexer",
+			"CreateIndexer",
+			"chain factories incomplete: fetcher, converter, and collections must all be set",
+			fmt.Sprintf("fetcher=%t, converter=%t, collections=%t",
+				factories.Fetcher != nil, factories.Converter != nil, factories.Collections != nil),
+			nil)
+	}
 	i := &ChainIndexer{
 		cfg:                       cfg,
+		factories:                 factories,
 		shouldIndex:               false,
 		isStarted:                 false,
 		hasIndexedAtLeastOneBlock: false,
@@ -270,29 +298,31 @@ func (i *ChainIndexer) StartIndexing(defraStarted bool) (err error) {
 	i.beginStart(initCancel)
 	defer i.markStartSettled()
 
-	// 1. Create fetcher (no dial yet) + converter — via factory dispatch, no evm import
-	fetcher, err := chains.NewFetcher(cfg)
+	// 1. Create fetcher (no dial yet) + converter from the injected factories
+	fetcher, err := i.factories.Fetcher(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create fetcher: %w", err)
 	}
 	i.fetcher = fetcher
-	i.converter, err = chains.NewConverter(cfg)
+	i.converter, err = i.factories.Converter(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create converter: %w", err)
 	}
 
 	// 2. Log prefix (uses converter only — no RPC needed)
-	logger.Sugar.Infof("Indexing chain: %s (prefix: %s)", cfg.Chain.Name+"__"+cfg.Chain.Network, i.converter.Collections().Prefix())
+	logger.Sugar.Infof("Indexing chain: %s", i.converter.Collections().Prefix())
 
-	// 3. Start DefraDB (uses converter.Collections() + converter.GetCollections())
+	// 3. Connect the fetcher before DefraDB starts, so an RPC endpoint that serves another chain
+	// is refused before the generator opens its store.
+	if err := i.fetcher.Connect(initCtx); err != nil {
+		return fmt.Errorf("failed to connect fetcher for %s %s (chain_id %d): %w",
+			cfg.Chain.Name, cfg.Chain.Network, cfg.Chain.ChainID, err)
+	}
+
+	// 4. Start DefraDB (uses converter.Collections() + converter.GetCollections())
 	ctx, err = i.initDefra(initCtx, cfg, defraStarted)
 	if err != nil {
 		return err
-	}
-
-	// 4. Connect fetcher (context-aware dial — was done in NewAdapter at construction)
-	if err := i.fetcher.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect fetcher: %w", err)
 	}
 
 	// 5. Create block handler (was done in adapter.Init)
@@ -1007,12 +1037,8 @@ func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRe
 	}, nil
 }
 
-// GetSourceChainInfo returns the ShinzoHub registration source chain metadata for this indexer.
-// Chain IDs are EVM-only (EIP-155), so chain families without a legacy numeric
-// ID register with the hub using ID 0. Only mainnet combinations report a
-// chain name: a testnet or unknown combination reports an empty chain name,
-// the same treatment as ethereum + sepolia. The chain family comes from
-// chain.adapter, the authoritative adapter signal, rather than chain.name.
+// GetSourceChainInfo returns the source chain this generator registers on ShinzoHub: the
+// configured chain name in lower case and the configured chain ID.
 func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
 		return "", 0
@@ -1023,12 +1049,7 @@ func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 		return "solana", 0
 	}
 
-	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
-	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
-		return "ethereum", 1
-	}
-
-	return "", 0
+	return strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name)), i.cfg.Chain.ChainID
 }
 
 // GetNodePublicKey returns the DefraDB node's public key as a hex string.

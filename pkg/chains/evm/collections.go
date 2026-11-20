@@ -3,13 +3,15 @@ package evm
 import (
 	"fmt"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
-// DefaultCollectionPrefix is the default collection prefix for backward compatibility.
+// DefaultCollectionPrefix is the prefix the embedded SDL files are written with;
+// CollectionFiles replaces it with the configured chain's prefix.
 const DefaultCollectionPrefix = "Ethereum__Mainnet"
 
-// Collection name constants for the default Ethereum Mainnet chain.
+// Collection names for Ethereum Mainnet, built from DefaultCollectionPrefix.
 const (
 	DefaultCollectionBlock             = DefaultCollectionPrefix + "__Block"
 	DefaultCollectionTransaction       = DefaultCollectionPrefix + "__Transaction"
@@ -91,7 +93,20 @@ func (c *CollectionNames) BlockSignatureCollection() string {
 	return c.BlockSignature
 }
 
-// DefaultCollections returns all default collection names as a slice.
+// NewCollectionsFromConfig creates the EVM collection names for the chain cfg
+// names. It returns config.ErrChainUnset when cfg is nil or has no chain name
+// or network, mirroring NewConverter, so no caller gets a prefix it did not
+// configure. It is the Collections factory the evm package exposes in its
+// Factories() bundle.
+func NewCollectionsFromConfig(cfg *config.Config) (chains.Collections, error) {
+	prefix, err := chainPrefixFromConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return NewCollectionNames(prefix), nil
+}
+
+// DefaultCollections returns the Ethereum Mainnet collection names as a slice.
 func DefaultCollections() []string {
 	return []string{
 		DefaultCollectionBlock,

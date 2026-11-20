@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-start solana-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix deadcode-check fmt node-status test-local help solana-live-test replay-fetch ethereum-acceptance-test
+.PHONY: deps env build evm-build solana-build ethereum-start bsc-start solana-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test solana-live-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -27,23 +27,32 @@ TO ?= 0
 # commit offset and dirty state; falls back to "dev" outside a git repo).
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-build:
-	go build -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)" -o bin/block_poster ./cmd/block_poster/
+# One generator binary per chain adapter (see specs/features/BINARY-SPLIT.md):
+# the evm adapter produces bin/block_poster_evm. LDFLAGS keeps the version
+# injection identical between evm-build and any future per-chain build target.
+LDFLAGS := -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)"
+
+build: evm-build
 	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
+
+evm-build:
+	go build $(LDFLAGS) -o bin/block_poster_evm ./cmd/block_poster/evm/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
-	elif grep -aFq "$(VERSION)" bin/block_poster; then \
+	elif grep -aFq "$(VERSION)" bin/block_poster_evm; then \
 		echo "✅ version injected: $(VERSION)"; \
 	else \
 		echo "❌ version injection failed: binary does not contain '$(VERSION)'; check the -X symbol path"; exit 1; \
 	fi
 
-evm-start:
-	./bin/block_poster
+ethereum-start:
+	./bin/block_poster_evm
+
+bsc-start:
+	./bin/block_poster_evm -config config/config_bsc.yaml
 
 solana-start:
-	./bin/block_poster -config config/config-solana.yaml
-
+	./bin/block_poster_solana -config config/config-solana.yaml	
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
@@ -102,11 +111,13 @@ test-local:
 	@echo "✅ Using node endpoint: $(GETH_RPC_URL)"
 	@go test ./pkg/indexer -v -run TestIndexing
 
+# integration-test runs the self-contained mock suite (build tag
+# "integration"): an embedded DefraDB fed with synthetic block data. No chain
+# endpoint and no credentials, so it is safe to run anywhere at any time.
 integration-test:
 	@echo "🧪 Running integration tests..."
-	@echo "📦 Mock tests (fast):"
 	@go test -tags=integration -v ./integration/ ./golden/
-  @go test -tags=integration -v ./integration/solana/
+  	@go test -tags=integration -v ./integration/solana/
 	@echo ""
 	@echo "🌐 Live tests (requires environment variables):"
 	@if [ -n "$(GETH_RPC_URL)" ]; then \
@@ -136,6 +147,60 @@ solana-live-test:
 coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
+
+
+# ethereum-live-test runs the Ethereum live integration suite from
+# integration/live/. GETH_RPC_URL is the tripwire: CI never sets it, so a bare
+# run warns and skips instead of touching a chain endpoint by accident. There
+# is no public-endpoint fallback — real RPC credentials are
+# required, and the suite fails hard when its warmup window passes without an
+# indexed block.
+ethereum-live-test:
+	@echo "🧪 Running Ethereum live tests..."
+	@echo "🌐 Live tests (requires environment variables):"
+	@if [ -n "$(GETH_RPC_URL)" ]; then \
+		go test -tags=live -v ./integration/live -count=1 -timeout=20s; \
+	else \
+		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
+	fi
+
+# bsc-live-test runs the BSC live integration suite with the same guard
+# semantics as ethereum-live-test: GETH_RPC_URL is the single tripwire, and
+# without it the target warns and skips instead of touching any endpoint by
+# accident. The suite has no public-endpoint fallback of its own — real
+# credentials are always required, and a warmup timeout fails the run.
+# GETH_* env names are historical — the Generator is chain-agnostic, so the
+# BSC suite reuses them.
+bsc-live-test:
+	@if [ -n "$(GETH_RPC_URL)" ]; then \
+		go test -tags=live -v ./integration/live/bsc/ -count=1 -timeout=400s; \
+	else \
+		echo "⚠️  Skipping BSC live tests - GETH_RPC_URL not set"; \
+	fi
+
+# bsc-replay-fetch captures a raw replay fixture via the chain-agnostic
+# cmd/fetch_blocks CLI (one-time; needs a real endpoint). FROM/TO are
+# overridable block numbers; the default captures 100 blocks ending at the
+# current tip. Fixtures land in replay/testdata/ (gitignored) as
+# bsc_blocks_<from>_<to>.json.
+bsc-replay-fetch:
+	@if [ -z "$(GETH_RPC_URL)" ]; then \
+		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p replay/testdata
+	go run ./cmd/fetch_blocks --chain bsc --network mainnet --from $(FROM) --to $(TO)
+
+# bsc-acceptance-test replays the newest captured fixture through the full
+# production pipeline (mock JSON-RPC → Fetcher → Converter → BlockHandler.Store)
+# and hard-asserts the average per-block processing time stays within the
+# chain's block interval. BSC_TARGET_BLOCK_TIME overrides the target; a
+# missing fixture skips with regeneration instructions. -count=1 forces the
+# run every time: Go's test cache key ignores runtime inputs (fixture files,
+# BSC_* env vars), and unlike `go clean -testcache` it leaves the rest of the
+# project's test results cached.
+bsc-acceptance-test:
+	go test -tags=acceptance ./replay/evm -run TestBSCReplayAcceptance -count=1 -v -timeout 30m
 
 lint:
 	@echo "🔍 Running golangci-lint..."
@@ -211,17 +276,27 @@ replay-fetch:
 # ETHEREUM_* env vars), and unlike `go clean -testcache` it leaves the rest of the
 # project's test results cached.
 ethereum-acceptance-test:
-	go test -tags=acceptance ./replay/ethereum -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
+	go test -tags=acceptance ./replay/evm -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
 
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
 	@echo "=================================================="
 	@echo ""
 	@echo "📦 Build & Test:"
-	@echo "  build              - Build the generator binary"
+	@echo "  build              - Build all binaries (evm generator + fetch_blocks)"
+	@echo "  evm-build          - Build only bin/block_poster_evm"
 	@echo "  test               - Run all tests with summary"
+	@echo "  integration-test   - Fast mock integration suite (no chain endpoint, no credentials)"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
+	@echo ""
+	@echo "🌐 Per-chain live tests:"
+	@echo "  ethereum-live-test - Ethereum live suite (GETH_RPC_URL gates the run)"
+	@echo "  bsc-live-test      - BSC live suite (GETH_RPC_URL gates the run)"
+	@echo ""
+	@echo "⏱  BSC tip-indexing acceptance (replay):"
+	@echo "  bsc-replay-fetch   - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
+	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
@@ -234,8 +309,10 @@ help:
 	@echo "  defra-status       - Check DefraDB status"
 	@echo ""
 	@echo "🏃 Services:"
-	@echo "  evm-start          - Start the generator (EVM config)"
-	@echo "  solana-start       - Start the generator (Solana config)"
+	@echo "  defra-start        - Start DefraDB"
+	@echo "  ethereum-start     - Start the evm generator binary with the Ethereum config"
+	@echo "  bsc-start          - Start the evm generator with the BSC config"
+	@echo "  solana-start       - Start the Solana generator"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"

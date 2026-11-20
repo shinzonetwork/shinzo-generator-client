@@ -16,17 +16,24 @@ go mod download
 make build
 ```
 
-The compiled binary goes into `./bin`.
+The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `make build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain) plus `bin/fetch_blocks`.
 
 ## Useful commands
 
 | Command | What it does |
 | --- | --- |
-| `make build` | Build the generator binary (standard mode). |
-| `make evm-start` | Run the compiled binary for EVM chains. |
-| `make solana-start` | Run the compiled binary for Solana. |
+| `make build` | Build all binaries (evm generator + fetch_blocks). |
+| `make evm-build` | Build only `bin/block_poster_evm`. |
+| `make solana-build` | Build only `bin/block_poster_solana`. |
+| `make ethereum-start` | Run `bin/block_poster_evm` with the Ethereum config. |
+| `make bsc-start` | Run `bin/block_poster_evm` with the BSC config. |
+| `make solana-start` | Run `bin/block_poster_solana`. |
 | `make test` | Run all tests with a summary. |
-| `make integration-test` | Run mock and live integration tests for the EVM and Solana suites; the Solana live smoke runs when `SOLANA_RPC_URL` is set. |
+| `make integration-test` | Run the fast mock integration suite (embedded DefraDB, synthetic data, no chain endpoint). |
+| `make ethereum-live-test` | Run live integration tests for Ethereum |
+| `make bsc-live-test` | Run live integration tests for BSC |
+| `make bsc-bench-fetch` | Captures replay fixture for BSC acceptance test from BSC RPC |
+| `make bsc-acceptance-test` | Run replay acceptance test for BSC |
 | `make solana-live-test` | Run the Solana live smoke against a real JSON-RPC endpoint (e.g. `https://api.devnet.solana.com`). Optional env: `SOLANA_WS_URL` (slot hints), `SOLANA_API_KEY`. Fails fast with a setup hint when `SOLANA_RPC_URL` is unset. |
 | `make coverage` | Generate an HTML coverage report. |
 | `make node-status` | Check connectivity and current block number for a blockchain node. Probes Ethereum-compatible JSON-RPC endpoints via `eth_blockNumber`; the Generator itself is chain-agnostic and accepts any compatible JSON-RPC/WebSocket endpoint. |

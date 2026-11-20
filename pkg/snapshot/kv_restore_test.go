@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 	"github.com/stretchr/testify/assert"
@@ -109,7 +110,7 @@ func TestImportKV_MalformedFiles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 			ctx := context.Background()
 
 			p := tt.write(t, t.TempDir())
@@ -127,7 +128,7 @@ func TestImportKV_MalformedFiles(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestImportKV_ValidHeaderEmptyKVs(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	dir := t.TempDir()
@@ -161,7 +162,7 @@ func TestImportKV_ValidHeaderEmptyKVs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestImportKV_HeaderWithBlockSigMerkleRoots(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	dir := t.TempDir()
@@ -196,7 +197,7 @@ func TestImportKV_HeaderWithBlockSigMerkleRoots(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestImportKV_CorruptKVData(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 
 	dir := t.TempDir()

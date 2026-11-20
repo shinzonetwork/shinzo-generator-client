@@ -52,6 +52,8 @@ const (
 	netVersion = "net_version"
 	// ethChainID is used in tests to identify the chain ID RPC call.
 	ethChainID = "eth_chainId"
+	// testChainID is the chain ID the mock RPC servers report.
+	testChainID = 1
 	// ethGetTransactionReceipt is used in tests to identify the transaction receipt RPC call.
 	ethGetTransactionReceipt = "eth_getTransactionReceipt"
 
@@ -109,6 +111,7 @@ func newTestProcessor(t *testing.T, td *testutils.TestDefraDB, rpcServerURL stri
 		Chain: config.ChainConfig{
 			Name:    "Ethereum",
 			Network: "Mainnet",
+			ChainID: testChainID,
 		},
 		Geth: config.GethConfig{
 			NodeURL:    rpcServerURL,
@@ -128,7 +131,8 @@ func newTestProcessor(t *testing.T, td *testutils.TestDefraDB, rpcServerURL stri
 	require.NoError(t, fetcher.Connect(context.Background()))
 	t.Cleanup(func() { _ = fetcher.Close() })
 
-	converter := evm.NewConverter(cfg)
+	converter, err := evm.NewConverter(cfg)
+	require.NoError(t, err)
 
 	blockHandler, err := defra.NewBlockHandler(td.Node, cfg.Indexer.MaxDocsPerTxn)
 	require.NoError(t, err)
@@ -397,6 +401,7 @@ func newMockRPCServerForIntegration(blockCh chan<- struct{}) *httptest.Server {
 // startPathBaseCfg builds the common StartIndexing test config.
 func startPathBaseCfg(rpcURL, defraURL, tmpDir string, idx config.IndexerConfig) *config.Config {
 	return &config.Config{
+		Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           defraURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -538,7 +543,7 @@ func waitForIndexerStart(t *testing.T, indexer *ChainIndexer) {
 func setupSignMessagesDirect(t *testing.T, keyringSecret string) *ChainIndexer {
 	t.Helper()
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	return &ChainIndexer{
 		defraNode: td.Node,
 		cfg: &config.Config{
@@ -560,6 +565,7 @@ func startSignMessagesIndexer(t *testing.T, keyringSecret, defraURL string, p2p 
 	t.Cleanup(srv.Close)
 
 	cfg := &config.Config{
+		Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			KeyringSecret: keyringSecret,
 			P2P:           p2p,
@@ -580,7 +586,7 @@ func startSignMessagesIndexer(t *testing.T, keyringSecret, defraURL string, p2p 
 		cfg.DefraDB.URL = defraURL
 	}
 
-	indexer, err := CreateIndexer(cfg)
+	indexer, err := CreateIndexer(cfg, evm.Factories())
 	require.NoError(t, err)
 
 	waitForIndexerStart(t, indexer)
@@ -781,6 +787,8 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("NO_LOG_FILES", "1"); err != nil {
 		panic(err)
 	}
+	// CreateIndexer receives chain factories directly from its callers; there
+	// is no package-level adapter wiring to initialize here.
 	logger.InitConsoleOnly(true)
 	// Metrics are disabled in tests; tests that check metrics use their own provider.
 	otel.SetMeterProvider(noop.NewMeterProvider())

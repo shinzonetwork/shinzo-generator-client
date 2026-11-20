@@ -3,7 +3,6 @@ package testutils
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -23,7 +22,8 @@ type BlockRange struct {
 // MockConverter implements the chains.Converter interface with configurable
 // per-method functions and call recording. It follows the same pattern as
 // MockFetcher and MockChain: each method dispatches to an optional Fn field;
-// if a Fn is nil the method returns its zero value. Call counters and
+// if a Fn is nil the method returns its zero value (Collections panics
+// instead, since a nil Collections has no valid zero value). Call counters and
 // argument slices are updated under a mutex so the mock is safe for
 // concurrent use.
 type MockConverter struct {
@@ -84,19 +84,17 @@ func (m *MockConverter) GetCollections() []string {
 	return nil
 }
 
-// Collections records the call and delegates to CollectionsFn.
+// Collections records the call and delegates to CollectionsFn. It panics
+// without CollectionsFn: collection resolution is construction knowledge the
+// test must wire explicitly, so there is no hidden default.
 func (m *MockConverter) Collections() chains.Collections {
 	m.mu.Lock()
 	m.CollectionsCalls++
 	m.mu.Unlock()
-	if m.CollectionsFn != nil {
-		return m.CollectionsFn()
+	if m.CollectionsFn == nil {
+		panic("MockConverter.Collections: CollectionsFn not set")
 	}
-	c, err := chains.NewCollections(nil)
-	if err != nil {
-		panic(fmt.Sprintf("MockConverter.Collections: chains.NewCollections failed: %v", err))
-	}
-	return c
+	return m.CollectionsFn()
 }
 
 // GetHighestStoredBlockNumber records the call and delegates to GetHighestStoredBlockNumberFn.

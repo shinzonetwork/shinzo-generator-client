@@ -596,7 +596,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	require.NoError(t, err, "snapshot file should exist")
 
 	// Import into a second fresh node
-	td2 := testutils.SetupTestDefraDB(t)
+	td2 := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	importResult, err := ImportKV(ctx, td2.Node, snapshotFile)
 	require.NoError(t, err)
 	require.NotNil(t, importResult)
@@ -604,9 +604,7 @@ func TestCheckAndSnapshot_ImportKV_EndToEnd(t *testing.T) {
 	assert.Equal(t, int64(104), importResult.EndBlock)
 
 	// Rebuild indexes after bulk KV import
-	cols, err := chains.NewCollections(nil)
-	require.NoError(t, err)
-	err = RebuildAllIndexes(ctx, td2.Node, cols.AllCollections())
+	err = RebuildAllIndexes(ctx, td2.Node, evm.NewCollectionNames(evm.DefaultCollectionPrefix).AllCollections())
 	require.NoError(t, err)
 
 	// Verify the second node has the blocks
@@ -670,7 +668,7 @@ func TestSetCycleObserver_ReportsCycleFacts(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_CreateSnapshotError(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	// Insert blocks 10-14
 	insertTestBlocks(t, td, 10, 14)
@@ -733,7 +731,7 @@ func TestLoop_StopsOnStopChan(t *testing.T) {
 	s := New(cfg, nil, nil) // nil defraNode will cause checkAndSnapshot to panic/error
 
 	// Use a real DefraDB node so the loop can run without panicking
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	s.defraNode = td.Node
 	s.ctx = context.Background()
 
@@ -793,7 +791,7 @@ func TestListSnapshots_StatErrorSkipsFile(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSnapshotter_FullLifecycle(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 10, 14)
 
 	snapshotDir := t.TempDir()
@@ -825,7 +823,7 @@ func TestSnapshotter_FullLifecycle(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoop_ContextCancellation(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	dir := t.TempDir()
 	cfg := &config.SnapshotConfig{
 		Enabled:         true,
@@ -862,7 +860,7 @@ func TestLoop_ContextCancellation(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoop_ErrorLogging(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 10, 14)
 
 	// Use a directory that's read-only so createKVSnapshot will fail
@@ -903,7 +901,7 @@ func TestLoop_ErrorLogging(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	insertTestBlocks(t, td, 50, 54)
 
 	// Insert block signatures
@@ -937,7 +935,7 @@ func TestCheckAndSnapshot_WithBlockSignaturesAndIdentity(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_WithIdentityInsertedBlocks(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	identCtx, _ := insertTestBlocksWithIdentity(t, td, 50, 54)
 
 	snapshotDir := t.TempDir()
@@ -977,9 +975,12 @@ func TestCheckAndSnapshot_ClosedNode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckAndSnapshot_UsesChainBlockRange(t *testing.T) {
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	mc := &testutils.MockConverter{
+		CollectionsFn: func() chains.Collections {
+			return evm.NewCollectionNames(evm.DefaultCollectionPrefix)
+		},
 		GetLowestStoredBlockNumberFn:  func(_ context.Context, _ *node.Node) (int64, error) { return 100, nil },
 		GetHighestStoredBlockNumberFn: func(_ context.Context, _ *node.Node) (int64, error) { return 104, nil },
 		GetDocIDsByBlockRangeFn: func(_ context.Context, _ *node.Node, _, _ int64) (map[string][]string, error) {

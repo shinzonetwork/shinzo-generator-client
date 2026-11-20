@@ -55,14 +55,18 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 			// External DefraDB no longer sets defraNode, so StartIndexing
 			// returns "defraNode is required" after applying schema.
 			setup: func(t *testing.T) *ChainIndexer {
-				td := testutils.SetupTestDefraDB(t)
+				td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
+				// The RPC reports the configured chain ID, so startup reaches DefraDB.
+				rpcServer := newMockRPCServer(func(string, json.RawMessage) (any, error) { return "0x1", nil })
+				t.Cleanup(rpcServer.Close)
 
 				// Create a config pointing to the test DefraDB as "external".
 				cfg := &config.Config{
+					Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 					DefraDB: config.DefraDBConfig{
 						URL: fmt.Sprintf("http://localhost:%d", td.Port),
 					},
-					Geth: config.GethConfig{NodeURL: "http://localhost:9999"},
+					Geth: config.GethConfig{NodeURL: rpcServer.URL},
 					Indexer: config.IndexerConfig{
 						StartHeight:    0,
 						ReceiptWorkers: 1,
@@ -71,7 +75,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 					Logger: config.LoggerConfig{Development: true},
 				}
 
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				require.NoError(t, err)
 				return indexer
 			},
@@ -107,6 +111,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 				t.Cleanup(rpcServer.Close)
 
 				cfg := &config.Config{
+					Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 					DefraDB: config.DefraDBConfig{
 						URL:           testDefraRandomURL,
 						KeyringSecret: "test-secret-for-keyring-12345678",
@@ -125,7 +130,7 @@ func TestStartIndexing_ErrorPaths(t *testing.T) {
 					Logger: config.LoggerConfig{Development: true},
 				}
 
-				indexer, err := CreateIndexer(cfg)
+				indexer, err := CreateIndexer(cfg, evm.Factories())
 				require.NoError(t, err)
 				return indexer
 			},
@@ -623,7 +628,7 @@ func TestStartIndexing_HappyPaths(t *testing.T) {
 				cfg.Snapshot = *tc.snapshot(tmpDir)
 			}
 
-			indexer, err := CreateIndexer(cfg)
+			indexer, err := CreateIndexer(cfg, evm.Factories())
 			require.NoError(t, err)
 
 			stopped := false
@@ -662,7 +667,7 @@ func TestRunConcurrentIndexing_DirectCall(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	var blockCount atomic.Int64
 	rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
@@ -763,6 +768,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 
 	// Phase 1: Start an indexer to populate some blocks.
 	cfg1 := &config.Config{
+		Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -784,7 +790,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		Logger: config.LoggerConfig{Development: true},
 	}
 
-	indexer1, err := CreateIndexer(cfg1)
+	indexer1, err := CreateIndexer(cfg1, evm.Factories())
 	require.NoError(t, err)
 
 	stopped1 := false
@@ -826,6 +832,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 	blockCallCount.Store(0)
 
 	cfg2 := &config.Config{
+		Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 		DefraDB: config.DefraDBConfig{
 			URL:           testDefraRandomURL,
 			KeyringSecret: "test-secret-for-keyring-12345678",
@@ -844,7 +851,7 @@ func TestStartIndexing_ResumeFromExistingBlocks(t *testing.T) {
 		Logger: config.LoggerConfig{Development: true},
 	}
 
-	indexer2, err := CreateIndexer(cfg2)
+	indexer2, err := CreateIndexer(cfg2, evm.Factories())
 	require.NoError(t, err)
 
 	stopped2 := false
@@ -944,6 +951,7 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 			defer rpcServer.Close()
 
 			cfg := &config.Config{
+				Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: testChainID},
 				DefraDB: config.DefraDBConfig{
 					URL:           testDefraRandomURL,
 					KeyringSecret: "test-secret-for-keyring-12345678",
@@ -962,7 +970,7 @@ func TestStartIndexing_InitStageError(t *testing.T) {
 				Logger: config.LoggerConfig{Development: true},
 			}
 
-			indexer, err := CreateIndexer(cfg)
+			indexer, err := CreateIndexer(cfg, evm.Factories())
 			require.NoError(t, err)
 
 			cleanup := tc.setupSeam()

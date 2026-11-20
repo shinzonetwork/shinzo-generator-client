@@ -9,6 +9,13 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+    groups:
+      opentelemetry:
+        patterns:
+          - "go.opentelemetry.io/*"
+    ignore:
+      - dependency-name: "github.com/sourcenetwork/defradb"
+
 
   # GitHub Actions configurations
   - package-ecosystem: github-actions

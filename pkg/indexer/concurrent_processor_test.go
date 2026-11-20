@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	pkgErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -198,7 +199,7 @@ func TestFetchAndConvertBlock_FetchFailure(t *testing.T) {
 			t.Parallel()
 			logger.InitConsoleOnly(true)
 
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 				if tc.rpcErr != nil && method == ethGetBlockByNumber {
@@ -274,7 +275,7 @@ func TestFetchAndConvertBlock_RetryThenSuccess(t *testing.T) {
 			t.Parallel()
 			logger.InitConsoleOnly(true)
 
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 			var callCount atomic.Int64
 			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
@@ -338,7 +339,7 @@ func TestStoreWithRetry_DuplicateBlock(t *testing.T) {
 			t.Parallel()
 			logger.InitConsoleOnly(true)
 
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 				switch method {
@@ -409,7 +410,7 @@ func TestStoreWithRetry_ConcurrentConflict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			logger.InitConsoleOnly(true)
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 				switch method {
@@ -596,7 +597,7 @@ func TestStoreWithRetry_PartialStoreErrorFailsBlockWithoutSigner(t *testing.T) {
 func TestStoreWithRetry_ContextCancelDuringConflictRetry(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 		switch method {
@@ -658,7 +659,7 @@ func TestProcessBlocks_CancelAfterDelay(t *testing.T) {
 			t.Parallel()
 			logger.InitConsoleOnly(true)
 
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 			var callCount atomic.Int64
 			rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
@@ -745,7 +746,7 @@ func TestProcessBlocks_TooFarAhead(t *testing.T) {
 			t.Parallel()
 			logger.InitConsoleOnly(true)
 
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 			var callCount atomic.Int64
 			rpcServer := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
@@ -906,7 +907,7 @@ func TestProcessBlocks_ErrorAndExisting(t *testing.T) {
 			t.Parallel()
 			logger.InitConsoleOnly(true)
 
-			td := testutils.SetupTestDefraDB(t)
+			td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 			rpcServer := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
 				switch method {

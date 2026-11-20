@@ -1,4 +1,4 @@
-package main
+package generator
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,6 +67,10 @@ func TestRun_TelemetryMisconfiguredStopsBeforeIndexer(t *testing.T) {
 	storePath := filepath.Join(tmpDir, "defra")
 	configPath := filepath.Join(tmpDir, "config.yaml")
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   embedded: true
   store:
@@ -75,7 +80,7 @@ geth:
 `
 	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	err := run([]string{"-config", configPath})
+	err := Run([]string{"-config", configPath}, evm.Factories())
 	require.ErrorIs(t, err, resource.ErrPartialResource)
 	assert.Contains(t, err.Error(), "telemetry setup")
 	assert.NoDirExists(t, storePath, "the indexer must not be created")

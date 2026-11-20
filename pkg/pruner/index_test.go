@@ -7,7 +7,7 @@ import (
 	"github.com/sourcenetwork/defradb/client"
 	"github.com/stretchr/testify/require"
 
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -21,11 +21,10 @@ import (
 // its lifecycle status rather than its presence.
 func TestSchemaIndexesBlockNumberField(t *testing.T) {
 	t.Parallel()
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 	ctx := context.Background()
 
-	cols, err := chains.NewCollections(nil)
-	require.NoError(t, err)
+	cols := evm.NewCollectionNames(evm.DefaultCollectionPrefix)
 
 	type indexCase struct {
 		collection string

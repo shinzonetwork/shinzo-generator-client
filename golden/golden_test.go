@@ -135,7 +135,8 @@ func runChainGolden(t *testing.T, tc chainCase, mode receiptMode) map[string][]b
 	defraNode, teardown := startGoldenNode(t)
 	defer teardown()
 
-	converter := evm.NewConverter(tc.cfg)
+	converter, err := evm.NewConverter(tc.cfg)
+	require.NoError(t, err, "%s: converter for %s", mode.name, tc.folder)
 	require.NoError(t, defradb.ApplyCollectionSchemas(ctx, defraNode, converter.Collections()), "%s: apply schema for %s", mode.name, tc.folder)
 
 	server := newFixtureRPCServer(fixtures, mode.failBatchReceipts)

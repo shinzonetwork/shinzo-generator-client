@@ -9,6 +9,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 const snapshotsDefaultDir = "./snapshots"
@@ -19,6 +20,10 @@ func TestLoadConfig_ValidYAML(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://localhost:9181"
   keyring_secret: "test_secret"
@@ -91,7 +96,7 @@ func TestDefraDBEmbeddedUrlMatrix(t *testing.T) {
 
 			tempDir := t.TempDir()
 			configPath := filepath.Join(tempDir, "config.yaml")
-			configContent := "defradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
+			configContent := "chain:\n  name: Ethereum\n  network: Mainnet\n  chain_id: 1\ndefradb:\n  url: \"" + tt.url + "\"\n  embedded: " + strconv.FormatBool(tt.embedded) + "\nindexer:\n  start_height: 0\n"
 
 			require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
@@ -149,7 +154,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
-	cfg.Chain.Adapter = DefaultChainAdapter
+	cfg.Chain = testChain
 	cfg.Indexer.StartHeight = -1
 
 	err := validateConfig(cfg)
@@ -160,7 +165,7 @@ func TestValidateConfig_NegativeStartHeight(t *testing.T) {
 func TestValidateConfig_ExternalEmptyUrl(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
-	cfg.Chain.Adapter = DefaultChainAdapter
+	cfg.Chain = testChain
 	cfg.DefraDB.Embedded = false
 	cfg.DefraDB.URL = ""
 
@@ -172,7 +177,7 @@ func TestValidateConfig_Valid(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{}
 	cfg.DefraDB.Embedded = true
-	cfg.Chain.Adapter = DefaultChainAdapter
+	cfg.Chain = testChain
 	cfg.Indexer.StartHeight = 0
 	cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 
@@ -405,6 +410,10 @@ func TestLoadConfig_EnvironmentOverrides_Integration(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   url: "http://localhost:9181"
   keyring_secret: "pingpong"
@@ -426,6 +435,10 @@ func TestLoadConfig_InvalidEnvironmentValues(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   embedded: true
 indexer:
@@ -512,7 +525,7 @@ func TestValidateConfig_AuthModes(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
-			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Chain = testChain
 			cfg.Indexer.SchemaAuthMode = tt.mode
 			err := validateConfig(cfg)
 			if tt.shouldError {
@@ -546,7 +559,7 @@ func TestChainAdapter_EnvOverride(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{}
 			t.Setenv("CHAIN_ADAPTER", tt.envVal)
-			applyChainEnvOverrides(cfg)
+			require.NoError(t, applyChainEnvOverrides(cfg))
 			assert.Equal(t, tt.want, cfg.Chain.Adapter, "Chain.Adapter")
 		})
 	}
@@ -556,7 +569,7 @@ func TestChainAdapter_EnvOverrideEmptyIgnored(t *testing.T) {
 	cfg := &Config{}
 	cfg.Chain.Adapter = DefaultChainAdapter
 	t.Setenv("CHAIN_ADAPTER", "")
-	applyChainEnvOverrides(cfg)
+	require.NoError(t, applyChainEnvOverrides(cfg))
 	assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter, "empty CHAIN_ADAPTER should not override")
 }
 
@@ -579,6 +592,7 @@ func TestValidateConfig_InvalidChainAdapter(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
+			cfg.Chain = testChain
 			cfg.Chain.Adapter = tt.chainAdapter
 			cfg.Solana.NodeURL = tt.solanaNodeURL
 			if tt.chainAdapter == SolanaAdapter {
@@ -602,6 +616,10 @@ func TestLoadConfig_DefaultChainAdapter(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.yaml")
 
 	configContent := `
+chain:
+  name: "Ethereum"
+  network: "Mainnet"
+  chain_id: 1
 defradb:
   embedded: true
 indexer:
@@ -759,7 +777,7 @@ func TestValidateConfig_MaxSnapshotsRange(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
-			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Chain = testChain
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			cfg.Snapshot.MaxSnapshots = tt.maxSnapshots
 
@@ -797,7 +815,7 @@ func TestValidateConfig_SnapshotCoverage(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			cfg.DefraDB.Embedded = true
-			cfg.Chain.Adapter = DefaultChainAdapter
+			cfg.Chain = testChain
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			cfg.Snapshot = SnapshotConfig{
 				Enabled:       tt.snapshotEnabled,
@@ -870,4 +888,84 @@ func TestApplyEnvOverrides_ConverterConfig_InvalidValue(t *testing.T) {
 	require.NoError(t, applyEnvOverrides(cfg))
 
 	assert.Equal(t, 1, cfg.Converter.LowestBlockQueryLimit, "invalid env value should be ignored, preset preserved")
+}
+
+func TestP2PConnLimits_YAML(t *testing.T) {
+	t.Parallel()
+	var cfg Config
+	require.NoError(t, yaml.Unmarshal([]byte(`
+defradb:
+  p2p:
+    allowlist_cidrs: ["10.244.0.0/16", "fd00::/8"]
+    max_conns_per_ip: 16
+`), &cfg))
+	assert.Equal(t, []string{"10.244.0.0/16", "fd00::/8"}, cfg.DefraDB.P2P.AllowlistCIDRs)
+	assert.Equal(t, 16, cfg.DefraDB.P2P.MaxConnsPerIP)
+}
+
+func TestApplyEnvOverrides_P2PConnLimits(t *testing.T) {
+	cfg := &Config{}
+	cfg.DefraDB.P2P.AllowlistCIDRs = []string{"192.168.0.0/16"}
+	t.Setenv("DEFRADB_P2P_ALLOWLIST_CIDRS", " 10.244.0.0/16, ,fd00::/8 ")
+	t.Setenv("DEFRADB_P2P_MAX_CONNS_PER_IP", "32")
+	require.NoError(t, applyEnvOverrides(cfg))
+
+	assert.Equal(t, []string{"10.244.0.0/16", "fd00::/8"}, cfg.DefraDB.P2P.AllowlistCIDRs)
+	assert.Equal(t, 32, cfg.DefraDB.P2P.MaxConnsPerIP)
+}
+
+func TestApplyEnvOverrides_P2PConnLimits_EmptyAllowlistClearsYAML(t *testing.T) {
+	cfg := &Config{}
+	cfg.DefraDB.P2P.AllowlistCIDRs = []string{"10.244.0.0/16"}
+	t.Setenv("DEFRADB_P2P_ALLOWLIST_CIDRS", "")
+	require.NoError(t, applyEnvOverrides(cfg))
+
+	assert.Empty(t, cfg.DefraDB.P2P.AllowlistCIDRs)
+}
+
+func TestApplyEnvOverrides_P2PConnLimits_InvalidMaxConns(t *testing.T) {
+	for _, v := range []string{"abc", "0", "-1"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("DEFRADB_P2P_MAX_CONNS_PER_IP", v)
+			err := applyEnvOverrides(&Config{})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "DEFRADB_P2P_MAX_CONNS_PER_IP")
+		})
+	}
+}
+
+func TestValidateConfig_P2PConnLimits(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		cidrs   []string
+		maxConn int
+		wantErr string
+	}{
+		{name: "unset", cidrs: nil, maxConn: 0},
+		{name: "valid ipv4 and ipv6", cidrs: []string{"10.244.0.0/16", "fd00::/8", "10.244.1.75/32"}, maxConn: 8},
+		{name: "bare ip", cidrs: []string{"10.244.1.75"}, wantErr: `allowlist_cidrs entry "10.244.1.75"`},
+		{name: "bad prefix", cidrs: []string{"10.244.0.0/33"}, wantErr: `allowlist_cidrs entry "10.244.0.0/33"`},
+		{name: "garbage", cidrs: []string{"10.0.0.0/8", "k8s-pods"}, wantErr: `allowlist_cidrs entry "k8s-pods"`},
+		{name: "negative max conns", maxConn: -1, wantErr: "max_conns_per_ip"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			cfg.DefraDB.Embedded = true
+			cfg.Chain = testChain
+			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeNone
+			cfg.DefraDB.P2P.AllowlistCIDRs = tc.cidrs
+			cfg.DefraDB.P2P.MaxConnsPerIP = tc.maxConn
+
+			err := validateConfig(cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }

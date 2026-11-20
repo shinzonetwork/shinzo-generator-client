@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -476,7 +477,7 @@ type realDefraReorgHarness struct {
 func newRealDefraReorgHarness(t *testing.T, forkDepth int64) *realDefraReorgHarness {
 	t.Helper()
 
-	td := testutils.SetupTestDefraDB(t)
+	td := testutils.SetupTestDefraDB(t, evm.NewCollectionNames(evm.DefaultCollectionPrefix))
 
 	script := &forkScript{tip: reorgHeight + 100, forkHashes: forkChainHashes(reorgHeight, forkDepth)}
 	rpcServer := newMockRPCServer(script.handle)

@@ -1,10 +1,13 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -18,6 +21,15 @@ const CollectionName = "shinzo"
 
 // DefaultChainAdapter is the default and currently only supported chain adapter type.
 const DefaultChainAdapter = "evm"
+
+// ErrChainUnset is returned when the config does not name the chain to index.
+var ErrChainUnset = errors.New("chain.name and chain.network are required")
+
+// ErrInvalidChainName is returned when the chain name or network cannot be part of a collection name.
+var ErrInvalidChainName = errors.New("chain name and network must each be an upper-case letter followed by letters or digits")
+
+// ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
+var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
@@ -71,6 +83,13 @@ type DefraDBP2PConfig struct {
 	// Too low and peers get their streams reset with network.StreamResourceLimitExceeded (4098);
 	// CAR exchange, bitswap and pubsub all share these connections.
 	MaxStreamsPerPeer int `yaml:"max_streams_per_peer"`
+	// AllowlistCIDRs are IPv4/IPv6 CIDRs (e.g. "10.244.0.0/16") whose connections bypass the
+	// resource manager's limits, including the per-IP connection cap. Use it for trusted hosts
+	// that reach this node through one shared source address, such as in-cluster pods behind SNAT.
+	AllowlistCIDRs []string `yaml:"allowlist_cidrs"`
+	// MaxConnsPerIP caps concurrent connections from one IPv4 address (or IPv6 /56). Zero keeps
+	// libp2p's default of 8.
+	MaxConnsPerIP int `yaml:"max_conns_per_ip"`
 }
 
 // DefraDBStoreConfig represents store configuration for DefraDB.
@@ -104,10 +123,11 @@ func (d *DefraDBConfig) Host() string {
 
 // ChainConfig represents the chain being indexed.
 type ChainConfig struct {
-	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
-	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
-	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"` // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	Name    string `yaml:"name"`     // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
+	Network string `yaml:"network"`  // e.g. "Mainnet", "Testnet"
+	ChainID uint64 `yaml:"chain_id"` // EVM chain ID the RPC must report from eth_chainId, e.g. 1 for Ethereum mainnet (env: CHAIN_ID)
+	Hub     string `yaml:"hub"`      // ShinzoHub hostname only: no scheme, no port (e.g. "testnet.shinzo.network")
+	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default). Future: "cosmos", etc. (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -394,8 +414,23 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
+	if cfg.Chain.Name == "" || cfg.Chain.Network == "" {
+		return ErrChainUnset
+	}
+	if err := ValidateChainNames(cfg.Chain.Name, cfg.Chain.Network); err != nil {
+		return err
+	}
+	// chain_id is the EVM chain ID; other chain families identify their chain differently.
+	if cfg.Chain.Adapter == DefaultChainAdapter && cfg.Chain.ChainID == 0 {
+		return ErrChainIDUnset
+	}
+
 	if cfg.Indexer.StartHeight < 0 {
 		return fmt.Errorf("start_height must be >= 0")
+	}
+
+	if err := validateP2PConnLimits(cfg.DefraDB.P2P); err != nil {
+		return err
 	}
 
 	switch cfg.Indexer.SchemaAuthMode {
@@ -431,12 +466,28 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
+// chainNamePattern is an upper-case letter followed by letters or digits, which keeps collection
+// names such as Ethereum__Mainnet__Block valid GraphQL with "__" as an unambiguous separator. The
+// upper-case first letter refuses a typo like mainnet that would create a second set of collections.
+var chainNamePattern = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+// ValidateChainNames returns ErrInvalidChainName unless the chain name and network can be
+// joined into collection names.
+func ValidateChainNames(name, network string) error {
+	if !chainNamePattern.MatchString(name) || !chainNamePattern.MatchString(network) {
+		return fmt.Errorf("%w: got %q and %q", ErrInvalidChainName, name, network)
+	}
+	return nil
+}
+
 // applyEnvOverrides applies environment variable overrides to the config.
 func applyEnvOverrides(cfg *Config) error {
 	if err := applyDefraEnvOverrides(cfg); err != nil {
 		return err
 	}
-	applyChainEnvOverrides(cfg)
+	if err := applyChainEnvOverrides(cfg); err != nil {
+		return err
+	}
 	applyIndexerEnvOverrides(cfg)
 	applySchemaEnvOverrides(cfg)
 	applyPrunerEnvOverrides(cfg)
@@ -480,20 +531,8 @@ func applyDefraEnvOverrides(cfg *Config) error {
 			cfg.DefraDB.P2P.AcceptIncoming = parsed
 		}
 	}
-	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_MEMORY_MIB"); err != nil {
+	if err := applyP2PLimitEnvOverrides(&cfg.DefraDB.P2P); err != nil {
 		return err
-	} else if ok {
-		cfg.DefraDB.P2P.ResourceMemoryMiB = n
-	}
-	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_FILE_DESCRIPTORS"); err != nil {
-		return err
-	} else if ok {
-		cfg.DefraDB.P2P.ResourceFileDescriptors = n
-	}
-	if n, ok, err := envPositiveInt("DEFRADB_P2P_MAX_STREAMS_PER_PEER"); err != nil {
-		return err
-	} else if ok {
-		cfg.DefraDB.P2P.MaxStreamsPerPeer = n
 	}
 	if storePath := os.Getenv("DEFRADB_STORE_PATH"); storePath != "" {
 		cfg.DefraDB.Store.Path = storePath
@@ -551,13 +590,20 @@ func envPositiveInt(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// applyChainEnvOverrides applies chain, Geth and Solana environment variable overrides.
-func applyChainEnvOverrides(cfg *Config) {
+// applyChainEnvOverrides applies chain and Geth environment variable overrides.
+func applyChainEnvOverrides(cfg *Config) error {
 	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
 		cfg.Chain.Name = chainName
 	}
 	if chainNetwork := os.Getenv("CHAIN_NETWORK"); chainNetwork != "" {
 		cfg.Chain.Network = chainNetwork
+	}
+	if raw := os.Getenv("CHAIN_ID"); raw != "" {
+		id, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid CHAIN_ID value %q: %w", raw, err)
+		}
+		cfg.Chain.ChainID = id
 	}
 	if shinzoHubHost := os.Getenv("SHINZOHUB_REST_BASE"); shinzoHubHost != "" {
 		cfg.Chain.Hub = shinzoHubHost
@@ -605,6 +651,7 @@ func applyChainEnvOverrides(cfg *Config) {
 			cfg.Solana.DialTimeoutSeconds = n
 		}
 	}
+	return nil
 }
 
 // applyIndexerEnvOverrides applies indexer environment variable overrides.
@@ -736,4 +783,58 @@ func applyConverterEnvOverrides(cfg *Config) {
 			cfg.Converter.LowestBlockQueryLimit = n
 		}
 	}
+}
+
+// validateP2PConnLimits rejects a malformed allowlist or per-IP cap at startup, so a typo is a
+// config error rather than a node that silently keeps refusing the hosts it was meant to admit.
+func validateP2PConnLimits(p2p DefraDBP2PConfig) error {
+	if p2p.MaxConnsPerIP < 0 {
+		return fmt.Errorf("invalid defradb.p2p.max_conns_per_ip %d: must be >= 0 (0 keeps libp2p's default of 8)", p2p.MaxConnsPerIP)
+	}
+	for _, cidr := range p2p.AllowlistCIDRs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("invalid defradb.p2p.allowlist_cidrs entry %q: want a CIDR such as 10.244.0.0/16: %w", cidr, err)
+		}
+	}
+	return nil
+}
+
+// splitCommaList splits a comma-separated env value, trimming spaces and dropping empty entries.
+func splitCommaList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// applyP2PLimitEnvOverrides applies the libp2p resource-manager and connection-limit env overrides.
+func applyP2PLimitEnvOverrides(p2p *DefraDBP2PConfig) error {
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_MEMORY_MIB"); err != nil {
+		return err
+	} else if ok {
+		p2p.ResourceMemoryMiB = n
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_RESOURCE_FILE_DESCRIPTORS"); err != nil {
+		return err
+	} else if ok {
+		p2p.ResourceFileDescriptors = n
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_MAX_STREAMS_PER_PEER"); err != nil {
+		return err
+	} else if ok {
+		p2p.MaxStreamsPerPeer = n
+	}
+	if n, ok, err := envPositiveInt("DEFRADB_P2P_MAX_CONNS_PER_IP"); err != nil {
+		return err
+	} else if ok {
+		p2p.MaxConnsPerIP = n
+	}
+	if cidrs, ok := os.LookupEnv("DEFRADB_P2P_ALLOWLIST_CIDRS"); ok {
+		p2p.AllowlistCIDRs = splitCommaList(cidrs)
+	}
+	return nil
 }
