@@ -10,6 +10,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/solana"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
@@ -29,7 +30,7 @@ func run(args []string, stdout io.Writer) error {
 	listFiles := fs.Bool("list-files", false, "List collection filenames in apply order, one per line")
 	chain := fs.String("chain", "", "Chain name for collection prefixes (e.g. Arbitrum). Required.")
 	network := fs.String("network", "", "Network name for collection prefixes (e.g. Mainnet). Required.")
-	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from. Empty selects the default adapter.")
+	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from (evm or solana). Empty selects the default adapter (evm).")
 	file := fs.String("file", "", "Single collection file to output (e.g. block.graphql). Default: full merged SDL.")
 	// The prefix flag is still declared so legacy invocations get a targeted
 	// migration error instead of a generic unknown-flag failure.
@@ -46,8 +47,8 @@ func run(args []string, stdout io.Writer) error {
 	if err := config.ValidateChainNames(*chain, *network); err != nil {
 		return err
 	}
-	if *adapter != "" && *adapter != config.DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", *adapter, config.DefaultChainAdapter)
+	if *adapter != "" && *adapter != config.DefaultChainAdapter && *adapter != config.SolanaAdapter {
+		return fmt.Errorf("chain adapter %q not yet implemented: only %q and %q are supported", *adapter, config.DefaultChainAdapter, config.SolanaAdapter)
 	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
@@ -55,7 +56,7 @@ func run(args []string, stdout io.Writer) error {
 		Network: *network,
 		Adapter: *adapter,
 	}}
-	c, err := evm.NewCollectionsFromConfig(cfg)
+	c, err := collectionsForAdapter(*adapter, cfg)
 	if err != nil {
 		return err
 	}
@@ -84,6 +85,20 @@ func run(args []string, stdout io.Writer) error {
 	}
 	_, err = io.WriteString(stdout, sdl)
 	return err
+}
+
+// collectionsForAdapter resolves the collections implementation for the
+// requested adapter explicitly, mirroring the per-chain mains: each adapter
+// maps to its package's collections factory with no registry or global
+// fallback dispatch in between. An empty adapter keeps the historical
+// default of the evm adapter.
+func collectionsForAdapter(adapter string, cfg *config.Config) (chains.Collections, error) {
+	switch adapter {
+	case config.SolanaAdapter:
+		return solana.NewCollectionsFromConfig(cfg)
+	default:
+		return evm.NewCollectionsFromConfig(cfg)
+	}
 }
 
 // collectionSDLByFile looks up a single collection file's SDL from the chain's

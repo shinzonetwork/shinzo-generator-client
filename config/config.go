@@ -6,8 +6,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -323,23 +323,16 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// applyDefaults sets default values for optional configuration.
+// applyDefaults sets default values for optional configuration. Chain
+// name/network are deliberately NOT defaulted: the collection prefix is
+// built from both, so validateConfig rejects a config missing either one
+// instead of inventing a prefix the operator never configured.
 func applyDefaults(cfg *Config) {
 	// The adapter default comes first so the chain-name default can follow it:
 	// a Solana deployment that omits chain.name must not end up with
 	// Ethereum-prefixed collections built from solana SDL.
 	if cfg.Chain.Adapter == "" {
 		cfg.Chain.Adapter = DefaultChainAdapter
-	}
-	if cfg.Chain.Name == "" {
-		if cfg.Chain.Adapter == SolanaAdapter {
-			cfg.Chain.Name = "Solana"
-		} else {
-			cfg.Chain.Name = "Ethereum"
-		}
-	}
-	if cfg.Chain.Network == "" {
-		cfg.Chain.Network = "Mainnet"
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8

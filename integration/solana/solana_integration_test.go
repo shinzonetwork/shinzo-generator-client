@@ -173,7 +173,7 @@ func testSolanaConfig() *config.Config {
 // way the live suite does: StartIndexing(false) lets the indexer own its
 // embedded DefraDB node. Init failures are captured for the polling loops.
 func startSolanaIndexer(t *testing.T) *solanaIndexerRun {
-	idx, err := indexer.CreateIndexer(testSolanaConfig())
+	idx, err := indexer.CreateIndexer(testSolanaConfig(), solana.Factories())
 	if err != nil {
 		t.Fatalf("CreateIndexer: %v", err)
 	}

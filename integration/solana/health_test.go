@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/solana"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 )
 
@@ -86,7 +87,7 @@ func TestSolanaHealthEndpoints(t *testing.T) {
 		Logger: config.LoggerConfig{Development: true},
 	}
 
-	idx, err := indexer.CreateIndexer(cfg)
+	idx, err := indexer.CreateIndexer(cfg, solana.Factories())
 	if err != nil {
 		t.Fatalf("CreateIndexer: %v", err)
 	}

@@ -32,8 +32,13 @@ func neutralizeSolanaEnv(t *testing.T) {
 
 func solanaTestConfig() *Config {
 	cfg := &Config{}
-	cfg.DefraDB.Embedded = true
+	// Chain name/network are required by validateConfig for every adapter
+	// (the collection prefix is built from both), so the test config sets
+	// them explicitly instead of relying on defaults.
+	cfg.Chain.Name = "Solana"
+	cfg.Chain.Network = "Mainnet"
 	cfg.Chain.Adapter = SolanaAdapter
+	cfg.DefraDB.Embedded = true
 	cfg.Indexer.SchemaAuthMode = "token"
 	return cfg
 }
@@ -128,20 +133,25 @@ func TestValidateConfig_Solana(t *testing.T) {
 
 func TestApplyDefaults_Solana(t *testing.T) {
 	t.Parallel()
-	t.Run("adapter default stays evm with Ethereum name", func(t *testing.T) {
+	t.Run("adapter default stays evm without a chain name", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{}
 		applyDefaults(cfg)
 		assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter)
-		assert.Equal(t, "Ethereum", cfg.Chain.Name)
+		// The chain name is never defaulted: the collection prefix is built
+		// from it, so validateConfig rejects a config without one.
+		assert.Empty(t, cfg.Chain.Name)
 	})
-	t.Run("nameless solana config defaults to Solana", func(t *testing.T) {
+	t.Run("nameless solana config keeps name empty", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{}
 		cfg.Chain.Adapter = SolanaAdapter
 		applyDefaults(cfg)
-		assert.Equal(t, "Solana", cfg.Chain.Name)
-		assert.Equal(t, "Mainnet", cfg.Chain.Network)
+		// Chain name is never defaulted: validateConfig rejects a config
+		// without one, so a nameless config must not silently index under
+		// an operator-invisible prefix.
+		assert.Empty(t, cfg.Chain.Name)
+		assert.Empty(t, cfg.Chain.Network)
 		assert.Equal(t, DefaultSolanaCommitment, cfg.Solana.Commitment)
 		assert.Equal(t, DefaultSolanaMaxSupportedTxVersion, cfg.Solana.MaxSupportedTransactionVersion)
 		assert.Equal(t, DefaultSolanaDialTimeoutSeconds, cfg.Solana.DialTimeoutSeconds)
@@ -258,6 +268,8 @@ func TestLoadConfig_Solana(t *testing.T) {
 
 	configContent := `
 chain:
+  name: "Solana"
+  network: "Mainnet"
   adapter: "solana"
 defradb:
   embedded: true
@@ -272,7 +284,8 @@ indexer:
 	cfg, err := LoadConfig(configPath)
 	require.NoError(t, err)
 	assert.Equal(t, SolanaAdapter, cfg.Chain.Adapter)
-	assert.Equal(t, "Solana", cfg.Chain.Name, "a nameless solana config must not default to Ethereum")
+	assert.Equal(t, "Solana", cfg.Chain.Name)
+	assert.Equal(t, "Mainnet", cfg.Chain.Network)
 	assert.Equal(t, "http://localhost:8899", cfg.Solana.NodeURL)
 	assert.Equal(t, DefaultSolanaCommitment, cfg.Solana.Commitment)
 	assert.Equal(t, DefaultSolanaMaxSupportedTxVersion, cfg.Solana.MaxSupportedTransactionVersion)

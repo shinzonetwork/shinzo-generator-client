@@ -139,33 +139,6 @@ func TestCreateIndexer(t *testing.T) {
 	}
 }
 
-func TestGetSourceChainInfo(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		chain       config.ChainConfig
-		wantName    string
-		wantChainID uint64
-	}{
-		{name: "Ethereum mainnet", chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: 1}, wantName: "ethereum", wantChainID: 1},
-		{name: "Ethereum Sepolia", chain: config.ChainConfig{Name: "Ethereum", Network: "Sepolia", ChainID: 11155111}, wantName: "ethereum", wantChainID: 11155111},
-		{name: "BSC mainnet", chain: config.ChainConfig{Name: "BSC", Network: "Mainnet", ChainID: 56}, wantName: "bsc", wantChainID: 56},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			indexer := &ChainIndexer{cfg: &config.Config{Chain: tt.chain}}
-
-			name, chainID := indexer.GetSourceChainInfo()
-
-			assert.Equal(t, tt.wantName, name)
-			assert.Equal(t, tt.wantChainID, chainID)
-		})
-	}
-}
-
 // TestGetDefraDBPort tests port retrieval with and without an embedded node.
 func TestGetDefraDBPort(t *testing.T) {
 	t.Parallel()
@@ -879,77 +852,35 @@ func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
 	assert.True(t, indexer.GetCurrentBlock() >= 0)
 }
 
-// TestGetSourceChainInfo pins the ShinzoHub registration identity: chain IDs
-// are EVM-only (EIP-155), so non-EVM chain families register with the hub
-// using ID 0, and only mainnet combinations report a chain name (a testnet
-// or unknown combination reports an empty name, the same treatment as
-// ethereum + sepolia). The chain family comes from chain.adapter, not
-// chain.name, so a custom chain name cannot masquerade as a hub identity.
+// TestGetSourceChainInfo pins the ShinzoHub registration identity: the
+// configured chain name in lower case plus the configured chain ID. EIP-155
+// chain IDs are EVM-only, so a Solana config registers with ID 0 by leaving
+// ChainID unset; the identity comes from the config, not a per-adapter
+// registry.
 func TestGetSourceChainInfo(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name      string
-		adapter   string
-		chainName string
-		network   string
-		wantChain string
-		wantID    uint64
+	tests := []struct {
+		name        string
+		chain       config.ChainConfig
+		wantName    string
+		wantChainID uint64
 	}{
-		{
-			name:      "SolanaMainnet",
-			adapter:   config.SolanaAdapter,
-			chainName: "Solana",
-			network:   "mainnet",
-			wantChain: "solana",
-			wantID:    0,
-		},
-		{
-			name:      "SolanaTestnetUnknown",
-			adapter:   config.SolanaAdapter,
-			chainName: "Solana",
-			network:   "devnet",
-			wantChain: "",
-			wantID:    0,
-		},
-		{
-			name:      "NameAloneIsNotASolanaIdentity",
-			chainName: "solana",
-			network:   "mainnet",
-			wantChain: "",
-			wantID:    0,
-		},
-		{
-			name:      "EthereumDefault",
-			adapter:   config.DefaultChainAdapter,
-			network:   "mainnet",
-			wantChain: "ethereum",
-			wantID:    1,
-		},
-		{
-			name:      "EthereumSepoliaUnknown",
-			adapter:   config.DefaultChainAdapter,
-			network:   "sepolia",
-			wantChain: "",
-			wantID:    0,
-		},
+		{name: "Ethereum mainnet", chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: 1}, wantName: "ethereum", wantChainID: 1},
+		{name: "Ethereum Sepolia", chain: config.ChainConfig{Name: "Ethereum", Network: "Sepolia", ChainID: 11155111}, wantName: "ethereum", wantChainID: 11155111},
+		{name: "BSC mainnet", chain: config.ChainConfig{Name: "BSC", Network: "Mainnet", ChainID: 56}, wantName: "bsc", wantChainID: 56},
+		{name: "Solana mainnet", chain: config.ChainConfig{Name: "Solana", Network: "Mainnet", Adapter: config.SolanaAdapter}, wantName: "solana", wantChainID: 0},
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			indexer := &ChainIndexer{cfg: &config.Config{Chain: tt.chain}}
 
-			idx := &ChainIndexer{cfg: &config.Config{
-				Chain: config.ChainConfig{
-					Name:    tc.chainName,
-					Network: tc.network,
-					Adapter: tc.adapter,
-				},
-			}}
+			name, chainID := indexer.GetSourceChainInfo()
 
-			chain, id := idx.GetSourceChainInfo()
-			assert.Equal(t, tc.wantChain, chain)
-			assert.Equal(t, tc.wantID, id)
+			assert.Equal(t, tt.wantName, name)
+			assert.Equal(t, tt.wantChainID, chainID)
 		})
 	}
 }

@@ -5,22 +5,18 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
-// init registers the Solana chain family's factories (Fetcher, Converter, and
-// Collections) in the unified chainFactoryRegistry via a single RegisterChain
-// call, mirroring the EVM package. One call prevents partial registration by
-// construction: all three factories are either registered together or not at
-// all. The binary blank-imports pkg/chains/solana so this init() runs before
-// any dispatch via chains.NewFetcher/NewConverter/NewCollections.
-func init() {
-	chains.RegisterChain(config.SolanaAdapter, chains.ChainFactories{
+// Factories returns the Solana chain family's factory functions (Fetcher,
+// Converter, and Collections) as one bundle. Per-chain mains construct it and
+// inject it into the app, so every dispatch path uses the same three
+// factories by construction and no partial wiring is possible.
+func Factories() chains.ChainFactories {
+	return chains.ChainFactories{
 		Fetcher: func(cfg *config.Config) (chains.Fetcher, error) {
 			return NewFetcherFromConfig(cfg)
 		},
 		Converter: func(cfg *config.Config) (chains.Converter, error) {
 			return NewConverter(cfg), nil
 		},
-		Collections: func(cfg *config.Config) (chains.Collections, error) {
-			return NewCollectionNames(chainPrefixFromConfig(cfg)), nil
-		},
-	})
+		Collections: NewCollectionsFromConfig,
+	}
 }

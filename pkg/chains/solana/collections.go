@@ -3,6 +3,7 @@ package solana
 import (
 	"fmt"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
@@ -99,6 +100,16 @@ func (c *CollectionNames) SnapshotSignatureCollection() string {
 // collection name that stores block signature documents.
 func (c *CollectionNames) BlockSignatureCollection() string {
 	return c.BlockSignature
+}
+
+// NewCollectionsFromConfig creates the Solana collection names for the chain
+// cfg names. It always resolves a prefix via chainPrefixFromConfig: a nil
+// config and empty name/network fall back to Solana__Mainnet, matching the
+// converter's fallback contract, so the returned error is always nil. It is
+// the Collections factory the solana package exposes in its Factories()
+// bundle.
+func NewCollectionsFromConfig(cfg *config.Config) (chains.Collections, error) {
+	return NewCollectionNames(chainPrefixFromConfig(cfg)), nil
 }
 
 // DefaultCollections returns all default collection names as a slice.

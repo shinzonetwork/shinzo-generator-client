@@ -142,7 +142,7 @@ func TestMain(m *testing.M) {
 		Logger: config.LoggerConfig{Development: true},
 	}
 
-	idx, err := indexer.CreateIndexer(cfg)
+	idx, err := indexer.CreateIndexer(cfg, solana.Factories())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TestMain: cannot create the indexer: %v\n", err)
 		_ = os.RemoveAll(storeDir)

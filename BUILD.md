@@ -16,13 +16,13 @@ go mod download
 make build
 ```
 
-The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `make build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain) plus `bin/fetch_blocks`.
+The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `make build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain), `bin/block_poster_solana` (the solana adapter), plus `bin/fetch_blocks`.
 
 ## Useful commands
 
 | Command | What it does |
 | --- | --- |
-| `make build` | Build all binaries (evm generator + fetch_blocks). |
+| `make build` | Build all binaries (evm and solana generators + fetch_blocks). |
 | `make evm-build` | Build only `bin/block_poster_evm`. |
 | `make solana-build` | Build only `bin/block_poster_solana`. |
 | `make ethereum-start` | Run `bin/block_poster_evm` with the Ethereum config. |
