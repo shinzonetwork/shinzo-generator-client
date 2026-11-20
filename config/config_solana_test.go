@@ -264,7 +264,7 @@ func TestSolanaEnvOverrides(t *testing.T) {
 func TestLoadConfig_Solana(t *testing.T) {
 	neutralizeSolanaEnv(t)
 	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config-solana.yaml")
+	configPath := filepath.Join(tempDir, "config_solana.yaml")
 
 	configContent := `
 chain:
@@ -299,7 +299,7 @@ func TestLoadConfig_SolanaDeploymentFile_STILL_VALID(t *testing.T) {
 	// loader does not expand; the env pin supplies the value deployment would.
 	t.Setenv("SCHEMA_AUTH_MODE", "token")
 
-	cfg, err := LoadConfig("config-solana.yaml")
+	cfg, err := LoadConfig("config_solana.yaml")
 	require.NoError(t, err)
 
 	assert.Equal(t, SolanaAdapter, cfg.Chain.Adapter)
