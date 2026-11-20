@@ -1,0 +1,19 @@
+# txid is non-unique: BIP30 allowed duplicate txids before height 91842.
+# hash differs from txid for SegWit transactions (the witness-included hash).
+type Bitcoin__Mainnet__Transaction {
+    txid: String @index
+    hash: String
+    blockHash: String @index
+    blockNumber: Int
+    # Position within the block (0 = coinbase).
+    txIndex: Int
+    version: Int
+    locktime: Int
+    # Satoshis; null when block undo data is unavailable, always null for the coinbase.
+    feeSat: Int
+    isCoinbase: Boolean
+    # Relationships
+    block: Bitcoin__Mainnet__Block @relation(name: "bitcoin_block_transactions")
+    inputs: [Bitcoin__Mainnet__TxInput] @relation(name: "bitcoin_transaction_inputs")
+    outputs: [Bitcoin__Mainnet__TxOutput] @relation(name: "bitcoin_transaction_outputs")
+}

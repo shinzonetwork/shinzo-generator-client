@@ -1,6 +1,7 @@
 package defra
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -13,27 +14,33 @@ func GetPort(targetNode *node.Node) int {
 	return GetPortFromURL(url)
 }
 
-// GetPortFromURL extracts the port number from a URL string.
-func GetPortFromURL(url string) int {
-	// Check if it's localhost format (http://127.0.0.1:port, http://localhost:port, or http://[::]:port)
-	if !strings.Contains(url, "127.0.0.1:") && !strings.Contains(url, "localhost:") && !strings.Contains(url, "[::]:") {
+// GetPortFromURL extracts the port number from a URL string. The parse must
+// accept any host form: the embedded node's API address is resolved through
+// the deployment's rewrite of the configured URL (a loopback address becomes
+// the machine's LAN IP so remote peers can reach it), so the API URL for a
+// real running node is rarely loopback-shaped and a loopback-only parse
+// reports no port for every such node.
+func GetPortFromURL(rawURL string) int {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
 		return -1
 	}
-
-	// Extract port by splitting on colon and taking the last part
-	parts := strings.Split(url, ":")
-
-	// Get the last part (port) and remove any trailing path
-	portStr := parts[len(parts)-1]
-	if strings.Contains(portStr, "/") {
-		portStr = strings.Split(portStr, "/")[0]
+	// A bare "host:port" value parses as scheme:host without a "//" prefix,
+	// so it is normalized into a parseable authority first.
+	if !strings.Contains(rawURL, "://") {
+		rawURL = "//" + rawURL
 	}
-
-	// Convert port string to int
-	portInt, err := strconv.Atoi(portStr)
-	if err != nil {
+	parsed, parseErr := url.Parse(rawURL)
+	if parseErr != nil {
 		return -1
 	}
-
+	portStr := parsed.Port()
+	if portStr == "" {
+		return -1
+	}
+	portInt, convErr := strconv.Atoi(portStr)
+	if convErr != nil {
+		return -1
+	}
 	return portInt
 }

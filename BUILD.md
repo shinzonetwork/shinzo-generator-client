@@ -24,10 +24,15 @@ The compiled binary goes into `./bin`. The generator ships one binary per chain 
 | --- | --- |
 | `make build` | Build all binaries (evm generator + fetch_blocks). |
 | `make evm-build` | Build only `bin/block_poster_evm`. |
+| `make bitcoin-build` | Build only `bin/block_poster_bitcoin`. |
 | `make ethereum-start` | Run `bin/block_poster_evm` with the Ethereum config. |
 | `make bsc-start` | Run `bin/block_poster_evm` with the BSC config. |
+| `make bitcoin-start` | Run the compiled binary for Bitcoin. |
 | `make test` | Run all tests with a summary. |
-| `make integration-test` | Run the fast mock integration suite (embedded DefraDB, synthetic data, no chain endpoint). |
+| `make integration-test` | Run the Ethereum and Bitcoin integration suites. |
+| `make ethereum-integration-test` | Run the Ethereum mock and live legs. |
+| `make bitcoin-integration-test` | Run the Bitcoin mock and live legs. |
+| `make bitcoin-live-test` | Run the Bitcoin live smoke suite against a Bitcoin Core JSON-RPC endpoint (requires `BITCOIN_RPC_URL`). |
 | `make ethereum-live-test` | Run live integration tests for Ethereum |
 | `make bsc-live-test` | Run live integration tests for BSC |
 | `make bsc-bench-fetch` | Captures replay fixture for BSC acceptance test from BSC RPC |

@@ -9,6 +9,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/bitcoin"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
@@ -46,16 +47,13 @@ func run(args []string, stdout io.Writer) error {
 	if err := config.ValidateChainNames(*chain, *network); err != nil {
 		return err
 	}
-	if *adapter != "" && *adapter != config.DefaultChainAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q is supported", *adapter, config.DefaultChainAdapter)
-	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
 		Name:    *chain,
 		Network: *network,
 		Adapter: *adapter,
 	}}
-	c, err := evm.NewCollectionsFromConfig(cfg)
+	c, err := collectionsForAdapter(*adapter, cfg)
 	if err != nil {
 		return err
 	}
@@ -100,4 +98,20 @@ func collectionSDLByFile(c chains.Collections, file string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("collection file %q not found for prefix %s", file, c.Prefix())
+}
+
+// collectionsForAdapter resolves the collection names through the chain
+// package that owns the requested adapter. An empty adapter selects the
+// default (evm) family, matching the config layer's own default, so legacy
+// invocations keep working without the flag.
+func collectionsForAdapter(adapter string, cfg *config.Config) (chains.Collections, error) {
+	switch adapter {
+	case "", config.DefaultChainAdapter:
+		return evm.NewCollectionsFromConfig(cfg)
+	case config.BitcoinAdapter:
+		return bitcoin.NewCollectionsFromConfig(cfg)
+	default:
+		return nil, fmt.Errorf("chain adapter %q not yet implemented: only %q and %q are supported",
+			adapter, config.DefaultChainAdapter, config.BitcoinAdapter)
+	}
 }

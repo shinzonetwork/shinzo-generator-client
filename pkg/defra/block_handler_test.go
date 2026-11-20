@@ -273,8 +273,13 @@ func TestGetPortFromURL(t *testing.T) {
 		{"IPv6 any address with port", "http://[::]:9181", 9181},
 		{"localhost IP with port and path", "http://127.0.0.1:9181/api/v0", 9181},
 		{"localhost name with port and path", "http://localhost:9181/api/v0/graphql", 9181},
-		{"non-localhost host", "http://example.com:9181", -1},
-		{"remote IP", "http://192.168.0.116:9181", -1},
+		// The embedded node's API URL is rewritten away from loopback by the
+		// deployment bootstrap (the LAN IP takes the config's place for peer
+		// reachability), so non-loopback hosts must parse too.
+		{"non-localhost host", "http://example.com:9181", 9181},
+		{"remote IP", "http://192.168.0.116:9181", 9181},
+		{"bare host with port", "127.0.0.1:0", 0},
+		{"host without port", "http://example.com", -1},
 		{"invalid url", "invalid-url", -1},
 		{"empty string", "", -1},
 		{"localhost with different port", "http://127.0.0.1:8080", 8080},

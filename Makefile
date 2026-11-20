@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build ethereum-start bsc-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test
+.PHONY: deps env build evm-build bitcoin-build ethereum-start bsc-start bitcoin-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -10,6 +10,12 @@ endif
 GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
+
+# Bitcoin Core JSON-RPC (block_poster with chain.adapter: bitcoin). A local
+# regtest node is the suggested live-test endpoint since it needs no external
+# account or credentials.
+BITCOIN_RPC_URL ?=
+BITCOIN_ARCHIVE_RPC_URL ?=
 
 
 # Capture range for replay-fetch. 0 = auto: latest 100 blocks from the
@@ -28,7 +34,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # injection identical between evm-build and any future per-chain build target.
 LDFLAGS := -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)"
 
-build: evm-build
+build: evm-build bitcoin-build
 	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 
 evm-build:
@@ -41,12 +47,25 @@ evm-build:
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
 	fi
 
+bitcoin-build:
+	go build $(LDFLAGS) -o bin/block_poster_bitcoin ./cmd/block_poster/bitcoin/
+	@if [ "$(VERSION)" = "dev" ]; then \
+		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+	elif grep -aFq "$(VERSION)" bin/block_poster_bitcoin; then \
+		echo "✅ version injected: $(VERSION)"; \
+	else \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
+	fi
+
 ethereum-start:
 	./bin/block_poster_evm
 
 bsc-start:
 	./bin/block_poster_evm -config config/config_bsc.yaml
-	
+
+bitcoin-start:
+	./bin/block_poster_bitcoin -config config/config_bitcoin.yaml
+
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
@@ -105,11 +124,14 @@ test-local:
 	@echo "✅ Using node endpoint: $(GETH_RPC_URL)"
 	@go test ./pkg/indexer -v -run TestIndexing
 
-# integration-test runs the self-contained mock suite (build tag
-# "integration"): an embedded DefraDB fed with synthetic block data. No chain
-# endpoint and no credentials, so it is safe to run anywhere at any time.
-integration-test:
-	@echo "🧪 Running integration tests..."
+integration-test: ethereum-integration-test bitcoin-integration-test
+	@echo "🧪 All integration test legs complete"
+
+# Ethereum legs: the GraphQL mock suites and the golden freeze, then the
+# live suite against a Geth-compatible endpoint when GETH_RPC_URL is set.
+ethereum-integration-test:
+	@echo "🧪 Running Ethereum integration tests..."
+	@echo "📦 Mock tests (fast):"
 	@go test -tags=integration -v ./integration/ ./golden/
 coverage:
 	go test ./... -coverprofile=coverage.out
@@ -131,6 +153,23 @@ ethereum-live-test:
 		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
 	fi
 
+# Bitcoin legs: the scripted-core mock suite, then the live smoke against a
+# Bitcoin Core endpoint when BITCOIN_RPC_URL is set.
+bitcoin-integration-test:
+	@echo "🧪 Running Bitcoin integration tests..."
+	@echo "📦 Mock tests (fast):"
+	@go test -tags=integration -v ./integration/bitcoin/
+	@echo ""
+	@echo "🌐 Live tests (requires environment variables):"
+	@if [ -n "$(BITCOIN_RPC_URL)" ]; then \
+		go test -tags=live -v ./integration/live/bitcoin/ -timeout=35m; \
+	else \
+		echo "⚠️  Skipping bitcoin live tests - BITCOIN_RPC_URL not set"; \
+	fi
+
+coverage:
+	go test ./... -coverprofile=coverage.out
+	go tool cover -html=coverage.out -o coverage.html
 # bsc-live-test runs the BSC live integration suite with the same guard
 # semantics as ethereum-live-test: GETH_RPC_URL is the single tripwire, and
 # without it the target warns and skips instead of touching any endpoint by
@@ -245,6 +284,24 @@ replay-fetch:
 ethereum-acceptance-test:
 	go test -tags=acceptance ./replay/evm -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
 
+# bitcoin-live-test runs the Bitcoin live smoke suite against a Bitcoin Core
+# JSON-RPC endpoint. BITCOIN_RPC_URL is required; BITCOIN_ARCHIVE_RPC_URL
+# optionally supplies the fallback endpoint for heights whose undo data the
+# primary node has pruned away. A local regtest node is the suggested
+# endpoint since it needs no external account or credentials; mine
+# periodically so the two-height wait completes inside the 30m window:
+#	bitcoind -regtest -rpcbind=127.0.0.1:18443 -rpcuser=shinzorpc -rpcpassword=<pass> -daemon
+bitcoin-live-test:
+	@if [ -z "$(BITCOIN_RPC_URL)" ]; then \
+		echo "❌ BITCOIN_RPC_URL not set. Please export it first:"; \
+		echo "   export BITCOIN_RPC_URL=http://127.0.0.1:18443"; \
+		echo "   For a local regtest node:"; \
+		echo "   bitcoind -regtest -rpcbind=127.0.0.1:18443 -rpcuser=shinzorpc -rpcpassword=<pass> -daemon"; \
+		exit 1; \
+	fi
+	@echo "✅ Using bitcoin node endpoint: $(BITCOIN_RPC_URL)"
+	go test -tags=live -v ./integration/live/bitcoin/ -timeout=35m
+
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
 	@echo "=================================================="
@@ -253,7 +310,10 @@ help:
 	@echo "  build              - Build all binaries (evm generator + fetch_blocks)"
 	@echo "  evm-build          - Build only bin/block_poster_evm"
 	@echo "  test               - Run all tests with summary"
-	@echo "  integration-test   - Fast mock integration suite (no chain endpoint, no credentials)"
+	@echo "  integration-test   - Run the Ethereum and Bitcoin integration suites (no chain endpoint, no credentials)"
+	@echo "  ethereum-integration-test - Run the Ethereum mock and live legs"
+	@echo "  bitcoin-integration-test  - Run the Bitcoin mock and live legs"
+	@echo "  bitcoin-live-test  - Run the Bitcoin live smoke suite (needs BITCOIN_RPC_URL)"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
 	@echo ""
@@ -287,7 +347,15 @@ help:
 	@echo "  GETH_WS_URL    - WebSocket endpoint (optional)"
 	@echo "  (GETH_* names are historical; any compatible JSON-RPC/WS endpoint works)"
 	@echo ""
+	@echo "🔧 Environment Variables for bitcoin-live-test:"
+	@echo "  BITCOIN_RPC_URL          - Bitcoin Core JSON-RPC endpoint (required)"
+	@echo "  BITCOIN_ARCHIVE_RPC_URL  - Archive node fallback endpoint (optional)"
+	@echo "  BITCOIN_LIVE_NETWORK     - Network segment to index (default Mainnet)"
+	@echo ""
 	@echo "💡 Example Usage:"
 	@echo "  export GETH_RPC_URL=http://xx.xx.xx.xx:port"
 	@echo "  export GETH_API_KEY=your-api-key-here"
 	@echo "  make node-status"
+	@echo ""
+	@echo "  export BITCOIN_RPC_URL=http://127.0.0.1:18443"
+	@echo "  make bitcoin-live-test"

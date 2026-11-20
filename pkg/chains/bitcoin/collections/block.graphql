@@ -1,0 +1,17 @@
+type Bitcoin__Mainnet__Block {
+    # Content-addressed block identity, unique across the whole chain:
+    # every block (canonical or orphan) has its own hash.
+    hash: String @index(unique: true)
+    # The height value under the generator-host contract name: the reorg
+    # roller, seed check, and pruner query Block by this field name.
+    number: Int @index
+    parentHash: String
+    version: Int
+    merkleRoot: String
+    time: Int
+    bits: String
+    nonce: String
+    chainwork: String
+    # Relationships
+    transactions: [Bitcoin__Mainnet__Transaction] @relation(name: "bitcoin_block_transactions")
+}
