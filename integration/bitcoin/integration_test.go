@@ -38,7 +38,7 @@ func TestBitcoinIndexerLifecycle(t *testing.T) {
 		HealthServerPort: 0,
 		StartBuffer:      100,
 	})
-	ix, err := indexer.CreateIndexer(cfg)
+	ix, err := indexer.CreateIndexer(cfg, btc.Factories())
 	require.NoError(t, err)
 	errCh := startIndexingBackground(t, ix)
 	t.Cleanup(ix.StopIndexing)
@@ -86,7 +86,7 @@ func TestBitcoinIndexerLifecycle(t *testing.T) {
 			HealthServerPort: 0,
 			StartBuffer:      100,
 		})
-		ix2, err := indexer.CreateIndexer(resumeCfg)
+		ix2, err := indexer.CreateIndexer(resumeCfg, btc.Factories())
 		require.NoError(t, err)
 		errCh2 := startIndexingBackground(t, ix2)
 		t.Cleanup(ix2.StopIndexing)

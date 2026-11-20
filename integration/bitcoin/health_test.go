@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	btc "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/bitcoin"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 )
@@ -52,7 +53,7 @@ func TestBitcoinHealthEndpoints(t *testing.T) {
 	// sends; the wire audit below asserts full coverage of both headers.
 	cfg.Bitcoin.APIKey = "test-btc-api-key"
 
-	ix, err := indexer.CreateIndexer(cfg)
+	ix, err := indexer.CreateIndexer(cfg, btc.Factories())
 	require.NoError(t, err)
 	errCh := startIndexingBackground(t, ix)
 	t.Cleanup(ix.StopIndexing)

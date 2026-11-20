@@ -3,6 +3,7 @@ package bitcoin
 import (
 	"fmt"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 )
 
@@ -110,4 +111,13 @@ func DefaultCollections() []string {
 		DefaultCollectionTxInput,
 		DefaultCollectionTxOutput,
 	}
+}
+
+// NewCollectionsFromConfig creates the Bitcoin collection names for the chain
+// cfg names. It mirrors chainPrefixFromConfig: a nil config or unset name or
+// network falls back to the default Bitcoin__Mainnet prefix, matching
+// NewConverter, so the error return can never fire. It is the Collections
+// factory the bitcoin package exposes in its Factories() bundle.
+func NewCollectionsFromConfig(cfg *config.Config) (chains.Collections, error) {
+	return NewCollectionNames(chainPrefixFromConfig(cfg)), nil
 }

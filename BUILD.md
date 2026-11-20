@@ -24,7 +24,7 @@ The compiled binary goes into `./bin`. The generator ships one binary per chain 
 | --- | --- |
 | `make build` | Build all binaries (evm generator + fetch_blocks). |
 | `make evm-build` | Build only `bin/block_poster_evm`. |
-| `make bitcoin-build` | Build only `bin/block_poster_btc`. |
+| `make bitcoin-build` | Build only `bin/block_poster_bitcoin`. |
 | `make ethereum-start` | Run `bin/block_poster_evm` with the Ethereum config. |
 | `make bsc-start` | Run `bin/block_poster_evm` with the BSC config. |
 | `make bitcoin-start` | Run the compiled binary for Bitcoin. |

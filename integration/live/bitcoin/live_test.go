@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	btc "github.com/shinzonetwork/shinzo-generator-client/pkg/chains/bitcoin"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/indexer"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -108,7 +109,7 @@ func TestBitcoinLiveSmoke(t *testing.T) {
 		t.Fatal("bitcoin live smoke needs auth: set BITCOIN_RPC_USER and BITCOIN_RPC_PASSWORD, or BITCOIN_COOKIE_PATH")
 	}
 
-	ix, err := indexer.CreateIndexer(cfg)
+	ix, err := indexer.CreateIndexer(cfg, btc.Factories())
 	require.NoError(t, err)
 	errCh := make(chan error, 1)
 	go func() {

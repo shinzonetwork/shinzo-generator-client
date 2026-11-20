@@ -48,10 +48,10 @@ evm-build:
 	fi
 
 bitcoin-build:
-	go build $(LDFLAGS) -o bin/block_poster_btc ./cmd/block_poster/btc/
+	go build $(LDFLAGS) -o bin/block_poster_bitcoin ./cmd/block_poster/bitcoin/
 	@if [ "$(VERSION)" = "dev" ]; then \
 		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
-	elif grep -aFq "$(VERSION)" bin/block_poster_evm; then \
+	elif grep -aFq "$(VERSION)" bin/block_poster_bitcoin; then \
 		echo "✅ version injected: $(VERSION)"; \
 	else \
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
@@ -64,7 +64,8 @@ bsc-start:
 	./bin/block_poster_evm -config config/config_bsc.yaml
 
 bitcoin-start:
-	./bin/block_poster_btc -config config/config_bitcoin.yaml
+	./bin/block_poster_bitcoin -config config/config_bitcoin.yaml
+
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
