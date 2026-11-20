@@ -121,8 +121,8 @@ type rawBlockObject struct {
 	Transactions     []json.RawMessage `json:"transactions"`
 }
 
-// rawAccessEntry mirrors one EIP-2930 access-list entry of a raw tx object.
-type rawAccessEntry struct {
+// rawAccessListEntry mirrors one EIP-2930 access-list entry of a raw tx object.
+type rawAccessListEntry struct {
 	Address     string   `json:"address"`
 	StorageKeys []string `json:"storageKeys"`
 }
@@ -143,7 +143,7 @@ type rawTxObject struct {
 	Input                *hexutil.Bytes   `json:"input"`
 	Nonce                *rawQuantity     `json:"nonce"`
 	ChainID              *rawBig          `json:"chainId"`
-	AccessList           []rawAccessEntry `json:"accessList"`
+	AccessList           []rawAccessListEntry `json:"accessList"`
 	V                    *rawBig          `json:"v"`
 	R                    *rawBig          `json:"r"`
 	S                    *rawBig          `json:"s"`
@@ -366,7 +366,7 @@ func inputOrEmptyHex(b *hexutil.Bytes) string {
 
 // accessList converts the raw tx's access list entries; absent stays nil so
 // the omitempty output matches the typed path for txs without one.
-func accessList(raw []rawAccessEntry) []AccessListEntry {
+func accessList(raw []rawAccessListEntry) []AccessListEntry {
 	if len(raw) == 0 {
 		return nil
 	}
