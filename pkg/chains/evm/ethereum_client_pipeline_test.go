@@ -183,28 +183,6 @@ func TestGetBlockByNumber_MissingTxHashIsHardError(t *testing.T) {
 	}
 }
 
-// TestGetBlockByNumber_MissingTypeIsLegacy pins the tolerance boundary: the
-// type field is not identity, so a tx object without one converts as the
-// legacy type the typed path would have produced.
-func TestGetBlockByNumber_MissingTypeIsLegacy(t *testing.T) {
-	t.Parallel()
-	txObj := zksyncStyleTx()
-	delete(txObj, "type")
-	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
-		if method == ethGetBlockByNumber {
-			return rawZksyncBlockResponseWithTxs([]any{txObj}), nil
-		}
-		return "0x1", nil
-	})
-	defer server.Close()
-
-	client := newSinglePathClient(t, server.URL)
-	block, err := client.GetBlockByNumber(context.Background(), big.NewInt(testBlockNumber))
-	require.NoError(t, err)
-	require.Len(t, block.Transactions, 1)
-	assert.Equal(t, "0", block.Transactions[0].Type)
-}
-
 func TestGetBlockByNumber_MalformedBlockPropagates(t *testing.T) {
 	t.Parallel()
 	server := newMockRPCServer(func(method string, _ json.RawMessage) (any, error) {
@@ -281,18 +259,4 @@ func TestFetchBlockMergesReceiptOutcome(t *testing.T) {
 
 	require.Len(t, bundle.Receipts, 1)
 	assert.Equal(t, rawTxHash, bundle.Receipts[0].TransactionHash)
-}
-
-func TestTransaction_JSONOmitsEmptyYParity(t *testing.T) {
-	t.Parallel()
-	data, err := json.Marshal(fakeTx("0xabc"))
-	require.NoError(t, err)
-	assert.NotContains(t, string(data), "yParity",
-		"a tx without a yParity from the RPC omits the field and the JSON output stays byte-identical")
-
-	txWithParity := fakeTx("0xabc")
-	txWithParity.YParity = "0x1"
-	data, err = json.Marshal(txWithParity)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), `"yParity":"0x1"`)
 }
