@@ -50,6 +50,9 @@ var (
 	// re-add a soft-deleted document ID, so a rolled-back height whose documents come back unchanged
 	// could not be stored again.
 	ErrReorgStopped = errors.New("reorg detected; indexing stopped instead of rolling back")
+	// ErrHeightStuck is returned when a processor that retries failed heights in place gives up on
+	// one. A restart resumes at that height.
+	ErrHeightStuck = errors.New("height kept failing; indexing stopped")
 
 	// errIndexingStopped is the cancel cause used when StopIndexing initiates a
 	// clean shutdown of the indexing loop; runConcurrentIndexing maps it to a

@@ -29,6 +29,10 @@ import (
 // cannot find any usable number.
 var ErrBlockNumberCorrupt = errors.New("block exists but has invalid or unparseable number field")
 
+// ErrNodeUnavailable marks a fetch error that got no usable answer from the node: the connection
+// failed or timed out, or the endpoint answered with HTTP 429 or a 5xx status.
+var ErrNodeUnavailable = errors.New("node unavailable")
+
 // CollectionFile pairs a collection's identity with its schema SDL. Every
 // field is provided literally by the chain implementation — no field is
 // derived from another, so consumers never need filename or naming-convention

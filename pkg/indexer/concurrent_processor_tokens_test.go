@@ -164,6 +164,69 @@ func TestProcessBlocks_RetriedStoreHoldsBackDispatch(t *testing.T) {
 	assert.ErrorIs(t, <-errCh, context.Canceled)
 }
 
+// A height that has failed for stuckHeightLimit stops the run with ErrHeightStuck. The limit is set
+// so the first failure already exceeds it.
+func TestProcessBlocks_StopsOnStuckHeight(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+	}
+	converter := chainConverter()
+	convert := converter.ConvertFn
+	converter.ConvertFn = func(ctx context.Context, raw any) (chains.ConversionResult, error) {
+		if raw.(*servedBlock).height == 101 {
+			return chains.ConversionResult{}, errors.New("convert failed")
+		}
+		return convert(ctx, raw)
+	}
+	p := NewConcurrentBlockProcessor(fetcher, converter, &mockBlockStorer{}, &mockReorgHandler{}, 2, 0)
+	p.RetryFailedHeights()
+	p.stuckHeightLimit = time.Nanosecond
+
+	cancel, errCh := runProcessor(p, 100, func(int64) {})
+	defer cancel()
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, ErrHeightStuck)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run did not stop")
+	}
+}
+
+// A height whose fetch fails because the node is unavailable keeps retrying past stuckHeightLimit,
+// and is committed once the node answers.
+func TestProcessBlocks_RetriesUnavailableNode(t *testing.T) {
+	t.Parallel()
+	logger.InitConsoleOnly(true)
+
+	var fetches101 atomic.Int64
+	fetcher := &testutils.MockFetcher{
+		FetchBlockFn: func(_ context.Context, height int64) (any, error) {
+			if height == 101 && fetches101.Add(1) <= MaxRPCRetries {
+				return nil, fmt.Errorf("%w: connection refused", chains.ErrNodeUnavailable)
+			}
+			return &servedBlock{height: height, hash: canonicalHash(height), parentHash: canonicalHash(height - 1)}, nil
+		},
+	}
+	p := NewConcurrentBlockProcessor(fetcher, chainConverter(), &mockBlockStorer{}, &mockReorgHandler{}, 2, 0)
+	p.RetryFailedHeights()
+	p.stuckHeightLimit = time.Nanosecond
+
+	rec := &commitRecorder{}
+	cancel, errCh := runProcessor(p, 100, rec.record)
+	defer cancel()
+
+	waitForCommits(t, rec, 3, errCh)
+	assert.Equal(t, []int64{100, 101, 102}, rec.snapshot()[:3])
+	cancel()
+	assert.ErrorIs(t, <-errCh, context.Canceled)
+}
+
 // A processor set to stop on reorgs stops the run with ErrReorgStopped and rolls nothing back,
 // whether the reorg shows as a parent hash that breaks from the stored block or as a different
 // block found stored after a failed store.

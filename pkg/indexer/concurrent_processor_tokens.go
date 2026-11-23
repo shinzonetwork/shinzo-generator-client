@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
+
+	stderrors "errors"
 )
 
 // DispatchFinalizedOnly bounds dispatch at the height the fetcher reports as finalized, so no
@@ -20,11 +23,13 @@ func (p *ConcurrentBlockProcessor) DispatchFinalizedOnly(poll time.Duration) {
 	}
 }
 
-// RetryFailedHeights makes a height whose fetch, convert or store failed retry until it succeeds,
-// and stores nothing DefaultWorkersAhead*workers or more above it before it. A store refusal that
-// retrying cannot clear still stops the run. Call it before ProcessBlocks.
+// RetryFailedHeights makes a height whose fetch, convert or store failed retry in place, and stores
+// nothing DefaultWorkersAhead*workers or more above it before it. A height that keeps failing for
+// StuckHeightLimit stops the run with ErrHeightStuck, unless the node is unavailable. A store
+// refusal that retrying cannot clear stops the run at once. Call it before ProcessBlocks.
 func (p *ConcurrentBlockProcessor) RetryFailedHeights() {
 	p.retryFailedHeights = true
+	p.stuckHeightLimit = StuckHeightLimit
 }
 
 // StopOnReorg makes a detected reorg stop the run with ErrReorgStopped instead of rolling the
@@ -44,19 +49,30 @@ func (p *ConcurrentBlockProcessor) stoppedForReorg(signal reorgSignal) bool {
 	return true
 }
 
-// retryInPlace calls attempt and, when failed heights are retried in place, again every
-// FailedHeightRetryDelay until it succeeds, ctx is done, or a store is refused in a way retrying
-// cannot clear. It returns the last result.
+// retryInPlace calls attempt and, when failed heights are retried in place, again until it
+// succeeds, ctx is done, or a store is refused in a way retrying cannot clear. The wait between
+// attempts starts at FailedHeightRetryDelay and doubles up to MaxFailedHeightRetryDelay. Once the
+// height has failed for stuckHeightLimit, a failure other than chains.ErrNodeUnavailable stops the
+// run with ErrHeightStuck. It returns the last result.
 func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt func() *BlockResult) *BlockResult {
 	result := attempt()
+	failingSince := time.Now()
+	delay := FailedHeightRetryDelay
 	for p.retryFailedHeights && result.Error != nil && !errors.IsErrDocumentDeleted(result.Error) &&
 		ctx.Err() == nil {
-		logger.Sugar.Warnf("Block %d failed, retrying in %v: %v", result.BlockNum, FailedHeightRetryDelay, result.Error)
+		failing := time.Since(failingSince)
+		if failing >= p.stuckHeightLimit && !stderrors.Is(result.Error, chains.ErrNodeUnavailable) {
+			p.failRun(fmt.Errorf("%w: block %d has failed for %v: %w", ErrHeightStuck, result.BlockNum,
+				failing.Round(time.Second), result.Error))
+			return result
+		}
+		logger.Sugar.Warnf("Block %d failed, retrying in %v: %v", result.BlockNum, delay, result.Error)
 		select {
 		case <-ctx.Done():
 			return result
-		case <-time.After(FailedHeightRetryDelay):
+		case <-time.After(delay):
 		}
+		delay = min(2*delay, MaxFailedHeightRetryDelay) //nolint:mnd
 		result = attempt()
 	}
 	return result

@@ -31,10 +31,17 @@ const (
 	// head, so the interval bounds how far dispatch trails it.
 	FinalizedPollInterval = time.Second
 
-	// FailedHeightRetryDelay is the wait before a failed height is fetched or stored again when
+	// FailedHeightRetryDelay is the first wait before a failed height is fetched or stored again when
 	// failed heights are retried in place. A failed fetch has by then been tried MaxRPCRetries times,
 	// with RPCErrorRetryBaseDelay backoff between tries, so this delay adds to that backoff.
 	FailedHeightRetryDelay = time.Second
+
+	// MaxFailedHeightRetryDelay caps the wait between in-place retries of a failed height.
+	MaxFailedHeightRetryDelay = time.Minute
+
+	// StuckHeightLimit is how long a height retried in place may keep failing before the run stops,
+	// unless it fails because the node is unavailable.
+	StuckHeightLimit = 10 * time.Minute
 
 	// transactionConflictRetryBaseDelay is the base delay for retrying
 	// transaction conflicts on store.
@@ -221,9 +228,10 @@ type ConcurrentBlockProcessor struct {
 	finalizedPoll time.Duration
 	finalized     int64
 
-	// retryFailedHeights retries a height whose fetch, convert or store failed until it succeeds,
-	// instead of leaving it unstored.
+	// retryFailedHeights retries a height whose fetch, convert or store failed in place, instead of
+	// leaving it unstored. stuckHeightLimit is the StuckHeightLimit that retryInPlace applies.
 	retryFailedHeights bool
+	stuckHeightLimit   time.Duration
 
 	// stopOnReorg stops the run with ErrReorgStopped where a detected reorg would open an episode.
 	stopOnReorg bool
