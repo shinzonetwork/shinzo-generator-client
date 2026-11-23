@@ -552,3 +552,55 @@ func TestConvertRawReceipt_MalformedLogFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "receipt log 0")
 }
+
+func TestConvertRawReceipt_LogsInheritMissingFieldsFromReceipt(t *testing.T) {
+	t.Parallel()
+	zeroHash := common.Hash{}.Hex()
+	otherHash := "0x1111111111111111111111111111111111111111111111111111111111111111"
+	cases := map[string]struct {
+		log                           map[string]any
+		wantNumber, wantBlock, wantTx string
+		wantTxIndex, wantLogIndex     int
+	}{
+		// Synthetic: every block field absent, as a hand-built log could be.
+		"absent fields inherit": {
+			log:        map[string]any{"address": "0x0000000000000000000000000000000000000211", "topics": []any{}, "data": "0x"},
+			wantNumber: "100", wantBlock: rawBlockHash, wantTx: rawTxHash,
+		},
+		// Synthetic: the cosmos-evm precompile shape (blockNumber 0x0, zero hashes).
+		"zero fields inherit, zero indices kept": {
+			log: map[string]any{
+				"address": "0x0000000000000000000000000000000000000211", "topics": []any{}, "data": "0x",
+				"blockNumber": "0x0", "blockHash": zeroHash, "transactionHash": zeroHash,
+				"transactionIndex": "0x0", "logIndex": "0x0",
+			},
+			wantNumber: "100", wantBlock: rawBlockHash, wantTx: rawTxHash,
+		},
+		// Synthetic: a node that reports the fields keeps its values, even when
+		// they disagree with the receipt; this rule only fills gaps.
+		"reported fields are kept": {
+			log: map[string]any{
+				"address": "0x0000000000000000000000000000000000000211", "topics": []any{}, "data": "0x",
+				"blockNumber": "0x65", "blockHash": otherHash, "transactionHash": otherHash,
+				"transactionIndex": "0x6", "logIndex": "0x3",
+			},
+			wantNumber: "101", wantBlock: otherHash, wantTx: otherHash, wantTxIndex: 6, wantLogIndex: 3,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			receipt := baseRawReceipt()
+			receipt["logs"] = []any{tc.log}
+			converted, err := convertRawReceipt(receiptFixture(t, receipt))
+			require.NoError(t, err)
+			require.Len(t, converted.Logs, 1)
+			log := converted.Logs[0]
+			assert.Equal(t, tc.wantNumber, log.BlockNumber)
+			assert.Equal(t, tc.wantBlock, log.BlockHash)
+			assert.Equal(t, tc.wantTx, log.TransactionHash)
+			assert.Equal(t, tc.wantTxIndex, log.TransactionIndex)
+			assert.Equal(t, tc.wantLogIndex, log.LogIndex)
+		})
+	}
+}

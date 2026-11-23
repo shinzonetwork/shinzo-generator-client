@@ -333,7 +333,7 @@ func convertRawReceipt(raw json.RawMessage) (*TransactionReceipt, error) {
 		logs = append(logs, *log)
 	}
 
-	return &TransactionReceipt{
+	receipt := &TransactionReceipt{
 		TransactionHash:   hashOrEmpty(rawReceipt.TransactionHash),
 		TransactionIndex:  uint64OrEmpty(rawReceipt.TransactionIndex),
 		BlockHash:         hashOrEmpty(rawReceipt.BlockHash),
@@ -344,7 +344,35 @@ func convertRawReceipt(raw json.RawMessage) (*TransactionReceipt, error) {
 		ContractAddress:   receiptContractAddress(rawReceipt.ContractAddress),
 		Logs:              logs,
 		Status:            receiptStatus(rawReceipt.Status, rawReceipt.Root),
-	}, nil
+	}
+	inheritLogFieldsFromReceipt(receipt)
+	return receipt, nil
+}
+
+// zeroHashHex is the all-zero hash in the converted convention.
+var zeroHashHex = common.Hash{}.Hex() //nolint:gochecknoglobals // immutable constant value
+
+// inheritLogFieldsFromReceipt fills a log's block number, block hash and
+// transaction hash from its receipt when the node left them absent or zero.
+// A log belongs to its receipt's transaction and block by definition, so the
+// receipt is authoritative for these fields. Some nodes build logs by hand
+// and leave them unset: cosmos-evm precompile logs (ShinzoHub) carry
+// blockNumber 0x0. Where the node reports them correctly this is a no-op. A
+// zero value is never real for these fields, but the log's transactionIndex
+// and logIndex can legitimately be 0, so those are kept as the node sent them.
+func inheritLogFieldsFromReceipt(receipt *TransactionReceipt) {
+	for i := range receipt.Logs {
+		log := &receipt.Logs[i]
+		if (log.BlockNumber == "" || log.BlockNumber == "0") && receipt.BlockNumber != "" {
+			log.BlockNumber = receipt.BlockNumber
+		}
+		if (log.BlockHash == "" || log.BlockHash == zeroHashHex) && receipt.BlockHash != "" {
+			log.BlockHash = receipt.BlockHash
+		}
+		if (log.TransactionHash == "" || log.TransactionHash == zeroHashHex) && receipt.TransactionHash != "" {
+			log.TransactionHash = receipt.TransactionHash
+		}
+	}
 }
 
 // convertRawLog converts one raw log object into today's stored conventions:
