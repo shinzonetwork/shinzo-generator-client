@@ -14,7 +14,9 @@ chain:
   #     supply_slot: "0x..."   # (env: CHAIN_TOKENS, address:supply_slot pairs, comma-separated)
   # state_capture_interval: N  # tokens mode: blocks between total-supply captures, at least 1 (env: CHAIN_STATE_CAPTURE_INTERVAL)
   # finalized_poll_interval_ms: N  # tokens mode: milliseconds between finalized-height polls once dispatch has reached that height; unset or 0 means 1000 (env: CHAIN_FINALIZED_POLL_INTERVAL_MS)
-  # tokens mode refuses to start unless snapshot.enabled is false, defradb.p2p.accept_incoming is false, indexer.start_height is above 0, and pruner.max_blocks is at least twice indexer.concurrent_blocks
+  # tokens mode refuses to start unless snapshot.enabled is false, defradb.p2p.accept_incoming is false, indexer.start_height is above 0, pruner.max_blocks is at least twice indexer.concurrent_blocks, and the node identity's key is secp256k1
+  # tokens mode: supply captures need a node that answers eth_getProof at every height indexed, so a start_height far below the chain tip needs an archive node
+  # tokens mode: block times keep BSC's milliseconds on BSC mainnet (eip155:56) only; other chains, BSC testnet included, sign whole seconds
   hub: "testnet.shinzo.network"
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB

@@ -17,6 +17,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defracontext"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
 	indexerErrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
@@ -27,7 +28,9 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/utils"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/sourcenetwork/defradb/acp/identity"
 	"github.com/sourcenetwork/defradb/client"
+	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -48,6 +51,9 @@ var (
 	// ErrDevBuildInTokensMode is returned when tokens mode starts on a build without a version: every
 	// block attestation names the generator version that made it.
 	ErrDevBuildInTokensMode = errors.New("tokens mode needs a build with a version injected")
+	// ErrIdentityKeyType is returned when tokens mode starts with a node identity whose key is not
+	// secp256k1: a block attestation carries an ES256K signature, which only that key type makes.
+	ErrIdentityKeyType = errors.New("tokens mode needs a secp256k1 node identity")
 	// ErrReorgStopped is returned when a processor set to stop on reorgs detects one. Tokens mode
 	// stops instead of rolling back: it dispatches finalized heights only, and DefraDB refuses to
 	// re-add a soft-deleted document ID, so a rolled-back height whose documents come back unchanged
@@ -419,6 +425,11 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 		if err != nil && cfg.Chain.Mode == config.ChainModeTokens {
 			return ctx, fmt.Errorf("get identity context for block attestations: %w", err)
 		}
+		if id, ok := defracontext.IdentityFrom(identityCtx); ok {
+			if err := checkTokensIdentity(cfg.Chain.Mode, id); err != nil {
+				return ctx, err
+			}
+		}
 		if err != nil {
 			logger.Sugar.Warnf("Failed to get identity context for block signing: %v (block signatures may not work)", err)
 		} else {
@@ -509,6 +520,14 @@ func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Confi
 func checkTokensBuild(mode, version string) error {
 	if mode == config.ChainModeTokens && version == config.DevVersion {
 		return ErrDevBuildInTokensMode
+	}
+	return nil
+}
+
+// checkTokensIdentity refuses tokens mode with a node identity whose key is not secp256k1.
+func checkTokensIdentity(mode string, id identity.Identity) error {
+	if keyType := id.PublicKey().Type(); mode == config.ChainModeTokens && keyType != crypto.KeyTypeSecp256k1 {
+		return fmt.Errorf("%w: got %s", ErrIdentityKeyType, keyType)
 	}
 	return nil
 }
