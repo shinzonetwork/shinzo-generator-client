@@ -15,11 +15,16 @@ package golden
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/shinzonetwork/shinzo-evidence-codec/rule"
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -40,6 +45,9 @@ func TestMain(m *testing.M) {
 	// Initialize logging before any production code path runs: the fetcher
 	// logs through logger.Sugar without a nil guard on the fallback path.
 	logger.InitConsoleOnly(true)
+	// A tokens-mode statement names the build's version as its extractor, so
+	// a version set with -ldflags would change every signed golden.
+	config.Version = config.DevVersion
 	flag.Parse()
 	os.Exit(m.Run())
 }
@@ -154,7 +162,75 @@ func TestGoldenTypedPath(t *testing.T) {
 			fallback := runChainGolden(t, tc, receiptModeFallback)
 			require.Equal(t, batch, fallback,
 				"the per-tx receipt fallback must freeze the same documents as the batch path")
+			if tc.cfg.Chain.Mode == config.ChainModeTokens {
+				requireAcceptedByRule(t, tc, batch)
+			}
 		})
+	}
+}
+
+// requireAcceptedByRule builds the codec rule's documents from a tokens-mode
+// case's frozen tables, decoding each Blob field as a host does, and requires
+// every frozen height to be accepted with goldenIdentity as the only listed
+// signer.
+func requireAcceptedByRule(t *testing.T, tc chainCase, frozen map[string][]byte) {
+	t.Helper()
+	signer := hex.EncodeToString(goldenIdentity(t).PublicKey().Raw())
+	chain, err := rule.New(rule.Config{
+		Chain:    fmt.Sprintf("eip155:%d", tc.cfg.Chain.ChainID),
+		Signers:  []string{signer},
+		Required: 1,
+		Assets:   []rule.Asset{{ID: strings.TrimPrefix(usd1, "0x"), SupplySlot: "0x35"}},
+	})
+	require.NoError(t, err)
+
+	var headers []struct {
+		Number    uint64
+		Hash, Raw string
+	}
+	var evidence []struct {
+		BlockNumber                      uint64
+		BlockHash, Asset, Records, Proof string
+	}
+	var captures []struct {
+		BlockNumber                    uint64
+		BlockHash, Asset, Value, Proof string
+	}
+	var attestations []struct {
+		BlockNumber                                 uint64
+		Signer, SignatureType, Signature, Statement string
+	}
+	require.NoError(t, json.Unmarshal(frozen["header"], &headers))
+	require.NoError(t, json.Unmarshal(frozen["evidence"], &evidence))
+	require.NoError(t, json.Unmarshal(frozen["stateCapture"], &captures))
+	require.NoError(t, json.Unmarshal(frozen["blockAttestation"], &attestations))
+	blob := func(s string) []byte {
+		b, err := hex.DecodeString(s)
+		require.NoError(t, err)
+		require.NotEmpty(t, b)
+		return b
+	}
+
+	require.NotEmpty(t, headers)
+	for _, h := range headers {
+		docs := rule.Documents{Headers: []rule.Header{{Hash: h.Hash, Raw: blob(h.Raw)}}}
+		for _, e := range evidence {
+			if e.BlockNumber == h.Number {
+				docs.Evidence = append(docs.Evidence, rule.Evidence{BlockHash: e.BlockHash, Asset: e.Asset, Records: blob(e.Records), Proof: blob(e.Proof)})
+			}
+		}
+		for _, c := range captures {
+			if c.BlockNumber == h.Number {
+				docs.Captures = append(docs.Captures, rule.Capture{BlockHash: c.BlockHash, Asset: c.Asset, Value: c.Value, Proof: blob(c.Proof)})
+			}
+		}
+		for _, a := range attestations {
+			if a.BlockNumber == h.Number {
+				docs.Attestations = append(docs.Attestations, rule.Attestation{Signer: a.Signer, SignatureType: a.SignatureType, Signature: a.Signature, Statement: blob(a.Statement)})
+			}
+		}
+		verdict := chain.Check(h.Number, nil, docs)
+		require.True(t, verdict.Accepted, "block %d: %s %+v", h.Number, verdict.Reason, verdict.Results)
 	}
 }
 

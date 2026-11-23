@@ -163,11 +163,14 @@ func decodeReceipts(raw json.RawMessage) (map[string]json.RawMessage, error) {
 // makes every eth_getBlockReceipts call fail: with a healthy fixture the
 // batch call always succeeds, so the per-tx eth_getTransactionReceipt
 // fallback the fetcher degrades to would never run without the flag. chainID
-// is the eth_chainId answer a connecting fetcher checks.
+// is the eth_chainId answer a connecting fetcher checks, and finalized, the
+// highest fixture, answers the finalized tag a tokens-mode fetcher asks for
+// when it connects.
 type fixtureRPCServer struct {
 	*httptest.Server
 	byHeight          map[int64]*blockFixture
 	byHash            map[string]*blockFixture
+	finalized         *blockFixture
 	failBatchReceipts bool
 	chainID           uint64
 }
@@ -175,11 +178,15 @@ type fixtureRPCServer struct {
 func newFixtureRPCServer(fixtures []*blockFixture, failBatchReceipts bool, chainID uint64) *fixtureRPCServer {
 	byHeight := make(map[int64]*blockFixture, len(fixtures))
 	byHash := make(map[string]*blockFixture, len(fixtures))
+	var finalized *blockFixture
 	for _, fixture := range fixtures {
 		byHeight[fixture.height] = fixture
 		byHash[fixture.hash] = fixture
+		if finalized == nil || fixture.height > finalized.height {
+			finalized = fixture
+		}
 	}
-	s := &fixtureRPCServer{byHeight: byHeight, byHash: byHash, failBatchReceipts: failBatchReceipts, chainID: chainID}
+	s := &fixtureRPCServer{byHeight: byHeight, byHash: byHash, finalized: finalized, failBatchReceipts: failBatchReceipts, chainID: chainID}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
 	return s
 }
@@ -234,6 +241,9 @@ func (s *fixtureRPCServer) serve(method string, params json.RawMessage) (json.Ra
 		var heightHex string
 		if err := json.Unmarshal(args[0], &heightHex); err != nil {
 			return nil, fmt.Errorf("%s: expected a hex height parameter", method)
+		}
+		if heightHex == "finalized" {
+			return s.finalized.blockRaw, nil
 		}
 		height, err := strconv.ParseInt(strings.TrimPrefix(heightHex, "0x"), 16, 64)
 		if err != nil {
