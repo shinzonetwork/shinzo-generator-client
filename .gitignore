@@ -26,6 +26,11 @@ go.work.sum
 
 .defra/
 .defra2/
+.defra-bsc*/
+.defra-polygon*/
+.defra-avalanche*/
+.defra-celo*/
+.defra-kaia*/
 
 .claude/
 
@@ -72,3 +77,6 @@ specs/
 
 # Replay test harness block data
 replay/testdata/
+
+# Local RPC endpoints with provider tokens - never commit
+endpoints.md
