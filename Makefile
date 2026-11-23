@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build ethereum-start bsc-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test
+.PHONY: deps env build evm-build ethereum-start bsc-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test polygon-start avalanche-start celo-start kaia-start polygon-replay-fetch polygon-acceptance-test avalanche-replay-fetch avalanche-acceptance-test celo-replay-fetch celo-acceptance-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -46,6 +46,21 @@ ethereum-start:
 
 bsc-start:
 	./bin/block_poster_evm -config config/config_bsc.yaml
+
+# Raw-pipeline EVM chains. Each config pins a public endpoint; the
+# scripts/run_<chain>.sh wrappers also clear GETH_* from .env and take a
+# <CHAIN>_RPC_URL override. Polygon Amoy: NETWORK=amoy scripts/run_polygon.sh.
+polygon-start:
+	./bin/block_poster_evm -config config/config_polygon.yaml
+
+avalanche-start:
+	./bin/block_poster_evm -config config/config_avalanche.yaml
+
+celo-start:
+	./bin/block_poster_evm -config config/config_celo.yaml
+
+kaia-start:
+	./bin/block_poster_evm -config config/config_kaia.yaml
 	
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
@@ -169,6 +184,45 @@ bsc-replay-fetch:
 bsc-acceptance-test:
 	go test -tags=acceptance ./replay/evm -run TestBSCReplayAcceptance -count=1 -v -timeout 30m
 
+# polygon-replay-fetch / polygon-acceptance-test: the BSC replay pair for
+# Polygon (fixtures: replay/testdata/polygon_blocks_<from>_<to>.json).
+polygon-replay-fetch:
+	@if [ -z "$(GETH_RPC_URL)" ]; then \
+		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p replay/testdata
+	go run ./cmd/fetch_blocks --chain polygon --network mainnet --from $(FROM) --to $(TO)
+
+polygon-acceptance-test:
+	go test -tags=acceptance ./replay/evm -run TestPolygonReplayAcceptance -count=1 -v -timeout 30m
+
+# avalanche-replay-fetch / avalanche-acceptance-test: the BSC replay pair for
+# Avalanche (fixtures: replay/testdata/avalanche_blocks_<from>_<to>.json).
+avalanche-replay-fetch:
+	@if [ -z "$(GETH_RPC_URL)" ]; then \
+		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p replay/testdata
+	go run ./cmd/fetch_blocks --chain avalanche --network mainnet --from $(FROM) --to $(TO)
+
+avalanche-acceptance-test:
+	go test -tags=acceptance ./replay/evm -run TestAvalancheReplayAcceptance -count=1 -v -timeout 30m
+
+# celo-replay-fetch / celo-acceptance-test: the BSC replay pair for
+# Celo (fixtures: replay/testdata/celo_blocks_<from>_<to>.json).
+celo-replay-fetch:
+	@if [ -z "$(GETH_RPC_URL)" ]; then \
+		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p replay/testdata
+	go run ./cmd/fetch_blocks --chain celo --network mainnet --from $(FROM) --to $(TO)
+
+celo-acceptance-test:
+	go test -tags=acceptance ./replay/evm -run TestCeloReplayAcceptance -count=1 -v -timeout 30m
+
 lint:
 	@echo "🔍 Running golangci-lint..."
 	@golangci-lint run ./...
@@ -264,6 +318,7 @@ help:
 	@echo "⏱  BSC tip-indexing acceptance (replay):"
 	@echo "  bsc-replay-fetch   - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
 	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
+	@echo "  <chain>-replay-fetch / <chain>-acceptance-test - Same pair for polygon, avalanche, celo"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
@@ -279,6 +334,8 @@ help:
 	@echo "  defra-start        - Start DefraDB"
 	@echo "  ethereum-start     - Start the evm generator binary with the Ethereum config"
 	@echo "  bsc-start          - Start the evm generator with the BSC config"
+	@echo "  polygon-start / avalanche-start / celo-start / kaia-start - Start the evm generator with that chain's config"
+	@echo "                       (prefer scripts/run_<chain>.sh: pins endpoints, clears GETH_* from .env)"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
