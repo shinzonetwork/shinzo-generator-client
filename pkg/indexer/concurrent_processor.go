@@ -43,6 +43,10 @@ const (
 	// unless it fails because the node is unavailable.
 	StuckHeightLimit = 10 * time.Minute
 
+	// stuckHeightReportInterval is how long a height retried in place fails before its failure is
+	// logged as an Error, and the least time between those Errors while it keeps failing.
+	stuckHeightReportInterval = time.Minute
+
 	// transactionConflictRetryBaseDelay is the base delay for retrying
 	// transaction conflicts on store.
 	transactionConflictRetryBaseDelay = 50 * time.Millisecond

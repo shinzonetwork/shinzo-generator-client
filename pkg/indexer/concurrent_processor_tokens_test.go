@@ -7,10 +7,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
@@ -260,6 +264,52 @@ func TestProcessBlocks_RetriesUnavailableNode(t *testing.T) {
 	assert.Equal(t, []int64{100, 101, 102}, rec.snapshot()[:3])
 	cancel()
 	assert.ErrorIs(t, <-errCh, context.Canceled)
+}
+
+// A height retried in place logs a Warn per failure until it has failed for
+// stuckHeightReportInterval, then an Error at most once per interval, and an Info when it succeeds
+// after an Error. It swaps the package logger, so it does not run in parallel.
+func TestRetryInPlace_ReportsStuckHeight(t *testing.T) {
+	tests := []struct {
+		name       string
+		failFor    time.Duration
+		wantErrors []time.Duration
+		wantInfos  int
+	}{
+		{name: "clears within the interval", failFor: 3 * time.Second},
+		{name: "stuck", failFor: 150 * time.Second, wantErrors: []time.Duration{63 * time.Second, 123 * time.Second}, wantInfos: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.InfoLevel)
+			orig := logger.Sugar
+			logger.Sugar = zap.New(core).Sugar()
+			t.Cleanup(func() { logger.Sugar = orig })
+
+			synctest.Test(t, func(t *testing.T) {
+				p := NewConcurrentBlockProcessor(nil, nil, nil, nil, 1, 0)
+				p.RetryFailedHeights()
+				start := time.Now()
+				result := p.retryInPlace(context.Background(), func() *BlockResult {
+					if time.Since(start) < tt.failFor {
+						return &BlockResult{BlockNum: 101, Error: errors.New("store failed")}
+					}
+					return &BlockResult{BlockNum: 101, Success: true}
+				})
+				require.True(t, result.Success)
+
+				at := map[zapcore.Level][]time.Duration{}
+				for _, e := range logs.All() {
+					at[e.Level] = append(at[e.Level], e.Time.Sub(start))
+				}
+				assert.Equal(t, tt.wantErrors, at[zap.ErrorLevel])
+				warns := at[zap.WarnLevel]
+				require.NotEmpty(t, warns)
+				assert.Less(t, warns[len(warns)-1], stuckHeightReportInterval, "no Warn once the height is logged as stuck")
+				assert.Len(t, at[zap.InfoLevel], tt.wantInfos)
+			})
+		})
+	}
 }
 
 // A processor set to stop on reorgs stops the run with ErrReorgStopped and rolls nothing back,

@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -84,7 +86,8 @@ func loadSupplyProof(t *testing.T) supplyProof {
 }
 
 // supplyFetcher returns a tokens-mode fetcher listing the fixture's token with supply slot 0x35,
-// capturing at every block, whose node answers eth_getProof with proofFn.
+// capturing at every block and retrying a failed proof at once, whose node answers eth_getProof
+// with proofFn.
 func supplyFetcher(t *testing.T, p supplyProof, proofFn func(context.Context, common.Address, []string, string) (codecevm.AccountProof, error)) *Fetcher {
 	t.Helper()
 	f, err := NewFetcherFromConfig(&config.Config{Chain: config.ChainConfig{
@@ -94,6 +97,7 @@ func supplyFetcher(t *testing.T, p supplyProof, proofFn func(context.Context, co
 	}})
 	require.NoError(t, err)
 	f.client = &fakeRPCClient{proofFn: proofFn}
+	f.captureRetryDelay = 0
 	return f
 }
 
@@ -197,6 +201,46 @@ func TestFetcher_CaptureSupply(t *testing.T) {
 	}
 }
 
+// The attempts at a token's supply proof are spaced, each wait captureRetryDelay longer than the one
+// before, and a stop while waiting ends the capture without another attempt.
+func TestFetcher_CaptureSupplyWaitsBetweenAttempts(t *testing.T) {
+	t.Parallel()
+	p := loadSupplyProof(t)
+	tests := []struct {
+		name    string
+		stopAt  time.Duration
+		wantAt  []time.Duration
+		wantErr error
+	}{
+		{name: "every attempt fails", wantAt: []time.Duration{0, time.Second, 3 * time.Second}},
+		{name: "stopped while waiting", stopAt: 2 * time.Second, wantAt: []time.Duration{0, time.Second}, wantErr: context.DeadlineExceeded},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				ctx := context.Background()
+				if tt.stopAt > 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, tt.stopAt)
+					defer cancel()
+				}
+				start := time.Now()
+				var at []time.Duration
+				f := supplyFetcher(t, p, func(context.Context, common.Address, []string, string) (codecevm.AccountProof, error) {
+					at = append(at, time.Since(start))
+					return codecevm.AccountProof{}, errors.New("429 Too Many Requests")
+				})
+				f.captureRetryDelay = time.Second
+
+				_, err := f.captureSupply(ctx, 26307825, &Block{Hash: p.BlockHash, Header: &ethtypes.Header{Root: p.StateRoot}})
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Equal(t, tt.wantAt, at)
+			})
+		})
+	}
+}
+
 // A capture cut short by a stopping generator fails the fetch, so FetchBlock does not return the
 // block without a capture it could have made. The interrupted attempt is not counted.
 func TestFetcher_CaptureSupplyStops(t *testing.T) {
@@ -233,6 +277,7 @@ func TestFetcher_FetchBlock_CapturesAtInterval(t *testing.T) {
 				StateCaptureInterval: 3,
 			}})
 			require.NoError(t, err)
+			f.captureRetryDelay = 0
 			block := gethBundle(t, tt.height).Block
 			calls := 0
 			f.client = &fakeRPCClient{

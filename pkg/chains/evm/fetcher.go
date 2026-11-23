@@ -79,9 +79,8 @@ type supplySlot struct {
 	key      common.Hash // the same slot as a 32-byte key, the form a proof is checked against
 }
 
-// captureAttempts is how many times a token's supply proof is tried at a capture height, with no
-// delay between attempts. A token whose proof fails every attempt has no capture at that height, and
-// nothing proves it later.
+// captureAttempts is how many times a token's supply proof is tried at a capture height. A token
+// whose proof fails every attempt has no capture at that height, and nothing proves it later.
 const captureAttempts = 3
 
 // errInvalidSupplyProof wraps a node's eth_getProof answer that does not prove a token's supply
@@ -122,6 +121,10 @@ type Fetcher struct {
 	captureInterval int64
 	supplyProofs    metric.Int64Counter
 	suppliesMissed  metric.Int64Counter
+	// captureRetryDelay is the wait before a token's second supply proof attempt at a capture
+	// height; each later attempt waits that much longer. Attempts made back to back all fall in the
+	// same second of a provider's per-second rate limit.
+	captureRetryDelay time.Duration
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -160,6 +163,7 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 	}
 	if f.tokensMode {
 		f.captureInterval = cfg.Chain.StateCaptureInterval
+		f.captureRetryDelay = time.Second
 		meter := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm")
 		var err error
 		f.supplyProofs, err = meter.Int64Counter("shinzo.generator.supply.proofs",
@@ -322,7 +326,14 @@ func (f *Fetcher) captureSupply(ctx context.Context, height int64, block *Block)
 	for _, s := range f.supplySlots {
 		var capture StateCapture
 		var err error
-		for range captureAttempts {
+		for attempt := range captureAttempts {
+			if attempt > 0 {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(time.Duration(attempt) * f.captureRetryDelay):
+				}
+			}
 			capture, err = f.proveSupply(ctx, block, s)
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
