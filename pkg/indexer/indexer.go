@@ -211,7 +211,10 @@ func (i *ChainIndexer) GetDefraDBURL() string {
 // CreateIndexer creates a new ChainIndexer with the provided configuration and
 // the chain factories the caller injects (the per-chain main builds them from
 // its adapter package). All factory fields must be set: a partial bundle is a
-// configuration error here, not a dispatch failure mid-indexing.
+// configuration error here, not a dispatch failure mid-indexing. In tokens mode
+// it also refuses a config without indexer.start_height, or whose
+// pruner.max_blocks is below the heights dispatch can run ahead, before any
+// startup work.
 func CreateIndexer(cfg *config.Config, factories chains.ChainFactories) (*ChainIndexer, error) {
 	if cfg == nil {
 		return nil, indexerErrors.NewConfigurationError(
@@ -231,6 +234,14 @@ func CreateIndexer(cfg *config.Config, factories chains.ChainFactories) (*ChainI
 			fmt.Sprintf("fetcher=%t, converter=%t, collections=%t",
 				factories.Fetcher != nil, factories.Converter != nil, factories.Collections != nil),
 			nil)
+	}
+	if cfg.Chain.Mode == config.ChainModeTokens {
+		if cfg.Indexer.StartHeight == 0 {
+			return nil, ErrStartHeightUnset
+		}
+		if need := int64(cfg.Indexer.ConcurrentBlocks * DefaultWorkersAhead); cfg.Pruner.MaxBlocks < need {
+			return nil, fmt.Errorf("%w: max_blocks is %d, need at least %d", ErrRetentionBelowDispatch, cfg.Pruner.MaxBlocks, need)
+		}
 	}
 	i := &ChainIndexer{
 		cfg:                       cfg,
@@ -432,14 +443,6 @@ func (i *ChainIndexer) initDefra(ctx context.Context, cfg *config.Config, defraS
 // store would index stored heights again.
 func (i *ChainIndexer) resolveStartHeight(ctx context.Context, cfg *config.Config) (int64, error) {
 	configuredHeight := int64(cfg.Indexer.StartHeight)
-	if cfg.Chain.Mode == config.ChainModeTokens {
-		if configuredHeight == 0 {
-			return 0, ErrStartHeightUnset
-		}
-		if need := int64(cfg.Indexer.ConcurrentBlocks * DefaultWorkersAhead); cfg.Pruner.MaxBlocks < need {
-			return 0, fmt.Errorf("%w: max_blocks is %d, need at least %d", ErrRetentionBelowDispatch, cfg.Pruner.MaxBlocks, need)
-		}
-	}
 	var highestExisting int64
 
 	nBlock, err := i.converter.GetHighestStoredBlockNumber(ctx, i.defraNode)

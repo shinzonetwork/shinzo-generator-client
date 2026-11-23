@@ -140,15 +140,12 @@ func TestResolveStartHeight(t *testing.T) {
 		stored      []int64
 		want        int64
 		listFrom    int64
-		wantErr     error
 	}{
 		{name: "tokens mode, gap below the highest", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 1000, stored: []int64{100, 101, 103, 104}, want: 102, listFrom: 100},
 		{name: "tokens mode, no gap", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 1000, stored: []int64{100, 101, 102}, want: 103, listFrom: 100},
 		{name: "tokens mode, start height never stored", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 1000, stored: []int64{101, 102}, want: 100, listFrom: 100},
 		{name: "tokens mode, gap below the retained heights", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 4, stored: []int64{100, 102, 103, 104, 105}, want: 106, listFrom: 102},
 		{name: "tokens mode, gap at the lowest retained height", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 4, stored: []int64{100, 101, 103, 104, 105}, want: 102, listFrom: 102},
-		{name: "tokens mode without a start height", mode: config.ChainModeTokens, maxBlocks: 1000, stored: []int64{100}, wantErr: ErrStartHeightUnset},
-		{name: "tokens mode, max_blocks below the dispatch window", mode: config.ChainModeTokens, startHeight: 100, maxBlocks: 3, stored: []int64{100}, wantErr: ErrRetentionBelowDispatch},
 		{name: "full mode", mode: config.ChainModeFull, stored: []int64{100, 101, 102}, want: 990},
 	}
 	for _, tc := range cases {
@@ -176,9 +173,37 @@ func TestResolveStartHeight(t *testing.T) {
 			}
 
 			got, err := indexer.resolveStartHeight(context.Background(), cfg)
-			require.ErrorIs(t, err, tc.wantErr)
+			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 			assert.Equal(t, tc.listFrom, listedFrom)
+		})
+	}
+}
+
+// Tokens mode refuses a config without a start height, or whose retention is below the heights
+// dispatch can run ahead, when the indexer is created, before any startup work.
+func TestCreateIndexer_TokensModeConfig(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		startHeight int
+		maxBlocks   int64
+		wantErr     error
+	}{
+		{name: "max_blocks equal to the dispatch window", startHeight: 100, maxBlocks: 4},
+		{name: "without a start height", maxBlocks: 1000, wantErr: ErrStartHeightUnset},
+		{name: "max_blocks below the dispatch window", startHeight: 100, maxBlocks: 3, wantErr: ErrRetentionBelowDispatch},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{
+				Chain:   config.ChainConfig{Mode: config.ChainModeTokens},
+				Indexer: config.IndexerConfig{StartHeight: tc.startHeight, ConcurrentBlocks: 2},
+				Pruner:  config.PrunerConfig{MaxBlocks: tc.maxBlocks},
+			}
+			_, err := CreateIndexer(cfg, evm.Factories())
+			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }
