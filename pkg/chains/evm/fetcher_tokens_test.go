@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
+	shinzoerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 )
 
 // A block without transactions has no receipts to tie its hash to the node, so in tokens mode the
@@ -48,7 +49,8 @@ func TestFetcher_FetchBlock_NoTransactionsUnknownHash(t *testing.T) {
 				assert.Empty(t, asked)
 				return
 			}
-			require.ErrorIs(t, err, ethereum.NotFound)
+			require.ErrorIs(t, err, errUnknownBlockHash)
+			assert.False(t, shinzoerrors.IsErrNotFound(err), "a mined block must not be waited on as not mined yet")
 			assert.Equal(t, block.Hash, asked)
 		})
 	}

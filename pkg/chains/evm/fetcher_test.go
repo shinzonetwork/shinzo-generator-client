@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +197,69 @@ func TestFetcher_Connect_ChecksChainID(t *testing.T) {
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 			}
+		})
+	}
+}
+
+// Tokens mode dispatches only finalized blocks, so a node that refuses the finalized tag fails
+// Connect. A rate limit on that request does not: dispatch retries it.
+func TestFetcher_Connect_TokensModeChecksFinalizedTag(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		mode    string
+		refuse  bool // answer the finalized request with a JSON-RPC error
+		status  int  // answer the finalized request with this HTTP status instead
+		wantErr error
+	}{
+		{name: "node serves the tag", mode: config.ChainModeTokens},
+		{name: "node refuses the tag", mode: config.ChainModeTokens, refuse: true, wantErr: errFinalizedTagRefused},
+		{name: "rate limited", mode: config.ChainModeTokens, status: http.StatusTooManyRequests},
+		{name: "full mode, node refuses the tag", mode: config.ChainModeFull, refuse: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req jsonRPCRequest
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if req.Method == ethGetBlockByNumber && tc.status != 0 {
+					w.WriteHeader(tc.status)
+					return
+				}
+				resp := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+				switch {
+				case req.Method == ethChainID:
+					resp["result"] = "0xaa36a7"
+				case tc.refuse:
+					resp["error"] = map[string]any{"code": -32000, "message": "finalized block not found"}
+				default:
+					resp["result"] = fullBlockResponse("0x64", nil)
+				}
+				_ = json.NewEncoder(w).Encode(resp)
+			}))
+			defer srv.Close()
+
+			cfg := testConfig()
+			cfg.Chain.ChainID = 11155111
+			cfg.Chain.Mode = tc.mode
+			cfg.Geth.NodeURL = srv.URL
+			f, err := NewFetcherFromConfig(cfg)
+			require.NoError(t, err)
+
+			err = f.Connect(context.Background())
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Nil(t, f.client)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, f.client)
 		})
 	}
 }

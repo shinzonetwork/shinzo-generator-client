@@ -9,7 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -117,6 +119,10 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 // errChainIDMismatch reports that the endpoint serves a chain other than the configured one.
 var errChainIDMismatch = errors.New("node serves another chain")
 
+// errFinalizedTagRefused reports that the node answers a request for the finalized block with an
+// error.
+var errFinalizedTagRefused = errors.New("node refuses the finalized block tag")
+
 // Connect dials the RPC endpoint using the connection-config fields and returns
 // errChainIDMismatch when the endpoint reports a chain ID other than the
 // configured one, so a generator pointed at another chain's RPC does not index
@@ -124,6 +130,11 @@ var errChainIDMismatch = errors.New("node serves another chain")
 // dial; f.dialTimeout (GethConfig's dial_timeout_seconds) may additionally bound
 // the WebSocket dial phase. If the fetcher was built via NewFetcher
 // (pre-connected client), Connect is a no-op.
+//
+// Tokens mode dispatches only finalized blocks, so there Connect also returns
+// errFinalizedTagRefused when the node answers the finalized tag with an error.
+// Any other failure of that request, such as a rate limit or a timeout, is left
+// to dispatch, which retries it.
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
@@ -141,9 +152,20 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 		_ = client.Close()
 		return fmt.Errorf("endpoint reports chain id %s: %w", chainID, errChainIDMismatch)
 	}
+	if f.tokensMode {
+		if _, err := client.GetFinalizedHeight(ctx); err != nil {
+			if _, refused := errors.AsType[ethrpc.Error](err); refused {
+				_ = client.Close()
+				return fmt.Errorf("%w: %w", errFinalizedTagRefused, err)
+			}
+		}
+	}
 	f.client = client
 	return nil
 }
+
+// errUnknownBlockHash reports that the node has no header with the hash of the block as decoded.
+var errUnknownBlockHash = errors.New("node has no header with the block's hash")
 
 // FetchBlock implements chains.Fetcher. It retrieves the block at the given
 // height along with its transactions and receipts, returning them bundled in a
@@ -168,8 +190,14 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	// receipt fetch checks it for a block with transactions; tokens mode checks one without by
 	// fetching the header by that hash.
 	if f.tokensMode && len(block.Transactions) == 0 {
-		if _, err := f.client.GetHeaderByHash(ctx, block.Hash); err != nil {
-			return nil, fmt.Errorf("block %d: node has no header with hash %s: %w", height, block.Hash, err)
+		_, err := f.client.GetHeaderByHash(ctx, block.Hash)
+		if errors.Is(err, ethereum.NotFound) {
+			// NotFound is not wrapped: callers read it as a block not mined yet and wait, but this
+			// block was just fetched by its number.
+			return nil, fmt.Errorf("block %d: %w %s", height, errUnknownBlockHash, block.Hash)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("block %d: read header %s: %w", height, block.Hash, err)
 		}
 	}
 	if f.tokensMode {
