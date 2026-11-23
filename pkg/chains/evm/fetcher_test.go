@@ -202,7 +202,7 @@ func TestFetcher_Connect_ChecksChainID(t *testing.T) {
 }
 
 // Tokens mode dispatches only finalized blocks, so a node that refuses the finalized tag fails
-// Connect. A rate limit on that request does not: dispatch retries it.
+// Connect. An HTTP 429 on that request does not: dispatch retries it.
 func TestFetcher_Connect_TokensModeChecksFinalizedTag(t *testing.T) {
 	t.Parallel()
 
@@ -214,7 +214,7 @@ func TestFetcher_Connect_TokensModeChecksFinalizedTag(t *testing.T) {
 		wantErr error
 	}{
 		{name: "node serves the tag", mode: config.ChainModeTokens},
-		{name: "node refuses the tag", mode: config.ChainModeTokens, refuse: true, wantErr: errFinalizedTagRefused},
+		{name: "node refuses the tag", mode: config.ChainModeTokens, refuse: true, wantErr: errFinalizedRequestRefused},
 		{name: "rate limited", mode: config.ChainModeTokens, status: http.StatusTooManyRequests},
 		{name: "full mode, node refuses the tag", mode: config.ChainModeFull, refuse: true},
 	}

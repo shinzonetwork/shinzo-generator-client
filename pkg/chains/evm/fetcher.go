@@ -119,9 +119,9 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 // errChainIDMismatch reports that the endpoint serves a chain other than the configured one.
 var errChainIDMismatch = errors.New("node serves another chain")
 
-// errFinalizedTagRefused reports that the node answers a request for the finalized block with an
-// error.
-var errFinalizedTagRefused = errors.New("node refuses the finalized block tag")
+// errFinalizedRequestRefused reports that the node answers a request for the finalized block with
+// an error. The node's error, wrapped after it, says why.
+var errFinalizedRequestRefused = errors.New("node answered the finalized block request with an error")
 
 // Connect dials the RPC endpoint using the connection-config fields and returns
 // errChainIDMismatch when the endpoint reports a chain ID other than the
@@ -132,8 +132,8 @@ var errFinalizedTagRefused = errors.New("node refuses the finalized block tag")
 // (pre-connected client), Connect is a no-op.
 //
 // Tokens mode dispatches only finalized blocks, so there Connect also returns
-// errFinalizedTagRefused when the node answers the finalized tag with an error.
-// Any other failure of that request, such as a rate limit or a timeout, is left
+// errFinalizedRequestRefused when the node answers the finalized tag with a
+// JSON-RPC error. Any other failure, such as an HTTP 429 or a timeout, is left
 // to dispatch, which retries it.
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
@@ -156,7 +156,7 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 		if _, err := client.GetFinalizedHeight(ctx); err != nil {
 			if _, refused := errors.AsType[ethrpc.Error](err); refused {
 				_ = client.Close()
-				return fmt.Errorf("%w: %w", errFinalizedTagRefused, err)
+				return fmt.Errorf("%w: %w", errFinalizedRequestRefused, err)
 			}
 		}
 	}

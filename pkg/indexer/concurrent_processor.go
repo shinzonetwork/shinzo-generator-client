@@ -1491,7 +1491,9 @@ func (p *ConcurrentBlockProcessor) fetchAndConvertBlock(ctx context.Context, blo
 
 // fetchBlockWithRetry fetches a block from the fetcher with retry
 // classification:
-//   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
+//   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet).
+//     When dispatch is bounded at the finalized height the block is already mined, so
+//     not-found is handled as any other error.
 //   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
 func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
 	otherErrors := 0
@@ -1505,7 +1507,7 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 			return raw, nil
 		}
 
-		if errors.IsErrNotFound(err) {
+		if errors.IsErrNotFound(err) && !p.finalizedOnly {
 			logger.Sugar.Infof("Block %d not available yet, waiting...", blockNum)
 			select {
 			case <-ctx.Done():
