@@ -636,10 +636,16 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 	if i.defraNode != nil && cfg.Chain.Mode == config.ChainModeTokens {
 		i.healthServer.EnableDocumentsEndpoint(func(ctx context.Context, from, to int64) (map[string][]string, error) {
 			return i.converter.GetDocIDsByBlockRange(ctx, i.defraNode, from, to)
+		}, func(ctx context.Context) (int64, error) {
+			return i.converter.GetLowestStoredBlockNumber(ctx, i.defraNode)
 		}, auth)
 	}
 	if prover, ok := i.fetcher.(chains.StateProver); ok && cfg.Chain.Mode == config.ChainModeTokens {
-		i.healthServer.EnableStateEndpoint(prover.ProveState, auth)
+		if cfg.Indexer.SchemaAuthMode == constants.SchemaAuthModeNone {
+			logger.Sugar.Warn("The state endpoint is off: schema auth mode is none, and a state request calls the RPC endpoint")
+		} else {
+			i.healthServer.EnableStateEndpoint(prover.ProveState, auth)
+		}
 	}
 	go func() {
 		if err := i.healthServer.Start(); err != nil {

@@ -185,7 +185,8 @@ type Converter interface {
 	GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
 
 	// GetLowestStoredBlockNumber returns the lowest block number currently
-	// persisted in DefraDB. Useful for pruning windows.
+	// persisted in DefraDB. With no block stored it returns an error whose
+	// pkg/errors code is CodeDocumentNotFound.
 	GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
 
 	// GetStoredBlockNumbers returns the number of every block persisted in

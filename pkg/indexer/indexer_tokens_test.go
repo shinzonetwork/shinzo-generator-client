@@ -304,20 +304,23 @@ func TestCheckTokensBuild(t *testing.T) {
 }
 
 // initHealthServer serves the fetcher's state proofs in tokens mode only, behind the schema routes'
-// authentication. The fetcher is not connected, so an authenticated, well-formed read that reaches it
-// is answered 502 with its error. An unset chain.mode is full mode.
+// authentication, and not at all when that authentication is none. The fetcher is not connected, so
+// an authenticated, well-formed read that reaches it is answered 502 with its error. An unset
+// chain.mode is full mode.
 func TestInitHealthServer_StateEndpoint(t *testing.T) {
 	t.Parallel()
 	logger.InitConsoleOnly(true)
 	cases := []struct {
 		name        string
 		mode        string
+		authMode    string
 		wantNoKey   int
 		wantWithKey int
 	}{
-		{"full", config.ChainModeFull, http.StatusNotFound, http.StatusNotFound},
-		{"unset", "", http.StatusNotFound, http.StatusNotFound},
-		{"tokens", config.ChainModeTokens, http.StatusUnauthorized, http.StatusBadGateway},
+		{"full", config.ChainModeFull, constants.SchemaAuthModeToken, http.StatusNotFound, http.StatusNotFound},
+		{"unset", "", constants.SchemaAuthModeToken, http.StatusNotFound, http.StatusNotFound},
+		{"tokens", config.ChainModeTokens, constants.SchemaAuthModeToken, http.StatusUnauthorized, http.StatusBadGateway},
+		{"tokens, schema auth none", config.ChainModeTokens, constants.SchemaAuthModeNone, http.StatusNotFound, http.StatusNotFound},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -326,7 +329,7 @@ func TestInitHealthServer_StateEndpoint(t *testing.T) {
 				Chain: config.ChainConfig{Name: "Ethereum", Network: "Mainnet", ChainID: 1, Mode: tc.mode},
 				Indexer: config.IndexerConfig{
 					HealthServerPort: freeHealthPort(t),
-					SchemaAuthMode:   constants.SchemaAuthModeToken,
+					SchemaAuthMode:   tc.authMode,
 					SchemaAPIKeys:    []string{"state-key"},
 				},
 			}

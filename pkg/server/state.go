@@ -8,15 +8,26 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 )
 
-// maxStateSlots is the most storage slots one state request may name. geth refuses an eth_getProof
-// call with more storage keys (maxGetProofKeys in its internal/ethapi package), so a larger request
-// could not be answered by an Ethereum node.
-const maxStateSlots = 1024
+const (
+	// maxStateSlots is the most storage slots one state request may name. geth refuses an
+	// eth_getProof call with more storage keys (maxGetProofKeys in its internal/ethapi package), so a
+	// larger request could not be answered by an Ethereum node.
+	maxStateSlots = 1024
+	// maxStateRequestBytes caps a state request's body. The largest valid request, maxStateSlots
+	// slots of 64 hex digits, is 70,803 bytes as compact JSON.
+	maxStateRequestBytes = 128 << 10
+	// stateTimeout bounds the node calls behind one state request.
+	stateTimeout = 10 * time.Second
+	// maxConcurrentStateRequests is how many state requests are answered at once. Each one is two
+	// calls on the operator's RPC, so more are refused rather than queued.
+	maxConcurrentStateRequests = 4
+)
 
 var (
 	blockHashPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
@@ -48,17 +59,29 @@ func (hs *HealthServer) EnableStateEndpoint(prove StateProof, auth Authenticator
 }
 
 // stateHandler answers {blockHash, address, slots} with {blockNumber, blockHash, proof}, the proof
-// in 0x-prefixed hex. A malformed request is refused without asking the node; a node error is
-// answered with 502 and the node's message.
+// in 0x-prefixed hex. A malformed request is refused without asking the node, and one arriving while
+// maxConcurrentStateRequests are being answered is refused with 503. A node error, or no answer
+// within stateTimeout, is answered with 502 and the error's message.
 func stateHandler(prove StateProof) http.HandlerFunc {
+	answering := make(chan struct{}, maxConcurrentStateRequests)
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxStateRequestBytes)
 		var req stateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !validStateRequest(req) {
 			writeJSONError(w, http.StatusBadRequest, "bad_request", fmt.Sprintf(
 				"the body must be {blockHash, address, slots}: a 0x block hash, a 0x address and up to %d 0x slots", maxStateSlots))
 			return
 		}
-		number, proof, err := prove(r.Context(), req.BlockHash, req.Address, req.Slots)
+		select {
+		case answering <- struct{}{}:
+			defer func() { <-answering }()
+		default:
+			writeJSONError(w, http.StatusServiceUnavailable, "busy", "too many state requests at once, retry later")
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), stateTimeout)
+		defer cancel()
+		number, proof, err := prove(ctx, req.BlockHash, req.Address, req.Slots)
 		if err != nil {
 			logger.Sugar.Warnf("Cannot prove %s with %d slots at block %s: %v", req.Address, len(req.Slots), req.BlockHash, err)
 			writeJSONError(w, http.StatusBadGateway, "node_error", err.Error())
