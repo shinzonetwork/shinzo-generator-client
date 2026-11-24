@@ -185,7 +185,8 @@ type Converter interface {
 	GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
 
 	// GetLowestStoredBlockNumber returns the lowest block number currently
-	// persisted in DefraDB. Useful for pruning windows.
+	// persisted in DefraDB. With no block stored it returns an error whose
+	// pkg/errors code is CodeDocumentNotFound.
 	GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error)
 
 	// GetStoredBlockNumbers returns the number of every block persisted in
@@ -257,6 +258,15 @@ type LinkStamper interface {
 	// log per skipped doc when some IDs are present, fully silent when none
 	// are. Short input never errors and never panics.
 	RecordDocIDs(collection string, docs []map[string]any, ids []string) error
+}
+
+// StateProver answers a read of an account and its storage slots at a block with the node's
+// proof. The EVM fetcher implements it, and a tokens-mode generator serves it as its state endpoint.
+type StateProver interface {
+	// ProveState returns the number of the block with hash blockHash and the proof of the account
+	// at address and of its slots at that block, in the evidence codec's state-proof encoding. The
+	// node refuses a block that is not on its canonical chain.
+	ProveState(ctx context.Context, blockHash, address string, slots []string) (int64, []byte, error)
 }
 
 // ConversionResult is the output of Converter.Convert — it bundles the
