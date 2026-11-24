@@ -688,11 +688,12 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter)
-		wantLow  int64
-		wantHigh int64
-		wantErr  bool
+		name       string
+		setup      func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, c *Converter)
+		wantLow    int64
+		wantHigh   int64
+		wantStored []int64
+		wantErr    bool
 	}{
 		{
 			name: "residue rows around valid blocks are skipped",
@@ -703,8 +704,9 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 				}
 				storeResidueBlockDoc(ctx, t, td, c, 2)
 			},
-			wantLow:  100,
-			wantHigh: 102,
+			wantLow:    100,
+			wantHigh:   102,
+			wantStored: []int64{100, 101, 102},
 		},
 		{
 			name: "only numberless rows yields the corruption sentinel",
@@ -742,6 +744,9 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 			assert.Equal(t, tc.wantLow, lowest)
 			require.NoError(t, errHigh)
 			assert.Equal(t, tc.wantHigh, highest)
+			stored, err := c.GetStoredBlockNumbers(ctx, td.Node, 0)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantStored, stored)
 		})
 	}
 }

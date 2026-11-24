@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -233,7 +235,7 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	}
 	block, err := f.fetchBlock(ctx, height)
 	if err != nil {
-		return nil, err
+		return nil, markUnavailable(err)
 	}
 	transactions, receipts, err := f.fetchTransactionsAndReceipts(ctx, block, height)
 	if err != nil {
@@ -250,7 +252,7 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 			return nil, fmt.Errorf("block %d: %w %s", height, errUnknownBlockHash, block.Hash)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("block %d: read header %s: %w", height, block.Hash, err)
+			return nil, markUnavailable(fmt.Errorf("block %d: read header %s: %w", height, block.Hash, err))
 		}
 	}
 	bundle := &BlockBundle{
@@ -269,6 +271,21 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 		}
 	}
 	return bundle, nil
+}
+
+// markUnavailable wraps err with chains.ErrNodeUnavailable when the call got no usable answer from
+// the node: a network error or timeout, or an HTTP 429 or 5xx status.
+func markUnavailable(err error) error {
+	var unavailable bool
+	if httpErr, ok := errors.AsType[ethrpc.HTTPError](err); ok {
+		unavailable = httpErr.StatusCode == http.StatusTooManyRequests || httpErr.StatusCode >= http.StatusInternalServerError
+	} else {
+		_, unavailable = errors.AsType[net.Error](err)
+	}
+	if !unavailable {
+		return err
+	}
+	return fmt.Errorf("%w: %w", chains.ErrNodeUnavailable, err)
 }
 
 // captureSupply returns the verified total-supply captures of the listed tokens at block, leaving

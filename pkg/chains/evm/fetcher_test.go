@@ -8,12 +8,15 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -260,6 +263,47 @@ func TestFetcher_Connect_TokensModeChecksFinalizedTag(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, f.client)
+		})
+	}
+}
+
+// FetchBlock marks a failed block fetch or tokens-mode header check with chains.ErrNodeUnavailable
+// only when the node gave no usable answer.
+func TestFetcher_FetchBlock_MarksNodeUnavailable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		err             error
+		wantUnavailable bool
+	}{
+		{"connection refused", &url.Error{Op: "Post", URL: "http://node", Err: syscall.ECONNREFUSED}, true},
+		{"timed out", context.DeadlineExceeded, true},
+		{"http 429", ethrpc.HTTPError{StatusCode: http.StatusTooManyRequests}, true},
+		{"http 502", ethrpc.HTTPError{StatusCode: http.StatusBadGateway}, true},
+		{"http 400", ethrpc.HTTPError{StatusCode: http.StatusBadRequest}, false},
+		{"rpc error", codedRPCError(-32005), false},
+		{"undecodable answer", errors.New("cannot decode block"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			byNumber := NewFetcher(&fakeRPCClient{blockErr: tt.err}, 8)
+			_, err := byNumber.FetchBlock(context.Background(), 100)
+			require.Error(t, err)
+			assert.Equal(t, tt.wantUnavailable, errors.Is(err, chains.ErrNodeUnavailable), "block fetch")
+
+			block := fakeBlock(100)
+			byHash := NewFetcher(&fakeRPCClient{
+				block:           block,
+				receiptsByHash:  map[string][]*TransactionReceipt{block.Hash: {}},
+				headerByHashErr: tt.err,
+			}, 8)
+			byHash.tokensMode = true
+			_, err = byHash.FetchBlock(context.Background(), 100)
+			require.Error(t, err)
+			assert.Equal(t, tt.wantUnavailable, errors.Is(err, chains.ErrNodeUnavailable), "header check")
 		})
 	}
 }
