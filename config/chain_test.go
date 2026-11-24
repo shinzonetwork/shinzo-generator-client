@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -110,6 +111,33 @@ func TestValidateConfig_ChainMode(t *testing.T) {
 			cfg.DefraDB.Embedded = true
 			cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
 			require.ErrorIs(t, validateConfig(cfg), tt.wantErr)
+		})
+	}
+}
+
+// ContractAddress takes either letter case, with or without 0x, and refuses anything that is not
+// 20 bytes of hex.
+func TestContractAddress(t *testing.T) {
+	t.Parallel()
+	const usd1 = "8d0d000ee44948fc98c9b98a4fa4921476f08b0d"
+	cases := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr error
+	}{
+		{name: "lower case with 0x", raw: "0x" + usd1, want: usd1},
+		{name: "upper case without 0x", raw: strings.ToUpper(usd1), want: usd1},
+		{name: "short", raw: "0x8d0d", wantErr: ErrInvalidContractAddress},
+		{name: "long", raw: "0x" + usd1 + "00", wantErr: ErrInvalidContractAddress},
+		{name: "not hex", raw: "0x" + usd1[:39] + "g", wantErr: ErrInvalidContractAddress},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ContractAddress(tt.raw)
+			require.ErrorIs(t, err, tt.wantErr)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
