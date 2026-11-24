@@ -15,6 +15,8 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
+	"github.com/sourcenetwork/defradb/acp/identity"
+	"github.com/sourcenetwork/defradb/crypto"
 	"github.com/sourcenetwork/defradb/node"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -256,5 +258,43 @@ func TestResolveStartHeight_TokensModeHighestStored(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Equal(t, tc.want, got)
 		})
+	}
+}
+
+// Tokens mode starts only with a secp256k1 node identity, the key type an attestation's ES256K
+// signature needs; full mode starts with any.
+func TestCheckTokensIdentity(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		mode    string
+		keyType crypto.KeyType
+		wantErr error
+	}{
+		{config.ChainModeTokens, crypto.KeyTypeSecp256k1, nil},
+		{config.ChainModeTokens, crypto.KeyTypeSecp256r1, ErrIdentityKeyType},
+		{config.ChainModeTokens, crypto.KeyTypeEd25519, ErrIdentityKeyType},
+		{config.ChainModeFull, crypto.KeyTypeSecp256r1, nil},
+	}
+	for _, tc := range cases {
+		id, err := identity.Generate(tc.keyType)
+		require.NoError(t, err)
+		assert.ErrorIs(t, checkTokensIdentity(tc.mode, id), tc.wantErr, "%s %s", tc.mode, tc.keyType)
+	}
+}
+
+// Tokens mode starts only on a build with a version; full mode starts on any build.
+func TestCheckTokensBuild(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		mode    string
+		version string
+		wantErr error
+	}{
+		{config.ChainModeTokens, config.DevVersion, ErrDevBuildInTokensMode},
+		{config.ChainModeTokens, "v0.8.0-ethereum-mainnet", nil},
+		{config.ChainModeFull, config.DevVersion, nil},
+	}
+	for _, tc := range cases {
+		assert.ErrorIs(t, checkTokensBuild(tc.mode, tc.version), tc.wantErr, "%s %s", tc.mode, tc.version)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 
@@ -59,7 +60,7 @@ func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt fun
 	failingSince := time.Now()
 	delay := FailedHeightRetryDelay
 	for p.retryFailedHeights && result.Error != nil && !errors.IsErrDocumentDeleted(result.Error) &&
-		ctx.Err() == nil {
+		!stderrors.Is(result.Error, defra.ErrStoredHeaderDiffers) && ctx.Err() == nil {
 		failing := time.Since(failingSince)
 		if failing >= p.stuckHeightLimit && !stderrors.Is(result.Error, chains.ErrNodeUnavailable) {
 			p.failRun(fmt.Errorf("%w: block %d has failed for %v: %w", ErrHeightStuck, result.BlockNum,
