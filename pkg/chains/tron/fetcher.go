@@ -2,12 +2,14 @@ package tron
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
+	shinzoerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 )
 
 // tronClient abstracts the subset of *Client methods used by the
@@ -42,6 +44,7 @@ type Fetcher struct {
 	apiKey      string
 	apiKeyType  string
 	dialTimeout time.Duration
+	network     string
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -58,11 +61,15 @@ func NewFetcher(client tronClient) *Fetcher {
 // using the fetch methods.
 func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 	if cfg == nil {
-		return nil, errors.NewConfigurationError("chain", "NewFetcherFromConfig", "config is nil", "", nil)
+		return nil, shinzoerrors.NewConfigurationError("chain", "NewFetcherFromConfig", "config is nil", "", nil)
 	}
 	dialSeconds := cfg.Tron.DialTimeoutSeconds
 	if dialSeconds <= 0 {
 		dialSeconds = config.DefaultTronDialTimeoutSeconds
+	}
+	network := cfg.Chain.Network
+	if network == "" {
+		network = defaultNetwork
 	}
 	return &Fetcher{
 		nodeURL:     cfg.Tron.NodeURL,
@@ -70,14 +77,32 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		apiKey:      cfg.Tron.APIKey,
 		apiKeyType:  cfg.Tron.APIKeyType,
 		dialTimeout: time.Duration(dialSeconds) * time.Second,
+		network:     network,
 	}, nil
 }
 
-// Connect builds the wallet-API HTTP client from the connection-config
-// fields. The provided context is checked for cancellation before the
-// client is built (the wallet endpoints are served lazily) and is NOT
-// retained. If the fetcher was built via NewFetcher (pre-connected
-// client), Connect is a no-op.
+// errNetworkMismatch reports that the endpoint serves a network other than
+// the configured one, established by the genesis blockID check in Connect.
+var errNetworkMismatch = errors.New("node serves another chain")
+
+// normalizeBlockID canonicalizes a blockID for comparison. The wallet API
+// serves lowercase hex without the 0x prefix, but gateways in front of a
+// node vary, so the genesis check trims whitespace, drops an optional 0x,
+// and lowercases before comparing against the genesis table.
+func normalizeBlockID(blockID string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(blockID), "0x"))
+}
+
+// Connect builds the wallet-API client and pins the endpoint to the
+// configured network by fetching block 0 and comparing its blockID against
+// the genesisBlockIDs entry for chain.network. Wallet endpoints are
+// network-agnostic, so without this pin a Mainnet config pointed at a Nile
+// node would index Nile blocks under the Tron__Mainnet collections, the
+// same hole the EVM adapter's chain-id check closes. Unsupported networks
+// fail closed before any request. The context governs the genesis read
+// only and is not retained. On any failure the fresh client is closed and
+// the fetcher stays unconnected, so a retry re-runs the whole check.
+// Connect is a no-op when the fetcher already has a client (NewFetcher).
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
@@ -86,10 +111,27 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 		return fmt.Errorf("connect context cancelled before connecting: %w", err)
 	}
 	if f.nodeURL == "" {
-		return errors.NewRPCConnectionFailed("rpc", "Connect", "tron endpoints",
+		return shinzoerrors.NewRPCConnectionFailed("rpc", "Connect", "tron endpoints",
 			fmt.Errorf("empty tron.node_url: set config tron.node_url or the TRON_RPC_URL env variable"))
 	}
-	f.client = NewClient(f.nodeURL, f.solidityURL, f.apiKey, f.apiKeyType, f.dialTimeout)
+	expected, ok := genesisBlockIDs[f.network]
+	if !ok {
+		return shinzoerrors.NewConfigurationError("chain", "Connect",
+			fmt.Sprintf("unsupported tron network: the genesis check covers %s", strings.Join(SupportedNetworks(), ", ")),
+			f.network, nil)
+	}
+	client := NewClient(f.nodeURL, f.solidityURL, f.apiKey, f.apiKeyType, f.dialTimeout)
+	genesis, err := client.GetBlockByNum(ctx, 0)
+	if err != nil {
+		_ = client.Close()
+		return fmt.Errorf("read genesis block: %w", err)
+	}
+	if reported := normalizeBlockID(genesis.BlockID); reported != expected {
+		_ = client.Close()
+		return fmt.Errorf("endpoint reports genesis blockID %s, but network %q expects %s: %w",
+			genesis.BlockID, f.network, expected, errNetworkMismatch)
+	}
+	f.client = client
 	return nil
 }
 

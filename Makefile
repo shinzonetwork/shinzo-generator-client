@@ -18,7 +18,9 @@ GETH_API_KEY ?=
 FROM ?= 0
 TO ?= 0
 # Tron wallet-API env vars for the tron live smoke (tron-live-test and the
-# TRON phase of integration-test).
+# TRON phase of integration-test). The suite boots the bundled production
+# config/config_tron.yml through the standard loader, so CHAIN_NETWORK and
+# the TRON_* variables override the yaml the same way they do for a deploy.
 TRON_RPC_URL ?=
 TRON_SOLIDITY_RPC_URL ?=
 TRON_API_KEY ?=
@@ -323,6 +325,7 @@ help:
 	@echo "  TRON_RPC_URL          - Wallet-API base URL (required, e.g. https://nile.trongrid.io)"
 	@echo "  TRON_SOLIDITY_RPC_URL - SolidityNode base URL (optional; defaults to the NodeURL host)"
 	@echo "  TRON_API_KEY          - TronGrid API key (optional)"
+	@echo "  CHAIN_NETWORK         - Network the config indexes (optional; Mainnet, Nile, or Shasta, Mainnet by default)"
 	@echo ""
 	@echo "💡 Example Usage:"
 	@echo "  export GETH_RPC_URL=http://xx.xx.xx.xx:port"
@@ -330,4 +333,5 @@ help:
 	@echo "  make node-status"
 	@echo ""
 	@echo "  export TRON_RPC_URL=https://nile.trongrid.io"
+	@echo "  export CHAIN_NETWORK=Nile"
 	@echo "  make tron-live-test"

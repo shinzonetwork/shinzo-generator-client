@@ -94,6 +94,13 @@ make tron-live-test
 `integration/live/tron/` runs one smoke test against a real wallet-API
 endpoint (Nile testnet or TronGrid mainnet): it waits for 3 real blocks,
 asserts block and transaction field integrity, and checks one signed
-BlockSignature doc per stored block. Optional env vars: `TRON_SOLIDITY_RPC_URL`
-and `TRON_API_KEY`. The suite skips with exit 0 when `TRON_RPC_URL` is unset,
-and the target carries a tight `-timeout=120s`.
+BlockSignature doc per stored block. Like the Ethereum suite, it boots the
+bundled `config/config_tron.yml` through the standard config loader, so the
+`CHAIN_*` and `TRON_*` environment overrides all apply: `CHAIN_NETWORK`
+(`Mainnet` by default, also `Nile` and `Shasta`) drives the collection names
+(`Tron__Nile`), and the fetcher refuses to connect when the endpoint's
+genesis block is not that network's, so a URL/network mismatch fails at
+startup instead of indexing the wrong chain. Suite-specific knobs applied
+after load: temp store, dynamic-port embedded DefraDB, no pruning,
+snapshots, throttling, or start buffer. The suite skips with exit 0 when
+`TRON_RPC_URL` is unset, and the target carries a tight `-timeout=120s`.

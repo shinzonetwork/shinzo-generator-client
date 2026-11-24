@@ -5,7 +5,7 @@
 # Collection names are derived as: Tron__Mainnet__Block, etc.
 chain:
   name: "Tron"           # Chain name (env: CHAIN_NAME)
-  network: "Mainnet"     # Network name (env: CHAIN_NETWORK)
+  network: "Mainnet"     # Network name: Mainnet, Nile, or Shasta (env: CHAIN_NETWORK); Connect pins the endpoint's genesis block to it
   chain_id: 728126428    # TIP-950 Tron Chain ID  (env: CHAIN_ID)
   adapter: "tron"        # Chain adapter (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"

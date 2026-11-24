@@ -24,6 +24,13 @@ import (
 // Live Tron smoke test against a real wallet-API endpoint (Nile testnet or
 // TronGrid mainnet). The suite is skipped unless TRON_RPC_URL is set; the
 // Makefile target tron-live-test enforces the same gate with a setup hint.
+// The config boots from the bundled production config/config_tron.yml
+// through the standard loader, exactly like the Ethereum live suite: the
+// CHAIN_* and TRON_* environment overrides all apply, so CHAIN_NETWORK picks
+// the network (Mainnet by default, also Nile and Shasta). The fetcher pins
+// the endpoint's genesis block to that network at Connect, and the
+// collection names follow it, so a URL/network mismatch fails fast instead
+// of indexing the wrong chain.
 //
 // The smoke targets only 3 blocks and a tight deadline: it proves the
 // adapter wires a real endpoint into the whole pipeline, not throughput.
@@ -31,7 +38,10 @@ import (
 var (
 	tronLiveIndexer    *tronLiveIndexerRun
 	tronLiveGraphqlURL string
-	tronLiveTable      = tron.NewCollectionNames(tron.DefaultCollectionPrefix)
+	// tronLiveTable follows the loaded config's chain identity: TestMain
+	// derives the prefix (e.g. "Tron__Nile") before the suite runs, so the
+	// GraphQL assertions query the collections the indexer actually writes.
+	tronLiveTable *tron.CollectionNames
 )
 
 type tronLiveIndexerRun struct {
@@ -48,9 +58,11 @@ func (run *tronLiveIndexerRun) startError() (error, bool) {
 	}
 }
 
-// TestMain gates on TRON_RPC_URL, builds a real-chain config with a temp
-// store, and runs the indexer the same way the mock suite does: the
-// indexer owns its embedded DefraDB node.
+// TestMain gates on TRON_RPC_URL, loads the bundled production config the
+// way the Ethereum live suite does (standard environment overrides apply),
+// then applies suite-specific knobs: a temp store, a dynamic-port embedded
+// DefraDB, no pruning or snapshots, and no throttling. The indexer owns its
+// embedded DefraDB node.
 func TestMain(m *testing.M) {
 	logger.InitConsoleOnly(true)
 
@@ -80,7 +92,21 @@ func TestMain(m *testing.M) {
 	defraPort := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
 
-	cfg := tronLiveConfig(storeDir, lanIP, defraPort)
+	cfg, err := config.LoadConfig("../../config/config_tron.yml")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: cannot load config/config_tron.yml: %v\n", err)
+		_ = os.RemoveAll(storeDir)
+		os.Exit(1)
+	}
+	tronLiveOverrideConfig(cfg, storeDir, lanIP, defraPort)
+
+	cols, err := tron.NewCollectionsFromConfig(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: cannot derive the collection names: %v\n", err)
+		_ = os.RemoveAll(storeDir)
+		os.Exit(1)
+	}
+	tronLiveTable = tron.NewCollectionNames(cols.Prefix())
 
 	idx, err := indexer.CreateIndexer(cfg, tron.Factories())
 	if err != nil {
@@ -109,42 +135,47 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// tronLiveConfig mirrors the mock suite's config but with the real
-// endpoint: start height unset so the real chain's tip detection runs,
-// pruner and snapshotter off, the dynamic-port P2P address.
-func tronLiveConfig(storeDir, lanIP string, defraPort int) *config.Config {
-	cfg := &config.Config{
-		Chain: config.ChainConfig{
-			Name:    "Tron",
-			Network: "Mainnet",
-			Adapter: "tron",
-		},
-		DefraDB: config.DefraDBConfig{
-			URL:           fmt.Sprintf("%s:%d", lanIP, defraPort),
-			Embedded:      true,
-			KeyringSecret: "tron-live-smoke-keyring-secret",
-			P2P: config.DefraDBP2PConfig{
-				Enabled:    false,
-				ListenAddr: fmt.Sprintf("/ip4/%s/tcp/0", lanIP),
-			},
-			Store: config.DefraDBStoreConfig{
-				Path: filepath.Join(storeDir, "store"),
-			},
-		},
-		Tron: config.TronConfig{
-			NodeURL:     os.Getenv("TRON_RPC_URL"),
-			SolidityURL: os.Getenv("TRON_SOLIDITY_RPC_URL"),
-			APIKey:      os.Getenv("TRON_API_KEY"),
-		},
-		Indexer: config.IndexerConfig{
-			ConcurrentBlocks: 1,
-			BlocksPerMinute:  0,
-			MaxDocsPerTxn:    100,
-			HealthServerPort: -1,
-		},
-		Logger: config.LoggerConfig{Development: true},
+// tronLiveOverrideConfig applies the suite-specific knobs after the
+// standard loader has merged the bundled production yaml with the
+// environment. The chain identity (chain.network, hence the collection
+// prefix and the fetcher's genesis pin) defaults to Mainnet here, exactly
+// like the production yaml, with CHAIN_NETWORK (already applied by the
+// loader) as the only way to point the suite at Nile or Shasta; the wallet
+// endpoint is re-set from the gated TRON_RPC_URL so the required variable
+// is provably the one that runs, mirroring the Ethereum suite's explicit
+// re-set of the node config after load. Everything else the yaml turns on
+// for production is neutralized: pruning, snapshots, throttling, the start
+// buffer, and the health server, so the smoke exercises the pipeline, not
+// production tuning.
+func tronLiveOverrideConfig(cfg *config.Config, storeDir, lanIP string, defraPort int) {
+	// The explicit pin keeps the Mainnet default true even if the bundled
+	// yaml's network line is edited; the loader has already applied
+	// CHAIN_NETWORK, so an unset variable is the signal to keep the default.
+	if os.Getenv("CHAIN_NETWORK") == "" {
+		cfg.Chain.Network = "Mainnet"
 	}
-	return cfg
+
+	cfg.Tron.NodeURL = os.Getenv("TRON_RPC_URL")
+
+	cfg.DefraDB.URL = fmt.Sprintf("%s:%d", lanIP, defraPort)
+	cfg.DefraDB.Embedded = true
+	cfg.DefraDB.KeyringSecret = "tron-live-smoke-keyring-secret"
+	cfg.DefraDB.P2P = config.DefraDBP2PConfig{
+		Enabled:    false,
+		ListenAddr: fmt.Sprintf("/ip4/%s/tcp/0", lanIP),
+	}
+	cfg.DefraDB.Store.Path = filepath.Join(storeDir, "store")
+
+	cfg.Indexer.ConcurrentBlocks = 1
+	cfg.Indexer.BlocksPerMinute = 0
+	// The yaml's start_buffer: 100 would start the smoke 100 blocks behind
+	// the tip; a fresh store must begin at the tip so the 3-block target
+	// lands in the wait window.
+	cfg.Indexer.StartBuffer = 0
+	cfg.Indexer.HealthServerPort = -1
+
+	cfg.Pruner.Enabled = false
+	cfg.Snapshot.Enabled = false
 }
 
 // tronLiveTryQuery posts one GraphQL request without failing the test, so

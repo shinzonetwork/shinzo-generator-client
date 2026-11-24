@@ -34,7 +34,7 @@ The compiled binary goes into `./bin`. The generator ships one binary per chain 
 | `make bsc-live-test` | Run live integration tests for BSC |
 | `make bsc-bench-fetch` | Captures replay fixture for BSC acceptance test from BSC RPC |
 | `make bsc-acceptance-test` | Run replay acceptance test for BSC |
-| `make tron-live-test` | Run the Tron live smoke against `TRON_RPC_URL` (wallet-API base URL, for example `https://nile.trongrid.io`; optional `TRON_SOLIDITY_RPC_URL` and `TRON_API_KEY`). Fails fast with a setup hint when the variable is unset. |
+| `make tron-live-test` | Run the Tron live smoke against `TRON_RPC_URL` (wallet-API base URL, for example `https://nile.trongrid.io`; optional `TRON_SOLIDITY_RPC_URL` and `TRON_API_KEY`). Boots the bundled `config/config_tron.yml` through the standard loader like Ethereum: `CHAIN_NETWORK` selects the network (`Mainnet` by default, also `Nile` and `Shasta`, driving the collection names and the endpoint's genesis check). Fails fast with a setup hint when the variable is unset. |
 | `make coverage` | Generate an HTML coverage report. |
 | `make node-status` | Check connectivity and current block number for a blockchain node. Probes Ethereum-compatible JSON-RPC endpoints via `eth_blockNumber`; the Generator itself is chain-agnostic and accepts any compatible JSON-RPC/WebSocket endpoint. |
 | `make clean` | Remove build artifacts. |

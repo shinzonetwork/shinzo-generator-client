@@ -1,5 +1,7 @@
 package tron
 
+import "sort"
+
 // DefaultCollectionPrefix is the default collection prefix for backward compatibility.
 const DefaultCollectionPrefix = "Tron__Mainnet"
 
@@ -75,3 +77,29 @@ const (
 	defaultChainName = "Tron"
 	defaultNetwork   = "Mainnet"
 )
+
+// genesisBlockIDs maps each supported chain.network to block 0's blockID.
+// A Tron blockID embeds its block number in the leading 8 hex chars (16
+// zeros at genesis), so a genesis blockID is a network's permanent identity:
+// two networks cannot share one. The trailing 4 bytes of each entry are the
+// documented eth_chainId of that network, so the identity stays
+// cross-checkable against published chain registries. Wallet endpoints are
+// network-agnostic, so this table is what Connect pins an endpoint to the
+// network the config names.
+var genesisBlockIDs = map[string]string{ //nolint:gochecknoglobals // fixed network-identity table, same pattern as SupportedChainAdapters
+	"Mainnet": "00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc",
+	"Nile":    "0000000000000000d698d4192c56cb6be724a558448e2684802de4d6cd8690dc",
+	"Shasta":  "0000000000000000de1aa88295e1fcf982742f773e0419c5a9c134c994a9059e",
+}
+
+// SupportedNetworks returns the chain.network values Connect can pin a
+// wallet endpoint to, in stable alphabetical order, so error messages and
+// operator docs name the same set the code enforces.
+func SupportedNetworks() []string {
+	networks := make([]string, 0, len(genesisBlockIDs))
+	for network := range genesisBlockIDs {
+		networks = append(networks, network)
+	}
+	sort.Strings(networks)
+	return networks
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -166,23 +168,143 @@ func TestFetcher_NotConnected(t *testing.T) {
 	assert.NoError(t, fetcher.Close())
 }
 
-// TestFetcher_Connect pins the two Connect contracts: no-op with a
+// TestFetcher_Connect pins the Connect contracts: no-op with a
 // pre-connected client, and a real client build from config fields that
-// then serves a fetch against an httptest node.
+// passes the genesis pin (the fake serves the Mainnet genesis for block 0)
+// and then serves a fetch against the same httptest node.
 func TestFetcher_Connect(t *testing.T) {
 	t.Parallel()
 	client := &fakeTronClient{}
 	fetcher := NewFetcher(client)
 	require.NoError(t, fetcher.Connect(context.Background()))
 
-	server := newWalletFake(t, func(_ string, _ http.Header, _ []byte) (int, []byte) {
-		return 200, []byte(blockJSON("head", 105, 2, "p"))
+	server := newWalletFake(t, func(path string, _ http.Header, _ []byte) (int, []byte) {
+		switch path {
+		case endpointGetBlockByNum:
+			return 200, []byte(blockJSON(genesisBlockIDs["Mainnet"], 0, 0, "genesis-parent"))
+		case endpointGetNowBlock:
+			return 200, []byte(blockJSON("head", 105, 2, "p"))
+		default:
+			return 404, []byte(`{}`)
+		}
 	})
 	cfgFetcher := newTestFetcherFromConfig(t, server.URL)
 	require.NoError(t, cfgFetcher.Connect(context.Background()), "config-driven Connect must build the HTTP client")
 	head, err := cfgFetcher.FetchHighestBlockNumber(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(105), head)
+}
+
+// TestFetcher_Connect_ChecksGenesis pins the network pin: Connect fetches
+// block 0 and refuses to connect when the endpoint's genesis blockID is not
+// the configured network's, leaving the fetcher unconnected so a retry
+// re-runs the whole check. The wallet endpoints are network-agnostic, so
+// without this pin a Mainnet config pointed at a Nile node would index Nile
+// blocks under the Tron__Mainnet collections.
+func TestFetcher_Connect_ChecksGenesis(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		network       string
+		genesisStatus int
+		genesisBody   string
+		wantErr       error
+		wantErrText   string
+		wantNoRequest bool
+		wantConnected bool
+	}{
+		{
+			name:          "endpoint serves the configured network",
+			network:       "Mainnet",
+			genesisStatus: http.StatusOK,
+			genesisBody:   blockJSON(genesisBlockIDs["Mainnet"], 0, 0, "genesis-parent"),
+			wantConnected: true,
+		},
+		{
+			name:          "endpoint serves another network",
+			network:       "Mainnet",
+			genesisStatus: http.StatusOK,
+			genesisBody:   blockJSON(genesisBlockIDs["Nile"], 0, 0, "genesis-parent"),
+			wantErr:       errNetworkMismatch,
+			wantErrText:   genesisBlockIDs["Nile"],
+			wantConnected: false,
+		},
+		{
+			name:          "block 0 unknown to the node",
+			network:       "Mainnet",
+			genesisStatus: http.StatusOK,
+			genesisBody:   `{}`,
+			wantErrText:   "read genesis block",
+			wantConnected: false,
+		},
+		{
+			name:          "genesis read fails at transport level",
+			network:       "Mainnet",
+			genesisStatus: http.StatusInternalServerError,
+			wantErrText:   "read genesis block",
+			wantConnected: false,
+		},
+		{
+			name:          "unsupported network fails closed before any request",
+			network:       "Devnet",
+			wantErrText:   "Mainnet, Nile, Shasta",
+			wantNoRequest: true,
+			wantConnected: false,
+		},
+		{
+			name:          "quirky gateway reports a 0x-prefixed uppercase genesis",
+			network:       "Nile",
+			genesisStatus: http.StatusOK,
+			genesisBody:   blockJSON("0x"+strings.ToUpper(genesisBlockIDs["Nile"]), 0, 0, "genesis-parent"),
+			wantConnected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var mu sync.Mutex
+			var served []string
+			server := newWalletFake(t, func(path string, _ http.Header, _ []byte) (int, []byte) {
+				mu.Lock()
+				served = append(served, path)
+				mu.Unlock()
+				return tt.genesisStatus, []byte(tt.genesisBody)
+			})
+			fetcher, err := NewFetcherFromConfig(&config.Config{
+				Chain: config.ChainConfig{Name: "Tron", Network: tt.network, Adapter: "tron"},
+				Tron:  config.TronConfig{NodeURL: server.URL},
+			})
+			require.NoError(t, err)
+
+			err = fetcher.Connect(context.Background())
+
+			if tt.wantConnected {
+				require.NoError(t, err)
+				require.NotNil(t, fetcher.client, "a passing genesis check must retain the client")
+				return
+			}
+			require.Error(t, err)
+			require.Nil(t, fetcher.client, "a failed Connect must not retain the client, so a retry re-runs the check")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+			if tt.wantErrText != "" {
+				assert.Contains(t, err.Error(), tt.wantErrText)
+			}
+			mu.Lock()
+			paths := append([]string(nil), served...)
+			mu.Unlock()
+			if tt.wantNoRequest {
+				assert.Empty(t, paths, "an unsupported network must fail closed before any request")
+				return
+			}
+			for _, path := range paths {
+				assert.Equal(t, endpointGetBlockByNum, path, "Connect must only touch the by-number endpoint")
+			}
+		})
+	}
 }
 
 // TestFetcher_ConnectContextCancelled pins the dead-context guard at
@@ -205,6 +327,19 @@ func TestNewFetcherFromConfig_NilConfig(t *testing.T) {
 	t.Parallel()
 	_, err := NewFetcherFromConfig(nil)
 	require.Error(t, err)
+}
+
+// TestNewFetcherFromConfig_NetworkDefaults pins that an empty chain.network
+// reaches Connect as the Tron default, matching the converter's prefix
+// fallback: both stages must agree on which network the config names.
+func TestNewFetcherFromConfig_NetworkDefaults(t *testing.T) {
+	t.Parallel()
+	fetcher, err := NewFetcherFromConfig(&config.Config{
+		Chain: config.ChainConfig{Name: "Tron", Adapter: "tron"},
+		Tron:  config.TronConfig{NodeURL: "https://api.trongrid.io"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, defaultNetwork, fetcher.network)
 }
 
 // TestNewFetcherFromConfig_APIKeyType pins the tron.api_key_type plumbing:
