@@ -56,25 +56,25 @@ defradb:
 # Tron wallet API (java-tron FullNode/SolidityNode). No SDK: the adapter speaks
 # plain HTTP JSON against the /wallet/* and /walletsolidity/* endpoints.
 tron:
-  node_url: "${TRON_RPC_URL}"  # FullNode HTTP base URL 
+  node_url: ""  # FullNode HTTP base URL 
   # SolidityNode base URL; empty = same host as node_url. 
-  solidity_url: "${TRON_SOLIDITY_RPC_URL}"   
+  solidity_url: ""   
   # TronGrid API key, sent as the TRON-PRO-API-KEY header on every request. Strongly
   # recommended to avoid rate limits; leave empty for unauthenticated endpoints.
-  api_key:  "${TRON_API_KEY}" 
+  api_key:  "" 
   # Header name the api_key rides in. Empty keeps the TronGrid standard
   # TRON-PRO-API-KEY; custom gateways can point the key at their own header
-  api_key_type: "${TRON_API_KEY_TYPE}"
+  api_key_type: ""
   dial_timeout_seconds: 10             # HTTP client timeout (env: TRON_DIAL_TIMEOUT_SECONDS)
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
-  concurrent_blocks: 2      # Number of blocks to process concurrently
+  concurrent_blocks: 1      # Number of blocks to process concurrently
   receipt_workers: 16        # Concurrent receipt fetchers per block
   max_docs_per_txn: 100    # Docs threshold for single-txn block creation
   max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
   max_log_docs_per_batch: 125  # Per-batch size for logs (0 = use max_docs_per_txn)
   max_ale_docs_per_batch: 500  # Per-batch size for ALEs (0 = use max_docs_per_txn, EVM-only)
-  blocks_per_minute: 20     # Tron produces a block every 3s (env: INDEXER_BLOCKS_PER_MINUTE)
+  blocks_per_minute: 60     # Tron produces a block every 3s (env: INDEXER_BLOCKS_PER_MINUTE)
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
