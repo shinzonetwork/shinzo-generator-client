@@ -9,7 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -32,6 +35,8 @@ type rpcClient interface {
 	GetBlockReceipts(ctx context.Context, blockHash string) ([]*TransactionReceipt, error)
 	GetTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
 	GetFinalizedBlockNumber(ctx context.Context) (int64, error)
+	// GetFinalizedHeight returns the finalized tag's height, with no fallback.
+	GetFinalizedHeight(ctx context.Context) (int64, error)
 	Close() error
 }
 
@@ -69,6 +74,10 @@ type Fetcher struct {
 	dialTimeout time.Duration
 	// chainID is the chain ID Connect requires the endpoint to report.
 	chainID uint64
+	// tokensMode is set for a tokens-mode chain. FetchBlock checks the decoded header's hash with
+	// the node and the block's transactions and receipts against the header's roots, and
+	// FetchFinalizedBlockNumber reports the finalized tag only, without the safe fallback.
+	tokensMode bool
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -102,12 +111,17 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		apiKeyType:     cfg.Geth.APIKeyType,
 		dialTimeout:    time.Duration(cfg.Geth.DialTimeoutSeconds) * time.Second,
 		chainID:        cfg.Chain.ChainID,
+		tokensMode:     cfg.Chain.Mode == config.ChainModeTokens,
 		receiptWorkers: receiptWorkers,
 	}, nil
 }
 
 // errChainIDMismatch reports that the endpoint serves a chain other than the configured one.
 var errChainIDMismatch = errors.New("node serves another chain")
+
+// errFinalizedRequestRefused reports that the node answers a request for the finalized block with
+// an error. The node's error, wrapped after it, says why.
+var errFinalizedRequestRefused = errors.New("node answered the finalized block request with an error")
 
 // Connect dials the RPC endpoint using the connection-config fields and returns
 // errChainIDMismatch when the endpoint reports a chain ID other than the
@@ -116,6 +130,11 @@ var errChainIDMismatch = errors.New("node serves another chain")
 // dial; f.dialTimeout (GethConfig's dial_timeout_seconds) may additionally bound
 // the WebSocket dial phase. If the fetcher was built via NewFetcher
 // (pre-connected client), Connect is a no-op.
+//
+// Tokens mode dispatches only finalized blocks, so there Connect also returns
+// errFinalizedRequestRefused when the node answers the finalized tag with a
+// JSON-RPC error. Any other failure, such as an HTTP 429 or a timeout, is left
+// to dispatch, which retries it.
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
@@ -133,15 +152,28 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 		_ = client.Close()
 		return fmt.Errorf("endpoint reports chain id %s: %w", chainID, errChainIDMismatch)
 	}
+	if f.tokensMode {
+		if _, err := client.GetFinalizedHeight(ctx); err != nil {
+			if _, refused := errors.AsType[ethrpc.Error](err); refused {
+				_ = client.Close()
+				return fmt.Errorf("%w: %w", errFinalizedRequestRefused, err)
+			}
+		}
+	}
 	f.client = client
 	return nil
 }
+
+// errUnknownBlockHash reports that the node has no header with the hash of the block as decoded.
+var errUnknownBlockHash = errors.New("node has no header with the block's hash")
 
 // FetchBlock implements chains.Fetcher. It retrieves the block at the given
 // height along with its transactions and receipts, returning them bundled in a
 // *BlockBundle (typed as any per the interface). The receipts are pinned to
 // the fetched block's own hash, so a reorg between the block fetch and the
-// receipt fetch cannot serve receipts from the new chain's block.
+// receipt fetch cannot serve receipts from the new chain's block. In tokens mode
+// it also checks the block's transactions and receipts against the header's
+// roots.
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
@@ -153,6 +185,25 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	transactions, receipts, err := f.fetchTransactionsAndReceipts(ctx, block, height)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch block %d receipts: %w", height, err)
+	}
+	// block.Hash is computed from the decoded header, so a dropped header field changes it. The
+	// receipt fetch checks it for a block with transactions; tokens mode checks one without by
+	// fetching the header by that hash.
+	if f.tokensMode && len(block.Transactions) == 0 {
+		_, err := f.client.GetHeaderByHash(ctx, block.Hash)
+		if errors.Is(err, ethereum.NotFound) {
+			// NotFound is not wrapped: callers read it as a block not mined yet and wait, but this
+			// block was just fetched by its number.
+			return nil, fmt.Errorf("block %d: %w %s", height, errUnknownBlockHash, block.Hash)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("block %d: read header %s: %w", height, block.Hash, err)
+		}
+	}
+	if f.tokensMode {
+		if err := checkRoots(block, receipts); err != nil {
+			return nil, fmt.Errorf("block %d: %w", height, err)
+		}
 	}
 	return &BlockBundle{
 		Block:        block,
@@ -202,10 +253,14 @@ func (f *Fetcher) FetchBlockHeaderByHash(ctx context.Context, hash string) (chai
 
 // FetchFinalizedBlockNumber implements chains.Fetcher. It returns the
 // finalized chain height (the client falls back to the safe height when the
-// finalized tag is unavailable), used as the floor of the reorg walk-back.
+// finalized tag is unavailable, except in tokens mode), used as the floor of
+// the reorg walk-back and, in tokens mode, as the dispatch ceiling.
 func (f *Fetcher) FetchFinalizedBlockNumber(ctx context.Context) (int64, error) {
 	if f.client == nil {
 		return 0, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchFinalizedBlockNumber")
+	}
+	if f.tokensMode {
+		return f.client.GetFinalizedHeight(ctx)
 	}
 	return f.client.GetFinalizedBlockNumber(ctx)
 }
@@ -365,6 +420,23 @@ func mergeReceiptsOntoTransactions(txs []*Transaction, receipts []*TransactionRe
 		tx.CumulativeGasUsed = r.CumulativeGasUsed
 		tx.EffectiveGasPrice = r.EffectiveGasPrice
 	}
+}
+
+// errRootMismatch reports that the node's transactions or receipts for a block do not rebuild
+// the root its header commits to.
+var errRootMismatch = errors.New("node's answer does not match the header's root")
+
+// checkRoots rebuilds the block's transactions and receipts roots from the node's answers and
+// returns errRootMismatch when either differs from the header's, so a missing, extra or altered
+// transaction or receipt fails the fetch.
+func checkRoots(block *Block, receipts []*TransactionReceipt) error {
+	if root := ethtypes.DeriveSha(block.GethTransactions, trie.NewStackTrie(nil)); root != block.Header.TxHash {
+		return fmt.Errorf("%w: transactions root %s, header %s", errRootMismatch, root, block.Header.TxHash)
+	}
+	if root := ethtypes.DeriveSha(gethReceipts(receipts), trie.NewStackTrie(nil)); root != block.Header.ReceiptHash {
+		return fmt.Errorf("%w: receipts root %s, header %s", errRootMismatch, root, block.Header.ReceiptHash)
+	}
+	return nil
 }
 
 // receiptHashesMatch reports whether every receipt belongs to the pinned

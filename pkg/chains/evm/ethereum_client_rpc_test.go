@@ -307,6 +307,39 @@ func TestGetFinalizedBlockNumber_BothTagsFail(t *testing.T) {
 	assert.Contains(t, err.Error(), "finalized block number unavailable")
 }
 
+func TestGetFinalizedHeight_NoSafeFallback(t *testing.T) {
+	t.Parallel()
+	var tagMu sync.Mutex
+	var servedTags []string
+	server := newMockRPCServer(func(method string, params json.RawMessage) (any, error) {
+		if method != ethGetBlockByNumber {
+			return "0x1", nil
+		}
+		tag, ok := requestedBlockTag(params)
+		if !ok {
+			return nil, fmt.Errorf("bad params")
+		}
+		tagMu.Lock()
+		servedTags = append(servedTags, tag)
+		tagMu.Unlock()
+		if tag == ethGetBlockTagSafe {
+			return fullBlockResponse("0x8", nil), nil
+		}
+		return nil, fmt.Errorf("%s header not found", tag)
+	})
+	defer server.Close()
+
+	client, err := NewEthereumClient(t.Context(), server.URL, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	_, err = client.GetFinalizedHeight(context.Background())
+	require.Error(t, err)
+	tagMu.Lock()
+	defer tagMu.Unlock()
+	assert.Equal(t, []string{ethGetBlockTagFinalized}, servedTags)
+}
+
 // --- GetTransactionReceipt with mock server ---
 
 func TestGetTransactionReceipt_Success(t *testing.T) {

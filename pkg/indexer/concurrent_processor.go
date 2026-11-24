@@ -26,6 +26,11 @@ const (
 	// DispatchThrottleDelay is the delay when the processor is too far ahead of committed blocks.
 	DispatchThrottleDelay = 100 * time.Millisecond
 
+	// FinalizedPollInterval is how often dispatch asks for the finalized height once it has reached
+	// it, when chain.finalized_poll_interval_ms is unset. On BSC the finalized tag moves with the
+	// head, so the interval bounds how far dispatch trails it.
+	FinalizedPollInterval = time.Second
+
 	// transactionConflictRetryBaseDelay is the base delay for retrying
 	// transaction conflicts on store.
 	transactionConflictRetryBaseDelay = 50 * time.Millisecond
@@ -203,6 +208,13 @@ type ConcurrentBlockProcessor struct {
 	pendingMu       sync.Mutex
 	pending         map[int64]*BlockResult
 	nextToCommit    int64
+
+	// finalizedOnly bounds dispatch at the fetcher's finalized height, asked for every
+	// finalizedPoll. finalized is the last height the fetcher reported; only the dispatch loop
+	// uses it.
+	finalizedOnly bool
+	finalizedPoll time.Duration
+	finalized     int64
 
 	// bounded store pool: the collector never calls Store. Fetch/convert
 	// workers hand checked results to storeChan, pool goroutines run
@@ -1428,6 +1440,13 @@ func (p *ConcurrentBlockProcessor) dispatchLoop(ctx context.Context, startBlock 
 			}
 		}
 
+		if p.finalizedOnly {
+			if err := p.waitForFinalized(ctx, nextBlock); err != nil {
+				shutdown()
+				return err
+			}
+		}
+
 		select {
 		case <-ctx.Done():
 			shutdown()
@@ -1472,7 +1491,9 @@ func (p *ConcurrentBlockProcessor) fetchAndConvertBlock(ctx context.Context, blo
 
 // fetchBlockWithRetry fetches a block from the fetcher with retry
 // classification:
-//   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet)
+//   - not-found: infinite retry with BlockNotFoundRetryDelay (block may not be mined yet).
+//     When dispatch is bounded at the finalized height the block is already mined, so
+//     not-found is handled as any other error.
 //   - other errors: up to MaxRPCRetries with linear backoff (RPCErrorRetryBaseDelay * attempt)
 func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, blockNum int64) (any, error) {
 	otherErrors := 0
@@ -1486,7 +1507,7 @@ func (p *ConcurrentBlockProcessor) fetchBlockWithRetry(ctx context.Context, bloc
 			return raw, nil
 		}
 
-		if errors.IsErrNotFound(err) {
+		if errors.IsErrNotFound(err) && !p.finalizedOnly {
 			logger.Sugar.Infof("Block %d not available yet, waiting...", blockNum)
 			select {
 			case <-ctx.Done():

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,12 +33,13 @@ func TestConcurrentProcessor_FetchBlockWithRetry(t *testing.T) {
 	wantBlock := "block-data"
 
 	cases := []struct {
-		name         string
-		fetchBlockFn func(_ context.Context, _ int64) (any, error)
-		wantErr      bool
-		wantErrSub   string
-		wantResult   any
-		wantCalls    int
+		name          string
+		fetchBlockFn  func(_ context.Context, _ int64) (any, error)
+		finalizedOnly bool
+		wantErr       bool
+		wantErrSub    string
+		wantResult    any
+		wantCalls     int
 	}{
 		{
 			name: "SuccessOnFirstCall",
@@ -71,6 +73,16 @@ func TestConcurrentProcessor_FetchBlockWithRetry(t *testing.T) {
 			wantErrSub: "connection refused",
 			wantCalls:  MaxRPCRetries,
 		},
+		{
+			name: "NotFoundAtFinalizedHeight",
+			fetchBlockFn: func(_ context.Context, _ int64) (any, error) {
+				return nil, ethereum.NotFound
+			},
+			finalizedOnly: true,
+			wantErr:       true,
+			wantErrSub:    "not found",
+			wantCalls:     MaxRPCRetries,
+		},
 	}
 
 	for _, tc := range cases {
@@ -82,10 +94,14 @@ func TestConcurrentProcessor_FetchBlockWithRetry(t *testing.T) {
 			}
 
 			p := &ConcurrentBlockProcessor{
-				fetcher: mock,
+				fetcher:       mock,
+				finalizedOnly: tc.finalizedOnly,
 			}
 
-			got, err := p.fetchBlockWithRetry(context.Background(), 42)
+			// Bounded so a fetch that waits on not-found forever fails the case instead of hanging.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			got, err := p.fetchBlockWithRetry(ctx, 42)
 			if tc.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "failed to fetch block")
