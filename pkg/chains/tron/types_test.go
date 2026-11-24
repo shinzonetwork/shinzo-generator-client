@@ -97,7 +97,7 @@ func TestUnmarshalTransactionShapes(t *testing.T) {
 
 // TestUnmarshalTransactionInfoReceipt covers the receipt list shapes: fee
 // may be absent (0), topics are a plain string array, and internal
-// transactions carry callValueInfo with and without assetName.
+// transactions carry callValueInfo with and without the wire's tokenId.
 func TestUnmarshalTransactionInfoReceipt(t *testing.T) {
 	t.Parallel()
 	raw := `[
@@ -126,7 +126,7 @@ func TestUnmarshalTransactionInfoReceipt(t *testing.T) {
 				{
 					"caller_address": "418d9dd663cf90256fdf2faba2a1be71f8a0147f8c",
 					"transferTo_address": "413a5bfb715d2086ec513b64e98531e2f58154c44c",
-					"callValueInfo": [{"callValue": 700000}],
+					"callValueInfo": [{"callValue": 700000, "tokenId": "1002000"}],
 					"rejected": true
 				}
 			]
@@ -154,6 +154,10 @@ func TestUnmarshalTransactionInfoReceipt(t *testing.T) {
 	assert.Equal(t, []string{"50b0fde04a05002ee4ba3c03973059b7d8af741148bf53ff213e39d2867a7930"}, info.Log[0].Topics)
 	require.Len(t, info.InternalTransactions, 2)
 	assert.True(t, info.InternalTransactions[1].Rejected)
+	// The wire key is tokenId (Tron.proto, InternalTransaction.CallValueInfo),
+	// always a string; the empty entry stays empty.
+	assert.Equal(t, "", info.InternalTransactions[0].CallValueInfo[0].TokenID)
+	assert.Equal(t, "1002000", info.InternalTransactions[1].CallValueInfo[0].TokenID)
 
 	assert.Equal(t, int64(0), infos[1].Fee, "absent fee decodes to 0")
 	assert.NotNil(t, infos[1], "second receipt decodes")

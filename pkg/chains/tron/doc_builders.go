@@ -3,7 +3,6 @@ package tron
 import (
 	"bytes"
 	"encoding/json"
-	"strconv"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 )
@@ -165,12 +164,12 @@ func buildLogData(block *Block, receipt *TransactionInfo, txIndex, logIndex int,
 // ordinal within the parent receipt's internal_transactions list becomes
 // transferIndex, so repeated identical movements stay distinct documents.
 func buildInternalTransferData(block *Block, receipt *TransactionInfo, transferIndex int, itx *InternalTransaction) map[string]any {
-	amount, assetName := firstCallValue(itx.CallValueInfo)
+	amount, tokenID := firstCallValue(itx.CallValueInfo)
 	return map[string]any{
 		FromFieldName:                  itx.CallerAddress,
 		ToFieldName:                    itx.TransferToAddress,
 		AmountFieldName:                amount,
-		AssetNameFieldName:             assetName,
+		TokenIDFieldName:               tokenID,
 		RejectedFieldName:              itx.Rejected,
 		TransactionHashFieldName:       receipt.ID,
 		constants.BlockNumberFieldName: block.BlockHeader.RawData.Number,
@@ -179,30 +178,15 @@ func buildInternalTransferData(block *Block, receipt *TransactionInfo, transferI
 }
 
 // firstCallValue reads the first asset movement of an internal transaction:
-// native sun via CallValue, or a TRC-10 asset id via AssetName, normalized
-// to its string form whether the node served a string or a number.
+// native sun via CallValue, or a TRC-10 token id via TokenID. java-tron
+// serves the id as a plain string under callValueInfo.tokenId, so it flows
+// to the document without normalization; the first entry wins when a node
+// reports several movements per internal transaction.
 func firstCallValue(infos []CallValueInfo) (int64, string) {
 	if len(infos) == 0 {
 		return 0, ""
 	}
-	return infos[0].CallValue, assetNameString(infos[0].AssetName)
-}
-
-// assetNameString normalizes the TRC-10 asset id: the node serves it as a
-// JSON string or a JSON number depending on its protobuf-JSON conversion.
-// A json.Number keeps its digits verbatim; the float64 case covers decodes
-// without UseNumber.
-func assetNameString(raw any) string {
-	switch v := raw.(type) {
-	case string:
-		return v
-	case json.Number:
-		return v.String()
-	case float64:
-		return strconv.FormatInt(int64(v), 10)
-	default:
-		return ""
-	}
+	return infos[0].CallValue, infos[0].TokenID
 }
 
 // buildTransactionDocs builds data maps for all transactions in the bundle,

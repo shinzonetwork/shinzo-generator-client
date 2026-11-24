@@ -48,7 +48,7 @@ const TransactionHashFieldName = "transactionHash"
 const (
 	AddressFieldName          = "address"
 	AmountFieldName           = "amount"
-	AssetNameFieldName        = "assetName"
+	TokenIDFieldName          = "tokenId"
 	DataFieldName             = "data"
 	EnergyUsageFieldName      = "energyUsage"
 	FeeFieldName              = "fee"

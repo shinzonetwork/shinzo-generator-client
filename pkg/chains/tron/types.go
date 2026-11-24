@@ -128,13 +128,13 @@ type InternalTransaction struct {
 }
 
 // CallValueInfo is one asset movement inside an internal transaction:
-// native sun via CallValue, or a TRC-10 asset via AssetName. The node
-// serves the asset id either as a JSON string or as a JSON number
-// depending on its protobuf-JSON conversion, so the raw form is kept and
-// normalized in firstCallValue.
+// native sun via CallValue, or a TRC-10 asset via TokenID. java-tron names
+// the field tokenId in Tron.proto and its HTTP JSON follows the proto
+// names, so the id always arrives as a plain string; native TRX movements
+// carry an empty TokenID.
 type CallValueInfo struct {
-	CallValue int64 `json:"callValue"`
-	AssetName any   `json:"assetName"`
+	CallValue int64  `json:"callValue"`
+	TokenID   string `json:"tokenId"`
 }
 
 // BlockBundle is the concrete return type of Fetcher.FetchBlock. It bundles

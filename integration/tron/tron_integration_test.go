@@ -490,11 +490,11 @@ func suitePhaseFieldAssertions(t *testing.T) {
 		t.Error("the duplicated event produced Log docs with differing topics")
 	}
 
-	// Internal transfer of block 101: identity fields plus the
-	// numeric-typed asset name normalized to its string form.
+	// Internal transfer of block 101: identity fields plus the TRC-10
+	// token id served under the wire's callValueInfo.tokenId key.
 	transfers := tronQueryRows(t, tron.DefaultCollectionInternalTransfer,
 		"(filter: {blockNumber: {_eq: 101}})",
-		"_docID from to amount assetName rejected transferIndex")
+		"_docID from to amount tokenId rejected transferIndex")
 	if len(transfers) != 1 {
 		t.Fatalf("expected exactly 1 InternalTransfer doc for block 101, got %d", len(transfers))
 	}
@@ -508,8 +508,8 @@ func suitePhaseFieldAssertions(t *testing.T) {
 	if got, want := tronFieldInt(itx, "amount"), tronContractValue; got != want {
 		t.Errorf("internal transfer amount mismatch: got %d want %d", got, want)
 	}
-	if got, want := tronString(itx["assetName"]), "105"; got != want {
-		t.Errorf("internal transfer assetName normalization failed: got %q want %q", got, want)
+	if got, want := tronString(itx["tokenId"]), "105"; got != want {
+		t.Errorf("internal transfer tokenId mismatch: got %q want %q", got, want)
 	}
 	if rejected, ok := itx["rejected"].(bool); ok && rejected {
 		t.Error("internal transfer rejected must be false")

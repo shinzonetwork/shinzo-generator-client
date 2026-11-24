@@ -66,7 +66,7 @@ const (
 	tronTriggerFee    = int64(43210)
 	tronTriggerFuel   = int64(1200)
 	tronContractValue = int64(7)
-	tronNumericAsset  = int64(105)
+	tronTrc10TokenID  = "105"
 
 	tronVersion = int64(29)
 )
@@ -230,15 +230,16 @@ func tronDuplicateLogs() []tron.TxLog {
 	return []tron.TxLog{log, log}
 }
 
-// tronInternalTx returns one internal movement whose asset id arrives as a
-// JSON number, exercising the any-typed normalization on the wire.
+// tronInternalTx returns one internal movement carrying a TRC-10 token id,
+// served exactly as a real node does: a plain string under the wire's
+// callValueInfo.tokenId key (Tron.proto, InternalTransaction.CallValueInfo).
 func tronInternalTx() tron.InternalTransaction {
 	return tron.InternalTransaction{
 		Hash:              tronInternalTxID,
 		CallerAddress:     tronOwnerAddr,
 		TransferToAddress: tronContractAddr,
 		CallValueInfo: []tron.CallValueInfo{
-			{CallValue: tronContractValue, AssetName: tronNumericAsset},
+			{CallValue: tronContractValue, TokenID: tronTrc10TokenID},
 		},
 		Rejected: false,
 		Note:     "trc-10 transfer",

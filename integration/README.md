@@ -24,8 +24,8 @@ each with its own embedded DefraDB node. The ordered phases cover:
 - startup (config StartHeight 100 -> 10 branch-A blocks stored, API-key
   header wiring)
 - field assertions (transfer tx, empty block, byte-duplicated event stored
-  twice with distinct logIndex dockeys, numeric-typed assetName
-  normalization, one signed BlockSignature doc per block)
+  twice with distinct logIndex dockeys, TRC-10 tokenId from the wire's
+  callValueInfo, one signed BlockSignature doc per block)
 - reorg (branch flip at the 3s not-found retry of height 110, by-hash
   walk-back to the common ancestor at 103, rollback of 104..109, re-index of
   branch B 104..115)

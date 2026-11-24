@@ -78,27 +78,30 @@ func TestIntField_NumberShapes(t *testing.T) {
 	}
 }
 
-// TestAssetNameString_NumberShapes pins the TRC-10 asset id normalization:
-// a json.Number keeps its digits verbatim, a float64 renders as its integer
-// digits, a string passes through, anything else is empty.
-func TestAssetNameString_NumberShapes(t *testing.T) {
+// TestFirstCallValue_Shapes pins the internal-transfer extraction: the
+// movement's token id arrives as the wire's plain-string tokenId, native
+// TRX carries an empty id, and the first entry wins when a node reports
+// several movements per internal transaction.
+func TestFirstCallValue_Shapes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		value any
-		want  string
+		name        string
+		infos       []CallValueInfo
+		wantAmount  int64
+		wantTokenID string
 	}{
-		{"json number keeps digits", json.Number("1002000"), "1002000"},
-		{"float64 renders digits", float64(105), "105"},
-		{"string passes through", "1002000", "1002000"},
-		{"nil is empty", nil, ""},
-		{"bool is empty", true, ""},
+		{"no movements", nil, 0, ""},
+		{"native TRX", []CallValueInfo{{CallValue: 10000000}}, 10000000, ""},
+		{"TRC-10 token id", []CallValueInfo{{CallValue: 500000, TokenID: "1002000"}}, 500000, "1002000"},
+		{"first entry wins", []CallValueInfo{{CallValue: 7, TokenID: "105"}, {CallValue: 9}}, 7, "105"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, assetNameString(tt.value))
+			amount, tokenID := firstCallValue(tt.infos)
+			assert.Equal(t, tt.wantAmount, amount)
+			assert.Equal(t, tt.wantTokenID, tokenID)
 		})
 	}
 }

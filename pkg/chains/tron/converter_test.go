@@ -140,14 +140,15 @@ func TestConvert_GoldenPopulatedBlock(t *testing.T) {
 	assert.Equal(t, logDocs[0][TopicsFieldName], logDocs[2][TopicsFieldName], "the duplicated event keeps its content")
 	assert.Equal(t, 2, logDocs[2][LogIndexFieldName], "the duplicated event carries its own ordinal, so its docID stays unique")
 
-	// InternalTransfer group: TRX movement with a rejected no-value entry.
+	// InternalTransfer group: a TRC-10 movement whose wire tokenId lands in
+	// the document, and a rejected no-value entry.
 	transferDocs := result.Groups[3].Docs
 	require.Len(t, transferDocs, 2)
 
 	assert.Equal(t, "41a614f803b6fd780986a42c78ec9c7f77e6ded13c", transferDocs[0][FromFieldName])
 	assert.Equal(t, "41118f7b4382bea375ee420f1b211a4619f3ba78ad", transferDocs[0][ToFieldName])
 	assert.Equal(t, int64(700000), transferDocs[0][AmountFieldName])
-	assert.Equal(t, "", transferDocs[0][AssetNameFieldName])
+	assert.Equal(t, "1002000", transferDocs[0][TokenIDFieldName])
 	assert.Equal(t, false, transferDocs[0][RejectedFieldName])
 	assert.Equal(t, "e32493469c2ab6f31684c0e5a88cf409329fd9d7176baed4763d294d1c99b1f0", transferDocs[0][TransactionHashFieldName])
 	assert.Equal(t, 0, transferDocs[0][TransferIndexFieldName])

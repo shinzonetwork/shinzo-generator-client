@@ -2,7 +2,7 @@ type Tron__Mainnet__InternalTransfer {
     from: String
     to: String
     amount: Int
-    assetName: String
+    tokenId: String
     rejected: Boolean
     transactionHash: String
     blockNumber: Int @index

@@ -49,7 +49,7 @@
         "caller_address": "41a614f803b6fd780986a42c78ec9c7f77e6ded13c",
         "note": "63616c6c",
         "transferTo_address": "41118f7b4382bea375ee420f1b211a4619f3ba78ad",
-        "callValueInfo": [{"callValue": 700000}]
+        "callValueInfo": [{"callValue": 700000, "tokenId": "1002000"}]
       },
       {
         "caller_address": "41a614f803b6fd780986a42c78ec9c7f77e6ded13c",
