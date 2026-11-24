@@ -188,6 +188,7 @@ func TestStore_TokenModeRetryAfterUnattestedAttempt(t *testing.T) {
 			require.NoError(t, err)
 			_, err = handler.Store(tc.ctx, convertTokenBlock(t, conv, tokenCapture))
 			require.ErrorIs(t, err, tc.wantErr)
+			require.ErrorIs(t, err, ErrAttestation)
 			assert.Zero(t, countDocs(t, td, header), "no header without an attestation")
 			assert.Zero(t, countDocs(t, td, attestation))
 

@@ -54,20 +54,39 @@ func (p *ConcurrentBlockProcessor) stoppedForReorg(signal reorgSignal) bool {
 // succeeds, ctx is done, or a store is refused in a way retrying cannot clear. The wait between
 // attempts starts at FailedHeightRetryDelay and doubles up to MaxFailedHeightRetryDelay. Once the
 // height has failed for stuckHeightLimit, a failure other than chains.ErrNodeUnavailable stops the
-// run with ErrHeightStuck. It returns the last result.
+// run with ErrHeightStuck. Each failure logs a Warn until the height has failed for
+// stuckHeightReportInterval; after that it logs an Error at most once per interval, and an Info
+// when the height succeeds. It returns the last result.
 func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt func() *BlockResult) *BlockResult {
 	result := attempt()
+	height, failures := result.BlockNum, int64(0)
 	failingSince := time.Now()
 	delay := FailedHeightRetryDelay
+	var lastReport time.Time
+	defer func() {
+		if failures > 0 {
+			p.recordRetry(ctx, height, 0)
+		}
+		if !lastReport.IsZero() && result.Error == nil {
+			logger.Sugar.Infof("Block %d succeeded after failing for %v", height, time.Since(failingSince).Round(time.Second))
+		}
+	}()
 	for p.retryFailedHeights && result.Error != nil && !errors.IsErrDocumentDeleted(result.Error) &&
 		!stderrors.Is(result.Error, defra.ErrStoredHeaderDiffers) && ctx.Err() == nil {
+		failures++
+		p.recordRetry(ctx, height, failures)
 		failing := time.Since(failingSince)
 		if failing >= p.stuckHeightLimit && !stderrors.Is(result.Error, chains.ErrNodeUnavailable) {
 			p.failRun(fmt.Errorf("%w: block %d has failed for %v: %w", ErrHeightStuck, result.BlockNum,
 				failing.Round(time.Second), result.Error))
 			return result
 		}
-		logger.Sugar.Warnf("Block %d failed, retrying in %v: %v", result.BlockNum, delay, result.Error)
+		if failing < stuckHeightReportInterval {
+			logger.Sugar.Warnf("Block %d failed, retrying in %v: %v", result.BlockNum, delay, result.Error)
+		} else if time.Since(lastReport) >= stuckHeightReportInterval {
+			logger.Sugar.Errorf("Block %d has failed for %v and is still being retried: %v", height, failing.Round(time.Second), result.Error)
+			lastReport = time.Now()
+		}
 		select {
 		case <-ctx.Done():
 			return result
@@ -77,6 +96,27 @@ func (p *ConcurrentBlockProcessor) retryInPlace(ctx context.Context, attempt fun
 		result = attempt()
 	}
 	return result
+}
+
+// recordRetry notes that height has failed failures times and is being retried in place, or, with
+// failures 0, that it no longer is, and sets the retry gauges to the lowest such height and its
+// failures, or to 0 when no height is being retried.
+func (p *ConcurrentBlockProcessor) recordRetry(ctx context.Context, height, failures int64) {
+	p.retryMu.Lock()
+	defer p.retryMu.Unlock()
+	if failures == 0 {
+		delete(p.retrying, height)
+	} else {
+		p.retrying[height] = failures
+	}
+	var lowest, lowestFailures int64
+	for h, n := range p.retrying {
+		if lowest == 0 || h < lowest {
+			lowest, lowestFailures = h, n
+		}
+	}
+	p.metrics.retryHeight.Record(ctx, lowest)
+	p.metrics.retryFailures.Record(ctx, lowestFailures)
 }
 
 // waitForFinalized returns once the fetcher reports height as finalized, asking every

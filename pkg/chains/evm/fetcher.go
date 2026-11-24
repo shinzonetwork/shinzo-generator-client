@@ -18,6 +18,9 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
 	codecevm "github.com/shinzonetwork/shinzo-evidence-codec/evm"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
@@ -76,10 +79,13 @@ type supplySlot struct {
 	key      common.Hash // the same slot as a 32-byte key, the form a proof is checked against
 }
 
-// captureAttempts is how many times a token's supply proof is tried at a capture height, with no
-// delay between attempts. A token whose proof fails every attempt has no capture at that height, and
-// nothing proves it later.
+// captureAttempts is how many times a token's supply proof is tried at a capture height. A token
+// whose proof fails every attempt has no capture at that height, and nothing proves it later.
 const captureAttempts = 3
+
+// errInvalidSupplyProof wraps a node's eth_getProof answer that does not prove a token's supply
+// against the header's state root.
+var errInvalidSupplyProof = errors.New("supply proof does not verify")
 
 // Fetcher is the RPC I/O layer for EVM chains. It fetches raw block data
 // (block + transactions + receipts) from the chain node and queries the
@@ -109,9 +115,16 @@ type Fetcher struct {
 	// FetchFinalizedBlockNumber reports the finalized tag only, without the safe fallback.
 	tokensMode bool
 	// supplySlots and captureInterval are set in tokens mode: FetchBlock asks for a proof of each
-	// token's total supply at every block whose number is a multiple of captureInterval.
+	// token's total supply at every block whose number is a multiple of captureInterval. supplyProofs
+	// counts each proof attempt by result, and suppliesMissed each token left without a capture.
 	supplySlots     []supplySlot
 	captureInterval int64
+	supplyProofs    metric.Int64Counter
+	suppliesMissed  metric.Int64Counter
+	// captureRetryDelay is the wait before a token's second supply proof attempt at a capture
+	// height; each later attempt waits that much longer. Attempts made back to back all fall in the
+	// same second of a provider's per-second rate limit.
+	captureRetryDelay time.Duration
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -150,6 +163,23 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 	}
 	if f.tokensMode {
 		f.captureInterval = cfg.Chain.StateCaptureInterval
+		f.captureRetryDelay = time.Second
+		meter := otel.Meter("github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm")
+		var err error
+		f.supplyProofs, err = meter.Int64Counter("shinzo.generator.supply.proofs",
+			metric.WithDescription("Supply proof attempts at capture heights, by result: verified, rpc_error or invalid_proof. An attempt cut short by a stopping generator is not counted."),
+			metric.WithUnit("{attempt}"),
+		)
+		if err != nil {
+			otel.Handle(err)
+		}
+		f.suppliesMissed, err = meter.Int64Counter("shinzo.generator.supply.missed",
+			metric.WithDescription("Tokens left without a supply capture at a capture height after every attempt failed."),
+			metric.WithUnit("{capture}"),
+		)
+		if err != nil {
+			otel.Handle(err)
+		}
 		for _, t := range cfg.Chain.Tokens {
 			asset, err := config.ContractAddress(t.Address)
 			if err != nil {
@@ -294,20 +324,46 @@ func markUnavailable(err error) error {
 func (f *Fetcher) captureSupply(ctx context.Context, height int64, block *Block) ([]StateCapture, error) {
 	var captures []StateCapture
 	for _, s := range f.supplySlots {
-		capture, err := f.proveSupply(ctx, block, s)
-		for attempt := 1; err != nil && attempt < captureAttempts && ctx.Err() == nil; attempt++ {
+		var capture StateCapture
+		var err error
+		for attempt := range captureAttempts {
+			if attempt > 0 {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(time.Duration(attempt) * f.captureRetryDelay):
+				}
+			}
 			capture, err = f.proveSupply(ctx, block, s)
-		}
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			f.supplyProofs.Add(ctx, 1, metric.WithAttributes(attribute.String("result", supplyProofResult(err))))
+			if err == nil {
+				break
+			}
 		}
 		if err != nil {
+			f.suppliesMissed.Add(ctx, 1)
 			logger.Sugar.Warnf("Block %d: no supply capture for %s after %d attempts: %v", height, s.asset, captureAttempts, err)
 			continue
 		}
 		captures = append(captures, capture)
 	}
 	return captures, nil
+}
+
+// supplyProofResult names the result of one supply proof attempt for the result attribute of
+// shinzo.generator.supply.proofs.
+func supplyProofResult(err error) string {
+	switch {
+	case err == nil:
+		return "verified"
+	case errors.Is(err, errInvalidSupplyProof):
+		return "invalid_proof"
+	default:
+		return "rpc_error"
+	}
 }
 
 // proveSupply asks the node for s's supply slot at block, by the block's hash, and checks the proof
@@ -319,11 +375,11 @@ func (f *Fetcher) proveSupply(ctx context.Context, block *Block, s supplySlot) (
 	}
 	proof, err := codecevm.EncodeStateProof(answer)
 	if err != nil {
-		return StateCapture{}, err
+		return StateCapture{}, fmt.Errorf("%w: %w", errInvalidSupplyProof, err)
 	}
 	value, err := codecevm.VerifyStateCapture(block.Header.Root, s.contract, s.key, proof)
 	if err != nil {
-		return StateCapture{}, err
+		return StateCapture{}, fmt.Errorf("%w: %w", errInvalidSupplyProof, err)
 	}
 	return StateCapture{Asset: s.asset, Value: value, Proof: proof}, nil
 }
