@@ -10,10 +10,13 @@ services:
   shinzo-generator:
     container_name: shinzo-generator
     platform: linux/amd64
-    # ethereum-mainnet-latest is a floating tag published automatically on each
-    # release, so this always pulls the newest published generator version.
-    # To pin a specific release instead, use e.g. :v0.6.5.4-ethereum-mainnet.
-    image: ghcr.io/shinzonetwork/shinzo-generator-client:ethereum-mainnet-latest
+    # The image tag selects the chain: each image bakes that chain's config.
+    # <chain>-<network>-latest floats to the newest release for that chain
+    # (ethereum-mainnet, polygon-mainnet, polygon-amoy, avalanche-mainnet,
+    # celo-mainnet, kaia-mainnet, bsc-mainnet). Pin a release with e.g.
+    # GENERATOR_IMAGE_TAG=v0.6.5.4-polygon-mainnet. Point GETH_* at an RPC for
+    # the same chain: the generator refuses to start on a chain ID mismatch.
+    image: ghcr.io/shinzonetwork/shinzo-generator-client:${GENERATOR_IMAGE_TAG:-ethereum-mainnet-latest}
     user: "1001:1001" # shinzo-generator identity
     restart: unless-stopped
     networks:
@@ -31,7 +34,8 @@ services:
       - GETH_API_KEY=<YOUR_API_KEY_HERE>
       - GETH_API_KEY_TYPE=x-goog-api-key
       - GETH_DIAL_TIMEOUT_SECONDS=10
-      # The chain the RPC serves. Change all three together.
+      # The image tag already bakes the chain. Set these only to override it,
+      # and change all three together.
       # - CHAIN_NAME=Ethereum
       # - CHAIN_NETWORK=Mainnet
       # - CHAIN_ID=1

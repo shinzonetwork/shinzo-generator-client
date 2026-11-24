@@ -62,6 +62,16 @@ celo-start:
 kaia-start:
 	./bin/block_poster_evm -config config/config_kaia.yaml
 	
+# docker-build bakes one chain's config into the image, as the release
+# workflow does for a v<ver>-<chain>-<network> tag, e.g.
+#   make docker-build DOCKER_CHAIN=polygon DOCKER_NETWORK=amoy
+DOCKER_CHAIN ?= ethereum
+DOCKER_NETWORK ?= mainnet
+docker-build:
+	docker build --build-arg VERSION=$(VERSION) \
+		--build-arg CHAIN=$(DOCKER_CHAIN) --build-arg NETWORK=$(DOCKER_NETWORK) \
+		-t shinzo-generator:$(DOCKER_CHAIN)-$(DOCKER_NETWORK) .
+
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 

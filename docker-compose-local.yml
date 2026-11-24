@@ -11,6 +11,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Selects config/config_<chain>[_<network>].yaml to bake in.
+        CHAIN: ${CHAIN:-ethereum}
+        NETWORK: ${NETWORK:-mainnet}
     user: "1001:1001" # shinzo-generator identity
     networks:
       - shinzo-net
