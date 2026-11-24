@@ -129,20 +129,6 @@ integration-test:
 	@echo "🧪 Running integration tests..."
 	@go test -tags=integration -v ./integration/ ./golden/
 	@go test -tags=integration -v ./integration/tron/
-	@echo ""
-	@echo "🌐 Live tests (requires environment variables):"
-	@if [ -n "$(GETH_RPC_URL)" ]; then \
-		go test -tags=live -v ./integration/live/ -timeout=20s; \
-	else \
-		echo "⚠️  Skipping live tests - GETH_RPC_URL not set"; \
-	fi
-	@echo ""
-	@echo "🌅 Tron live smoke (requires environment variables):"
-	@if [ -n "$(TRON_RPC_URL)" ]; then \
-		go test -tags=live -v ./integration/live/tron/ -timeout=120s; \
-	else \
-		echo "⚠️  Skipping tron live smoke - TRON_RPC_URL not set"; \
-	fi
 
 tron-live-test:
 	@echo "🌅 Running tron live smoke test with your wallet-API endpoint..."
@@ -300,7 +286,6 @@ help:
 	@echo "  integration-test   - Fast mock integration suite (no chain endpoint, no credentials)"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
-	@echo "  integration-test   - Run integration tests (mock always; tron live smoke gated on TRON_RPC_URL)"
 	@echo "  tron-live-test     - Run the tron live smoke against TRON_RPC_URL"
 	@echo ""
 	@echo "🌐 Per-chain live tests:"
