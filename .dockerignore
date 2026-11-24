@@ -1,5 +1,5 @@
-# Database and state data
-.defra/
+# Database and state data (every per-chain local store: .defra-<chain>/, .defra_old/)
+.defra*/
 keys/
 
 # Build artifacts

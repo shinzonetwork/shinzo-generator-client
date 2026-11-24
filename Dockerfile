@@ -44,6 +44,8 @@ RUN set -e; \
     elif [ "$n" = mainnet ]; then f=config/config_${c}.yaml; \
     else f=config/config_${c}_${n}.yaml; fi; \
     test -f "$f" || { echo "no config for chain=$c network=$n (expected $f)"; exit 1; }; \
+    a=$(sed -n 's/^[[:space:]]*adapter:[[:space:]]*"\{0,1\}\([a-z-]*\).*/\1/p' "$f" | head -1); \
+    [ "${a:-evm}" = evm ] || { echo "$f uses adapter \"$a\"; this image builds only the evm binary"; exit 1; }; \
     echo "baking $f"; cp "$f" /out/config.yaml
 
 # Stage 2: runtime
@@ -53,10 +55,14 @@ FROM debian:bookworm-slim
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION=dev
+ARG CHAIN=ethereum
+ARG NETWORK=mainnet
 
 LABEL maintainer="Shinzo Network <team@shinzo.network>" \
       org.opencontainers.image.title="Shinzo Network Generator" \
-      org.opencontainers.image.description="Ethereum blockchain generator for Shinzo Network" \
+      org.opencontainers.image.description="Shinzo Network generator (${CHAIN}-${NETWORK})" \
+      network.shinzo.chain="${CHAIN}" \
+      network.shinzo.network="${NETWORK}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
