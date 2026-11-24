@@ -114,10 +114,12 @@ func TestConvert_GoldenPopulatedBlock(t *testing.T) {
 	assert.Equal(t, "41118f7b4382bea375ee420f1b211a4619f3ba78ad", txDocs[2][ToFieldName])
 	assert.Equal(t, int64(5000000), txDocs[2][AmountFieldName])
 
-	// rawData round-trips the tx's raw_data as a JSON string.
+	// rawData carries the tx's raw_data as the node's verbatim JSON string,
+	// including keys the typed view does not model such as type_url.
 	var raw map[string]any
 	require.NoError(t, json.Unmarshal([]byte(txDocs[1][RawDataFieldName].(string)), &raw))
 	assert.Equal(t, float64(1500000000), raw["fee_limit"])
+	assert.Contains(t, txDocs[1][RawDataFieldName], `"type_url": "type.googleapis.com/protocol.TriggerSmartContract"`)
 
 	// Log group: three events, including the deliberately duplicated
 	// transfer event; logIndex disambiguates it.

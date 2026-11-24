@@ -1,6 +1,7 @@
 package tron
 
 import (
+	"bytes"
 	"encoding/json"
 	"strconv"
 
@@ -29,20 +30,21 @@ func buildBlockData(block *Block) map[string]any {
 
 // buildTransactionData builds the data map for a transaction document.
 // Fee and energy accounting come from the matching receipt; a transaction
-// without a receipt keeps zero accounting. The whole raw_data is
-// re-serialized as a JSON string because DefraDB has no nested object
-// arrays and the raw payload must survive verbatim.
+// without a receipt keeps zero accounting. The node's raw_data bytes are
+// stored verbatim as a JSON string because DefraDB has no nested object
+// arrays and the raw payload must survive byte-for-byte; sender, recipient,
+// and amount come from the UseNumber view decode instead of the bytes.
 func buildTransactionData(block *Block, tx *Transaction, receipt *TransactionInfo) map[string]any {
+	view, _ := decodeRawData(tx.RawData)
 	contractType := ""
-	if len(tx.RawData.Contract) > 0 {
-		contractType = tx.RawData.Contract[0].Type
+	if len(view.Contract) > 0 {
+		contractType = view.Contract[0].Type
 	}
-	from, to, amount := extractTransfer(tx.RawData.Contract)
+	from, to, amount := extractTransfer(view.Contract)
 	ret := ""
 	if len(tx.Ret) > 0 {
 		ret = tx.Ret[0].ContractRet
 	}
-	rawJSON, _ := json.Marshal(tx.RawData)
 
 	var fee, energyUsage int64
 	if receipt != nil {
@@ -59,10 +61,29 @@ func buildTransactionData(block *Block, tx *Transaction, receipt *TransactionInf
 		ToFieldName:                    to,
 		AmountFieldName:                amount,
 		FeeFieldName:                   fee,
-		RawDataFieldName:               string(rawJSON),
+		RawDataFieldName:               string(tx.RawData),
 		RetFieldName:                   ret,
 		EnergyUsageFieldName:           energyUsage,
 	}
+}
+
+// decodeRawData decodes the verbatim raw_data bytes into the contract view.
+// It decodes with UseNumber so value-map numbers stay json.Number: java-tron
+// serves TRC-10 amounts as int64, and a plain float64 decode rounds anything
+// above 2^53. Empty bytes yield the zero view without error, and a decode
+// failure degrades to the zero view because the verbatim bytes still reach
+// the document.
+func decodeRawData(raw json.RawMessage) (TransactionRawData, error) {
+	if len(raw) == 0 {
+		return TransactionRawData{}, nil
+	}
+	var view TransactionRawData
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&view); err != nil {
+		return TransactionRawData{}, err
+	}
+	return view, nil
 }
 
 // extractTransfer picks the transfer trio out of a transaction's first
@@ -96,10 +117,20 @@ func stringField(value map[string]any, key string) string {
 }
 
 // intField reads one numeric key from a polymorphic contract value map.
-// JSON numbers decode to float64; the amounts in sun stay far below the
-// float64 mantissa limit for any real input.
+// The UseNumber view decode serves numbers as json.Number, so int64 amounts
+// keep their exact value no matter how large; the float64, int64, and int
+// cases cover hand-built maps, and the Float64 fallback covers exponent
+// spellings json.Number's Int64 cannot parse.
 func intField(value map[string]any, key string) int64 {
 	switch v := value[key].(type) {
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return n
+		}
+		if f, err := v.Float64(); err == nil {
+			return int64(f)
+		}
+		return 0
 	case float64:
 		return int64(v)
 	case int64:
@@ -159,10 +190,14 @@ func firstCallValue(infos []CallValueInfo) (int64, string) {
 
 // assetNameString normalizes the TRC-10 asset id: the node serves it as a
 // JSON string or a JSON number depending on its protobuf-JSON conversion.
+// A json.Number keeps its digits verbatim; the float64 case covers decodes
+// without UseNumber.
 func assetNameString(raw any) string {
 	switch v := raw.(type) {
 	case string:
 		return v
+	case json.Number:
+		return v.String()
 	case float64:
 		return strconv.FormatInt(int64(v), 10)
 	default:

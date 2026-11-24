@@ -162,11 +162,23 @@ func tronReceipt(id string, block *tron.Block, fee, energy int64, logs []tron.Tx
 	}
 }
 
+// tronRawData renders a raw_data view into the verbatim bytes a block
+// carries on the wire: the adapter keeps raw_data as raw JSON, so the mock
+// serves marshaled bytes and the client re-decodes exactly what a real
+// node would send.
+func tronRawData(rd tron.TransactionRawData) json.RawMessage {
+	raw, err := json.Marshal(rd)
+	if err != nil {
+		panic(fmt.Sprintf("mock chain: raw_data marshal: %v", err))
+	}
+	return raw
+}
+
 // tronTransferTx builds the TRX TransferContract transaction of block 100.
 func tronTransferTx() tron.Transaction {
 	return tron.Transaction{
 		TxID: tronTx100ID,
-		RawData: tron.TransactionRawData{
+		RawData: tronRawData(tron.TransactionRawData{
 			Contract: []tron.TransactionContract{{
 				Type: "TransferContract",
 				Parameter: tron.TransactionContractParam{Value: map[string]any{
@@ -178,7 +190,7 @@ func tronTransferTx() tron.Transaction {
 			Expiration: tronTSA(100) + 600000,
 			Timestamp:  tronTSA(100) - 1000,
 			FeeLimit:   1,
-		},
+		}),
 		Ret: []tron.TxRet{{ContractRet: "SUCCESS"}},
 	}
 }
@@ -189,7 +201,7 @@ func tronTransferTx() tron.Transaction {
 func tronTriggerTx() tron.Transaction {
 	return tron.Transaction{
 		TxID: tronTx101ID,
-		RawData: tron.TransactionRawData{
+		RawData: tronRawData(tron.TransactionRawData{
 			Contract: []tron.TransactionContract{{
 				Type: "TriggerSmartContract",
 				Parameter: tron.TransactionContractParam{Value: map[string]any{
@@ -202,7 +214,7 @@ func tronTriggerTx() tron.Transaction {
 			Expiration: tronTSA(101) + 600000,
 			Timestamp:  tronTSA(101) - 1000,
 			FeeLimit:   2000000,
-		},
+		}),
 		Ret: []tron.TxRet{{ContractRet: "SUCCESS"}},
 	}
 }

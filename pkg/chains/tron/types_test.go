@@ -41,8 +41,9 @@ func TestUnmarshalBlockHeaderShape(t *testing.T) {
 }
 
 // TestUnmarshalTransactionShapes covers the transfer and the smart-contract
-// trigger body: ret stays nested in its list, and the contract value keeps
-// its polymorphic keys for doc_builders to extract.
+// trigger body: ret stays nested in its list, the contract value keeps its
+// polymorphic keys for doc_builders to extract, and raw_data survives as
+// the node's verbatim bytes with keys the typed view does not model.
 func TestUnmarshalTransactionShapes(t *testing.T) {
 	t.Parallel()
 	raw := `{
@@ -57,7 +58,8 @@ func TestUnmarshalTransactionShapes(t *testing.T) {
 							"contract_address": "41a614f803b6fd780986a42c78ec9c7f77e6ded13c",
 							"call_value": 1000000,
 							"data": "a9059cbb"
-						}
+						},
+						"type_url": "type.googleapis.com/protocol.TriggerSmartContract"
 					}
 				}
 			],
@@ -75,13 +77,21 @@ func TestUnmarshalTransactionShapes(t *testing.T) {
 
 	tx := block.Transactions[0]
 	assert.Equal(t, "f52df87da4991d1cd8333f48526b2f55375a22e2705e9eaf7edce2a12e53827b", tx.TxID)
-	require.Len(t, tx.RawData.Contract, 1)
-	assert.Equal(t, "TriggerSmartContract", tx.RawData.Contract[0].Type)
-	assert.Equal(t, "41072a35d3cd7112c08fe2b04f5c99e73e0a3c099e", tx.RawData.Contract[0].Parameter.Value["owner_address"])
-	assert.Equal(t, "41a614f803b6fd780986a42c78ec9c7f77e6ded13c", tx.RawData.Contract[0].Parameter.Value["contract_address"])
+	// The raw_data bytes are kept verbatim; the contract view decodes on
+	// demand through the same helper the doc builders use, with UseNumber
+	// so value numbers stay json.Number.
+	assert.Contains(t, string(tx.RawData), `"type_url": "type.googleapis.com/protocol.TriggerSmartContract"`,
+		"raw_data must keep the verbatim bytes, including keys the view does not model")
+	view, err := decodeRawData(tx.RawData)
+	require.NoError(t, err)
+	require.Len(t, view.Contract, 1)
+	assert.Equal(t, "TriggerSmartContract", view.Contract[0].Type)
+	assert.Equal(t, "41072a35d3cd7112c08fe2b04f5c99e73e0a3c099e", view.Contract[0].Parameter.Value["owner_address"])
+	assert.Equal(t, "41a614f803b6fd780986a42c78ec9c7f77e6ded13c", view.Contract[0].Parameter.Value["contract_address"])
+	assert.Equal(t, json.Number("1000000"), view.Contract[0].Parameter.Value["call_value"])
 	require.Len(t, tx.Ret, 1)
 	assert.Equal(t, "SUCCESS", tx.Ret[0].ContractRet)
-	assert.Equal(t, int64(1000000000), tx.RawData.FeeLimit)
+	assert.Equal(t, int64(1000000000), view.FeeLimit)
 	assert.Len(t, tx.Signature, 1)
 }
 

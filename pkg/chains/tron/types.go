@@ -1,5 +1,7 @@
 package tron
 
+import "encoding/json"
+
 // Raw java-tron wallet API JSON shapes. The structs carry the wire field
 // spellings; document building remaps them in doc_builders.go.
 
@@ -31,17 +33,22 @@ type BlockHeaderRawData struct {
 	TxTrieRoot     string `json:"txTrieRoot"`
 }
 
-// Transaction is one transaction body from a block response.
+// Transaction is one transaction body from a block response. RawData keeps
+// the node's raw_data bytes exactly as served: the transaction document
+// stores them verbatim, and the contract view is decoded on demand in
+// doc_builders.go.
 type Transaction struct {
-	TxID      string             `json:"txID"`
-	RawData   TransactionRawData `json:"raw_data"`
-	Ret       []TxRet            `json:"ret,omitempty"`
-	Signature []string           `json:"signature,omitempty"`
+	TxID      string          `json:"txID"`
+	RawData   json.RawMessage `json:"raw_data"`
+	Ret       []TxRet         `json:"ret,omitempty"`
+	Signature []string        `json:"signature,omitempty"`
 }
 
-// TransactionRawData is raw_data: the contract list plus the
-// whole-transaction metadata. Re-serialized to a string for the transaction
-// document's rawData field, since DefraDB has no nested object arrays.
+// TransactionRawData is a decode-only view of raw_data: the contract list
+// plus the metadata fields the extractor and tests read. It never reaches a
+// document; the transaction document's rawData field carries the verbatim
+// bytes, so keys this view does not model (parameter type_url, permission_id)
+// are not lost.
 type TransactionRawData struct {
 	Contract      []TransactionContract `json:"contract"`
 	RefBlockBytes string                `json:"ref_block_bytes,omitempty"`
