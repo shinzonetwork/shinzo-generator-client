@@ -79,6 +79,85 @@ func TestFetchBlock_ReceiptPinMismatch(t *testing.T) {
 	}
 }
 
+// TestFetchBlock_ReceiptCoverageRequired pins the coverage gate: java-tron
+// saves one receipt per transaction when it applies a block, so a served
+// list that is short or empty means the node does not have the receipts
+// (transHistory.switch off, or a node without the block). The fetch must
+// fail rather than bundle transactions with zero fee and no logs or
+// internal transfers, and the error must contain no "not found" so the
+// processor treats it as a real failure to retry.
+func TestFetchBlock_ReceiptCoverageRequired(t *testing.T) {
+	t.Parallel()
+	ts := int64(1777445121000)
+
+	tests := []struct {
+		name        string
+		txIDs       []string
+		receipts    []*TransactionInfo
+		wantErrText string
+	}{
+		{
+			name:  "every transaction has a receipt",
+			txIDs: []string{"t1", "t2"},
+			receipts: []*TransactionInfo{
+				{ID: "t1", BlockNumber: 10, BlockTimeStamp: ts},
+				{ID: "t2", BlockNumber: 10, BlockTimeStamp: ts},
+			},
+		},
+		{
+			name:        "short list leaves one transaction uncovered",
+			txIDs:       []string{"t1", "t2"},
+			receipts:    []*TransactionInfo{{ID: "t1", BlockNumber: 10, BlockTimeStamp: ts}},
+			wantErrText: "receipts cover 1 of 2 transactions in block 10; tx t2 has no receipt",
+		},
+		{
+			name:        "empty list serves no receipts at all",
+			txIDs:       []string{"t1"},
+			receipts:    nil,
+			wantErrText: "receipts cover 0 of 1 transactions in block 10; tx t1 has no receipt",
+		},
+		{
+			name:        "nil receipt slot counts as missing",
+			txIDs:       []string{"t1"},
+			receipts:    []*TransactionInfo{nil},
+			wantErrText: "tx t1 has no receipt",
+		},
+		{
+			name:  "transaction id match is case-insensitive",
+			txIDs: []string{"t1"},
+			receipts: []*TransactionInfo{
+				{ID: "T1", BlockNumber: 10, BlockTimeStamp: ts},
+			},
+		},
+		{
+			name:     "zero-transaction block needs no receipts",
+			txIDs:    nil,
+			receipts: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			block := &Block{BlockID: "b1", BlockHeader: BlockHeader{RawData: BlockHeaderRawData{Number: 10, Timestamp: ts}}}
+			for _, id := range tt.txIDs {
+				block.Transactions = append(block.Transactions, Transaction{TxID: id})
+			}
+			fake := &fakeTronClient{blockByNum: block, receipts: tt.receipts}
+			fetcher := NewFetcher(fake)
+
+			raw, err := fetcher.FetchBlock(context.Background(), 10)
+			if tt.wantErrText == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrText)
+			assert.NotContains(t, err.Error(), "not found", "a receipt shortage must not look like a missing block")
+			assert.Nil(t, raw, "a failed fetch must not return a bundle")
+		})
+	}
+}
+
 // TestFetchBlock_EmptyBlockIsABundleWithNoTxs covers the common Tron case:
 // zero transactions and an empty receipt list.
 func TestFetchBlock_EmptyBlockIsABundleWithNoTxs(t *testing.T) {

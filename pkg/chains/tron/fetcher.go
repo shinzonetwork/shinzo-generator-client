@@ -140,7 +140,10 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 // as any per the interface). Both reads are by height, and Tron receipts
 // carry no block hash, so the bundle is pinned by verifying every receipt's
 // blockNumber and blockTimeStamp against the block: a mismatch fails the
-// fetch and the block processor retries.
+// fetch and the block processor retries. The bundle also requires full
+// receipt coverage: every transaction needs a receipt, so a node serving a
+// short or empty list fails the fetch instead of letting transactions
+// persist with zero fee and no logs or internal transfers.
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("fetcher not connected: call Connect(ctx) before FetchBlock")
@@ -230,13 +233,21 @@ func (f *Fetcher) fetchBlock(ctx context.Context, blockNum int64) (*Block, error
 // bundle pin. Tron receipts carry a block number and timestamp but no block
 // hash, so number and timestamp are the ties that hold a receipt to this
 // block; the reorg engine's parentHash continuity check plus by-hash
-// walk-back bound the residual cross-branch risk beyond that.
+// walk-back bound the residual cross-branch risk beyond that. java-tron
+// stores one receipt per transaction when it applies a block, so the served
+// list must cover every transaction: a short or empty list means the node
+// does not have the receipts (transHistory.switch off, or a node without
+// the block), and bundling it would persist transactions with zero fee and
+// no logs or internal transfers, so the fetch fails and retries.
 func (f *Fetcher) fetchReceipts(ctx context.Context, block *Block, blockNum int64) ([]*Transaction, []*TransactionInfo, error) {
 	receipts, err := f.client.GetTransactionInfoByBlockNum(ctx, blockNum)
 	if err != nil {
 		return nil, nil, err
 	}
 	if err := verifyReceiptPin(block, receipts); err != nil {
+		return nil, nil, err
+	}
+	if err := receiptsCoverTransactions(block, receipts); err != nil {
 		return nil, nil, err
 	}
 	transactions := make([]*Transaction, len(block.Transactions))
@@ -261,6 +272,36 @@ func verifyReceiptPin(block *Block, receipts []*TransactionInfo) error {
 				"receipt block number %d, timestamp %d, but block has number %d, timestamp %d",
 				i, receipt.ID, receipt.BlockNumber, receipt.BlockTimeStamp, num, ts)
 		}
+	}
+	return nil
+}
+
+// receiptsCoverTransactions reports whether every transaction in the block
+// has a receipt in the served list, matched by transaction id
+// case-insensitively. java-tron saves one receipt per transaction when it
+// applies a block, so a missing receipt means the node does not have it:
+// bundling the list would persist that transaction with zero fee and no
+// logs or internal transfers. The error must contain no "not found" so
+// pkg/errors.IsErrNotFound keeps classifying it as a real failure for the
+// processor's retry logic.
+func receiptsCoverTransactions(block *Block, receipts []*TransactionInfo) error {
+	served := make(map[string]struct{}, len(receipts))
+	for _, receipt := range receipts {
+		if receipt != nil {
+			served[strings.ToLower(receipt.ID)] = struct{}{}
+		}
+	}
+	num := block.BlockHeader.RawData.Number
+	total := len(block.Transactions)
+	covered := 0
+	for i := range block.Transactions {
+		tx := &block.Transactions[i]
+		if _, ok := served[strings.ToLower(tx.TxID)]; ok {
+			covered++
+			continue
+		}
+		return fmt.Errorf("receipts cover %d of %d transactions in block %d; tx %s has no receipt",
+			covered, total, num, tx.TxID)
 	}
 	return nil
 }

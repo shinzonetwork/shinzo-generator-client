@@ -236,8 +236,10 @@ func (c *Client) GetTransactionInfoByBlockNum(ctx context.Context, num int64) ([
 	}
 	if trimmed := strings.TrimSpace(string(data)); trimmed == "" || trimmed == "{}" {
 		// Some nodes answer an unknown height with the empty object where
-		// others answer []; both resolve to "no receipts yet" and the
-		// fetcher pins whatever the block fetch returned.
+		// others answer []; both resolve to "no receipts yet", and the
+		// fetcher fails the fetch unless the served list covers every
+		// transaction in the block, so an empty result never reaches the
+		// bundle for a block that has transactions.
 		return nil, nil
 	}
 	var infos []*TransactionInfo
