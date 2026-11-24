@@ -155,15 +155,19 @@ func TestLoadConfig_RepositoryTronConfigFile(t *testing.T) {
 	neutralizeTronEnv(t)
 
 	// Guards the shipped deployment file: it must keep parsing and passing
-	// validateConfig as the config schema evolves. The tron URLs use ${VAR}
-	// placeholders; the loader does NOT expand them, so they load as literal
-	// strings and deployment (docker-compose, envsubst) resolves them.
+	// validateConfig as the config schema evolves. The tron section ships
+	// empty endpoints; validateConfig rejects an empty tron.node_url, so the
+	// test supplies TRON_RPC_URL exactly as a deployment would before the
+	// loader runs. Empty values in the env-neutralized variables stay empty,
+	// which keeps the "solidity_url empty = same host as node_url" contract.
+	t.Setenv("TRON_RPC_URL", "https://api.trongrid.io")
 	cfg, err := LoadConfig("config_tron.yml")
 	require.NoError(t, err)
 	assert.Equal(t, "tron", cfg.Chain.Adapter, "Chain.Adapter")
-	assert.Equal(t, "${TRON_RPC_URL}", cfg.Tron.NodeURL, "Tron.NodeURL placeholder")
-	assert.Equal(t, "${TRON_SOLIDITY_RPC_URL}", cfg.Tron.SolidityURL, "Tron.SolidityURL placeholder")
-	assert.Equal(t, "${TRON_API_KEY_TYPE}", cfg.Tron.APIKeyType, "Tron.APIKeyType placeholder")
+	assert.Equal(t, "Mainnet", cfg.Chain.Network, "Chain.Network")
+	assert.Equal(t, "https://api.trongrid.io", cfg.Tron.NodeURL, "Tron.NodeURL from env")
+	assert.Equal(t, "", cfg.Tron.SolidityURL, "Tron.SolidityURL empty = node_url host")
+	assert.Equal(t, "", cfg.Tron.APIKeyType, "Tron.APIKeyType empty = TronGrid header")
 	assert.Equal(t, DefaultTronDialTimeoutSeconds, cfg.Tron.DialTimeoutSeconds, "Tron.DialTimeoutSeconds")
-	assert.Equal(t, 20, cfg.Indexer.BlocksPerMinute, "Indexer.BlocksPerMinute")
+	assert.Equal(t, 60, cfg.Indexer.BlocksPerMinute, "Indexer.BlocksPerMinute")
 }
