@@ -30,7 +30,7 @@ jobs:
 
       - name: Verify version injection
         run: |
-          grep -aFq "${{ github.ref_name }}" bin/block_poster || {
+          grep -aFq "${{ github.ref_name }}" bin/block_poster_evm || {
             echo "❌ version injection failed: binary lacks ${{ github.ref_name }} — refusing to publish"
             exit 1
           }
@@ -40,8 +40,13 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           SUFFIX="${TAG#v*.*.*-}"
-          NETWORK="${SUFFIX##*-}"
-          CHAIN="${SUFFIX%-*}"
+          # Lower-cased: docker tags must be lower case, and the Dockerfile
+          # resolves config_<chain>[_<network>].yaml from these values.
+          NETWORK=$(echo "${SUFFIX##*-}" | tr 'A-Z' 'a-z')
+          CHAIN=$(echo "${SUFFIX%-*}" | tr 'A-Z' 'a-z')
+          case "$CHAIN$NETWORK" in
+            *[!a-z0-9]*|"") echo "❌ tag $TAG must be v<version>-<chain>-<network> (got chain='$CHAIN' network='$NETWORK')"; exit 1 ;;
+          esac
           echo "chain=$CHAIN" >> $GITHUB_OUTPUT
           echo "network=$NETWORK" >> $GITHUB_OUTPUT
 
@@ -51,7 +56,9 @@ jobs:
                        -t ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest \
                        --build-arg VERSION=${{ github.ref_name }} \
                        --build-arg CHAIN=${{ steps.meta.outputs.chain }} \
-                       --build-arg NETWORK=${{ steps.meta.outputs.network }} .
+                       --build-arg NETWORK=${{ steps.meta.outputs.network }} \
+                       --build-arg VCS_REF=${{ github.sha }} \
+                       --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) .
           echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker push ghcr.io/${{ github.repository }}:${{ github.ref_name }}
           docker push ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest
