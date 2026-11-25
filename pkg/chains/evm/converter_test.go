@@ -2,7 +2,6 @@ package evm
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -652,7 +651,7 @@ func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
 
-	docIDs, err := c.queryCollectionDocIDs(ctx, td.Node, c.collections.Block, constants.NumberFieldName, 100, 101)
+	docIDs, err := chains.QueryCollectionDocIDs(ctx, td.Node, c.collections.Block, constants.NumberFieldName, 100, 101)
 	require.NoError(t, err)
 	require.Len(t, docIDs, 2)
 
@@ -742,76 +741,6 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 			assert.Equal(t, tc.wantLow, lowest)
 			require.NoError(t, errHigh)
 			assert.Equal(t, tc.wantHigh, highest)
-		})
-	}
-}
-
-func TestParseBlockNumberRow(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		row   map[string]any
-		want  int64
-		valid bool
-	}{
-		{"float64", map[string]any{constants.NumberFieldName: float64(100)}, 100, true},
-		{"int64", map[string]any{constants.NumberFieldName: int64(101)}, 101, true},
-		{"int", map[string]any{constants.NumberFieldName: int(102)}, 102, true},
-		{"nil", map[string]any{constants.NumberFieldName: nil}, 0, false},
-		{"missing", map[string]any{}, 0, false},
-		{"string", map[string]any{constants.NumberFieldName: "0x64"}, 0, false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, valid := parseBlockNumberRow(tc.row)
-			assert.Equal(t, tc.valid, valid)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-// TestQueryBlockNumber_CustomLimits pins the parameterized query limit: every
-// supported limit must build valid GraphQL, honor the ordering, and stay safe
-// when the limit exceeds the number of stored blocks.
-func TestQueryBlockNumber_CustomLimits(t *testing.T) {
-	t.Parallel()
-	cfg := testConfig()
-	c, err := NewConverter(cfg)
-	require.NoError(t, err)
-	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
-	ctx := context.Background()
-
-	for _, num := range []int64{100, 101, 102, 103, 104} {
-		storeTestBlockDoc(ctx, t, td, c, num)
-	}
-
-	tests := []struct {
-		order string
-		limit int
-		want  int64
-	}{
-		{"ASC", 1, 100},
-		{"ASC", 2, 100},
-		{"ASC", 3, 100},
-		{"ASC", 7, 100},
-		{"ASC", 20, 100},
-		{"ASC", 50, 100},
-		{"DESC", 1, 104},
-		{"DESC", 3, 104},
-		{"DESC", 7, 104},
-		{"DESC", 20, 104},
-		{"DESC", 50, 104},
-	}
-
-	for _, tc := range tests {
-		t.Run(fmt.Sprintf("%s_limit%d", tc.order, tc.limit), func(t *testing.T) {
-			t.Parallel()
-			got, err := c.queryBlockNumber(ctx, td.Node, tc.order, "TestQueryBlockNumber_CustomLimits", tc.limit)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
 		})
 	}
 }
