@@ -217,7 +217,16 @@ func assertTronBundleCoverage(t *testing.T, bundle *tron.BlockBundle) {
 		} else {
 			failed++
 		}
-		for _, contract := range tx.RawData.Contract {
+		// raw_data stays verbatim on the wire type, so the contract view is
+		// decoded on demand exactly like the converter does; an empty body
+		// means a synthetic transaction with no contracts to inspect.
+		if len(tx.RawData) == 0 {
+			continue
+		}
+		var view tron.TransactionRawData
+		require.NoError(t, json.Unmarshal(tx.RawData, &view),
+			"fixture transaction %s: raw_data does not decode", tx.TxID)
+		for _, contract := range view.Contract {
 			switch contract.Type {
 			case "TransferContract":
 				transfer = true
@@ -288,7 +297,7 @@ var tronGoldenCollections = []goldenCollectionSpec{
 		name:   "internalTransfer",
 		column: func(c chains.Collections) string { return c.(*tron.CollectionNames).InternalTransfer },
 		fields: []string{
-			"from", "to", "amount", "assetName", "rejected",
+			"from", "to", "amount", "tokenId", "rejected",
 			"transactionHash", "blockNumber", "transferIndex",
 		},
 	},
