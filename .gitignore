@@ -26,6 +26,8 @@ go.work.sum
 
 .defra/
 .defra2/
+.defra-shinzohub*/
+.defra-kava*/
 
 .claude/
 

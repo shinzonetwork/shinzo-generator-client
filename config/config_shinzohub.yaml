@@ -1,10 +1,12 @@
 # ShinzoHub configuration (cosmos-evm: EVM JSON-RPC + CometBFT/REST) - environment variables override these
 
-# Chain configuration - identifies which EVM chain to index
-# Supported chains: Ethereum, Arbitrum, Optimism, Avalanche (or any EVM chain)
-# Collection names are derived as: {name}__{network}__Block, etc.
+# Chain configuration - a cosmos-evm chain, run with bin/block_poster_cosmos (make cosmos-build)
+# Collection names are derived as: {name}__{network}__Block, etc. The EVM collections are
+# joined by CosmosTransaction, CosmosMessage and CosmosEvent under the same prefix.
+# Not indexed: precompile call/log ABI decoding (done in host views); /block_results
+# validator_updates and consensus_param_updates.
 chain:
-  name: "Shinzohub"      # Selects the shinzohub ClientAdapter; collections are Shinzohub__{network}__* (env: CHAIN_NAME)
+  name: "Shinzohub"      # Collections are Shinzohub__{network}__* (env: CHAIN_NAME)
   network: "Testnet"     # Testnet | Devnet | Local | Mainnet (env: CHAIN_NETWORK)
   adapter: "cosmos-evm"  # Indexes the EVM view (geth section) and the native Cosmos view (cosmos section) of each block (env: CHAIN_ADAPTER)
   hub: "testnet.shinzo.network"
@@ -39,6 +41,14 @@ defradb:
     resource_memory_mib: 10240
     resource_file_descriptors: 8192   # Must be <= the process ulimit -n
     max_streams_per_peer: 4096        # Per direction. Must exceed 256, the unscaled base, or it is a no-op.
+    # Per-IP connection cap. libp2p allows 8 concurrent connections per IPv4 address (and per
+    # IPv6 /56) and closes the rest at accept; dialers see "failed to negotiate security
+    # protocol: EOF". Every host behind one source-NAT address shares that budget. 0 (default)
+    # keeps libp2p's 8. Env: DEFRADB_P2P_MAX_CONNS_PER_IP.
+    max_conns_per_ip: 8
+    # CIDRs whose connections bypass the resource manager's limits, including the per-IP cap.
+    # Invalid entries fail startup. Env: DEFRADB_P2P_ALLOWLIST_CIDRS
+    allowlist_cidrs: ["10.244.0.0/16"]   # k8s pod network, all in-cluster hosts share one NAT IP
   store:
     path: "./.defra-shinzohub"   # Separate store so ShinzoHub data never mixes with another chain
     # Badger memory configuration
@@ -65,7 +75,7 @@ cosmos:
   request_timeout_seconds: 30    # Per-request bound for CometBFT/REST calls
 indexer:
   start_height: 0           # 0 = chain tip - start_buffer on an empty store
-  concurrent_blocks: 1      # Number of blocks to process concurrently
+  concurrent_blocks: 2      # Number of blocks to process concurrently (2 matches the EVM chains; 16 hit DefraDB write conflicts)
   receipt_workers: 8        # Concurrent receipt fetchers per block
   max_docs_per_txn: 100    # Docs threshold for single-txn block creation
   max_tx_docs_per_batch: 100   # Per-batch size for transactions (0 = use max_docs_per_txn)
@@ -75,7 +85,7 @@ indexer:
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 1000       # Start 1000 blocks behind the tip; a resume more than 1000 blocks behind also skips ahead
-  schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
+  schema_auth_mode: "token" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE overrides)
   # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
   # You MUST set keys via the SCHEMA_API_KEYS environment variable (comma-separated).
   # Example: SCHEMA_API_KEYS=key1,key2,key3
