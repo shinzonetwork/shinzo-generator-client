@@ -1,4 +1,4 @@
-type Cosmos__Chain__CosmosTransaction {
+type Cosmos__Mainnet__CosmosTransaction {
     hash: String
     blockHash: String
     blockNumber: Int @index
@@ -11,8 +11,10 @@ type Cosmos__Chain__CosmosTransaction {
     memo: String
     fee: String
     messageCount: Int
+    ethereumTxHash: String @index
     # Relationships
-    block: Cosmos__Chain__Block @relation(name: "block_cosmosTransactions")
-    messages: [Cosmos__Chain__CosmosMessage] @relation(name: "cosmosTransaction_messages")
-    events: [Cosmos__Chain__CosmosEvent] @relation(name: "cosmosTransaction_events")
+    block: Cosmos__Mainnet__Block @relation(name: "block_cosmosTransactions")
+    ethereumTransaction: Cosmos__Mainnet__Transaction @relation(name: "transaction_cosmosTransactions")
+    messages: [Cosmos__Mainnet__CosmosMessage] @relation(name: "cosmosTransaction_messages")
+    events: [Cosmos__Mainnet__CosmosEvent] @relation(name: "cosmosTransaction_events")
 }

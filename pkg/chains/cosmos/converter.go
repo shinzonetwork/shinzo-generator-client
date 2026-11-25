@@ -2,13 +2,16 @@ package cosmos
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 
@@ -16,6 +19,12 @@ import (
 const (
 	transactionHashFieldName  = "transactionHash"
 	transactionIndexFieldName = "transactionIndex"
+	ethereumTxHashFieldName   = "ethereumTxHash"
+
+	// ethereumTxEventType is the event the EVM module emits for each
+	// MsgEthereumTx; its ethereumTxHash attribute is the EVM transaction hash.
+	ethereumTxEventType     = "ethereum_tx"
+	ethereumTxHashAttribute = "ethereumTxHash"
 
 	// Event phases: emitted by a transaction, or by the block itself
 	// (FinalizeBlock on CometBFT v0.38+, BeginBlock/EndBlock on v0.37).
@@ -157,7 +166,7 @@ func toInt64(v any) (int64, error) {
 func (c *Converter) buildDocs(block *Block) (txDocs, msgDocs, eventDocs []map[string]any) {
 	for i := range block.Transactions {
 		tx := &block.Transactions[i]
-		txDocs = append(txDocs, map[string]any{
+		txDoc := map[string]any{
 			constants.HashFieldName:        tx.Hash,
 			constants.BlockHashFieldName:   block.Hash,
 			constants.BlockNumberFieldName: block.Height,
@@ -170,7 +179,11 @@ func (c *Converter) buildDocs(block *Block) (txDocs, msgDocs, eventDocs []map[st
 			"memo":                         tx.Memo,
 			"fee":                          tx.Fee,
 			"messageCount":                 len(tx.Messages),
-		})
+		}
+		if ethHash := ethereumTxHash(tx); ethHash != "" {
+			txDoc[ethereumTxHashFieldName] = ethHash
+		}
+		txDocs = append(txDocs, txDoc)
 		for _, msg := range tx.Messages {
 			msgDocs = append(msgDocs, map[string]any{
 				constants.BlockNumberFieldName: block.Height,
@@ -198,6 +211,43 @@ func (c *Converter) buildDocs(block *Block) (txDocs, msgDocs, eventDocs []map[st
 		eventDocs = append(eventDocs, eventDoc(block.Height, eventPhaseFinalize, ev))
 	}
 	return txDocs, msgDocs, eventDocs
+}
+
+// ethereumTxHash returns the hash of the EVM transaction a Cosmos transaction
+// wraps (lowercase 0x hex), read from its ethereum_tx events, or "" for a
+// native Cosmos transaction. The ante handler and the message handler each
+// emit an ethereum_tx event for the same hash. A wrapper carrying several
+// MsgEthereumTx is linked to its first EVM transaction only.
+func ethereumTxHash(tx *Transaction) string {
+	var hashes []string
+	for _, ev := range tx.Events {
+		if ev.Type != ethereumTxEventType {
+			continue
+		}
+		var attrs []struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal([]byte(ev.Attributes), &attrs); err != nil {
+			continue
+		}
+		for _, a := range attrs {
+			if a.Key != ethereumTxHashAttribute || a.Value == "" {
+				continue
+			}
+			h := strings.ToLower(a.Value)
+			if !slices.Contains(hashes, h) {
+				hashes = append(hashes, h)
+			}
+		}
+	}
+	if len(hashes) == 0 {
+		return ""
+	}
+	if len(hashes) > 1 {
+		logger.Sugar.Debugf("cosmos tx %s wraps %d EVM transactions; linking the first (%s)", tx.Hash, len(hashes), hashes[0])
+	}
+	return hashes[0]
 }
 
 func eventDoc(height int64, phase string, ev Event) map[string]any {

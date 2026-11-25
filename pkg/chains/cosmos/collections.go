@@ -14,9 +14,11 @@ import (
 var errEmptyCollectionFile = errors.New("collection file is empty")
 
 // sdlPrefix is the placeholder prefix the cosmos .graphql files are authored
-// against; CollectionFiles swaps it for the chain's prefix. Cosmos types
-// reference the shared EVM Block type through the same placeholder.
-const sdlPrefix = "Cosmos__Chain"
+// against (Cosmos__Mainnet__*, as the bitcoin family authors its files as
+// Bitcoin__Mainnet__*). CollectionFiles swaps it for the chain's
+// <Network>__<Mainnet|Testnet> prefix, which also resolves the references to
+// the shared EVM Block and Transaction types.
+const sdlPrefix = "Cosmos__Mainnet"
 
 //go:embed collections/*.graphql
 var collectionFS embed.FS

@@ -2,6 +2,7 @@ package cosmos
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -10,8 +11,9 @@ import (
 
 // linkStamper implements chains.LinkStamper for cosmos-evm blocks. EVM
 // collections are delegated to the EVM stamper; the Cosmos collections are
-// linked here: CosmosTransaction → Block, and CosmosMessage/CosmosEvent →
-// Block and (when tx-scoped) → CosmosTransaction.
+// linked here: CosmosTransaction → Block and (when it wraps an EVM
+// transaction) → the EVM Transaction, and CosmosMessage/CosmosEvent → Block
+// and (when tx-scoped) → CosmosTransaction.
 //
 // Groups are written in order Block → EVM groups → CosmosTransaction →
 // CosmosMessage → CosmosEvent, so the block docID and the txHash→docID map
@@ -21,15 +23,20 @@ type linkStamper struct {
 	cols       *CollectionNames
 	blockID    string
 	txHashToID map[string]string
+	// evmTxHashToID maps lowercase EVM transaction hashes to their docIDs,
+	// recorded as the EVM Transaction group is written (before any Cosmos
+	// group), for CosmosTransaction → Transaction links.
+	evmTxHashToID map[string]string
 }
 
 var _ chains.LinkStamper = (*linkStamper)(nil)
 
 func newLinkStamper(evmStamper chains.LinkStamper, cols *CollectionNames) *linkStamper {
 	return &linkStamper{
-		evm:        evmStamper,
-		cols:       cols,
-		txHashToID: make(map[string]string),
+		evm:           evmStamper,
+		cols:          cols,
+		txHashToID:    make(map[string]string),
+		evmTxHashToID: make(map[string]string),
 	}
 }
 
@@ -44,6 +51,16 @@ func (s *linkStamper) StampBeforeWrite(collection string, docs []map[string]any)
 			}
 			if err := s.stampBlock(collection, j, docs[j]); err != nil {
 				return err
+			}
+			ethHash, wraps := docs[j][ethereumTxHashFieldName].(string)
+			if !wraps || ethHash == "" {
+				continue // native Cosmos transaction
+			}
+			if id, ok := s.evmTxHashToID[ethHash]; ok {
+				docs[j]["_ethereumTransactionID"] = id
+			} else {
+				logger.Sugar.Debugf("link stamper: cosmos transaction doc %d wraps unregistered EVM transaction %s; leaving _ethereumTransactionID absent",
+					j, ethHash)
 			}
 		}
 
@@ -94,6 +111,14 @@ func (s *linkStamper) RecordDocIDs(collection string, docs []map[string]any, ids
 			}
 		}
 
+	case s.evmTransactionCollection():
+		for j := range docs {
+			if hash, ok := docs[j][constants.HashFieldName].(string); ok && hash != "" && j < len(ids) {
+				s.evmTxHashToID[strings.ToLower(hash)] = ids[j]
+			}
+		}
+		return s.evm.RecordDocIDs(collection, docs, ids)
+
 	case s.cols.CosmosMessage, s.cols.CosmosEvent:
 		// Nothing to record: no later group consumes message or event docIDs.
 
@@ -101,6 +126,12 @@ func (s *linkStamper) RecordDocIDs(collection string, docs []map[string]any, ids
 		return s.evm.RecordDocIDs(collection, docs, ids)
 	}
 	return nil
+}
+
+// evmTransactionCollection is the EVM Transaction collection under the
+// chain's prefix.
+func (s *linkStamper) evmTransactionCollection() string {
+	return s.cols.Prefix() + "__Transaction"
 }
 
 func (s *linkStamper) stampBlock(collection string, j int, doc map[string]any) error {

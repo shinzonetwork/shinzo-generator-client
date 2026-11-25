@@ -22,6 +22,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
@@ -460,4 +461,76 @@ func TestConvert_KavaBlockEventPhases(t *testing.T) {
 		eventPhaseBegin: kavaBeginEventsPerFixtureBlock,
 		eventPhaseEnd:   kavaFixtureExpect[23209012].endEvents,
 	}, phases)
+}
+
+// --- CosmosTransaction → EVM Transaction link ---
+
+func TestConvert_EthereumTxHashOnWrappers(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		cfg    *config.Config
+		height int64
+		want   []any // ethereumTxHash per cosmos tx; nil = native Cosmos tx
+	}{
+		{"shinzohub", shinzohubConfig(), 5708560, []any{"0xb31c2ee7636b4ef25a575cc25bd1fa08485873fbcca11e25bd65a0d0c39edc50"}},
+		{"kava mixed", kavaConfig(), 23209012, []any{"0x2791fdb24b7720a60f5566316f2abf22fb442d93fcb0e217112f3ff880ebfd30", nil, ethHashOf(t, 23209012, 2)}},
+		{"kava native", kavaConfig(), 23208969, []any{nil}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			block := fetchFixtureBlock(t, tc.height)
+			conv, err := NewConverter(tc.cfg, evm.Factories())
+			require.NoError(t, err)
+			result, err := conv.Convert(context.Background(), &Bundle{EVM: evmBundleFor(block), Cosmos: block})
+			require.NoError(t, err)
+			var got []any
+			for _, g := range result.Groups {
+				if g.Collection == conv.cols.CosmosTransaction {
+					for _, doc := range g.Docs {
+						got = append(got, doc[ethereumTxHashFieldName])
+					}
+				}
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// ethHashOf reads the ethereumTxHash of a fixture tx's ethereum_tx event.
+func ethHashOf(t *testing.T, height int64, txIndex int) any {
+	t.Helper()
+	block := fetchFixtureBlock(t, height)
+	h := ethereumTxHash(&block.Transactions[txIndex])
+	require.NotEmpty(t, h)
+	return h
+}
+
+func TestLinkStamper_CosmosTransactionLinksEVMTransaction(t *testing.T) {
+	t.Parallel()
+	conv := newTestConverter(t)
+	block := fetchFixtureBlock(t, 5708560)
+	result, err := conv.Convert(context.Background(), &Bundle{EVM: evmBundleFor(block), Cosmos: block})
+	require.NoError(t, err)
+	s := result.LinkStamper
+	cols := conv.cols
+
+	require.NoError(t, s.RecordDocIDs(cols.BlockCollection(), []map[string]any{{}}, []string{"bae-block"}))
+	evmTx := []map[string]any{{constants.HashFieldName: "0xB31C2EE7636B4EF25A575CC25BD1FA08485873FBCCA11E25BD65A0D0C39EDC50"}}
+	require.NoError(t, s.StampBeforeWrite(cols.Prefix()+"__Transaction", evmTx))
+	require.NoError(t, s.RecordDocIDs(cols.Prefix()+"__Transaction", evmTx, []string{"bae-evm-tx"}))
+
+	native := map[string]any{constants.HashFieldName: "NATIVE"}
+	wrapper := map[string]any{
+		constants.HashFieldName: block.Transactions[0].Hash,
+		ethereumTxHashFieldName: "0xb31c2ee7636b4ef25a575cc25bd1fa08485873fbcca11e25bd65a0d0c39edc50",
+	}
+	unknown := map[string]any{constants.HashFieldName: "OTHER", ethereumTxHashFieldName: "0xdead"}
+	require.NoError(t, s.StampBeforeWrite(cols.CosmosTransaction, []map[string]any{native, wrapper, unknown}))
+
+	assert.Equal(t, "bae-evm-tx", wrapper["_ethereumTransactionID"])
+	assert.NotContains(t, native, "_ethereumTransactionID")
+	assert.NotContains(t, unknown, "_ethereumTransactionID", "unregistered EVM hash stays unlinked")
+	assert.Equal(t, "bae-block", wrapper["_blockID"])
 }

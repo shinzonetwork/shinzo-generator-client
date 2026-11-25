@@ -1,4 +1,4 @@
-type Cosmos__Chain__CosmosMessage {
+type Cosmos__Mainnet__CosmosMessage {
     blockNumber: Int @index
     transactionHash: String
     transactionIndex: Int
@@ -6,6 +6,6 @@ type Cosmos__Chain__CosmosMessage {
     typeUrl: String @index
     body: String
     # Relationships
-    block: Cosmos__Chain__Block @relation(name: "block_cosmosMessages")
-    transaction: Cosmos__Chain__CosmosTransaction @relation(name: "cosmosTransaction_messages")
+    block: Cosmos__Mainnet__Block @relation(name: "block_cosmosMessages")
+    transaction: Cosmos__Mainnet__CosmosTransaction @relation(name: "cosmosTransaction_messages")
 }
