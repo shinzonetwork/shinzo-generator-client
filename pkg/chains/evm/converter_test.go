@@ -12,6 +12,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
@@ -583,6 +584,8 @@ func TestGetHighestStoredBlockNumber_NoBlocks(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	_, err = c.GetHighestStoredBlockNumber(context.Background(), td.Node)
 	assert.Error(t, err)
+	assert.True(t, errors.IsErrNotFound(err), "an empty collection is benign not-found")
+	assert.NotErrorIs(t, err, chains.ErrBlockNumberCorrupt)
 }
 
 func TestGetLowestStoredBlockNumber_NoBlocks(t *testing.T) {
@@ -594,6 +597,8 @@ func TestGetLowestStoredBlockNumber_NoBlocks(t *testing.T) {
 	td := testutils.SetupTestDefraDB(t, NewCollectionNames(DefaultCollectionPrefix))
 	_, err = c.GetLowestStoredBlockNumber(context.Background(), td.Node)
 	assert.Error(t, err)
+	assert.True(t, errors.IsErrNotFound(err), "an empty collection is benign not-found")
+	assert.NotErrorIs(t, err, chains.ErrBlockNumberCorrupt)
 }
 
 func TestGetDocIDsByBlockRange_Empty(t *testing.T) {
@@ -733,8 +738,10 @@ func TestGetStoredBlockNumber_ResidueRows(t *testing.T) {
 			if tc.wantErr {
 				require.Error(t, errLow)
 				assert.ErrorIs(t, errLow, chains.ErrBlockNumberCorrupt)
+				assert.False(t, errors.IsErrNotFound(errLow), "corruption must not read as not-found")
 				require.Error(t, errHigh)
 				assert.ErrorIs(t, errHigh, chains.ErrBlockNumberCorrupt)
+				assert.False(t, errors.IsErrNotFound(errHigh), "corruption must not read as not-found")
 				return
 			}
 			require.NoError(t, errLow)

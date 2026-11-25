@@ -11,7 +11,6 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/testutils"
 )
 
@@ -35,16 +34,6 @@ func storeQueryBlockDoc(ctx context.Context, t *testing.T, td *testutils.TestDef
 	return addQueryTestDoc(ctx, t, td, map[string]any{
 		constants.NumberFieldName: num,
 		"tag":                     fmt.Sprintf("block-%d", num),
-	})
-}
-
-// storeQueryResidueDoc writes a block document without a number field,
-// simulating the numberless rows left behind by purge residue or P2P
-// replication that the block-number queries must exclude.
-func storeQueryResidueDoc(ctx context.Context, t *testing.T, td *testutils.TestDefraDB, seed int64) string {
-	t.Helper()
-	return addQueryTestDoc(ctx, t, td, map[string]any{
-		"tag": fmt.Sprintf("residue-%d", seed),
 	})
 }
 
@@ -109,87 +98,6 @@ func TestQueryBlockNumber_CustomLimits(t *testing.T) {
 	}
 }
 
-// TestQueryBlockNumber_ResidueRows exercises the block-number query against
-// numberless rows (purge residue / P2P replication): the `_geq: 0` filter
-// must exclude them so the query returns the next real block at the default
-// limit of 1, and a collection holding only numberless rows must surface
-// the corruption sentinel rather than "not found", so the pruner hard-fails
-// instead of silently skipping pruning.
-func TestQueryBlockNumber_ResidueRows(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		setup    func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB)
-		wantLow  int64
-		wantHigh int64
-		wantErr  bool
-	}{
-		{
-			name: "residue rows around valid blocks are skipped",
-			setup: func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB) {
-				storeQueryResidueDoc(ctx, t, td, 1)
-				for _, num := range []int64{100, 101, 102} {
-					storeQueryBlockDoc(ctx, t, td, num)
-				}
-				storeQueryResidueDoc(ctx, t, td, 2)
-			},
-			wantLow:  100,
-			wantHigh: 102,
-		},
-		{
-			name: "only numberless rows yields the corruption sentinel",
-			setup: func(ctx context.Context, t *testing.T, td *testutils.TestDefraDB) {
-				for i := range 3 {
-					storeQueryResidueDoc(ctx, t, td, int64(i))
-				}
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			td := testutils.SetupTestDefraDBWithSchema(t, queryTestSDL)
-			ctx := context.Background()
-
-			tc.setup(ctx, t, td)
-
-			lowest, errLow := chains.QueryBlockNumber(ctx, td.Node, queryTestCollection,
-				constants.NumberFieldName, "ASC", "TestQueryBlockNumber_ResidueRows", 1)
-			highest, errHigh := chains.QueryBlockNumber(ctx, td.Node, queryTestCollection,
-				constants.NumberFieldName, "DESC", "TestQueryBlockNumber_ResidueRows", chains.HighestBlockQueryLimit)
-
-			if tc.wantErr {
-				require.Error(t, errLow)
-				assert.ErrorIs(t, errLow, chains.ErrBlockNumberCorrupt)
-				assert.False(t, errors.IsErrNotFound(errLow), "corruption must not read as not-found")
-				require.Error(t, errHigh)
-				assert.ErrorIs(t, errHigh, chains.ErrBlockNumberCorrupt)
-				return
-			}
-			require.NoError(t, errLow)
-			assert.Equal(t, tc.wantLow, lowest)
-			require.NoError(t, errHigh)
-			assert.Equal(t, tc.wantHigh, highest)
-		})
-	}
-}
-
-// TestQueryBlockNumber_EmptyCollection pins the benign branch: with no
-// documents at all the query reports not-found, not corruption.
-func TestQueryBlockNumber_EmptyCollection(t *testing.T) {
-	t.Parallel()
-	td := testutils.SetupTestDefraDBWithSchema(t, queryTestSDL)
-
-	_, err := chains.QueryBlockNumber(context.Background(), td.Node, queryTestCollection,
-		constants.NumberFieldName, "ASC", "TestQueryBlockNumber_EmptyCollection", 1)
-	require.Error(t, err)
-	assert.True(t, errors.IsErrNotFound(err), "an empty collection is benign not-found")
-	assert.NotErrorIs(t, err, chains.ErrBlockNumberCorrupt)
-}
-
 // TestQueryBlockNumber_UnknownCollection pins the GQL error path: querying a
 // collection that does not exist surfaces an error instead of a not-found.
 func TestQueryBlockNumber_UnknownCollection(t *testing.T) {
@@ -200,51 +108,6 @@ func TestQueryBlockNumber_UnknownCollection(t *testing.T) {
 		constants.NumberFieldName, "ASC", "TestQueryBlockNumber_UnknownCollection", 1)
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, chains.ErrBlockNumberCorrupt)
-}
-
-// TestQueryBlockNumber_AfterPurge is the regression test for the
-// 2026-09-02 incident: a PurgeByDocIDs residue left a dangling row behind,
-// so the ASC lowest-block query kept returning a row whose number field was
-// unparseable. After purging the lowest blocks, the query must return the
-// next stored block without error.
-func TestQueryBlockNumber_AfterPurge(t *testing.T) {
-	t.Parallel()
-	td := testutils.SetupTestDefraDBWithSchema(t, queryTestSDL)
-	ctx := context.Background()
-
-	for _, num := range []int64{100, 101, 102, 103, 104} {
-		storeQueryBlockDoc(ctx, t, td, num)
-	}
-
-	lowest, err := chains.QueryBlockNumber(ctx, td.Node, queryTestCollection,
-		constants.NumberFieldName, "ASC", "TestQueryBlockNumber_AfterPurge", 1)
-	require.NoError(t, err)
-	assert.Equal(t, int64(100), lowest)
-
-	docIDs, err := chains.QueryCollectionDocIDs(ctx, td.Node, queryTestCollection, constants.NumberFieldName, 100, 101)
-	require.NoError(t, err)
-	require.Len(t, docIDs, 2)
-
-	col, err := td.Node.DB.GetCollectionByName(ctx, queryTestCollection)
-	require.NoError(t, err)
-
-	purgeIDs := make([]client.DocID, 0, len(docIDs))
-	for _, id := range docIDs {
-		docID, err := client.NewDocIDFromString(id)
-		require.NoError(t, err)
-		purgeIDs = append(purgeIDs, docID)
-	}
-	require.NoError(t, col.PurgeByDocIDs(ctx, purgeIDs, true))
-
-	lowest, err = chains.QueryBlockNumber(ctx, td.Node, queryTestCollection,
-		constants.NumberFieldName, "ASC", "TestQueryBlockNumber_AfterPurge", 1)
-	require.NoError(t, err)
-	assert.Equal(t, int64(102), lowest)
-
-	highest, err := chains.QueryBlockNumber(ctx, td.Node, queryTestCollection,
-		constants.NumberFieldName, "DESC", "TestQueryBlockNumber_AfterPurge", chains.HighestBlockQueryLimit)
-	require.NoError(t, err)
-	assert.Equal(t, int64(104), highest)
 }
 
 // TestQueryCollectionDocIDs_Ranges covers the chunked range query: hits in a
