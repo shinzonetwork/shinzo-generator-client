@@ -46,11 +46,7 @@ run = "govulncheck ./..."
 [tasks.inspect]
 description = "Running all code quality and dependencies vulnerability checks."
 depends = ["lint"]
-run = [
-    # Sequential tasks
-    { tasks = ["check-deadcode", "check-loc"] }, # Parallel tasks
-    { task = "vuln" },
-]
+run = ["check-deadcode", "check-loc", "vuln"]
 
 # Testing tasks & templates
 [tasks.test-unit]
@@ -59,18 +55,28 @@ run = "gotestsum -- -coverprofile=coverage.out -parallel=4 ./... -count=1"
 alias = "test"
 
 [task_templates."test:integration"]
-run = "go test -tags=integration  -v ./integration/"
+vars = { chain = "" }                                                # Defaults for Ethereum
+run = "go test -tags=integration  -v ./integration/{{ vars.chain }}"
 
 [tasks.evm-integration]
 description = "Running the EVM integration tests."
 extends = "test:integration"
 
 [task_templates."test:golden"]
-run = "go test -tags=integration -v ./golden/"
+vars = { test = "TestGoldenTypedPath/ethereum" } 
+run = "go test -tags=integration ./golden/... -run {{ vars.test }} -count=1 -v"
 
 [tasks.ethereum-golden]
 description = "Running Ethereum golden tests."
 extends = "test:golden"
+
+[task_templates."test:golden-update"]
+vars = { test = "TestGoldenTypedPath/ethereum" }
+run = "go test -tags=integration ./golden/... -run {{ vars.test }} -golden-update -count=1 -v"
+
+[tasks.ethereum-golden-update]
+description = "Updating Ethereum golden fixture."
+extends = "test:golden-update"
 
 [task_templates."test:replay"]
 vars = { adapter = "evm", test = "TestEthereumReplayAcceptance" }
@@ -115,7 +121,7 @@ depends = ["test-unit", "evm-integration", "ethereum-golden"]
 # Binary building tasks & templates
 [task_templates."generator:build"]
 description = "Building the generator binary."
-vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"' , adapter = "evm"}
+vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"', adapter = "evm" }
 run = "go build -ldflags {{ vars.ldflags }} -o bin/block_poster_{{ vars.adapter }} ./cmd/block_poster/{{ vars.adapter }}/"
 
 [tasks.evm-build]
@@ -131,7 +137,7 @@ run = [
 
 # Generator startup tasks & templates
 [task_templates."generator:start"]
-vars = { adapter="evm", config = "./config/config.yaml" }
+vars = { adapter = "evm", config = "./config/config.yaml" }
 run = "./bin/block_poster_{{ vars.adapter }} --config {{ vars.config }}"
 
 [tasks.ethereum-start]
