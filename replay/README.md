@@ -111,7 +111,7 @@ Semantics:
 ```sh
 make ethereum-acceptance-test   # Ethereum suite (ETHEREUM_* env vars)
 make bsc-acceptance-test        # BSC suite (BSC_* env vars)
-make tron-acceptance-test       # Tron suite (TRON_* env vars)
+make tron-acceptance-test       # Tron suite (TEST_TRON_* env vars)
 ```
 
 Both suites share one implementation. The chain-agnostic harness (timing
@@ -149,18 +149,23 @@ fixture), `BSC_REPLAY_PRUNER`, `BSC_REPLAY_PRUNER_INTERVAL_SECONDS`,
 (same defaults as Ethereum), and boots from the shipped
 `config/config_bsc.yaml`.
 
-The Tron suite mirrors every knob with the `TRON_*` prefix:
-`TRON_REPLAY_FIXTURE`, `TRON_REPLAY_MAX_BLOCKS`, `TRON_TARGET_BLOCK_TIME`
-(default `3s`, Tron mainnet's block interval), `TRON_REPLAY_PRUNER`,
-`TRON_REPLAY_PRUNER_INTERVAL_SECONDS`, `TRON_REPLAY_PRUNER_MAX_BLOCKS`,
-`TRON_REPLAY_SNAPSHOT`, `TRON_REPLAY_SNAPSHOT_INTERVAL_SECONDS`,
-`TRON_REPLAY_SNAPSHOT_BLOCKS_PER_FILE`
+The Tron suite mirrors every knob with the `TEST_TRON_*` prefix:
+`TEST_TRON_REPLAY_FIXTURE`, `TEST_TRON_REPLAY_MAX_BLOCKS`,
+`TEST_TRON_TARGET_BLOCK_TIME` (default `3s`, Tron mainnet's block interval),
+`TEST_TRON_REPLAY_PRUNER`, `TEST_TRON_REPLAY_PRUNER_INTERVAL_SECONDS`,
+`TEST_TRON_REPLAY_PRUNER_MAX_BLOCKS`, `TEST_TRON_REPLAY_SNAPSHOT`,
+`TEST_TRON_REPLAY_SNAPSHOT_INTERVAL_SECONDS`,
+`TEST_TRON_REPLAY_SNAPSHOT_BLOCKS_PER_FILE`
 (same defaults as Ethereum), and boots from the shipped
-`config/config_tron.yml`. The endpoint hook zeroes the Tron section
-(`tron.node_url` points at the mock, `solidity_url` empty resolves
-`/walletsolidity/*` to the same host, which the mock serves), and the env
-scrub strips `TRON_*` like `GETH_*` so a developer `.env` cannot leak into
-the measurement.
+`config/config_tron.yml`. Unlike `ETHEREUM_*`/`BSC_*`, the Tron knobs
+deliberately live outside the chain's config namespace: `TRON_*` is reserved
+for the connection vars the config loader reads, and the env scrub unsets
+every `TRON_*` var like `GETH_*` so a developer `.env` cannot leak into the
+measurement. The `TEST_TRON_*` namespace sits beyond that scrub, so
+`ResolveReplayServices` reads the suite's kill-switches and tuning knobs as
+intended. The endpoint hook zeroes the Tron section (`tron.node_url` points
+at the mock, `solidity_url` empty resolves `/walletsolidity/*` to the same
+host, which the mock serves).
 
 The loop runs through the generator's **`ConcurrentBlockProcessor`** — the real
 production orchestration (worker pool, retry classification, in-order commit,

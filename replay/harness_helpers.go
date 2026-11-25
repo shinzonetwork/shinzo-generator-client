@@ -35,9 +35,10 @@ import (
 // shipped config yaml is the only input the config loader sees. The Makefile
 // exports the developer's .env into every target, and without this a stray
 // INDEXER_MAX_DOCS_PER_TXN or badger cache value would silently change the
-// measured configuration between machines (TRON_ joins GETH_: config_tron.yml
-// expands ${TRON_*} placeholders the same way). Originals are restored after
-// the test so nothing outside LoadConfig's window observes the scrub.
+// measured configuration between machines (TRON_ joins GETH_: the loader's
+// TRON_ connection vars are scrubbed, and the suite's knobs live under
+// TEST_TRON_, beyond the blanket prefix). Originals are restored after the
+// test so nothing outside LoadConfig's window observes the scrub.
 func scrubReplayEnv(t *testing.T) {
 	t.Helper()
 
@@ -83,8 +84,8 @@ const (
 
 // ResolveReplayServices applies the pruner/snapshotter kill-switches and
 // forced-fast overrides on top of NewReplayConfig's defaults. envPrefix is
-// the chain's env namespace ("ETHEREUM", "BSC"), which composes the kill
-// switch and tuning variables the same way every suite names them.
+// the suite's env namespace ("ETHEREUM", "BSC", "TEST_TRON"), which composes
+// the kill switch and tuning variables the same way every suite names them.
 func ResolveReplayServices(t *testing.T, cfg *config.Config, envPrefix string) {
 	t.Helper()
 
@@ -161,13 +162,14 @@ func NewReplayConfig(t *testing.T, configPath, expectedChain, expectedNetwork, s
 
 	scrubReplayEnv(t)
 
-	// config.yaml ships schema_auth_mode as a literal "${SCHEMA_AUTH_MODE}"
-	// placeholder: yaml parsing never expands it, and the scrub above removes
-	// the env var applyEnvOverrides would normally read to fill it in, so the
-	// raw placeholder would fail schema-auth validation. Restoring a
-	// known-good value after the scrub keeps the harness deterministic and
-	// matches the open-schema mode applied to the loaded config below.
+	// The scrub removes env vars the shipped yamls rely on to pass the
+	// loader's own validation, so known-good placeholders are restored
+	// before the load and replaced by the endpoint hook afterward:
+	// SCHEMA_AUTH_MODE fills the literal "${SCHEMA_AUTH_MODE}" placeholder
+	// (open-schema mode below), TRON_RPC_URL satisfies the tron adapter's
+	// non-empty node_url check (never dialed; the tron hook points it at the mock).
 	t.Setenv("SCHEMA_AUTH_MODE", "none")
+	t.Setenv("TRON_RPC_URL", "http://127.0.0.1:1")
 
 	cfg, err := config.LoadConfig(configPath)
 	require.NoError(t, err, "load config yaml")

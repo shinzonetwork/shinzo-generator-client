@@ -92,6 +92,13 @@ test:
 	@go test ./... -v -count=1 | tee /tmp/test_output.log; \
 	exit_code=$$?; \
 	echo ""; \
+	echo "🧼 Running replay scrub guard (acceptance tag, no fixture)..."; \
+	go test -tags=acceptance ./replay/tron -run TestReplayConfigKeepsSuiteKnobs -count=1 -v > /tmp/scrub_guard.log 2>&1; \
+	guard_code=$$?; \
+	cat /tmp/scrub_guard.log | tee -a /tmp/test_output.log; \
+	rm -f /tmp/scrub_guard.log; \
+	if [ $$guard_code -ne 0 ]; then exit_code=$$guard_code; fi; \
+	echo ""; \
 	echo "📊 TEST SUMMARY:"; \
 	echo "================"; \
 	if [ $$exit_code -eq 0 ]; then \
@@ -294,8 +301,8 @@ tron-replay-fetch:
 # tron-acceptance-test replays the newest captured fixture through the full
 # production pipeline (mock wallet API → Fetcher → Converter →
 # BlockHandler.Store) and hard-asserts the effective per-block interval
-# stays within Tron's 3s block interval. TRON_TARGET_BLOCK_TIME overrides
-# the target; a missing fixture skips with regeneration instructions.
+# stays within Tron's 3s block interval. TEST_TRON_TARGET_BLOCK_TIME
+# overrides the target; a missing fixture skips with regeneration instructions.
 # -count=1 forces the run every time, mirroring the ethereum/bsc suites.
 tron-acceptance-test:
 	go test -tags=acceptance ./replay/tron -run TestTronReplayAcceptance -count=1 -v -timeout 30m

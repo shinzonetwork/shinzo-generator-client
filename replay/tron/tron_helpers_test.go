@@ -244,8 +244,8 @@ func resolveTronTargetBlockTime(t *testing.T, envName string, def time.Duration,
 // the Tron counterpart of the EVM suites' replaySpec: the chain label used
 // for config validation and the verdict; the shipped config file the
 // measurement boots from; the expected network identity inside that config;
-// the env prefix composing the suite's variables (TRON_TARGET_BLOCK_TIME,
-// TRON_REPLAY_MAX_BLOCKS, ...); the fixture glob; the target block interval
+// the env prefix composing the suite's variables (TEST_TRON_TARGET_BLOCK_TIME,
+// TEST_TRON_REPLAY_MAX_BLOCKS, ...); the fixture glob; the target block interval
 // with its parse error hint; and the make target the skip message points at
 // for fixture capture.
 type tronReplaySpec struct {
@@ -305,8 +305,8 @@ func runTronReplay(t *testing.T, spec tronReplaySpec) {
 		func(cfg *config.Config) {
 			// The mock server replaces the endpoint; SolidityURL empty makes
 			// the production client resolve /walletsolidity/* to the same
-			// host, which the mock serves. The ${TRON_*} yaml placeholders
-			// are blanked so no literal leaks to a future consumer.
+			// host, which the mock serves. The connection fields are blanked
+			// so no endpoint or key literal leaks to a future consumer.
 			cfg.Tron.NodeURL = mockNode.URL()
 			cfg.Tron.SolidityURL = ""
 			cfg.Tron.APIKey = ""
