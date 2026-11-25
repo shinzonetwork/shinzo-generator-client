@@ -63,6 +63,13 @@ func suitePhaseRestart(t *testing.T) {
 		}
 	}
 
+	// The second indexer's Connect also ran its network pin; the probe is
+	// journaled separately from blockByNum, which is what keeps height 0
+	// out of the no-refetch assertion below.
+	if probes := tronChain.genesisProbeCount(); probes < 2 {
+		t.Errorf("expected at least 2 genesis probes (one per indexer's Connect), got %d", probes)
+	}
+
 	// No wallet call after the marker requested a height below the resume
 	// point: resume must be DB-driven, not a replay of the stored range.
 	for _, height := range tronChain.byNumSince(marker) {

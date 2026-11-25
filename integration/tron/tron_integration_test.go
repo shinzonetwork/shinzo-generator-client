@@ -380,6 +380,12 @@ func suitePhaseStartup(t *testing.T) {
 		t.Errorf("%d wallet requests reached the mock without the configured %s header",
 			missing, tronWalletAPIKeyHdr)
 	}
+
+	// Nothing could be stored unless Connect ran its network pin against the
+	// mock, so at least one genesis probe must be journaled by now.
+	if probes := tronChain.genesisProbeCount(); probes < 1 {
+		t.Errorf("the first indexer's Connect never probed genesis on the mock (network pin skipped)")
+	}
 }
 
 // suitePhaseFieldAssertions verifies the stored documents field by field

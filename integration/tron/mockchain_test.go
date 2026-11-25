@@ -69,6 +69,15 @@ const (
 	tronTrc10TokenID  = "105"
 
 	tronVersion = int64(29)
+
+	// tronGenesisBlockID is Mainnet's genesis blockID (height 0), the same
+	// value the fetcher pins in pkg/chains/tron (genesisBlockIDs["Mainnet"],
+	// constants.go); the suite config runs the Mainnet identity, so Connect's
+	// network pin compares against exactly this literal. Keeping it here
+	// instead of exporting it from the adapter keeps the mock self-contained
+	// like every other fixture: if the pinned table ever changes, Connect
+	// answers with errNetworkMismatch and this suite fails loudly.
+	tronGenesisBlockID = "00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc"
 )
 
 // Wallet API endpoint paths, mirroring the adapter's java-tron bindings.
@@ -85,12 +94,15 @@ const (
 
 // callRecorder is a per-endpoint request journal. It backs the restart
 // phase's no-refetch assertion: heights requested after the first indexer
-// stopped must all sit at or above the resume height.
+// stopped must all sit at or above the resume height. Connect's genesis
+// (height 0) network-pin probes are journaled separately in genesis because
+// they are connectivity checks, not block indexing.
 type callRecorder struct {
 	blockByNum  []int64
 	blockByID   []string
 	receipts    []int64
 	missingAuth int
+	genesis     int
 }
 
 // mockChain owns both scripted branches, their receipts, and the recorder.
@@ -356,6 +368,21 @@ func (c *mockChain) handleGetBlockByNum(w http.ResponseWriter, r *http.Request) 
 		mockWriteJSON(w, map[string]string{"Error": "invalid request body"})
 		return
 	}
+	if req.Num == 0 {
+		// Connect pins the endpoint's network by reading genesis (height 0)
+		// before any indexing call. The scripted branches begin at height
+		// 100, so the probe would otherwise fall into the not-found empty
+		// body and fail startup. The probe is a connectivity check, not
+		// block indexing: it is journaled in rec.genesis, so the restart
+		// phase's no-refetch assertion never sees height 0. Only the
+		// blockID is served because that is all the pin compares.
+		c.mu.Lock()
+		c.rec.genesis++
+		c.mu.Unlock()
+		c.closeBody(r)
+		mockWriteJSON(w, map[string]string{"blockID": tronGenesisBlockID})
+		return
+	}
 	c.mu.Lock()
 	c.rec.blockByNum = append(c.rec.blockByNum, req.Num)
 	c.mu.Unlock()
@@ -526,4 +553,13 @@ func (c *mockChain) missingAuthCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.rec.missingAuth
+}
+
+// genesisProbeCount reports Connect's genesis (height 0) network-pin probes.
+// They live outside the blockByNum journal on purpose, so the restart
+// phase's no-refetch assertion never sees height 0.
+func (c *mockChain) genesisProbeCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.rec.genesis
 }
