@@ -130,6 +130,19 @@ loudly if it does not qualify. The API key is optional: it is sent as the
 in the URL (Alchemy) work without a dummy value; the endpoint and the key
 are never written into the fixtures.
 
+The freeze is a single-block freeze: the loader reads every file in
+`blocks/` and `receipts/`, so the capture script refuses to run when a
+fixture already exists (a second capture would silently turn the freeze
+into a multi-block one). To recapture deliberately:
+
+```bash
+FORCE=1 make tron-golden-fetch
+```
+
+A forced run replaces the existing pair, and the old pair is removed only
+after the new block qualified, so a failed scan leaves the previous freeze
+untouched.
+
 Block requirements (the script enforces them):
 
 - at least one transaction, and a complete receipts response: one

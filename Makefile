@@ -20,6 +20,11 @@ TO ?= 0
 # Pinned block height for tron-golden-fetch. Empty = the capture script
 # scans backwards from the tip for a suitable block.
 HEIGHT ?=
+# Replace switch for tron-golden-fetch. Empty = the capture script refuses
+# to run when golden/tron/testdata already holds a fixture; FORCE=1 makes a
+# recapture replace the existing pair (removed only after the new block
+# qualifies).
+FORCE ?=
 # Tron wallet-API env vars for the tron live smoke (tron-live-test and the
 # TRON phase of integration-test). The suite boots the bundled production
 # config/config_tron.yml through the standard loader, so CHAIN_NETWORK and
@@ -327,13 +332,15 @@ tron-acceptance-test:
 # the full pipeline (both contract outcomes, logs, internal transfers with
 # a non-zero callValue, complete pinned receipts) and writes the verbatim
 # wallet-API bodies into golden/tron/testdata/. HEIGHT pins a block and
-# skips the scan; a pinned block is still validated.
+# skips the scan; a pinned block is still validated. The freeze is
+# single-block: the script refuses when a fixture exists and FORCE=1
+# replaces it (the old pair is removed only after the new block qualifies).
 tron-golden-fetch:
 	@if [ -z "$(TRON_RPC_URL)" ]; then \
 		echo "❌ TRON_RPC_URL must be set - golden capture needs a Tron wallet-API endpoint (the API key is optional; providers like Alchemy embed it in the URL)"; \
 		exit 1; \
 	fi
-	@HEIGHT="$(HEIGHT)" ./scripts/fetch_tron_golden.sh
+	@FORCE="$(FORCE)" HEIGHT="$(HEIGHT)" ./scripts/fetch_tron_golden.sh
 
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
@@ -368,7 +375,7 @@ help:
 	@echo "🌅 Tron tip-indexing acceptance (replay):"
 	@echo "  tron-replay-fetch  - Capture a replay fixture (FROM/TO blocks; requires TRON_RPC_URL)"
 	@echo "  tron-acceptance-test - Replay the fixture and assert the effective block interval <= Tron's 3s"
-	@echo "  tron-golden-fetch  - Capture a golden fixture block (HEIGHT pins; requires TRON_RPC_URL; TRON_API_KEY optional)"
+	@echo "  tron-golden-fetch  - Capture a golden fixture block (HEIGHT pins; requires TRON_RPC_URL; TRON_API_KEY optional; FORCE=1 replaces)"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"

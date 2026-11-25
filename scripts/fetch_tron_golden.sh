@@ -8,9 +8,15 @@
 # sent as the Tron-Pro-Api-Key header only when set, so providers that
 # embed the key in the URL work without a dummy value. Neither the endpoint
 # nor the key is ever written into the fixtures.
+#
+# The freeze is a single-block freeze: the loader reads every file in the
+# blocks/ and receipts/ folders, so the script refuses to run when a fixture
+# is already present and FORCE=1 replaces it, removing the old pair only
+# after the new block qualified.
 set -euo pipefail
 
 HEIGHT="${HEIGHT:-}"
+FORCE="${FORCE:-}"
 SCAN_LIMIT="${SCAN_LIMIT:-500}"
 START_OFFSET="${START_OFFSET:-20}"
 SLEEP_SECS="${SLEEP_SECS:-0.3}"
@@ -29,13 +35,40 @@ done
 	echo "ERROR: TRON_RPC_URL not set (wallet-API base URL, e.g. https://api.trongrid.io)"
 	exit 1
 }
-if [ -z "${TRON_API_KEY:-}" ]; then
-	echo "Note: TRON_API_KEY not set; requests go out unauthenticated (fine when the key is embedded in the URL)"
-fi
 [ -d golden ] || {
 	echo "ERROR: run this script from the repository root (no golden/ directory here)"
 	exit 1
 }
+
+# has_fixture reports whether a fixture folder already holds a JSON file.
+# The glob loop needs no nullglob: an unmatched glob stays literal and the
+# -e test rejects it.
+has_fixture() {
+	[ -d "$1" ] || return 1
+	local f
+	for f in "$1"/*.json; do
+		[ -e "$f" ] && return 0
+	done
+	return 1
+}
+
+if [ "$FORCE" != "1" ] && { has_fixture "$BLOCKS_DIR" || has_fixture "$RECEIPTS_DIR"; }; then
+	echo "ERROR: golden/tron/testdata already holds a fixture:"
+	for dir in "$BLOCKS_DIR" "$RECEIPTS_DIR"; do
+		for f in "$dir"/*.json; do
+			[ -e "$f" ] && echo "  $f"
+		done
+	done
+	echo ""
+	echo "The tron freeze is a single-block freeze: the loader reads every file in"
+	echo "blocks/ and receipts/, so a second capture would silently turn it into a"
+	echo "multi-block freeze. Re-run with FORCE=1 to replace it, or clear the two"
+	echo "folders manually."
+	exit 1
+fi
+if [ -z "${TRON_API_KEY:-}" ]; then
+	echo "Note: TRON_API_KEY not set; requests go out unauthenticated (fine when the key is embedded in the URL)"
+fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -188,6 +221,14 @@ while [ "$i" -lt "$SCAN_LIMIT" ]; do
 	fi
 
 	if reasons="$(check_suitable "$num" "$ts" "$block_file" "$receipts_file" 2>&1)"; then
+		if has_fixture "$BLOCKS_DIR" || has_fixture "$RECEIPTS_DIR"; then
+			# Replacement, not accumulation: the loader reads every file in
+			# these folders, so a forced recapture removes the old pair.
+			# Removal happens only after the new block qualified: a failed
+			# scan keeps the old freeze intact.
+			rm -f "$BLOCKS_DIR"/*.json "$RECEIPTS_DIR"/*.json
+			echo "Removed the previous tron fixture (forced recapture)."
+		fi
 		mkdir -p "$BLOCKS_DIR" "$RECEIPTS_DIR"
 		cp "$block_file" "$BLOCKS_DIR/$num.json"
 		cp "$receipts_file" "$RECEIPTS_DIR/$num.json"
