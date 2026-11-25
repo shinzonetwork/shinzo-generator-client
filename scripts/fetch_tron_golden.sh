@@ -4,8 +4,10 @@
 # the verbatim getblockbynum and gettransactioninfobyblocknum bodies into
 # golden/tron/testdata/. HEIGHT= pins an explicit block and skips the scan;
 # a pinned block still runs the same suitability checks and fails loudly if
-# it does not qualify. Requires TRON_RPC_URL and TRON_API_KEY; neither the
-# endpoint nor the key is ever written into the fixtures.
+# it does not qualify. Requires TRON_RPC_URL; TRON_API_KEY is optional and
+# sent as the Tron-Pro-Api-Key header only when set, so providers that
+# embed the key in the URL work without a dummy value. Neither the endpoint
+# nor the key is ever written into the fixtures.
 set -euo pipefail
 
 HEIGHT="${HEIGHT:-}"
@@ -27,10 +29,9 @@ done
 	echo "ERROR: TRON_RPC_URL not set (wallet-API base URL, e.g. https://api.trongrid.io)"
 	exit 1
 }
-[ -n "${TRON_API_KEY:-}" ] || {
-	echo "ERROR: TRON_API_KEY not set (TronGrid requires an API key)"
-	exit 1
-}
+if [ -z "${TRON_API_KEY:-}" ]; then
+	echo "Note: TRON_API_KEY not set; requests go out unauthenticated (fine when the key is embedded in the URL)"
+fi
 [ -d golden ] || {
 	echo "ERROR: run this script from the repository root (no golden/ directory here)"
 	exit 1
@@ -41,13 +42,20 @@ trap 'rm -rf "$TMP"' EXIT
 
 # wallet_post posts a JSON body to a wallet-API path and writes the response
 # to a file. A business failure is HTTP 200 with an {"Error": ...} body, so
-# the response is validated after the fact rather than by status code.
+# the response is validated after the fact rather than by status code. The
+# auth header is appended only when a key is set: providers like Alchemy
+# embed the key in the URL, and the production client sends it the same way.
+# The command is assembled as an array that always starts with curl, so the
+# expansion stays safe under set -u on old bash even when the header is
+# skipped.
 wallet_post() {
 	local path="$1" payload="$2" outfile="$3"
-	if ! curl -sS --fail --retry 3 --retry-delay 2 \
-		-H "Tron-Pro-Api-Key: $TRON_API_KEY" \
-		-H "Content-Type: application/json" \
-		-d "$payload" "${TRON_RPC_URL}${path}" -o "$outfile"; then
+	local -a cmd=(curl -sS --fail --retry 3 --retry-delay 2)
+	if [ -n "${TRON_API_KEY:-}" ]; then
+		cmd+=(-H "Tron-Pro-Api-Key: $TRON_API_KEY")
+	fi
+	cmd+=(-H "Content-Type: application/json" -d "$payload" "${TRON_RPC_URL}${path}" -o "$outfile")
+	if ! "${cmd[@]}"; then
 		return 1
 	fi
 	if jq -e 'type == "object" and has("Error")' "$outfile" >/dev/null 2>&1; then
@@ -80,8 +88,9 @@ fail_reasons() {
 # check_suitable validates one block+receipts pair against the freeze's
 # coverage bar: transactions present, receipts complete and pinned to the
 # block, both contract outcomes, both contract kinds, and the derived
-# document inputs (logs, internal transfers) present. On success it prints
-# the justification and returns 0.
+# document inputs present (logs, internal transfers, at least one internal
+# transfer carrying a non-zero callValue, so the frozen rows exercise a
+# real amount). On success it prints the justification and returns 0.
 check_suitable() {
 	local num="$1" ts="$2" block_file="$3" receipts_file="$4"
 
@@ -107,6 +116,13 @@ check_suitable() {
 		reasons+=("no event logs")
 	[ "$(jq 'map(select((.internal_transactions // []) | length > 0)) | length' "$receipts_file")" -gt 0 ] ||
 		reasons+=("no internal transfers")
+	# The document builder reads the first callValueInfo entry, so the check
+	# demands the value exactly where the frozen amount will come from; a
+	# TRC-10 movement qualifies too, its token amount is the callValue.
+	local valued
+	valued=$(jq 'map(.internal_transactions[]? | select(((.callValueInfo // [])[0].callValue // 0) > 0)) | length' "$receipts_file")
+	[ "$valued" -gt 0 ] ||
+		reasons+=("no internal transfer with a non-zero callValue")
 
 	local successful
 	successful=$(jq '[.transactions[] | select((.ret[0].contractRet // "") == "SUCCESS")] | length' "$block_file")
@@ -128,7 +144,7 @@ check_suitable() {
 	echo "  transactions: $tx_count (SUCCESS: $successful, failed: $failed)"
 	echo "  receipts: $receipts_count, all pinned to block $num / timestamp $ts"
 	echo "  logs: $(jq '[.[].log // [] | length] | add' "$receipts_file") entries"
-	echo "  internal transfers: $(jq '[.[].internal_transactions // [] | length] | add' "$receipts_file") entries"
+	echo "  internal transfers: $(jq '[.[].internal_transactions // [] | length] | add' "$receipts_file") entries ($valued with a non-zero callValue)"
 	return 0
 }
 

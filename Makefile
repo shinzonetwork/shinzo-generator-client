@@ -322,15 +322,15 @@ tron-acceptance-test:
 	go test -tags=acceptance ./replay/tron -run TestTronReplayAcceptance -count=1 -v -timeout 30m
 
 # tron-golden-fetch captures one suitable mainnet block for the golden
-# freeze via scripts/fetch_tron_golden.sh (one-time; needs a TronGrid
-# endpoint plus an API key). The script scans backwards from the tip for a
-# block that exercises the full pipeline (both contract outcomes, logs,
-# internal transfers, complete pinned receipts) and writes the verbatim
-# wallet-API bodies into golden/tron/testdata/. HEIGHT pins a specific
-# block and skips the scan; a pinned block is still validated.
+# freeze via scripts/fetch_tron_golden.sh (one-time; TRON_RPC_URL required,
+# TRON_API_KEY optional). It scans back from the tip for a block exercising
+# the full pipeline (both contract outcomes, logs, internal transfers with
+# a non-zero callValue, complete pinned receipts) and writes the verbatim
+# wallet-API bodies into golden/tron/testdata/. HEIGHT pins a block and
+# skips the scan; a pinned block is still validated.
 tron-golden-fetch:
-	@if [ -z "$(TRON_RPC_URL)" ] || [ -z "$(TRON_API_KEY)" ]; then \
-		echo "❌ TRON_RPC_URL and TRON_API_KEY must both be set - golden capture needs a Tron wallet-API endpoint and an API key"; \
+	@if [ -z "$(TRON_RPC_URL)" ]; then \
+		echo "❌ TRON_RPC_URL must be set - golden capture needs a Tron wallet-API endpoint (the API key is optional; providers like Alchemy embed it in the URL)"; \
 		exit 1; \
 	fi
 	@HEIGHT="$(HEIGHT)" ./scripts/fetch_tron_golden.sh
@@ -368,7 +368,7 @@ help:
 	@echo "🌅 Tron tip-indexing acceptance (replay):"
 	@echo "  tron-replay-fetch  - Capture a replay fixture (FROM/TO blocks; requires TRON_RPC_URL)"
 	@echo "  tron-acceptance-test - Replay the fixture and assert the effective block interval <= Tron's 3s"
-	@echo "  tron-golden-fetch  - Capture a golden fixture block (HEIGHT pins; requires TRON_RPC_URL + TRON_API_KEY)"
+	@echo "  tron-golden-fetch  - Capture a golden fixture block (HEIGHT pins; requires TRON_RPC_URL; TRON_API_KEY optional)"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"

@@ -26,7 +26,7 @@ type tronSpec struct{}
 
 func (tronSpec) fixtures(t *testing.T, folder string) []chainFixture {
 	return loadChainFixtures(t, folder, parseTronFixtureMeta,
-		"make tron-golden-fetch captures a suitable mainnet block into this folder (requires TRON_RPC_URL and TRON_API_KEY)")
+		"make tron-golden-fetch captures a suitable mainnet block into this folder (requires TRON_RPC_URL; TRON_API_KEY is optional)")
 }
 
 func (tronSpec) modes() []receiptMode {
@@ -185,9 +185,10 @@ func writeTronJSON(w http.ResponseWriter, body any) {
 
 // assertTronBundleCoverage pins the fixture coverage the freeze requires:
 // the captured block must carry both contract outcomes and the derived
-// document inputs (logs, internal transfers), and the receipts must pin to
-// the block, so the goldens can only be generated from output that
-// exercises the full wallet-API path.
+// document inputs (logs, internal transfers, at least one carrying a
+// non-zero callValue), and the receipts must pin to the block, so the
+// goldens can only be generated from output that exercises the full
+// wallet-API path.
 func assertTronBundleCoverage(t *testing.T, bundle *tron.BlockBundle) {
 	t.Helper()
 
@@ -236,13 +237,23 @@ func assertTronBundleCoverage(t *testing.T, bundle *tron.BlockBundle) {
 	require.True(t, transfer, "fixture block carries no TransferContract; pick a block with a plain transfer")
 	require.True(t, smart, "fixture block carries no TriggerSmartContract; pick a block with a smart-contract call")
 
-	logs, internal := 0, 0
+	logs, internal, valuedInternal := 0, 0, 0
 	for _, receipt := range bundle.Receipts {
 		logs += len(receipt.Log)
 		internal += len(receipt.InternalTransactions)
+		for _, itx := range receipt.InternalTransactions {
+			// The document builder reads the first callValueInfo entry, so
+			// the freeze demands the value exactly where the frozen amount
+			// will come from; a TRC-10 movement qualifies too, its token
+			// amount is the callValue.
+			if len(itx.CallValueInfo) > 0 && itx.CallValueInfo[0].CallValue > 0 {
+				valuedInternal++
+			}
+		}
 	}
 	require.NotZero(t, logs, "fixture block carries no event log; pick a block with contract output")
 	require.NotZero(t, internal, "fixture block carries no internal transfer; pick a block with internal movements")
+	require.NotZero(t, valuedInternal, "fixture block carries no internal transfer with a non-zero callValue; pick a block with real asset movement")
 }
 
 // tronGoldenCollections lists the collections the tron freeze reads back.

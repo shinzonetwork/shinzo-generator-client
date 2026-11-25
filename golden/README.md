@@ -119,15 +119,16 @@ and writes the verbatim wallet-API bodies into
 
 ```bash
 export TRON_RPC_URL=https://api.trongrid.io
-export TRON_API_KEY=<your-trongrid-key>
+export TRON_API_KEY=<your-trongrid-key>   # optional; header sent only when set
 make tron-golden-fetch
 ```
 
 `HEIGHT=<number> make tron-golden-fetch` pins an explicit block and skips
 the scan; a pinned block still runs the suitability checks and fails
-loudly if it does not qualify. TronGrid requires an API key, sent as the
-`Tron-Pro-Api-Key` header; the endpoint and the key are never written into
-the fixtures.
+loudly if it does not qualify. The API key is optional: it is sent as the
+`Tron-Pro-Api-Key` header only when set, so providers that embed the key
+in the URL (Alchemy) work without a dummy value; the endpoint and the key
+are never written into the fixtures.
 
 Block requirements (the script enforces them):
 
@@ -138,8 +139,10 @@ Block requirements (the script enforces them):
 - at least one `SUCCESS` and one failed `contractRet`, so both outcomes
   are frozen
 - a `TransferContract` and a `TriggerSmartContract` present
-- at least one event log and one internal transfer, so the derived
-  document inputs are exercised
+- at least one event log and one internal transfer with a non-zero
+  `callValue` (the first `callValueInfo` entry), so the frozen
+  `internalTransfer` rows carry a real amount; a TRC-10 movement qualifies
+  because its token amount is the `callValue`
 
 ## What the goldens compare
 
