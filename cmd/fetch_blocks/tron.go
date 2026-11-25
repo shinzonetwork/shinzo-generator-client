@@ -10,8 +10,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -33,6 +35,13 @@ const (
 	// receiptModeBlock labels the Tron receipt capture: the wallet API has a
 	// single per-block receipts endpoint and no batch/per-tx duality.
 	receiptModeBlock = "block"
+
+	// tronCaptureAttempts bounds one block's capture: 1 try plus 3 retries
+	// waiting 500ms, 1s, 2s, about one Tron block interval in total. Near
+	// the tip a load balancer can route a call to a node that has not
+	// indexed the height yet; the bounded wait usually outlasts that lag,
+	// while a node that never serves the height still fails in seconds.
+	tronCaptureAttempts = 4
 )
 
 // tronEnv bundles the wallet-API connection parameters.
@@ -102,18 +111,61 @@ func (b *tronBackend) fetchTip(ctx context.Context) (uint64, error) {
 }
 
 // captureBlock fetches one block plus its per-block receipts, keeping the
-// node's body bytes verbatim. The wallet API serves receipts per block with
-// no fallback path, so a receipt count that disagrees with the block's
-// transaction count is a capture failure, not a fallback trigger: serving
-// partial receipts to the replay would time a block without its receipt
-// work and flatter the benchmark.
+// node's body bytes verbatim. Near the tip a load balancer can route a call
+// to a node that has not indexed the height yet: it answers an empty block
+// object, or zero receipts for a block that carries transactions. Those lag
+// symptoms are HTTP 200 business data, so the transport-level retry loop
+// never sees them; the backend therefore retries them itself, a bounded few
+// times with backoff. The wallet API serves receipts per block with no
+// fallback path, so a count that still disagrees after the retries is a
+// capture failure, not a fallback trigger: serving partial receipts to the
+// replay would time a block without its receipt work and flatter the
+// benchmark.
 func (b *tronBackend) captureBlock(ctx context.Context, num uint64) (*fixtureBlock, error) {
+	var lastErr error
+	for attempt := range tronCaptureAttempts {
+		if attempt > 0 {
+			if err := sleepCtx(ctx, retryBackoffFn(attempt)); err != nil {
+				return nil, err
+			}
+		}
+		fb, err := b.captureBlockOnce(ctx, num)
+		if err == nil {
+			return fb, nil
+		}
+		lastErr = err
+		if _, ok := errors.AsType[*indexLagError](err); !ok {
+			return nil, err
+		}
+		log.Printf("block %d: %v (attempt %d/%d, the node may still be indexing the height)", num, err, attempt+1, tronCaptureAttempts)
+	}
+	return nil, fmt.Errorf("block %d: %w (still not indexed after %d attempts)", num, lastErr, tronCaptureAttempts)
+}
+
+// indexLagError marks a capture answer that means "the answering node has
+// not indexed this height yet": the empty-object block answer, or a receipt
+// count that disagrees with the block's transaction count. It is not a
+// transport failure (withRetries retries only transport errors and
+// 429/5xx), which is why the tron backend retries it one level up.
+type indexLagError struct {
+	err error
+}
+
+func (e *indexLagError) Error() string { return e.err.Error() }
+
+func (e *indexLagError) Unwrap() error { return e.err }
+
+// captureBlockOnce performs one block-plus-receipts fetch attempt, keeping
+// the node's body bytes verbatim. Only the two lag symptoms return an
+// indexLagError; parse errors, business {"Error": ...} answers and a
+// malformed block stay fatal so a retry cannot mask them.
+func (b *tronBackend) captureBlockOnce(ctx context.Context, num uint64) (*fixtureBlock, error) {
 	blockRaw, err := b.walletCall(ctx, tronEndpointGetBlockByNum, map[string]int64{"num": int64(num)}) //nolint:gosec // G115: num <= tip, which came from an int64 height
 	if err != nil {
 		return nil, err
 	}
 	if isEmptyJSONObject(blockRaw) {
-		return nil, fmt.Errorf("block %d not available on the node (empty object)", num)
+		return nil, &indexLagError{err: fmt.Errorf("block %d not available on the node (empty object)", num)}
 	}
 	var block struct {
 		BlockID      string            `json:"blockID"`
@@ -136,7 +188,7 @@ func (b *tronBackend) captureBlock(ctx context.Context, num uint64) (*fixtureBlo
 		return nil, fmt.Errorf("parse gettransactioninfobyblocknum result: %w", err)
 	}
 	if len(infos) != len(block.Transactions) {
-		return nil, fmt.Errorf("block %d: node returned %d receipts for %d transactions", num, len(infos), len(block.Transactions))
+		return nil, &indexLagError{err: fmt.Errorf("node returned %d receipts for %d transactions", len(infos), len(block.Transactions))}
 	}
 
 	return &fixtureBlock{

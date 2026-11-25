@@ -367,7 +367,10 @@ func fixtureOutPath(opts *captureOptions, fx *replayFixture) string {
 
 // captureRange walks the block range, fills the fixture and saves it. An
 // interrupt (SIGINT/SIGTERM) stops capture and saves whatever was collected
-// so far as a partial fixture instead of losing the work.
+// so far as a partial fixture instead of losing the work. A hard capture
+// failure stops the walk the same way: the blocks before the failing one
+// are valid capture work, so they are salvaged into a partial fixture and
+// the error still surfaces to keep the run's exit non-zero.
 func captureRange(ctx context.Context, backend captureBackend, opts *captureOptions, from, to uint64) error {
 	fx := &replayFixture{
 		Meta: fixtureMeta{
@@ -380,17 +383,21 @@ func captureRange(ctx context.Context, backend captureBackend, opts *captureOpti
 	}
 
 	interrupted := false
+	// failErr records a hard capture failure: the walk stops and the error
+	// is re-raised after the salvage below, keeping the failure visible.
+	var failErr error
 	// lastCaptured feeds the partial fixture's To rewrite; it is only read
 	// after the zero-block check, which guarantees at least one append ran.
 	lastCaptured := from
-	for num := from; num <= to && !interrupted; num++ {
+	for num := from; num <= to && !interrupted && failErr == nil; num++ {
 		fb, err := backend.captureBlock(ctx, num)
 		if err != nil {
 			if ctx.Err() != nil {
 				interrupted = true
 				break
 			}
-			return fmt.Errorf("block %d: %w", num, err)
+			failErr = fmt.Errorf("block %d: %w", num, err)
+			break
 		}
 		fx.Blocks = append(fx.Blocks, *fb)
 		lastCaptured = num
@@ -406,12 +413,15 @@ func captureRange(ctx context.Context, backend captureBackend, opts *captureOpti
 		}
 	}
 
-	// Zero blocks is not a fixture: the only way here is an interrupt
-	// landing before the first block completed (a real block error returns
-	// directly above), so the file would be an empty marker whose _partial
-	// name silently replaces a complete capture in the suite's latest-file
-	// pick. Nothing mid-capture was lost, so there is nothing to salvage.
+	// Zero blocks is not a fixture: a real block error re-raises as-is and
+	// an interrupt reports its own reason, and neither writes a file, since
+	// an empty _partial marker would be the newest file in testdata and
+	// silently replace a complete capture in the suite's latest-file pick.
+	// Nothing mid-capture was lost, so there is nothing to salvage.
 	if len(fx.Blocks) == 0 {
+		if failErr != nil {
+			return failErr
+		}
 		return fmt.Errorf("interrupted before any block completed; no fixture written (requested %d..%d)", from, to)
 	}
 	if interrupted {
@@ -421,6 +431,13 @@ func captureRange(ctx context.Context, backend captureBackend, opts *captureOpti
 		fx.Meta.To = lastCaptured
 		fx.Meta.CapturePartial = true
 		log.Printf("interrupted - saving partial fixture (%d blocks)", len(fx.Blocks))
+	} else if failErr != nil {
+		// The failing block is the capture's natural end: rewriting To and
+		// marking the fixture partial mirrors the interrupt salvage, and
+		// the error is re-raised after the save so scripts still see it.
+		fx.Meta.To = lastCaptured
+		fx.Meta.CapturePartial = true
+		log.Printf("capture failed, saving partial fixture (%d blocks)", len(fx.Blocks))
 	}
 	fx.Meta.BlockCount = len(fx.Blocks)
 
@@ -429,6 +446,9 @@ func captureRange(ctx context.Context, backend captureBackend, opts *captureOpti
 		return fmt.Errorf("save fixture: %w", err)
 	}
 	log.Printf("saved %d blocks to %s", len(fx.Blocks), out)
+	if failErr != nil {
+		return fmt.Errorf("%w (salvaged %d blocks to %s)", failErr, len(fx.Blocks), out)
+	}
 	return nil
 }
 

@@ -12,12 +12,18 @@ import (
 )
 
 // tronCaptureServer is a minimal wallet API for the capture unit tests: one
-// answer per endpoint, plus request capture for the payload assertions.
+// answer per endpoint, plus request capture for the payload assertions. The
+// lag knobs make the first N answers the "node has not indexed the height
+// yet" shapes, so the capture's lag retry can be exercised.
 type tronCaptureServer struct {
-	nowBlock string
-	block    string
-	receipts string
-	lastNum  int64 // decoded num of the last getblockbynum call
+	nowBlock     string
+	block        string
+	receipts     string
+	lastNum      int64 // decoded num of the last getblockbynum call
+	blockLag     int   // first N block answers are the empty object
+	blockCalls   int
+	receiptsLag  int // first N receipt answers are the empty object
+	receiptCalls int
 }
 
 func (s *tronCaptureServer) handler() http.Handler {
@@ -31,9 +37,21 @@ func (s *tronCaptureServer) handler() http.Handler {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		s.lastNum = req.Num
+		s.blockCalls++
+		if s.blockLag > 0 {
+			s.blockLag--
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
 		_, _ = w.Write([]byte(s.block))
 	})
 	mux.HandleFunc("/wallet/gettransactioninfobyblocknum", func(w http.ResponseWriter, _ *http.Request) {
+		s.receiptCalls++
+		if s.receiptsLag > 0 {
+			s.receiptsLag--
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
 		_, _ = w.Write([]byte(s.receipts))
 	})
 	return mux
@@ -131,7 +149,7 @@ func TestTronCaptureBlock(t *testing.T) {
 		assert.JSONEq(t, `[]`, string(fb.Receipts))
 	})
 
-	t.Run("receipt count must equal the transaction count", func(t *testing.T) {
+	t.Run("receipt count mismatch retries then fails", func(t *testing.T) {
 		t.Parallel()
 		s := &tronCaptureServer{
 			block:    `{"blockID":"abc","block_header":{"raw_data":{"number":42}},"transactions":[{},{}]}`,
@@ -140,9 +158,56 @@ func TestTronCaptureBlock(t *testing.T) {
 		server := httptest.NewServer(s.handler())
 		defer server.Close()
 
+		old := retryBackoffFn
+		retryBackoffFn = fastBackoff()
+		t.Cleanup(func() { retryBackoffFn = old })
+
 		_, err := newTronTestBackend(server).captureBlock(context.Background(), 42)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "node returned 1 receipts for 2 transactions")
+		assert.Contains(t, err.Error(), "still not indexed after 4 attempts")
+		assert.Equal(t, tronCaptureAttempts, s.receiptCalls, "each lag retry re-asks the receipts endpoint")
+	})
+
+	t.Run("receipt lag resolves on retry", func(t *testing.T) {
+		t.Parallel()
+		s := &tronCaptureServer{
+			block:       `{"blockID":"abc","block_header":{"raw_data":{"number":42}},"transactions":[{},{}]}`,
+			receipts:    `[{"id":"tx1"},{"id":"tx2"}]`,
+			receiptsLag: 2,
+		}
+		server := httptest.NewServer(s.handler())
+		defer server.Close()
+
+		old := retryBackoffFn
+		retryBackoffFn = fastBackoff()
+		t.Cleanup(func() { retryBackoffFn = old })
+
+		fb, err := newTronTestBackend(server).captureBlock(context.Background(), 42)
+		require.NoError(t, err)
+		assert.JSONEq(t, s.receipts, string(fb.Receipts))
+		assert.Equal(t, 3, s.receiptCalls, "two not-yet-indexed answers plus the indexed one")
+	})
+
+	t.Run("lagging block node catches up on retry", func(t *testing.T) {
+		t.Parallel()
+		s := &tronCaptureServer{
+			block:    `{"blockID":"abc","block_header":{"raw_data":{"number":42}},"transactions":[]}`,
+			receipts: `[]`,
+			blockLag: 1,
+		}
+		server := httptest.NewServer(s.handler())
+		defer server.Close()
+
+		old := retryBackoffFn
+		retryBackoffFn = fastBackoff()
+		t.Cleanup(func() { retryBackoffFn = old })
+
+		fb, err := newTronTestBackend(server).captureBlock(context.Background(), 42)
+		require.NoError(t, err)
+		assert.Equal(t, "42", fb.Number)
+		assert.JSONEq(t, `[]`, string(fb.Receipts))
+		assert.Equal(t, 2, s.blockCalls, "one not-yet-indexed answer plus the indexed one")
 	})
 
 	t.Run("empty object reads as an unavailable block", func(t *testing.T) {
@@ -151,9 +216,14 @@ func TestTronCaptureBlock(t *testing.T) {
 		server := httptest.NewServer(s.handler())
 		defer server.Close()
 
+		old := retryBackoffFn
+		retryBackoffFn = fastBackoff()
+		t.Cleanup(func() { retryBackoffFn = old })
+
 		_, err := newTronTestBackend(server).captureBlock(context.Background(), 42)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not available on the node")
+		assert.Contains(t, err.Error(), "still not indexed after 4 attempts")
 	})
 }
 

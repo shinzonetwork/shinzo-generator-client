@@ -76,6 +76,14 @@ writes, and redaction are shared with the EVM path unchanged.
 - **Receipt-count validation**: the capture accepts a block only when the
   node returns one receipt per transaction, so the replay never times a block
   without its receipt work.
+- **Near-tip lag retries**: a capture ending at the tip can race a load
+  balancer that answers from a node which has not indexed the newest height
+  yet (an empty block object, or zero receipts for a block that has
+  transactions). Those answers retry up to 3 times with backoff (about one
+  Tron block interval) before the block fails.
+- **Failed captures keep their work**: a hard failure mid-capture salvages
+  the blocks captured before it into a partial fixture (as `capture_partial:
+  true`) and still exits non-zero, the same way an interrupt does.
 
 Semantics:
 
@@ -95,8 +103,9 @@ Semantics:
 - Retries transport errors and HTTP 429/5xx with `Retry-After`/exponential
   backoff (500 ms doubling, capped at 8 s); 250 ms between requests by default
   (`--delay`).
-- **Interrupt-aware**: SIGINT/SIGTERM saves what was captured so far as a
-  partial fixture (`capture_partial: true` in the meta).
+- **Interrupt- and failure-aware**: SIGINT/SIGTERM saves what was captured so
+  far as a partial fixture (`capture_partial: true` in the meta); a hard
+  capture failure salvages the same way and still exits non-zero.
 - Saves atomically (temp file + rename).
 - Fixtures land in the shared `replay/testdata/` directory named
   `<chain>_blocks_<from>_<to>.json` (`ethereum_blocks_4901_5000.json`), so fixtures
