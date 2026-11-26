@@ -55,6 +55,7 @@ type BlockBundle struct {
 type Fetcher struct {
 	client         rpcClient
 	receiptWorkers int
+	chainName      string
 
 	// Connection-config fields populated by NewFetcherFromConfig. When
 	// non-empty, Connect(ctx) dials the RPC endpoint using these values.
@@ -103,6 +104,7 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		dialTimeout:    time.Duration(cfg.Geth.DialTimeoutSeconds) * time.Second,
 		chainID:        cfg.Chain.ChainID,
 		receiptWorkers: receiptWorkers,
+		chainName:      cfg.Chain.Name,
 	}, nil
 }
 
@@ -120,7 +122,7 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
 	}
-	client, err := NewEthereumClient(ctx, f.nodeURL, f.wsURL, f.apiKey, f.apiKeyType, f.dialTimeout)
+	client, err := NewEthereumClientForChain(ctx, f.nodeURL, f.wsURL, f.apiKey, f.apiKeyType, f.dialTimeout, f.chainName)
 	if err != nil {
 		return fmt.Errorf("create ethereum client: %w", err)
 	}
