@@ -52,10 +52,9 @@ run = ["check-deadcode", "check-loc", "vuln"]
 [tasks.test-unit]
 description = "Running unit tests with coverage report."
 run = "gotestsum -- -coverprofile=coverage.out -parallel=4 ./... -count=1"
-alias = "test"
 
 [task_templates."test:integration"]
-vars = { chain = "" }                                                # Defaults for Ethereum
+vars = { chain = "" }  # Defaults for Ethereum
 run = "go test -tags=integration  -v ./integration/{{ vars.chain }}"
 
 [tasks.evm-integration]
@@ -117,6 +116,15 @@ vars = { chain = "bsc", timeout = "400s" }
 [tasks.ethereum-test]
 description = "Running all Ethereum-related test suites."
 depends = ["test-unit", "evm-integration", "ethereum-golden"]
+
+[tasks.test]
+description = "Running all test suites (besides replay) for all chains"
+run = [
+    { task = "test-unit"}, 
+    { task = "evm-integration"}, # Should run per-chain integration suites in parallel once available
+    { tasks = ["ethereum-live-test", "bsc-live-test"] }, 
+    { task = "ethereum-golden"} # Should run per-chain golden test suites in parallel  once available
+]
 
 # Binary building tasks & templates
 [task_templates."generator:build"]
