@@ -36,7 +36,7 @@ var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
 const DefaultLowestBlockQueryLimit = 1
 
 // Version is the generator version, for example "v0.7.0-ethereum-mainnet",
-// set at build time via -ldflags (see the Makefile build target and the
+// set at build time via -ldflags (see the Makefile build target/ mise *build tasks  and the
 // Dockerfile builder stage); "dev" when built without injection.
 var Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
 

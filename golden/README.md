@@ -8,7 +8,7 @@ change to what the indexer stores shows up as a golden diff that has to be
 reviewed before it lands.
 
 The suite is behind the `integration` build tag and runs as part of
-`make integration-test`. No network access and no running node are needed:
+`mise run ethereum-test`. No network access and no running node are needed:
 the only endpoint is an in-process mock server that answers from the fixture
 files, and it serves exactly the three methods the pipeline calls
 (`eth_getBlockByNumber`, `eth_getBlockReceipts`, `eth_getTransactionReceipt`).
@@ -28,19 +28,19 @@ store back.
 ## Running
 
 ```bash
-go test -tags=integration ./golden/... -count=1
+mise run ethereum-golden
 ```
 
-Or together with the rest of the integration suite:
+Or together with the rest of the Ethereum test suites:
 
 ```bash
-make integration-test
+mise run ethereum-test
 ```
 
 ## Regenerating goldens
 
 ```bash
-go test -tags=integration ./golden/... -run Golden -golden-update
+mise run ethereum-golden-update
 ```
 
 Regenerate only when the stored output is meant to change, review the
