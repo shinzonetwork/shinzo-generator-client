@@ -51,7 +51,11 @@ run = ["check-deadcode", "check-loc", "vuln"]
 # Testing tasks & templates
 [tasks.test-unit]
 description = "Running unit tests with coverage report."
-run = "gotestsum -- -coverprofile=coverage.out -parallel=4 ./... -count=1"
+# Unit tests assert on config defaults and validation errors, so config-state
+# overrides from the .env files would silently flip their outcomes.
+env = { DEFRADB_KEYRING_SECRET = "", INDEXER_START_HEIGHT = "", SCHEMA_AUTH_MODE = "" }
+usage= 'flag "--parallel <parallel>" help="Maximum parallel tests" default="4"'
+run = "gotestsum -- -covermode=atomic -coverprofile=coverage.out -parallel=${usage_parallel} ./..."
 
 [task_templates."test:integration"]
 vars = { chain = "" }  # Defaults for Ethereum
