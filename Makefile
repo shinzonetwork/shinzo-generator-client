@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build ethereum-start bsc-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test
+.PHONY: deps env build evm-build cosmos-build ethereum-start bsc-start shinzohub-start kava-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -28,7 +28,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # injection identical between evm-build and any future per-chain build target.
 LDFLAGS := -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)"
 
-build: evm-build
+build: evm-build cosmos-build
 	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 
 evm-build:
@@ -41,8 +41,29 @@ evm-build:
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
 	fi
 
+# cosmos-build builds the cosmos-evm family binary (ShinzoHub, Kava): EVM
+# JSON-RPC plus the chain's native CometBFT/REST APIs.
+cosmos-build:
+	go build $(LDFLAGS) -o bin/block_poster_cosmos ./cmd/block_poster/cosmos/
+	@if [ "$(VERSION)" = "dev" ]; then \
+		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+	elif grep -aFq "$(VERSION)" bin/block_poster_cosmos; then \
+		echo "✅ version injected: $(VERSION)"; \
+	else \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
+	fi
+
 ethereum-start:
 	./bin/block_poster_evm
+
+# The cosmos-evm start targets go through the run scripts: .env is exported
+# here and loaded again by the config loader, so its Ethereum GETH_* values
+# would otherwise override the chain's endpoints. The scripts pin them.
+shinzohub-start:
+	./scripts/run_shinzohub.sh
+
+kava-start:
+	./scripts/run_kava.sh
 
 bsc-start:
 	./bin/block_poster_evm -config config/config_bsc.yaml
