@@ -138,7 +138,7 @@ fixture already exists (a second capture would silently turn the freeze
 into a multi-block one). To recapture deliberately:
 
 ```bash
-mise run tron-golden-fetch --override
+FORCE=1 mise run tron-golden-fetch
 ```
 
 A forced run replaces the existing pair, and the old pair is removed only

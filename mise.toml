@@ -66,6 +66,11 @@ run = "go test -tags=integration  -v ./integration/{{ vars.chain }}"
 description = "Running the EVM integration tests."
 extends = "test:integration"
 
+[tasks.tron-integration]
+description = "Running the Tron integration tests."
+extends = "test:integration"
+vars = { chain = "tron" } 
+
 [task_templates."test:golden"]
 vars = { test = "TestGoldenTypedPath/ethereum" } 
 run = "go test -tags=integration ./golden/... -run {{ vars.test }} -count=1 -v"
@@ -73,6 +78,11 @@ run = "go test -tags=integration ./golden/... -run {{ vars.test }} -count=1 -v"
 [tasks.ethereum-golden]
 description = "Running Ethereum golden tests."
 extends = "test:golden"
+
+[tasks.tron-golden]
+description = "Running Tron golden tests."
+extends = "test:golden"
+vars = { test = "TestGoldenTypedPath/tron" } 
 
 [task_templates."test:golden-update"]
 vars = { test = "TestGoldenTypedPath/ethereum" }
@@ -82,9 +92,14 @@ run = "go test -tags=integration ./golden/... -run {{ vars.test }} -golden-updat
 description = "Updating Ethereum golden fixture."
 extends = "test:golden-update"
 
+[tasks.tron-golden-update]
+description = "Updating Tron golden fixture."
+extends = "test:golden-update"
+vars = { test = "TestGoldenTypedPath/tron" }
+
 [task_templates."test:replay"]
-vars = { adapter = "evm", test = "TestEthereumReplayAcceptance" }
-run = "go test -tags=acceptance ./replay/{{ vars.adapter }} -run {{ vars.test }} -count=1 -v -timeout 30m"
+vars = { adapter = "evm", test = "TestEthereumReplayAcceptance", timeout = "30m" }
+run = "go test -tags=acceptance ./replay/{{ vars.adapter }} -run {{ vars.test }} -count=1 -v -timeout {{ vars.timeout }}"
 
 [tasks.ethereum-replay]
 description = "Running Ethereum replay test."
@@ -95,15 +110,26 @@ description = "Running BSC replay test."
 extends = "test:replay"
 vars = { test = "TestBSCReplayAcceptance" }
 
+[tasks.tron-replay]
+description = "Running Tron replay test."
+extends = "test:replay"
+vars = { adapter = "tron", test = "TestTronReplayAcceptance" }
+
+[tasks.tron-replay-scrub-guard]
+description = "Running Tron replay test scrub guard."
+extends = "test:replay"
+vars = { adapter = "tron", test = "TestReplayConfigKeepsSuiteKnobs", timeout = "10s" }
+
 [tasks.replay-fetch]
 description = "Fetch blocks for the replay test harness."
 usage = '''
 flag "--chain <chain>" help="Target chain" default="ethereum"
 flag "--network <network>" help="Target network" default="mainnet"
+flag "--adapter <adapter>" help="Target chain adapter" default="evm"
 flag "--from <from>" help="Start block" default="0"
 flag "--to <to>" help="End block" default="0"
 '''
-run = "go run ./cmd/fetch_blocks --chain ${usage_chain} --network ${usage_network} --from ${usage_from} --to ${usage_to}"
+run = "go run ./cmd/fetch_blocks --chain ${usage_chain} --network ${usage_network} --adapter ${usage_adapter} --from ${usage_from} --to ${usage_to}"
 
 [task_templates."test:live"]
 vars = { chain = "", timeout = "20s" }
@@ -118,6 +144,11 @@ description = "Running BSC live tests"
 extends = "test:live"
 vars = { chain = "bsc", timeout = "400s" }
 
+[tasks.tron-live-test]
+description = "Running Tron live tests"
+extends = "test:live"
+vars = { chain = "tron", timeout = "400s" }
+
 [tasks.ethereum-test]
 description = "Running all Ethereum-related test suites."
 depends = ["test-unit", "evm-integration", "ethereum-golden"]
@@ -126,23 +157,28 @@ depends = ["test-unit", "evm-integration", "ethereum-golden"]
 description = "Running all test suites (besides replay) for all chains"
 run = [
     { task = "test-unit"}, 
-    { task = "evm-integration"}, # Should run per-chain integration suites in parallel once available
-    { tasks = ["ethereum-live-test", "bsc-live-test"] }, 
-    { task = "ethereum-golden"} # Should run per-chain golden test suites in parallel  once available
+    { tasks = ["evm-integration", "tron-integration"] }, 
+    { tasks = ["ethereum-live-test", "bsc-live-test", "tron-live-test"] }, 
+    { tasks = ["ethereum-golden", "tron-golden"]}
 ]
 
 # Binary building tasks & templates
 [task_templates."generator:build"]
-description = "Building the generator binary."
 vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"', adapter = "evm" }
 run = "go build -ldflags {{ vars.ldflags }} -o bin/block_poster_{{ vars.adapter }} ./cmd/block_poster/{{ vars.adapter }}/"
 
 [tasks.evm-build]
+description = "Building the EVM generator binary."
 extends = "generator:build"
 
+[tasks.tron-build]
+description = "Building the Tron generator binary."
+extends = "generator:build"
+vars = { adapter = "tron" }
+
 [tasks.build-all]
-description = "Building block_poster, fetch_blocks, and build_schema binaries."
-depends = "evm-build"
+description = "Building all block_poster, fetch_blocks, and build_schema binaries."
+depends = ["evm-build", "tron-build"]
 run = [
     "go build -o bin/fetch_blocks ./cmd/fetch_blocks/",
     "go build -o bin/build_schema ./cmd/build_schema/",
@@ -161,6 +197,11 @@ extends = "generator:start"
 description = "Starting BSC generator binary."
 extends = "generator:start"
 vars = { config = "./config/config_bsc.yaml" }
+
+[tasks.tron-start]
+description = "Starting Tron generator binary."
+extends = "generator:start"
+vars = { adapter = "tron", config = "./config/config_tron.yml" }
 
 # Cleanup 
 [tasks.clean]
