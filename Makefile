@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build tron-build ethereum-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test tron-replay-fetch tron-acceptance-test
+.PHONY: deps env build evm-build tron-build ethereum-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test tron-replay-fetch tron-acceptance-test tron-golden-fetch ethereum-golden-test tron-golden-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -17,6 +17,14 @@ GETH_API_KEY ?=
 # next token as the value, failing the run.
 FROM ?= 0
 TO ?= 0
+# Pinned block height for tron-golden-fetch. Empty = the capture script
+# scans backwards from the tip for a suitable block.
+HEIGHT ?=
+# Replace switch for tron-golden-fetch. Empty = the capture script refuses
+# to run when golden/tron/testdata already holds a fixture; FORCE=1 makes a
+# recapture replace the existing pair (removed only after the new block
+# qualifies).
+FORCE ?=
 # Tron wallet-API env vars for the tron live smoke (tron-live-test and the
 # TRON phase of integration-test). The suite boots the bundled production
 # config/config_tron.yml through the standard loader, so CHAIN_NETWORK and
@@ -138,6 +146,17 @@ integration-test:
 	@echo "🧪 Running integration tests..."
 	@go test -tags=integration -v ./integration/ ./golden/
 	@go test -tags=integration -v ./integration/tron/
+
+# Per-chain golden freeze targets. One shared runner drives every chain
+# case, so the -run filter picks a single chain's subtest. -count=1 forces
+# the run every time: Go's test cache key ignores runtime inputs (the
+# fixture and golden files under golden/), and unlike `go clean -testcache`
+# it leaves the rest of the project's test results cached.
+ethereum-golden-test:
+	go test -tags=integration ./golden/... -run 'TestGoldenTypedPath/ethereum' -count=1 -v
+
+tron-golden-test:
+	go test -tags=integration ./golden/... -run 'TestGoldenTypedPath/tron' -count=1 -v
 
 tron-live-test:
 	@echo "🌅 Running tron live smoke test with your wallet-API endpoint..."
@@ -307,6 +326,22 @@ tron-replay-fetch:
 tron-acceptance-test:
 	go test -tags=acceptance ./replay/tron -run TestTronReplayAcceptance -count=1 -v -timeout 30m
 
+# tron-golden-fetch captures one suitable mainnet block for the golden
+# freeze via scripts/fetch_tron_golden.sh (one-time; TRON_RPC_URL required,
+# TRON_API_KEY optional). It scans back from the tip for a block exercising
+# the full pipeline (both contract outcomes, logs, internal transfers with
+# a non-zero callValue, complete pinned receipts) and writes the verbatim
+# wallet-API bodies into golden/tron/testdata/. HEIGHT pins a block and
+# skips the scan; a pinned block is still validated. The freeze is
+# single-block: the script refuses when a fixture exists and FORCE=1
+# replaces it (the old pair is removed only after the new block qualifies).
+tron-golden-fetch:
+	@if [ -z "$(TRON_RPC_URL)" ]; then \
+		echo "❌ TRON_RPC_URL must be set - golden capture needs a Tron wallet-API endpoint (the API key is optional; providers like Alchemy embed it in the URL)"; \
+		exit 1; \
+	fi
+	@FORCE="$(FORCE)" HEIGHT="$(HEIGHT)" ./scripts/fetch_tron_golden.sh
+
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
 	@echo "=================================================="
@@ -325,6 +360,10 @@ help:
 	@echo "  ethereum-live-test - Ethereum live suite (GETH_RPC_URL gates the run)"
 	@echo "  bsc-live-test      - BSC live suite (GETH_RPC_URL gates the run)"
 	@echo ""
+	@echo "🧪 Golden freeze (per chain, mock only):"
+	@echo "  ethereum-golden-test - Freeze check for the ethereum pipeline"
+	@echo "  tron-golden-test     - Freeze check for the tron pipeline (needs captured fixtures)"
+	@echo ""
 	@echo "⏱  Ethereum tip-indexing acceptance (replay):"
 	@echo "  replay-fetch       - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
 	@echo "  ethereum-acceptance-test - Replay the fixture and assert the effective block interval <= 12s"
@@ -336,6 +375,7 @@ help:
 	@echo "🌅 Tron tip-indexing acceptance (replay):"
 	@echo "  tron-replay-fetch  - Capture a replay fixture (FROM/TO blocks; requires TRON_RPC_URL)"
 	@echo "  tron-acceptance-test - Replay the fixture and assert the effective block interval <= Tron's 3s"
+	@echo "  tron-golden-fetch  - Capture a golden fixture block (HEIGHT pins; requires TRON_RPC_URL; TRON_API_KEY optional; FORCE=1 replaces)"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
