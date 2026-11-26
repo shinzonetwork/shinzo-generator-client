@@ -494,7 +494,7 @@ func TestCaptureRangeNamesCompleteFixture(t *testing.T) {
 
 	server := captureTestServer(t, zeroTxBlock)
 	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
-	require.NoError(t, captureRange(context.Background(), testEnv(server), opts, 1, 1))
+	require.NoError(t, captureRange(context.Background(), &evmBackend{env: testEnv(server)}, opts, 1, 1))
 
 	// A complete capture keeps the plain range name — no _partial suffix.
 	data, err := os.ReadFile(filepath.Join(defaultOutDir, "bsc_blocks_1_1"+fixtureExt))
@@ -520,7 +520,7 @@ func TestCaptureRangeInterruptWithZeroBlocksWritesNothing(t *testing.T) {
 	cancel()
 
 	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
-	err := captureRange(ctx, testEnv(server), opts, 10, 12)
+	err := captureRange(ctx, &evmBackend{env: testEnv(server)}, opts, 10, 12)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "interrupted before any block completed")
 
@@ -588,7 +588,7 @@ func TestCaptureRangeInterruptMidRunSavesPartialFixture(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
-	require.NoError(t, captureRange(ctx, testEnv(server), opts, 10, 12))
+	require.NoError(t, captureRange(ctx, &evmBackend{env: testEnv(server)}, opts, 10, 12))
 
 	data, err := os.ReadFile(filepath.Join(defaultOutDir, "bsc_blocks_10_10_partial"+fixtureExt))
 	require.NoError(t, err)
@@ -597,4 +597,64 @@ func TestCaptureRangeInterruptMidRunSavesPartialFixture(t *testing.T) {
 	assert.True(t, saved.Meta.CapturePartial)
 	assert.Equal(t, uint64(10), saved.Meta.To, "To is the last captured block, not the requested range end")
 	assert.Equal(t, 1, saved.Meta.BlockCount)
+}
+
+func TestCaptureRangeFailureSalvagesPartialFixture(t *testing.T) {
+	// Not parallel: t.Chdir redirects the whole process's working directory.
+	t.Chdir(t.TempDir())
+
+	// Block 1 is served normally, block 2 comes back null for good: the EVM
+	// backend has no lag retry, so capture stops there. The blocks before
+	// the failure are salvage the way an interrupt salvages them, and the
+	// error must still surface so the run exits non-zero.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Helper()
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "eth_getBlockReceipts":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":[]}`))
+		case "eth_getBlockByNumber":
+			var rawNum string
+			if err := json.Unmarshal(req.Params[0], &rawNum); err != nil {
+				t.Errorf("decode block number: %v", err)
+				return
+			}
+			num, err := parseHexUint(rawNum)
+			if err != nil {
+				t.Errorf("parse block number: %v", err)
+				return
+			}
+			if num == 2 {
+				_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":null}`)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"number":"0x%x","transactions":[]}}`, num)
+		default:
+			t.Errorf("unexpected RPC method %s", req.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	opts := &captureOptions{chain: "BSC", network: "Mainnet", delay: time.Millisecond}
+	err := captureRange(context.Background(), &evmBackend{env: testEnv(server)}, opts, 1, 3)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "block 2")
+	assert.Contains(t, err.Error(), "salvaged 1 blocks")
+
+	data, err := os.ReadFile(filepath.Join(defaultOutDir, "bsc_blocks_1_1_partial"+fixtureExt))
+	require.NoError(t, err)
+	var salvaged replayFixture
+	require.NoError(t, json.Unmarshal(data, &salvaged))
+	assert.True(t, salvaged.Meta.CapturePartial)
+	assert.Equal(t, uint64(1), salvaged.Meta.To, "To is the last captured block, not the requested range end")
+	assert.Equal(t, 1, salvaged.Meta.BlockCount)
 }

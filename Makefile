@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build tron-build ethereum-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test
+.PHONY: deps env build evm-build tron-build ethereum-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test tron-replay-fetch tron-acceptance-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -91,6 +91,13 @@ test:
 	@echo "🧪 Running all tests with summary output..."
 	@go test ./... -v -count=1 | tee /tmp/test_output.log; \
 	exit_code=$$?; \
+	echo ""; \
+	echo "🧼 Running replay scrub guard (acceptance tag, no fixture)..."; \
+	go test -tags=acceptance ./replay/tron -run TestReplayConfigKeepsSuiteKnobs -count=1 -v > /tmp/scrub_guard.log 2>&1; \
+	guard_code=$$?; \
+	cat /tmp/scrub_guard.log | tee -a /tmp/test_output.log; \
+	rm -f /tmp/scrub_guard.log; \
+	if [ $$guard_code -ne 0 ]; then exit_code=$$guard_code; fi; \
 	echo ""; \
 	echo "📊 TEST SUMMARY:"; \
 	echo "================"; \
@@ -276,6 +283,30 @@ replay-fetch:
 ethereum-acceptance-test:
 	go test -tags=acceptance ./replay/evm -run TestEthereumReplayAcceptance -count=1 -v -timeout 30m
 
+# tron-replay-fetch captures a raw replay fixture over the Tron wallet API
+# via cmd/fetch_blocks --adapter tron (one-time; needs a TronGrid or
+# java-tron endpoint). FROM/TO are overridable block numbers; the default
+# captures 100 blocks ending at the current tip. Fixtures land in
+# replay/testdata/ (gitignored) as tron_blocks_<from>_<to>.json. TronGrid
+# serves full block and receipt history by height, so the archival-node
+# caveat of the EVM capture does not apply.
+tron-replay-fetch:
+	@if [ -z "$(TRON_RPC_URL)" ]; then \
+		echo "❌ TRON_RPC_URL not set - fixture capture needs a Tron wallet-API endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p replay/testdata
+	go run ./cmd/fetch_blocks --chain tron --network mainnet --adapter tron --from $(FROM) --to $(TO)
+
+# tron-acceptance-test replays the newest captured fixture through the full
+# production pipeline (mock wallet API → Fetcher → Converter →
+# BlockHandler.Store) and hard-asserts the effective per-block interval
+# stays within Tron's 3s block interval. TEST_TRON_TARGET_BLOCK_TIME
+# overrides the target; a missing fixture skips with regeneration instructions.
+# -count=1 forces the run every time, mirroring the ethereum/bsc suites.
+tron-acceptance-test:
+	go test -tags=acceptance ./replay/tron -run TestTronReplayAcceptance -count=1 -v -timeout 30m
+
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
 	@echo "=================================================="
@@ -294,9 +325,17 @@ help:
 	@echo "  ethereum-live-test - Ethereum live suite (GETH_RPC_URL gates the run)"
 	@echo "  bsc-live-test      - BSC live suite (GETH_RPC_URL gates the run)"
 	@echo ""
+	@echo "⏱  Ethereum tip-indexing acceptance (replay):"
+	@echo "  replay-fetch       - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
+	@echo "  ethereum-acceptance-test - Replay the fixture and assert the effective block interval <= 12s"
+	@echo ""
 	@echo "⏱  BSC tip-indexing acceptance (replay):"
 	@echo "  bsc-replay-fetch   - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
 	@echo "  bsc-acceptance-test- Replay the fixture and assert avg block time <= the chain's block interval"
+	@echo ""
+	@echo "🌅 Tron tip-indexing acceptance (replay):"
+	@echo "  tron-replay-fetch  - Capture a replay fixture (FROM/TO blocks; requires TRON_RPC_URL)"
+	@echo "  tron-acceptance-test - Replay the fixture and assert the effective block interval <= Tron's 3s"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"
