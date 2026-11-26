@@ -1,3 +1,4 @@
+
 [tool_alias]
 deadcode = "go:golang.org/x/tools/cmd/deadcode"
 govulncheck = "go:golang.org/x/vuln/cmd/govulncheck"
@@ -5,10 +6,6 @@ goimports = "go:golang.org/x/tools/cmd/goimports"
 
 [tools]
 go = "1.27.3"
-goimports = "0.52.0"
-golangci-lint = "2.15.0"
-gotestsum = "1.13.0"
-govulncheck = "1.9.0"
 deadcode = "0.52.0"
 
 [env]
@@ -21,6 +18,7 @@ VERSION = "{{ exec(command='git describe --tags --always --dirty 2>/dev/null || 
 # Code quality tasks & templates
 [tasks.format]
 description = "Formatting code and imports."
+tools = { goimports = "0.52.0" }
 run = [
     "gofmt -s -w .",
     "goimports -w -local github.com/shinzonetwork/shinzo-generator-client .",
@@ -28,6 +26,7 @@ run = [
 
 [task_templates."go:lint"]
 description = "Linting check for the codebase."
+tools = { golangci-lint = "2.15.0" }
 vars = { flag = "" }
 run = "golangci-lint run {{ vars.flag }} ./..."
 
@@ -40,6 +39,7 @@ extends = "go:lint"
 vars = { flag = "--fix" }
 
 [tasks.vuln]
+tools = { govulncheck = "1.9.0" }
 description = "Static analysis check for the codebase."
 run = "govulncheck ./..."
 
@@ -54,6 +54,7 @@ description = "Running unit tests with coverage report."
 # Unit tests assert on config defaults and validation errors, so config-state
 # overrides from the .env files would silently flip their outcomes.
 env = { DEFRADB_KEYRING_SECRET = "", INDEXER_START_HEIGHT = "", SCHEMA_AUTH_MODE = "" }
+tools = { gotestsum = "1.13.0" }
 usage= 'flag "--parallel <parallel>" help="Maximum parallel tests" default="4"'
 run = "gotestsum -- -covermode=atomic -coverprofile=coverage.out -parallel=${usage_parallel} ./..."
 
