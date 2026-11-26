@@ -24,15 +24,16 @@ The compiled binary goes into `./bin`. The generator ships one binary per chain 
 
 | Command | What it does |
 | --- | --- |
-| `mise run build` | Build the generator binary (`bin/block_poster`). |
-| `mise run build-all` | Build `block_poster`, `fetch_blocks`, and `build_schema`. |
+| `mise run evm-build` | Build the EVM generator binary (`bin/block_poster_evm`). |
+| `mise run build-all` | Build all `block_poster` binaries, `fetch_blocks`, and `build_schema`. |
 | `mise run ethereum-start` | Run `bin/block_poster_evm` with the Ethereum config. |
 | `mise run bsc-start` | Run `bin/block_poster_evm` with the BSC config. |
-| `mise run test` | Run unit tests with a coverage report. |
+| `mise run test-unit` | Run unit tests with coverage |
 | `mise run evm-integration` | Run the fast mock integration suite (embedded DefraDB, synthetic data, no chain endpoint). |
 | `mise run ethereum-golden` | Run the Ethereum golden tests. |
 | `mise run ethereum-live-test` | Run live integration tests for Ethereum |
 | `mise run bsc-live-test` | Run live integration tests for BSC |
+| `mise run test` | Run all unit + integration + live + golden test suites. |
 | `mise run replay-fetch` | Capture a replay fixture for the acceptance tests (100 blocks ending at the current tip by default; `--from`/`--to` for an explicit range, `--chain` to select the chain). |
 | `mise run ethereum-replay` | Run replay acceptance test for Ethereum |
 | `mise run bsc-replay` | Run replay acceptance test for BSC |
