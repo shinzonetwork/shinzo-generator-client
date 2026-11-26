@@ -1,6 +1,7 @@
 # Golden Tests
 
-End-to-end freeze of the typed EVM pipeline. The suite replays captured chain
+End-to-end freeze of the single raw EVM pipeline. The suite replays captured
+chain
 fixtures through a local mock RPC endpoint, runs the real fetcher, converter,
 and block handler against an embedded headless DefraDB node, reads every stored
 document back, and compares the result with the committed golden files. Any
@@ -108,3 +109,30 @@ indent, which keeps diffs stable and reviewable.
 A chain is a fixture folder under `golden/` plus one entry in the case table
 in `golden_test.go` (see the comment on `goldenCases`). Drop the captured
 fixtures into `golden/<chain>/testdata/`, then regenerate the goldens.
+
+## Updates
+
+### 26 November 2026 - Fee fields now freeze the node's wire semantics
+
+With the raw pipeline replacing the typed conversion, the goldens were
+regenerated to freeze what the node actually serves. The raw response is the
+source of truth: each stored fee value is the one the node served, and fields
+the wire omits stay empty. `gasPrice` is exactly what the RPC returns, the
+signed price on pre-London txs and on dynamic-fee txs (`0x2`/`0x3`/`0x4`) the
+effective price `min(maxFeePerGas, maxPriorityFeePerGas + baseFee)` the node
+computed. `maxFeePerGas` and `maxPriorityFeePerGas` pass through from the wire
+for every tx type that carries them, including blob (`0x3`) and setcode
+(`0x4`) rows.
+
+Old freeze vs new freeze, on the dynamic-fee rows:
+
+- Old (typed pipeline): `gasPrice` stored the fee cap, the value go-ethereum's
+  deprecated `Transaction.GasPrice()` returns, so it could contradict the
+  `effectiveGasPrice` the receipt merge stores on the same row; the fee-cap
+  fields were blanked on every type except `0x2`.
+- New (raw pipeline): `gasPrice` stores the node's effective price and agrees
+  with `effectiveGasPrice`; `maxFeePerGas` and `maxPriorityFeePerGas` carry
+  their wire values on every tx type that serves them.
+
+Legacy (`0x0`) rows are byte-identical in both freezes, so older transaction
+data never moved.

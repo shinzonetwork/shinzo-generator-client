@@ -360,8 +360,8 @@ func mergeReceiptsOntoTransactions(txs []*Transaction, receipts []*TransactionRe
 			continue
 		}
 		// The comparison targets the client's converted status format
-		// (getReceiptStatus emits decimal "1"/"0"), not the wire's hex
-		// quantity form.
+		// (the raw receipt normalization emits decimal "1"/"0"), not the
+		// wire's hex quantity form.
 		tx.Status = r.Status == "1"
 		tx.GasUsed = r.GasUsed
 		tx.CumulativeGasUsed = r.CumulativeGasUsed

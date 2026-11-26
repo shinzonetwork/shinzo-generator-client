@@ -128,8 +128,9 @@ func TestNewFetcherFromConfig_ChainName(t *testing.T) {
 }
 
 // TestFetcher_Connect_InstallsDefaultAdapter proves the Connect seam
-// resolves the ClientAdapter by chain name. Only the default adapter is
-// registered today, so every current name must resolve to it.
+// resolves every chain name to the default passthrough adapter: unknown
+// and empty names connect exactly like named ones, because registration
+// in chainAdapters is the only way to select a different conversion.
 func TestFetcher_Connect_InstallsDefaultAdapter(t *testing.T) {
 	t.Parallel()
 	server := simpleRPCServer()
@@ -145,12 +146,39 @@ func TestFetcher_Connect_InstallsDefaultAdapter(t *testing.T) {
 		f, err := NewFetcherFromConfig(cfg)
 		require.NoError(t, err)
 
-		require.NoError(t, f.Connect(t.Context()))
+		require.NoError(t, f.Connect(t.Context()), "chain %q must connect", name)
 		ec, ok := f.client.(*EthereumClient)
 		require.True(t, ok, "Connect must build an *EthereumClient")
 		assert.Equal(t, defaultAdapter, ec.getAdapter(), "chain %q must resolve to the default adapter", name)
 		require.NoError(t, f.Close())
 	}
+}
+
+// TestFetcher_Connect_RegisteredAdapter proves registration selects the
+// converter: a chain name registered in chainAdapters resolves to that
+// override through the whole Connect path, not to the default adapter.
+func TestFetcher_Connect_RegisteredAdapter(t *testing.T) {
+	// Not parallel: mutates the shared chainAdapters registry.
+	server := simpleRPCServer()
+	defer server.Close()
+
+	const registered = "testchain-connect"
+	chainAdapters[registered] = fakeConvertAdapter{}
+	t.Cleanup(func() { delete(chainAdapters, registered) })
+
+	cfg := testConfig()
+	cfg.Chain.Name = "TestChain-Connect"
+	cfg.Chain.ChainID = 1
+	cfg.Geth.NodeURL = server.URL
+	f, err := NewFetcherFromConfig(cfg)
+	require.NoError(t, err)
+
+	require.NoError(t, f.Connect(t.Context()))
+	ec, ok := f.client.(*EthereumClient)
+	require.True(t, ok, "Connect must build an *EthereumClient")
+	assert.Equal(t, ClientAdapter(fakeConvertAdapter{}), ec.getAdapter(),
+		"the registered ConvertBlock override must be selected by chain name")
+	require.NoError(t, f.Close())
 }
 
 // ---------------------------------------------------------------------------

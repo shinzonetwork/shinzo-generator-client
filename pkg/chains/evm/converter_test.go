@@ -62,6 +62,30 @@ func TestNewConverter_CustomPrefix(t *testing.T) {
 	assert.Equal(t, "Arbitrum__One", c.collections.Prefix())
 }
 
+// TestNewConverter_SpacedChainPrefix pins the prefix sanitization: a chain
+// label from operator config can carry spaces and dashes, and the prefix is
+// substituted verbatim into the SDL type names, which must stay valid
+// GraphQL identifiers. Single-word labels pass through unchanged.
+func TestNewConverter_SpacedChainPrefix(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		chain string
+		want  string
+	}{
+		{chain: "Arbitrum One", want: "Arbitrum_One__Mainnet"},
+		{chain: "OP Mainnet", want: "OP_Mainnet__Mainnet"},
+		{chain: "ZKsync Era", want: "ZKsync_Era__Mainnet"},
+		{chain: "Avalanche C-Chain", want: "Avalanche_C_Chain__Mainnet"},
+	}
+	for _, tc := range cases {
+		cfg := testConfig()
+		cfg.Chain = config.ChainConfig{Name: tc.chain, Network: "Mainnet"}
+		c, err := NewConverter(cfg)
+		require.NoError(t, err, "chain %q", tc.chain)
+		assert.Equal(t, tc.want, c.collections.Prefix(), "chain %q", tc.chain)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GetSchema / GetCollections / Collections
 // ---------------------------------------------------------------------------
