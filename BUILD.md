@@ -15,7 +15,7 @@ git clone git@github.com:shinzonetwork/shinzo-generator-client.git
 cd shinzo-generator-client
 cp .env.sample .env   # fill in your node credentials
 mise install
-mise run build
+mise run evm-build
 ```
 
 The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `mise run evm-build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain). `mise run build-all` additionally builds `bin/fetch_blocks` and `bin/build_schema`.
