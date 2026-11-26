@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build ethereum-start bsc-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test
+.PHONY: deps env build evm-build tron-build ethereum-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -11,13 +11,19 @@ GETH_RPC_URL ?=
 GETH_WS_URL ?=
 GETH_API_KEY ?=
 
-
 # Capture range for replay-fetch. 0 = auto: latest 100 blocks from the
 # current chain tip. Without these defaults a bare `make replay-fetch`
 # would expand to a bare `--from --to` and the flag package would eat the
 # next token as the value, failing the run.
 FROM ?= 0
 TO ?= 0
+# Tron wallet-API env vars for the tron live smoke (tron-live-test and the
+# TRON phase of integration-test). The suite boots the bundled production
+# config/config_tron.yml through the standard loader, so CHAIN_NETWORK and
+# the TRON_* variables override the yaml the same way they do for a deploy.
+TRON_RPC_URL ?=
+TRON_SOLIDITY_RPC_URL ?=
+TRON_API_KEY ?=
 
 # Version injected into the binary at build time via -ldflags (git tag plus
 # commit offset and dirty state; falls back to "dev" outside a git repo).
@@ -28,7 +34,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # injection identical between evm-build and any future per-chain build target.
 LDFLAGS := -ldflags "-X github.com/shinzonetwork/shinzo-generator-client/config.Version=$(VERSION)"
 
-build: evm-build
+build: evm-build tron-build
 	go build -o bin/fetch_blocks ./cmd/fetch_blocks/
 
 evm-build:
@@ -41,12 +47,25 @@ evm-build:
 		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
 	fi
 
+tron-build:
+	go build $(LDFLAGS) -o bin/block_poster_tron ./cmd/block_poster/tron/
+	@if [ "$(VERSION)" = "dev" ]; then \
+		echo "⚠️  VERSION fell back to 'dev' (no git tags or not a git repo)"; \
+	elif grep -aFq "$(VERSION)" bin/block_poster_tron; then \
+		echo "✅ version injected: $(VERSION)"; \
+	else \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' - check the -X symbol path"; exit 1; \
+	fi
+
 ethereum-start:
 	./bin/block_poster_evm
 
 bsc-start:
 	./bin/block_poster_evm -config config/config_bsc.yaml
-	
+
+tron-start:
+	./bin/block_poster_tron -config config/config_tron.yml
+
 clean:
 	rm -rf bin/ && rm -r logs/logfile.log && touch logs/logfile.log
 
@@ -111,6 +130,18 @@ test-local:
 integration-test:
 	@echo "🧪 Running integration tests..."
 	@go test -tags=integration -v ./integration/ ./golden/
+	@go test -tags=integration -v ./integration/tron/
+
+tron-live-test:
+	@echo "🌅 Running tron live smoke test with your wallet-API endpoint..."
+	@if [ -z "$(TRON_RPC_URL)" ]; then \
+		echo "❌ TRON_RPC_URL not set. Please export it first:"; \
+		echo "   export TRON_RPC_URL=<your-wallet-api-url>  (for example https://nile.trongrid.io)"; \
+		exit 1; \
+	fi
+	@echo "✅ Using endpoint: $(TRON_RPC_URL)"
+	@go test -tags=live -v ./integration/live/tron/ -timeout=120s
+
 coverage:
 	go test ./... -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
@@ -250,12 +281,14 @@ help:
 	@echo "=================================================="
 	@echo ""
 	@echo "📦 Build & Test:"
-	@echo "  build              - Build all binaries (evm generator + fetch_blocks)"
+	@echo "  build              - Build all binaries (evm + tron generators + fetch_blocks)"
 	@echo "  evm-build          - Build only bin/block_poster_evm"
+	@echo "  tron-build         - Build only bin/block_poster_tron"
 	@echo "  test               - Run all tests with summary"
 	@echo "  integration-test   - Fast mock integration suite (no chain endpoint, no credentials)"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"
+	@echo "  tron-live-test     - Run the tron live smoke against TRON_RPC_URL"
 	@echo ""
 	@echo "🌐 Per-chain live tests:"
 	@echo "  ethereum-live-test - Ethereum live suite (GETH_RPC_URL gates the run)"
@@ -279,6 +312,7 @@ help:
 	@echo "  defra-start        - Start DefraDB"
 	@echo "  ethereum-start     - Start the evm generator binary with the Ethereum config"
 	@echo "  bsc-start          - Start the evm generator with the BSC config"
+	@echo "  tron-start         - Start the tron generator binary with the Tron config"
 	@echo "  stop               - Stop all services"
 	@echo ""
 	@echo "🔧 Environment Variables for node-status:"
@@ -287,7 +321,17 @@ help:
 	@echo "  GETH_WS_URL    - WebSocket endpoint (optional)"
 	@echo "  (GETH_* names are historical; any compatible JSON-RPC/WS endpoint works)"
 	@echo ""
+	@echo "🔧 Environment Variables for tron-live-test:"
+	@echo "  TRON_RPC_URL          - Wallet-API base URL (required, e.g. https://nile.trongrid.io)"
+	@echo "  TRON_SOLIDITY_RPC_URL - SolidityNode base URL (optional; defaults to the NodeURL host)"
+	@echo "  TRON_API_KEY          - TronGrid API key (optional)"
+	@echo "  CHAIN_NETWORK         - Network the config indexes (optional; Mainnet, Nile, or Shasta, Mainnet by default)"
+	@echo ""
 	@echo "💡 Example Usage:"
 	@echo "  export GETH_RPC_URL=http://xx.xx.xx.xx:port"
 	@echo "  export GETH_API_KEY=your-api-key-here"
 	@echo "  make node-status"
+	@echo ""
+	@echo "  export TRON_RPC_URL=https://nile.trongrid.io"
+	@echo "  export CHAIN_NETWORK=Nile"
+	@echo "  make tron-live-test"
