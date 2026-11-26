@@ -53,6 +53,9 @@ jobs:
     - name: Run golden tests
       run: mise run ethereum-golden
 
+    - name: Run scrub tests for the replay harness
+      run: mise x -- go test -tags=acceptance ./replay/tron -run TestReplayConfigKeepsSuiteKnobs -count=1
+
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
       with:

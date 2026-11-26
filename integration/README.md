@@ -12,6 +12,29 @@ End-to-end tests with real chain data. Both are gated on `GETH_RPC_URL`. The
 Ethereum suite additionally requires `GETH_WS_URL` and `GETH_API_KEY`; for BSC
 they are optional (see its table below).
 
+## Tron Mock Suite
+```bash
+go test -tags=integration -v ./integration/tron/
+```
+Full lifecycle suite for the Tron adapter: `integration/tron/` serves a
+scripted two-branch wallet API (branch A heights 100..109, branch B diverges
+104..115, head 115) over an httptest server, then runs two real indexers,
+each with its own embedded DefraDB node. The ordered phases cover:
+
+- startup (config StartHeight 100 -> 10 branch-A blocks stored, API-key
+  header wiring)
+- field assertions (transfer tx, empty block, byte-duplicated event stored
+  twice with distinct logIndex dockeys, TRC-10 tokenId from the wire's
+  callValueInfo, one signed BlockSignature doc per block)
+- reorg (branch flip at the 3s not-found retry of height 110, by-hash
+  walk-back to the common ancestor at 103, rollback of 104..109, re-index of
+  branch B 104..115)
+- restart (stop + reopen the same store, extend branch B to 118, resume at
+  116 from the DB tip, no wallet call below the resume height)
+
+Run it via `make integration-test` (the mock phase includes this suite).
+
+## Live Tests  
 ```bash
 # Set environment variables first
 # (mise loads the repo's .env automatically, or export them yourself)
@@ -64,4 +87,21 @@ timeout — with no public fallback to blame, a rate-limited or stalled provider
 is a real failure, like on Ethereum. Tests that need indexed data skip when the
 indexer did not warm up.
 
-
+## Tron Live Smoke
+```bash
+export TRON_RPC_URL=https://nile.trongrid.io
+make tron-live-test
+```
+`integration/live/tron/` runs one smoke test against a real wallet-API
+endpoint (Nile testnet or TronGrid mainnet): it waits for 3 real blocks,
+asserts block and transaction field integrity, and checks one signed
+BlockSignature doc per stored block. Like the Ethereum suite, it boots the
+bundled `config/config_tron.yml` through the standard config loader, so the
+`CHAIN_*` and `TRON_*` environment overrides all apply: `CHAIN_NETWORK`
+(`Mainnet` by default, also `Nile` and `Shasta`) drives the collection names
+(`Tron__Nile`), and the fetcher refuses to connect when the endpoint's
+genesis block is not that network's, so a URL/network mismatch fails at
+startup instead of indexing the wrong chain. Suite-specific knobs applied
+after load: temp store, dynamic-port embedded DefraDB, no pruning,
+snapshots, throttling, or start buffer. The suite skips with exit 0 when
+`TRON_RPC_URL` is unset, and the target carries a tight `-timeout=120s`.

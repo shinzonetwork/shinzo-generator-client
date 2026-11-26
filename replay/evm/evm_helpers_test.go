@@ -18,6 +18,7 @@ import (
 
 	pkgerrors "github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
 
+	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defra"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/defradb"
@@ -459,7 +460,16 @@ func runEVMReplay(t *testing.T, spec replaySpec) {
 	defer mockNode.Close()
 
 	storePath := t.TempDir()
-	cfg := replay.NewReplayConfig(t, spec.configPath, spec.chainLabel, spec.expectedNetwork, mockNode.URL(), storePath)
+	cfg := replay.NewReplayConfig(t, spec.configPath, spec.chainLabel, spec.expectedNetwork, storePath,
+		func(cfg *config.Config) {
+			// The mock server replaces the endpoint; the geth section name is
+			// historical (any JSON-RPC endpoint works), and the ${GETH_*} yaml
+			// placeholders are zeroed so no literal leaks to a future consumer.
+			cfg.Geth.NodeURL = mockNode.URL()
+			cfg.Geth.WsURL = ""
+			cfg.Geth.APIKey = ""
+			cfg.Geth.APIKeyType = ""
+		})
 	replay.ResolveReplayServices(t, cfg, spec.envPrefix)
 
 	// Embedded DefraDB with the chain-prefixed schema. The ForChain variant

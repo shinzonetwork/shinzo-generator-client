@@ -35,13 +35,15 @@ import (
 // shipped config yaml is the only input the config loader sees. mise loads
 // the developer's .env into every task, and without this a stray
 // INDEXER_MAX_DOCS_PER_TXN or badger cache value would silently change the
-// measured configuration between machines. Originals are restored after the
+// measured configuration between machines (TRON_ joins GETH_: the loader's
+// TRON_ connection vars are scrubbed, and the suite's knobs live under
+// TEST_TRON_, beyond the blanket prefix). Originals are restored after the
 // test so nothing outside LoadConfig's window observes the scrub.
 func scrubReplayEnv(t *testing.T) {
 	t.Helper()
 
 	prefixes := [...]string{
-		"CHAIN_", "GETH_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
+		"CHAIN_", "GETH_", "TRON_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
 		"SCHEMA_", "CONVERTER_", "LOGGER_", "SHINZOHUB_",
 	}
 
@@ -82,8 +84,8 @@ const (
 
 // ResolveReplayServices applies the pruner/snapshotter kill-switches and
 // forced-fast overrides on top of NewReplayConfig's defaults. envPrefix is
-// the chain's env namespace ("ETHEREUM", "BSC"), which composes the kill
-// switch and tuning variables the same way every suite names them.
+// the suite's env namespace ("ETHEREUM", "BSC", "TEST_TRON"), which composes
+// the kill switch and tuning variables the same way every suite names them.
 func ResolveReplayServices(t *testing.T, cfg *config.Config, envPrefix string) {
 	t.Helper()
 
@@ -140,41 +142,44 @@ func replayServiceInt(t *testing.T, env string, def int) int {
 
 // NewReplayConfig boots from the suite's shipped config yaml, the same file
 // production block_poster runs with -config, and overrides only what the
-// harness cannot take from it: the mock node as endpoint, the temp store,
-// P2P off, no health server, open schema, the throwaway keyring, and the
-// forced-fast pruner + snapshotter cadence. Everything else (chain identity,
-// batch sizes, prune_history, the per-cycle cap, badger caches, the 128 MB
-// value log) is exactly what production runs, and the env scrub keeps
-// developer .env values out of the measurement.
+// harness cannot take from it: the temp store, P2P off, no health server,
+// open schema, the throwaway keyring, and the forced-fast pruner +
+// snapshotter cadence. Everything else (chain identity, batch sizes,
+// prune_history, the per-cycle cap, badger caches, the 128 MB value log) is
+// exactly what production runs, and the env scrub keeps developer .env
+// values out of the measurement.
+//
+// overrideEndpoints is the suite's endpoint hook: the mock node replaces the
+// chain adapter's endpoint section and its key fields are blanked. Each suite
+// supplies its own closure (EVM zeroes the Geth section, Tron the Tron
+// section); a nil hook leaves the loaded yaml untouched.
 //
 // expectedChain and expectedNetwork fail the run when the shipped yaml does
 // not define the chain the suite claims: loading the wrong family's config
 // would create the wrong collections and poison every measurement downstream.
-func NewReplayConfig(t *testing.T, configPath, expectedChain, expectedNetwork, nodeURL, storePath string) *config.Config {
+func NewReplayConfig(t *testing.T, configPath, expectedChain, expectedNetwork, storePath string, overrideEndpoints func(cfg *config.Config)) *config.Config {
 	t.Helper()
 
 	scrubReplayEnv(t)
 
-	// config.yaml ships schema_auth_mode as a literal "${SCHEMA_AUTH_MODE}"
-	// placeholder: yaml parsing never expands it, and the scrub above removes
-	// the env var applyEnvOverrides would normally read to fill it in, so the
-	// raw placeholder would fail schema-auth validation. Restoring a
-	// known-good value after the scrub keeps the harness deterministic and
-	// matches the open-schema mode applied to the loaded config below.
+	// The scrub removes env vars the shipped yamls rely on to pass the
+	// loader's own validation, so known-good placeholders are restored
+	// before the load and replaced by the endpoint hook afterward:
+	// SCHEMA_AUTH_MODE fills the literal "${SCHEMA_AUTH_MODE}" placeholder
+	// (open-schema mode below), TRON_RPC_URL satisfies the tron adapter's
+	// non-empty node_url check (never dialed; the tron hook points it at the mock).
 	t.Setenv("SCHEMA_AUTH_MODE", "none")
+	t.Setenv("TRON_RPC_URL", "http://127.0.0.1:1")
 
 	cfg, err := config.LoadConfig(configPath)
 	require.NoError(t, err, "load config yaml")
 	require.Equal(t, expectedChain, cfg.Chain.Name, "config yaml must define the %s chain", expectedChain)
 	require.Equal(t, expectedNetwork, cfg.Chain.Network, "config yaml must target %s", expectedNetwork)
 
-	// The mock server replaces the endpoint; the geth section name is
-	// historical (any JSON-RPC endpoint works), and the ${GETH_*} yaml
-	// placeholders are zeroed so no literal leaks to a future consumer.
-	cfg.Geth.NodeURL = nodeURL
-	cfg.Geth.WsURL = ""
-	cfg.Geth.APIKey = ""
-	cfg.Geth.APIKeyType = ""
+	// The suite's endpoint wiring: the mock node replaces the adapter's endpoint section.
+	if overrideEndpoints != nil {
+		overrideEndpoints(cfg)
+	}
 
 	// Harness-only DefraDB settings: temp store, no peers, throwaway signing
 	// identity derived from the chain label so each run also fills its own
