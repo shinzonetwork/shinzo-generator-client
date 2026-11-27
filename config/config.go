@@ -679,7 +679,10 @@ func applyChainEnvOverrides(cfg *Config) error {
 	}
 	applyGethEnvOverrides(cfg)
 	applyTronEnvOverrides(cfg)
-	applyBitcoinEnvOverrides(cfg)
+	err := applyBitcoinEnvOverrides(cfg)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -726,7 +729,12 @@ func applyTronEnvOverrides(cfg *Config) {
 }
 
 // applyBitcoinEnvOverrides applies Bitcoin environment variable overrides.
-func applyBitcoinEnvOverrides(cfg *Config) {
+// The numeric overrides use the erroring parse path rather than a silent
+// ignore: confirmation depth is a safety setting, so a mistyped value must
+// fail the load instead of quietly falling back to the yaml number. Zero and
+// negative values stay accepted; applyDefaults normalizes them to the
+// defaults exactly as the yaml contract promises.
+func applyBitcoinEnvOverrides(cfg *Config) error {
 	if btcRPCURL := os.Getenv("BITCOIN_RPC_URL"); btcRPCURL != "" {
 		cfg.Bitcoin.RPCURL = btcRPCURL
 	}
@@ -749,15 +757,20 @@ func applyBitcoinEnvOverrides(cfg *Config) {
 		cfg.Bitcoin.ArchiveRPCURL = btcArchiveURL
 	}
 	if btcDepth := os.Getenv("BITCOIN_CONFIRMATION_DEPTH"); btcDepth != "" {
-		if n, err := strconv.Atoi(btcDepth); err == nil {
-			cfg.Bitcoin.ConfirmationDepth = n
+		n, err := strconv.Atoi(btcDepth)
+		if err != nil {
+			return fmt.Errorf("invalid BITCOIN_CONFIRMATION_DEPTH value %q: %w", btcDepth, err)
 		}
+		cfg.Bitcoin.ConfirmationDepth = n
 	}
 	if btcDialTimeout := os.Getenv("BITCOIN_DIAL_TIMEOUT_SECONDS"); btcDialTimeout != "" {
-		if n, err := strconv.Atoi(btcDialTimeout); err == nil {
-			cfg.Bitcoin.DialTimeoutSeconds = n
+		n, err := strconv.Atoi(btcDialTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid BITCOIN_DIAL_TIMEOUT_SECONDS value %q: %w", btcDialTimeout, err)
 		}
+		cfg.Bitcoin.DialTimeoutSeconds = n
 	}
+	return nil
 }
 
 // applyIndexerEnvOverrides applies indexer environment variable overrides.

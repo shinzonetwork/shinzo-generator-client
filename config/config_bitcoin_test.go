@@ -242,15 +242,44 @@ func TestApplyEnvOverrides_BitcoinConfig(t *testing.T) {
 }
 
 func TestApplyEnvOverrides_BitcoinConfig_InvalidInt(t *testing.T) {
-	cfg := &Config{}
-	cfg.Bitcoin.ConfirmationDepth = 6
-	cfg.Bitcoin.DialTimeoutSeconds = 10
-	t.Setenv("BITCOIN_CONFIRMATION_DEPTH", "not_a_number")
-	t.Setenv("BITCOIN_DIAL_TIMEOUT_SECONDS", "invalid")
-	require.NoError(t, applyEnvOverrides(cfg))
+	tests := []struct {
+		name     string
+		envKey   string
+		envValue string
+	}{
+		{"non-numeric confirmation depth", "BITCOIN_CONFIRMATION_DEPTH", "not_a_number"},
+		{"non-numeric dial timeout", "BITCOIN_DIAL_TIMEOUT_SECONDS", "invalid"},
+	}
 
-	assert.Equal(t, 6, cfg.Bitcoin.ConfirmationDepth, "invalid depth ignored, preset preserved")
-	assert.Equal(t, 10, cfg.Bitcoin.DialTimeoutSeconds, "invalid dial timeout ignored, preset preserved")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			cfg.Bitcoin.ConfirmationDepth = 6
+			cfg.Bitcoin.DialTimeoutSeconds = 10
+			t.Setenv(tt.envKey, tt.envValue)
+
+			err := applyBitcoinEnvOverrides(cfg)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.envKey)
+			assert.Equal(t, 6, cfg.Bitcoin.ConfirmationDepth, "failed override leaves the depth preset intact")
+			assert.Equal(t, 10, cfg.Bitcoin.DialTimeoutSeconds, "failed override leaves the dial preset intact")
+		})
+	}
+}
+
+// Zero and negative numeric overrides stay accepted: applyDefaults normalizes
+// them to the defaults exactly as the yaml contract ("0 or negative = 6")
+// promises, so only a non-numeric value is an error.
+func TestApplyEnvOverrides_BitcoinConfig_ZeroAndNegativeAccepted(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("BITCOIN_CONFIRMATION_DEPTH", "0")
+	t.Setenv("BITCOIN_DIAL_TIMEOUT_SECONDS", "-5")
+
+	require.NoError(t, applyBitcoinEnvOverrides(cfg))
+
+	assert.Zero(t, cfg.Bitcoin.ConfirmationDepth, "zero depth accepted, defaults applied later")
+	assert.Equal(t, -5, cfg.Bitcoin.DialTimeoutSeconds, "negative dial timeout accepted, defaults applied later")
 }
 
 func TestApplyEnvOverrides_BitcoinConfig_EmptyIgnored(t *testing.T) {
