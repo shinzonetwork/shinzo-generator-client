@@ -1,5 +1,7 @@
 package bitcoin
 
+import "sort"
+
 // Field names used to build Bitcoin documents.
 //
 // These constants live in pkg/chains/bitcoin, not pkg/constants, because
@@ -69,3 +71,36 @@ const (
 // version and locktime are written into documents as string literals; they
 // are intentionally not constants, mirroring how the evm adapter treats its
 // literal-only fields.
+
+// networkIdentity pins one supported chain.network spelling to the two
+// values that identify it on the wire: the chain name Bitcoin Core reports
+// from getblockchaininfo, and the genesis block hash getblockhash returns
+// for height 0.
+type networkIdentity struct {
+	coreChain   string
+	genesisHash string
+}
+
+// networkIdentities maps each supported chain.network to the identity
+// Connect pins the endpoint against. The chain name and the genesis hash
+// are permanent properties of each public network, so a node cannot serve
+// one while running another, and a network outside this table fails
+// Connect closed before any request is made.
+var networkIdentities = map[string]networkIdentity{ //nolint:gochecknoglobals // fixed network-identity table, same pattern as SupportedChainAdapters
+	"Mainnet":  {"main", "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"},
+	"Regtest":  {"regtest", "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"},
+	"Signet":   {"signet", "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6"},
+	"Testnet":  {"test", "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"},
+	"Testnet4": {"testnet4", "00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043"},
+}
+
+// SupportedBitcoinNetworks lists the chain.network spellings the Connect
+// identity check covers, alphabetically, for the unsupported-network error.
+func SupportedBitcoinNetworks() []string {
+	networks := make([]string, 0, len(networkIdentities))
+	for network := range networkIdentities {
+		networks = append(networks, network)
+	}
+	sort.Strings(networks)
+	return networks
+}

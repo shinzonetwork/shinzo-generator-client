@@ -82,6 +82,13 @@ const (
 	errMsgMethodMissing = "Method not found"
 )
 
+// mainnetGenesisHash is height 0's real mainnet block hash, the value the
+// fetcher's Connect pins the endpoint against (networkIdentities["Mainnet"]
+// in pkg/chains/bitcoin). The mock stays self-contained: if the pinned
+// table ever changes, Connect answers with errNetworkMismatch and this
+// suite fails loudly.
+const mainnetGenesisHash = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+
 // seedHash derives the 64-hex identity of one seeded key.
 func seedHash(section, key string, height int64) string {
 	sum := sha256.Sum256([]byte(section + key + strconv.FormatInt(height, 10)))
@@ -344,6 +351,11 @@ func (c *scriptedChain) respond(call recordedCall) mockResponse {
 		height, ok := paramInt(params)
 		if !ok {
 			return rpcError(errCodeParams, "height param missing")
+		}
+		if height == 0 {
+			// Connect's network pin reads the genesis hash; the fake runs a
+			// mainnet node, matching the suites' Mainnet configs.
+			return marshalResult(mainnetGenesisHash)
 		}
 		if c.takeFirstFetch(height) {
 			return marshalResult(expectedBlockHash(seedSectionFork, height))

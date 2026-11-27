@@ -104,6 +104,7 @@ func TestBitcoinIndexerLifecycle(t *testing.T) {
 		assertCanonicalHeightStored(t, resumePort, 109)
 		assertBlockSignaturesStored(t, resumePort, 108, 109)
 		assertNoBlockHashRequestsBelow(t, server, marker, 108)
+		assertNetworkPinProbed(t, server, marker)
 	})
 }
 
@@ -323,7 +324,8 @@ func storedDocsByHeight(t *testing.T, port int, lo, hi int64) map[string]map[str
 
 // assertNoBlockHashRequestsBelow pins the resume behavior on the recorded
 // wire: after the marker, no getblockhash ask ever dips below the resume
-// height, so the restart never re-requested a height it already owned.
+// height except Connect's height-0 genesis pin, so the restart never
+// re-requested a height it already owned.
 func assertNoBlockHashRequestsBelow(t *testing.T, server *coreRPCServer, marker int, minHeight int64) {
 	t.Helper()
 	for _, call := range server.callsSince(marker) {
@@ -334,9 +336,37 @@ func assertNoBlockHashRequestsBelow(t *testing.T, server *coreRPCServer, marker 
 		require.NoError(t, err, "params %s", call.Params)
 		height, ok := paramInt(params)
 		require.True(t, ok, "getblockhash params %s", call.Params)
+		if height == 0 {
+			continue // Connect's genesis network pin, not a block fetch
+		}
 		assert.GreaterOrEqual(t, height, minHeight,
 			"getblockhash requested height %d after the restart marker", height)
 	}
+}
+
+// assertNetworkPinProbed pins that the second indexer's Connect actually ran
+// the network identity check on the recorded wire: one height-0 genesis read
+// and one chain-info read since the marker, the same per-Connect probe
+// assertion the tron suites make.
+func assertNetworkPinProbed(t *testing.T, server *coreRPCServer, marker int) {
+	t.Helper()
+	genesisPins, chainInfoProbes := 0, 0
+	for _, call := range server.callsSince(marker) {
+		switch call.Method {
+		case methodBlockHash:
+			params, err := decodeParams(call)
+			require.NoError(t, err, "params %s", call.Params)
+			if height, ok := paramInt(params); ok && height == 0 {
+				genesisPins++
+			}
+		case methodChainInfo:
+			chainInfoProbes++
+		}
+	}
+	assert.GreaterOrEqual(t, genesisPins, 1,
+		"the second indexer's Connect never probed genesis (network pin skipped)")
+	assert.GreaterOrEqual(t, chainInfoProbes, 1,
+		"the second indexer's Connect never read chain info (identity check skipped)")
 }
 
 // findRowBy locates the one row whose field holds want and asserts

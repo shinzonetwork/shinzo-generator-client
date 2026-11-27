@@ -84,7 +84,10 @@ make bitcoin-live-test
 `make bitcoin-live-test` fails fast with setup instructions while
 `BITCOIN_RPC_URL` is unset, so a bare mock run never touches a chain
 endpoint. The endpoint needs basic auth (user and password environment
-variables) or a cookie file. The suite waits up to 30m for two newly
+variables) or a cookie file. Connect refuses to start when the node's chain
+name or genesis hash does not match `BITCOIN_LIVE_NETWORK`, so a regtest run
+must set `BITCOIN_LIVE_NETWORK=Regtest` (the default Mainnet would be
+refused). The suite waits up to 30m for two newly
 produced heights, which is what Bitcoin's roughly ten-minute block cadence
 requires, asserts block and transaction field integrity plus one signed
 BlockSignature document per stored height, and verifies the height count

@@ -4,6 +4,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
@@ -30,6 +31,10 @@ type rawClient interface {
 
 var _ rawClient = (*Client)(nil)
 
+// errNetworkMismatch reports that the endpoint serves a chain other than the
+// configured one, established by the chain-name and genesis checks in Connect.
+var errNetworkMismatch = stderrors.New("node serves another chain")
+
 // Fetcher implements chains.Fetcher for Bitcoin Core over its JSON-RPC
 // surface. FetchBlock always returns the main-chain block at the given
 // height (hash lookup first, then the verbosity-3 body), FetchHighestBlockNumber
@@ -40,6 +45,10 @@ type Fetcher struct {
 	confirmationDepth int64
 	cfgBitcoin        config.BitcoinConfig
 	dialTimeout       time.Duration
+	// network is the chain.network spelling Connect pins the endpoint
+	// against. It defaults to the converter's defaultNetwork so the guard
+	// and the collection prefix can never disagree.
+	network string
 }
 
 // Compile-time guarantee that Fetcher implements chains.Fetcher.
@@ -67,29 +76,44 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 	if depth <= 0 {
 		depth = config.DefaultBitcoinConfirmationDepth
 	}
+	network := cfg.Chain.Network
+	if network == "" {
+		network = defaultNetwork
+	}
 	return &Fetcher{
 		confirmationDepth: depth,
 		cfgBitcoin:        cfg.Bitcoin,
 		dialTimeout:       resolveDialTimeout(cfg.Bitcoin.DialTimeoutSeconds),
+		network:           network,
 	}, nil
 }
 
 // Connect implements chains.Fetcher. A config-built fetcher constructs its
-// client here (network-free) and runs one getblockcount health check, so the
-// indexer learns about an unreachable node at startup and not on the first
-// fetch. The probe is bounded by the resolved dial timeout; btcd has no
-// per-call context yet, so the bound is enforced by selecting on the probe's
-// completion against the deadline, and the under-probe call may linger until
-// the library's own HTTP timeout releases it.
+// client here (network-free) and runs one getblockcount health check plus
+// the network identity check, so the indexer learns about an unreachable or
+// wrong-chain node at startup and not on the first fetch. The probe is
+// bounded by the resolved dial timeout; btcd has no per-call context yet, so
+// the bound is enforced by selecting on the probe's completion against the
+// deadline, and the under-probe call may linger until the library's own HTTP
+// timeout releases it.
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
+	}
+	identity, ok := networkIdentities[f.network]
+	if !ok {
+		// Failing closed before any request mirrors the tron adapter: an
+		// unknown network spelling can only produce collections whose
+		// prefix no check would ever pin to a node.
+		return errors.NewConfigurationError("chain", "Connect",
+			fmt.Sprintf("unsupported bitcoin network: the identity check covers %s", strings.Join(SupportedBitcoinNetworks(), ", ")),
+			f.network, nil)
 	}
 	client, err := NewClient(f.cfgBitcoin)
 	if err != nil {
 		return err
 	}
-	if err := f.probeHealth(ctx, client); err != nil {
+	if err := f.verifyChainAndFloor(ctx, client, identity); err != nil {
 		// Close failure cannot make the already-reported probe failure any
 		// worse, and the lazy HTTP client holds nothing worth reporting.
 		_ = client.Close()
@@ -99,11 +123,19 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 	return nil
 }
 
-// probeHealth runs the getblockcount reachability check under the dial
-// timeout and records the node's archive floor as a one-time startup log. A
-// missing floor log never fails Connect: it is documentation for the
-// operator, not a health signal.
-func (f *Fetcher) probeHealth(ctx context.Context, client *Client) error {
+// verifyChainAndFloor runs the getblockcount reachability check under the
+// dial timeout and then pins the endpoint to the configured network before
+// the caller opens its store: a config pointed at another chain's node would
+// otherwise index that chain's blocks under its own collection names. Two
+// permanent properties of the network must agree, the chain name Core
+// reports from getblockchaininfo and the genesis hash getblockhash returns
+// for height 0, and a node cannot misreport either while running a different
+// network. The same getblockchaininfo call keeps documenting the prune state
+// in one startup line; it makes up to three round trips when the library's
+// backend-version cache is cold, which is acceptable at startup and never
+// repeated. Both checks fail Connect rather than warning: an
+// endpoint that cannot answer them cannot be pinned.
+func (f *Fetcher) verifyChainAndFloor(ctx context.Context, client *Client, identity networkIdentity) error {
 	probeCtx, cancel := context.WithTimeout(ctx, f.dialTimeout)
 	defer cancel()
 	// Buffered so the goroutine cannot leak: the fetcher may select
@@ -120,28 +152,33 @@ func (f *Fetcher) probeHealth(ctx context.Context, client *Client) error {
 		if err != nil {
 			return fmt.Errorf("bitcoin connect probe failed: %w", err)
 		}
-		f.logArchiveFloor(ctx, client)
-		return nil
 	case <-probeCtx.Done():
 		return fmt.Errorf("bitcoin connect probe timed out after %s: %w", f.dialTimeout, probeCtx.Err())
 	}
-}
 
-// logArchiveFloor documents the node's prune state in one startup line. The
-// getblockchaininfo call makes up to three round trips when the library's
-// backend-version cache is cold, which is acceptable at startup and never
-// repeated.
-func (f *Fetcher) logArchiveFloor(ctx context.Context, client *Client) {
 	info, err := client.GetChainInfo(ctx)
 	if err != nil {
-		logger.Sugar.Warnf("bitcoin node archive-floor info unavailable: %v", err)
-		return
+		return fmt.Errorf("read chain info: %w", err)
+	}
+	if info.Chain != identity.coreChain {
+		return fmt.Errorf("endpoint reports chain %q, but network %q expects %q: %w",
+			info.Chain, f.network, identity.coreChain, errNetworkMismatch)
 	}
 	if info.Pruned {
 		logger.Sugar.Infof("bitcoin node %s: pruned, undo data starts at height %d", info.Chain, info.PruneHeight)
 	} else {
 		logger.Sugar.Infof("bitcoin node %s: not pruned, all heights carry undo data", info.Chain)
 	}
+
+	genesis, err := client.GetBlockHash(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("read genesis hash: %w", err)
+	}
+	if genesis != identity.genesisHash {
+		return fmt.Errorf("endpoint reports genesis hash %s, but network %q expects %s: %w",
+			genesis, f.network, identity.genesisHash, errNetworkMismatch)
+	}
+	return nil
 }
 
 // FetchBlock implements chains.Fetcher. Two round trips produce the bundle:

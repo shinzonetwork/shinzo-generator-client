@@ -9,12 +9,15 @@ package bitcoin
 //
 // Gated on BITCOIN_RPC_URL and skipped with exit 0 (t.Skipf) when unset; a
 // local regtest node is the suggested endpoint since it needs no external
-// account. BITCOIN_LIVE_NETWORK selects the segment (Mainnet default) and
-// BITCOIN_ARCHIVE_RPC_URL opts in an archive fallback whose presence is
-// recorded in the suite log. The run waits up to 30m for two newly produced
-// heights, which is what Bitcoin's roughly ten-minute block cadence needs,
-// then pins field integrity and one signed BlockSignature document per
-// stored height before watching an idle window for regressions.
+// account, and a regtest run must set BITCOIN_LIVE_NETWORK=Regtest because
+// Connect refuses a network whose identity does not match the node's chain
+// name and genesis hash. BITCOIN_LIVE_NETWORK selects the segment (Mainnet
+// default) and BITCOIN_ARCHIVE_RPC_URL opts in an archive fallback whose
+// presence is recorded in the suite log. The run waits up to 30m for two
+// newly produced heights, which is what Bitcoin's roughly ten-minute block
+// cadence needs, then pins field integrity and one signed BlockSignature
+// document per stored height before watching an idle window for
+// regressions.
 
 import (
 	"encoding/json"
@@ -50,7 +53,8 @@ func TestBitcoinLiveSmoke(t *testing.T) {
 	rpcURL := os.Getenv("BITCOIN_RPC_URL")
 	if rpcURL == "" {
 		t.Skipf("BITCOIN_RPC_URL not set; skipping the bitcoin live smoke. Setup example: " +
-			"bitcoind -regtest -rpcbind=127.0.0.1:18443 -rpcuser=shinzorpc -rpcpassword=<pass> -daemon, " +
+			"bitcoind -regtest -rpcbind=127.0.0.1:18443 -rpcuser=shinzorpc -rpcpassword=<pass> -daemon " +
+			"with BITCOIN_LIVE_NETWORK=Regtest (Connect refuses a Mainnet config against a regtest node), " +
 			"then mine periodically with bitcoin-cli -regtest generatetoaddress 1 <address> so the " +
 			"wait for two heights completes inside the 30m window")
 		return

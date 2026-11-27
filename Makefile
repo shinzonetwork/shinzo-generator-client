@@ -225,7 +225,9 @@ tron-live-test:
 # bitcoin-live-test runs the Bitcoin live smoke suite against a Bitcoin Core
 # JSON-RPC endpoint. BITCOIN_RPC_URL is required; BITCOIN_ARCHIVE_RPC_URL
 # optionally supplies the fallback endpoint for heights whose undo data the
-# primary node has pruned away. A local regtest node is the suggested
+# primary node has pruned away. Connect refuses a network whose chain name
+# or genesis hash does not match the node, so a regtest run must also export
+# BITCOIN_LIVE_NETWORK=Regtest. A local regtest node is the suggested
 # endpoint since it needs no external account or credentials; mine
 # periodically so the two-height wait completes inside the 30m window:
 #	bitcoind -regtest -rpcbind=127.0.0.1:18443 -rpcuser=shinzorpc -rpcpassword=<pass> -daemon
@@ -233,7 +235,8 @@ bitcoin-live-test:
 	@if [ -z "$(BITCOIN_RPC_URL)" ]; then \
 		echo "❌ BITCOIN_RPC_URL not set. Please export it first:"; \
 		echo "   export BITCOIN_RPC_URL=http://127.0.0.1:18443"; \
-		echo "   For a local regtest node:"; \
+		echo "   For a local regtest node (BITCOIN_LIVE_NETWORK must be Regtest; Connect"; \
+		echo "   refuses a Mainnet config against a regtest node):"; \
 		echo "   bitcoind -regtest -rpcbind=127.0.0.1:18443 -rpcuser=shinzorpc -rpcpassword=<pass> -daemon"; \
 		exit 1; \
 	fi

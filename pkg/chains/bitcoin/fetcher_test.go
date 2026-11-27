@@ -32,6 +32,55 @@ func TestNewFetcherFromConfig_MapsConfig(t *testing.T) {
 	assert.Equal(t, int64(6), f.confirmationDepth)
 	assert.Equal(t, cfg.Bitcoin, f.cfgBitcoin)
 	assert.Equal(t, 10*time.Second, f.dialTimeout)
+	assert.Equal(t, "Mainnet", f.network)
+}
+
+func TestNewFetcherFromConfig_NetworkDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := testFetcherConfig("http://127.0.0.1:8332")
+	cfg.Chain.Network = ""
+	f, err := NewFetcherFromConfig(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "Mainnet", f.network, "an unset network falls back to the converter's default so the guard and the prefix agree")
+
+	cfg.Chain.Network = "Signet"
+	f, err = NewFetcherFromConfig(cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "Signet", f.network, "a configured network passes through")
+}
+
+// TestNetworkIdentities pins the identity table Connect verifies against:
+// Core's chain spelling and the genesis hash for each supported network.
+// The expected values are literals, so an accidental table edit fails here
+// before any node sees it.
+func TestNetworkIdentities(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		[]string{"Mainnet", "Regtest", "Signet", "Testnet", "Testnet4"},
+		SupportedBitcoinNetworks(), "the unsupported-network error lists the networks alphabetically")
+
+	tests := []struct {
+		network string
+		chain   string
+		genesis string
+	}{
+		{"Mainnet", "main", "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"},
+		{"Testnet", "test", "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"},
+		{"Testnet4", "testnet4", "00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043"},
+		{"Signet", "signet", "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6"},
+		{"Regtest", "regtest", "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.network, func(t *testing.T) {
+			t.Parallel()
+			identity, ok := networkIdentities[tt.network]
+			require.True(t, ok, "each supported network must sit in the identity table")
+			assert.Equal(t, tt.chain, identity.coreChain)
+			assert.Equal(t, tt.genesis, identity.genesisHash)
+		})
+	}
 }
 
 func TestNewFetcherFromConfig_DepthDefaults(t *testing.T) {
@@ -354,8 +403,8 @@ func TestConnect_PreConnectedNoOp(t *testing.T) {
 }
 
 // TestConnect_FromConfig drives the full config-built path over the wire
-// mock: construction, the bounded health probe, and the one-time archive
-// floor log.
+// mock: construction, the bounded health probe, the network identity check,
+// and the one-time archive floor log.
 func TestConnect_FromConfig(t *testing.T) {
 	t.Parallel()
 	chainInfo := map[string]any{
@@ -381,6 +430,12 @@ func TestConnect_FromConfig(t *testing.T) {
 			return mockBlockAt(t, json.RawMessage("184500"))
 		case "getblockchaininfo":
 			return mockBlockAt(t, chainInfo)
+		case "getblockhash":
+			var params []int64
+			if json.Unmarshal(call.Params, &params) != nil || len(params) != 1 || params[0] != 0 {
+				return serveErr(int(btcjson.ErrRPCMethodNotFound.Code), "unscripted height")
+			}
+			return mockBlockAt(t, networkIdentities["Mainnet"].genesisHash)
 		case "getinfo":
 			return serveErr(int(btcjson.ErrRPCMethodNotFound.Code), "Method not found")
 		case "getnetworkinfo":
@@ -443,6 +498,151 @@ func TestConnect_HealthProbeFailure(t *testing.T) {
 	err = f.Connect(context.Background())
 	require.Error(t, err, "an unhealthy node must abort startup")
 	assert.Contains(t, err.Error(), "connect probe")
+}
+
+// TestConnect_ChecksChainNetwork pins the network identity guard: Connect
+// reads getblockchaininfo and the height-0 block hash and refuses to
+// connect unless both match the configured network, so a generator pointed
+// at another chain's node never indexes that chain under its own collection
+// names. A failed identity read also fails Connect, since an endpoint that
+// cannot answer it cannot be pinned.
+func TestConnect_ChecksChainNetwork(t *testing.T) {
+	t.Parallel()
+
+	mainnetGenesis := networkIdentities["Mainnet"].genesisHash
+	signetGenesis := networkIdentities["Signet"].genesisHash
+
+	tests := []struct {
+		name          string
+		network       string
+		chainReported string
+		genesisHash   string
+		chainInfoErr  bool
+		genesisErr    bool
+		wantErr       error
+		wantErrText   string
+		wantNoRequest bool
+		wantConnected bool
+	}{
+		{
+			name:          "endpoint serves the configured network",
+			network:       "Mainnet",
+			chainReported: "main",
+			genesisHash:   mainnetGenesis,
+			wantConnected: true,
+		},
+		{
+			name:          "endpoint serves another chain",
+			network:       "Mainnet",
+			chainReported: "signet",
+			genesisHash:   mainnetGenesis,
+			wantErr:       errNetworkMismatch,
+			wantErrText:   "signet",
+			wantConnected: false,
+		},
+		{
+			name:          "genesis hash belongs to another network",
+			network:       "Mainnet",
+			chainReported: "main",
+			genesisHash:   signetGenesis,
+			wantErr:       errNetworkMismatch,
+			wantErrText:   signetGenesis,
+			wantConnected: false,
+		},
+		{
+			name:          "chain info read fails while the probe succeeds",
+			network:       "Mainnet",
+			chainReported: "main",
+			genesisHash:   mainnetGenesis,
+			chainInfoErr:  true,
+			wantErrText:   "read chain info",
+			wantConnected: false,
+		},
+		{
+			name:          "genesis read fails",
+			network:       "Mainnet",
+			chainReported: "main",
+			genesisErr:    true,
+			wantErrText:   "read genesis hash",
+			wantConnected: false,
+		},
+		{
+			name:          "unsupported network fails closed before any request",
+			network:       "Devnet",
+			wantErrText:   "Mainnet, Regtest, Signet, Testnet, Testnet4",
+			wantNoRequest: true,
+			wantConnected: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			server := newCoreRPCServer(t, func(call recordedCall) mockResponse {
+				switch call.Method {
+				case "getblockcount":
+					return mockBlockAt(t, json.RawMessage("184500"))
+				case "getblockchaininfo":
+					if tt.chainInfoErr {
+						return serveErr(int(btcjson.ErrRPCMisc), "chain info unavailable")
+					}
+					return mockBlockAt(t, map[string]any{
+						"chain":         tt.chainReported,
+						"blocks":        800000,
+						"headers":       800000,
+						"bestblockhash": fakeBitcoinHash("chain-tip"),
+						"pruned":        false,
+						"pruneheight":   int64(0),
+						"softforks": map[string]any{
+							"segwit": map[string]any{"type": "buried", "height": 481824, "active": true},
+						},
+					})
+				case "getblockhash":
+					if tt.genesisErr {
+						return serveErr(int(btcjson.ErrRPCMisc), "height 0 unavailable")
+					}
+					var params []int64
+					if json.Unmarshal(call.Params, &params) != nil || len(params) != 1 || params[0] != 0 {
+						return serveErr(int(btcjson.ErrRPCMethodNotFound.Code), "unscripted height")
+					}
+					return mockBlockAt(t, tt.genesisHash)
+				case "getinfo":
+					return serveErr(int(btcjson.ErrRPCMethodNotFound.Code), "Method not found")
+				case "getnetworkinfo":
+					return mockBlockAt(t, map[string]any{
+						"version":         270000,
+						"subversion":      "/Satoshi:27.0.0/",
+						"protocolversion": 70016,
+						"relayfee":        0.00001,
+					})
+				default:
+					return serveErr(int(btcjson.ErrRPCMethodNotFound.Code), "unscripted method")
+				}
+			})
+			cfg := testFetcherConfig(server.URL)
+			cfg.Chain.Network = tt.network
+			f, err := NewFetcherFromConfig(cfg)
+			require.NoError(t, err)
+
+			err = f.Connect(context.Background())
+
+			if tt.wantNoRequest {
+				assert.Zero(t, server.callCount("getblockcount"), "an unsupported network must fail closed before any request")
+			}
+			if tt.wantConnected {
+				require.NoError(t, err)
+				require.NotNil(t, f.client, "a passing identity check must retain the client")
+			} else {
+				require.Error(t, err)
+				if tt.wantErr != nil {
+					assert.ErrorIs(t, err, tt.wantErr)
+				}
+				if tt.wantErrText != "" {
+					assert.Contains(t, err.Error(), tt.wantErrText)
+				}
+				assert.Nil(t, f.client, "a failed Connect must not retain the client, so a retry re-runs the check")
+			}
+		})
+	}
 }
 
 func TestFetcher_Close(t *testing.T) {
