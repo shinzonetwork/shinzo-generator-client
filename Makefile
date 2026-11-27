@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build solana-build tron-build ethereum-start solana-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test tron-replay-fetch tron-acceptance-test tron-golden-fetch ethereum-golden-test tron-golden-test solana-live-test
+.PHONY: deps env build evm-build solana-build tron-build ethereum-start solana-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test tron-replay-fetch tron-acceptance-test tron-golden-fetch ethereum-golden-test tron-golden-test solana-live-test solana-replay-fetch solana-acceptance-test
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -124,7 +124,10 @@ test:
 	go test -tags=acceptance ./replay/tron -run TestReplayConfigKeepsSuiteKnobs -count=1 -v > /tmp/scrub_guard.log 2>&1; \
 	guard_code=$$?; \
 	cat /tmp/scrub_guard.log | tee -a /tmp/test_output.log; \
-	rm -f /tmp/scrub_guard.log; \
+	go test -tags=acceptance ./replay/solana -run TestReplayConfigKeepsSuiteKnobs -count=1 -v > /tmp/scrub_guard_solana.log 2>&1; \
+	guard_code=$$(( guard_code + $$? )); \
+	cat /tmp/scrub_guard_solana.log | tee -a /tmp/test_output.log; \
+	rm -f /tmp/scrub_guard.log /tmp/scrub_guard_solana.log; \
 	if [ $$guard_code -ne 0 ]; then exit_code=$$guard_code; fi; \
 	echo ""; \
 	echo "📊 TEST SUMMARY:"; \
@@ -361,6 +364,33 @@ tron-replay-fetch:
 tron-acceptance-test:
 	go test -tags=acceptance ./replay/tron -run TestTronReplayAcceptance -count=1 -v -timeout 30m
 
+# solana-replay-fetch captures a raw replay fixture via the chain-agnostic
+# cmd/fetch_blocks CLI (one-time; needs a Solana JSON-RPC endpoint). FROM/TO
+# are overridable slots; the default captures 100 slots ending at the
+# confirmed tip. Fixtures land in replay/testdata/ (gitignored) as
+# solana_blocks_<from>_<to>.json. Full nodes hold days of ledger, so a
+# near-tip capture works anywhere; a chain-skipped slot records no entry,
+# so the fixture holds only the slots the chain filled.
+solana-replay-fetch:
+	@if [ -z "$(SOLANA_RPC_URL)" ]; then \
+		echo "❌ SOLANA_RPC_URL not set - fixture capture needs a Solana JSON-RPC endpoint"; \
+		exit 1; \
+	fi
+	@mkdir -p replay/testdata
+	go run ./cmd/fetch_blocks --chain solana --network mainnet --adapter solana --from $(FROM) --to $(TO)
+
+# solana-acceptance-test replays the newest captured fixture through the full
+# production pipeline (mock JSON-RPC → Fetcher → Converter →
+# BlockHandler.Store) and hard-asserts the effective per-produced-block
+# interval stays within Solana's current 200 ms slot target (the slot-time
+# reduction completed in October 2026; Alpenglow's 150 ms figure is
+# finality latency, not block cadence). TEST_SOLANA_TARGET_BLOCK_TIME
+# overrides the target (e.g. 400ms for a pre-stage fixture); a missing
+# fixture skips with regeneration instructions. -count=1 forces the run
+# every time, mirroring the ethereum/bsc/tron suites.
+solana-acceptance-test:
+	go test -tags=acceptance ./replay/solana -run TestSolanaReplayAcceptance -count=1 -v -timeout 30m
+
 # tron-golden-fetch captures one suitable mainnet block for the golden
 # freeze via scripts/fetch_tron_golden.sh (one-time; TRON_RPC_URL required,
 # TRON_API_KEY optional). It scans back from the tip for a block exercising
@@ -412,6 +442,10 @@ help:
 	@echo "  tron-replay-fetch  - Capture a replay fixture (FROM/TO blocks; requires TRON_RPC_URL)"
 	@echo "  tron-acceptance-test - Replay the fixture and assert the effective block interval <= Tron's 3s"
 	@echo "  tron-golden-fetch  - Capture a golden fixture block (HEIGHT pins; requires TRON_RPC_URL; TRON_API_KEY optional; FORCE=1 replaces)"
+	@echo ""
+	@echo "⏱  Solana tip-indexing acceptance (replay):"
+	@echo "  solana-replay-fetch - Capture a replay fixture (FROM/TO slots; requires SOLANA_RPC_URL)"
+	@echo "  solana-acceptance-test - Replay the fixture and assert the effective block interval <= the current 200ms slot target"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"

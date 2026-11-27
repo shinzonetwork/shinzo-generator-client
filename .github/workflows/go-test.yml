@@ -49,8 +49,11 @@ jobs:
     - name: Run golden tests
       run: go test -tags=integration ./golden/... -count=1
 
-    - name: Run scrub tests for the replay harness
+    - name: Run scrub tests for the Tron replay  harness
       run: go test -tags=acceptance ./replay/tron -run TestReplayConfigKeepsSuiteKnobs -count=1
+
+    - name: Run scrub tests for the Solana replay  harness
+      run: go test -tags=acceptance ./replay/solana -run TestReplayConfigKeepsSuiteKnobs -count=1
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
