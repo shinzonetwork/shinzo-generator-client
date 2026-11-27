@@ -7,6 +7,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/tron"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,13 +101,33 @@ func TestRun_SolanaListFiles(t *testing.T) {
 	assert.NotContains(t, output, "accessListEntry.graphql")
 }
 
+func TestRun_ExplicitTronAdapter(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Tron", "--network", "Mainnet", "--adapter", config.TronChainAdapter}, &buf))
+	assert.Contains(t, buf.String(), "Tron__Mainnet__Block")
+}
+
+func TestRun_TronMainnetSchema(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Tron", "--network", "Mainnet", "--adapter", config.TronChainAdapter}, &buf))
+	sdl := buf.String()
+	expected, err := tron.NewCollectionNames(tron.DefaultCollectionPrefix).MergedSDL()
+	require.NoError(t, err)
+	assert.Equal(t, expected, sdl)
+	for _, typeName := range tron.DefaultCollections() {
+		assert.Contains(t, sdl, typeName)
+	}
+}
+
 func TestRun_UnknownAdapterFails(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	err := run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--adapter", "cosmos"}, &buf)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `chain adapter "cosmos" not yet implemented`)
-	assert.Contains(t, err.Error(), `only "evm" and "solana" are supported`)
+	assert.Contains(t, err.Error(), `chain adapter "cosmos" not supported`)
+	assert.Contains(t, err.Error(), "evm, tron, solana")
 	assert.Empty(t, buf.String())
 }
 

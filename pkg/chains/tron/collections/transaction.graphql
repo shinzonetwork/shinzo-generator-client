@@ -1,0 +1,17 @@
+type Tron__Mainnet__Transaction {
+    hash: String
+    blockHash: String
+    blockNumber: Int @index
+    type: String
+    from: String
+    to: String
+    amount: Int
+    fee: Int
+    rawData: String
+    ret: String
+    energyUsage: Int
+    # Relationships
+    block: Tron__Mainnet__Block @relation(name: "block_transactions")
+    logs: [Tron__Mainnet__Log] @relation(name: "transaction_logs")
+    internalTransfers: [Tron__Mainnet__InternalTransfer] @relation(name: "transaction_internalTransfers")
+}

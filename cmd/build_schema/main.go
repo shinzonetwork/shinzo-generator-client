@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/solana"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/tron"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
@@ -47,8 +49,8 @@ func run(args []string, stdout io.Writer) error {
 	if err := config.ValidateChainNames(*chain, *network); err != nil {
 		return err
 	}
-	if *adapter != "" && *adapter != config.DefaultChainAdapter && *adapter != config.SolanaAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q and %q are supported", *adapter, config.DefaultChainAdapter, config.SolanaAdapter)
+	if *adapter != "" && *adapter != config.DefaultChainAdapter && *adapter != config.TronChainAdapter && *adapter != config.SolanaAdapter {
+		return fmt.Errorf("chain adapter %q not yet implemented: only %q, %q, and %q are supported", *adapter, config.DefaultChainAdapter, config.TronChainAdapter, config.SolanaAdapter)
 	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
@@ -56,14 +58,34 @@ func run(args []string, stdout io.Writer) error {
 		Network: *network,
 		Adapter: *adapter,
 	}}
-	c, err := collectionsForAdapter(*adapter, cfg)
+	c, err := resolveCollections(*adapter, cfg)
 	if err != nil {
 		return err
 	}
+	return emit(c, *listFiles, *file, stdout)
+}
 
-	var sdl string
-	switch {
-	case *listFiles:
+// resolveCollections builds the collection names for the requested adapter.
+// The empty adapter keeps resolving to evm so pre-tron invocations behave as
+// before; anything unknown fails loudly instead of silently defaulting.
+func resolveCollections(adapter string, cfg *config.Config) (chains.Collections, error) {
+	switch adapter {
+	case "", config.DefaultChainAdapter:
+		return evm.NewCollectionsFromConfig(cfg)
+	case config.TronChainAdapter:
+		return tron.NewCollectionsFromConfig(cfg)
+	case config.SolanaAdapter:
+		return solana.NewCollectionsFromConfig(cfg)
+	default:
+		return nil, fmt.Errorf("chain adapter %q not supported: supported adapters are %s",
+			adapter, strings.Join(config.SupportedChainAdapters, ", "))
+	}
+}
+
+// emit writes the requested output for the resolved collections: the ordered
+// collection file list, a single collection's SDL, or the full merged SDL.
+func emit(c chains.Collections, listFiles bool, file string, stdout io.Writer) error {
+	if listFiles {
 		files, err := c.CollectionFiles()
 		if err != nil {
 			return err
@@ -74,31 +96,19 @@ func run(args []string, stdout io.Writer) error {
 			}
 		}
 		return nil
-	case *file != "":
-		sdl, err = collectionSDLByFile(c, *file)
-	default:
+	}
+	var sdl string
+	var err error
+	if file != "" {
+		sdl, err = collectionSDLByFile(c, file)
+	} else {
 		sdl, err = schema.LoadSchemaSDLForChain(c)
 	}
-
 	if err != nil {
 		return err
 	}
 	_, err = io.WriteString(stdout, sdl)
 	return err
-}
-
-// collectionsForAdapter resolves the collections implementation for the
-// requested adapter explicitly, mirroring the per-chain mains: each adapter
-// maps to its package's collections factory with no registry or global
-// fallback dispatch in between. An empty adapter keeps the historical
-// default of the evm adapter.
-func collectionsForAdapter(adapter string, cfg *config.Config) (chains.Collections, error) {
-	switch adapter {
-	case config.SolanaAdapter:
-		return solana.NewCollectionsFromConfig(cfg)
-	default:
-		return evm.NewCollectionsFromConfig(cfg)
-	}
 }
 
 // collectionSDLByFile looks up a single collection file's SDL from the chain's
