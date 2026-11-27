@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/bitcoin"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/tron"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
 
@@ -53,14 +55,34 @@ func run(args []string, stdout io.Writer) error {
 		Network: *network,
 		Adapter: *adapter,
 	}}
-	c, err := collectionsForAdapter(*adapter, cfg)
+	c, err := resolveCollections(*adapter, cfg)
 	if err != nil {
 		return err
 	}
+	return emit(c, *listFiles, *file, stdout)
+}
 
-	var sdl string
-	switch {
-	case *listFiles:
+// resolveCollections builds the collection names for the requested adapter.
+// The empty adapter keeps resolving to evm so pre-tron invocations behave as
+// before; anything unknown fails loudly instead of silently defaulting.
+func resolveCollections(adapter string, cfg *config.Config) (chains.Collections, error) {
+	switch adapter {
+	case "", config.DefaultChainAdapter:
+		return evm.NewCollectionsFromConfig(cfg)
+	case config.TronChainAdapter:
+		return tron.NewCollectionsFromConfig(cfg)
+	case config.BitcoinAdapter:
+		return bitcoin.NewCollectionsFromConfig(cfg)
+	default:
+		return nil, fmt.Errorf("chain adapter %q not supported: supported adapters are %s",
+			adapter, strings.Join(config.SupportedChainAdapters, ", "))
+	}
+}
+
+// emit writes the requested output for the resolved collections: the ordered
+// collection file list, a single collection's SDL, or the full merged SDL.
+func emit(c chains.Collections, listFiles bool, file string, stdout io.Writer) error {
+	if listFiles {
 		files, err := c.CollectionFiles()
 		if err != nil {
 			return err
@@ -71,12 +93,14 @@ func run(args []string, stdout io.Writer) error {
 			}
 		}
 		return nil
-	case *file != "":
-		sdl, err = collectionSDLByFile(c, *file)
-	default:
+	}
+	var sdl string
+	var err error
+	if file != "" {
+		sdl, err = collectionSDLByFile(c, file)
+	} else {
 		sdl, err = schema.LoadSchemaSDLForChain(c)
 	}
-
 	if err != nil {
 		return err
 	}
@@ -98,20 +122,4 @@ func collectionSDLByFile(c chains.Collections, file string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("collection file %q not found for prefix %s", file, c.Prefix())
-}
-
-// collectionsForAdapter resolves the collection names through the chain
-// package that owns the requested adapter. An empty adapter selects the
-// default (evm) family, matching the config layer's own default, so legacy
-// invocations keep working without the flag.
-func collectionsForAdapter(adapter string, cfg *config.Config) (chains.Collections, error) {
-	switch adapter {
-	case "", config.DefaultChainAdapter:
-		return evm.NewCollectionsFromConfig(cfg)
-	case config.BitcoinAdapter:
-		return bitcoin.NewCollectionsFromConfig(cfg)
-	default:
-		return nil, fmt.Errorf("chain adapter %q not yet implemented: only %q and %q are supported",
-			adapter, config.DefaultChainAdapter, config.BitcoinAdapter)
-	}
 }

@@ -1048,20 +1048,6 @@ func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 		return "", 0
 	}
 
-	adapter := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Adapter))
-	network := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Network))
-	if adapter == config.BitcoinAdapter {
-		if network == "mainnet" {
-			return "bitcoin", 0
-		}
-		return "", 0
-	}
-
-	name := strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name))
-	if (name == "" || name == "ethereum") && (network == "" || network == "mainnet") {
-		return "ethereum", 1
-	}
-
 	return strings.ToLower(strings.TrimSpace(i.cfg.Chain.Name)), i.cfg.Chain.ChainID
 }
 

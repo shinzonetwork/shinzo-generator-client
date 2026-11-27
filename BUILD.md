@@ -16,25 +16,32 @@ go mod download
 make build
 ```
 
-The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `make build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain) plus `bin/fetch_blocks`.
+The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: `make build` produces `bin/block_poster_evm` (the evm adapter, used for Ethereum, BSC, and any EVM-compatible chain), `bin/block_poster_tron` (the tron adapter, configured via `config/config_tron.yml` with the wallet-API `TRON_RPC_URL` endpoint), plus `bin/fetch_blocks`.
 
 ## Useful commands
 
 | Command | What it does |
 | --- | --- |
-| `make build` | Build all binaries (evm generator + fetch_blocks). |
+| `make build` | Build all binaries (evm + tron + bitcoin generators  and `fetch_blocks` + `build_schema`). |
 | `make evm-build` | Build only `bin/block_poster_evm`. |
+| `make tron-build` | Build only `bin/block_poster_tron`. |
 | `make bitcoin-build` | Build only `bin/block_poster_bitcoin`. |
 | `make ethereum-start` | Run `bin/block_poster_evm` with the Ethereum config. |
 | `make bsc-start` | Run `bin/block_poster_evm` with the BSC config. |
-| `make bitcoin-start` | Run the compiled binary for Bitcoin. |
+| `make tron-start` | Run `bin/block_poster_tron` with the Tron config. |
+| `make bitcoin-start` | Run `bin/block_poster_bitcoin` with the Bitcoin config. |
 | `make test` | Run all tests with a summary. |
-| `make integration-test` | Run the Ethereum and Bitcoin integration suites. |
-| `make ethereum-integration-test` | Run the Ethereum mock and live legs. |
-| `make bitcoin-integration-test` | Run the Bitcoin mock and live legs. |
-| `make bitcoin-live-test` | Run the Bitcoin live smoke suite against a Bitcoin Core JSON-RPC endpoint (requires `BITCOIN_RPC_URL`). |
+| `make integration-test` | Run all mock integration tests. Covers the EVM, Tron, and Bitcoin suites|
+| `make ethereum-integration-test` | Run the Ethereum mock integration tests. |
+| `make bitcoin-integration-test` | Run the Bitcoin mock integration tests. |
+| `make live-test` | Run all live integration tests. Covers the EVM, Tron, and Bitcoin suites|
 | `make ethereum-live-test` | Run live integration tests for Ethereum |
 | `make bsc-live-test` | Run live integration tests for BSC |
+| `make tron-live-test` | Run live integration tests for Tron |
+| `make bitcoin-live-test` | Run live integration tests for Bitcoin |
+| `make golden-test` | Run all golden tests. Covers the Ethereum and Tron suites|
+| `make ethereum-golden-test` | Run golden tests for Ethereum |
+| `make tron-golden-test` | Run golden tests fo Tron |
 | `make bsc-bench-fetch` | Captures replay fixture for BSC acceptance test from BSC RPC |
 | `make bsc-acceptance-test` | Run replay acceptance test for BSC |
 | `make coverage` | Generate an HTML coverage report. |

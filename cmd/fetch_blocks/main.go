@@ -1,9 +1,9 @@
-// Command fetch_blocks captures raw block data from any EVM-compatible
-// JSON-RPC node into a replay fixture for the replay acceptance suites.
-// The chain and network are plain parameters (--chain/--network): they only
-// label the fixture and derive its filename — the capture itself is
-// transport-only JSON-RPC over HTTP, so it works unchanged across
-// EVM-compatible chains.
+// Command fetch_blocks captures raw block data from a chain endpoint into a
+// replay fixture for the replay acceptance suites. The --adapter flag picks
+// the capture backend: the evm backend speaks transport-only JSON-RPC over
+// HTTP (any EVM-compatible chain), the tron backend speaks the java-tron
+// wallet API. The chain and network are plain parameters (--chain/--network):
+// they only label the fixture and derive its filename.
 //
 // It stores the node's result bytes verbatim, so the replay mock server can
 // serve exactly what the node served. Endpoint URLs and API keys are never
@@ -67,6 +67,10 @@ const (
 	receiptModeBatch = "batch"
 	receiptModePerTx = "per-tx"
 
+	// Capture adapters selectable via --adapter.
+	adapterEVM  = "evm"
+	adapterTron = "tron"
+
 	// maxErrorBodyBytes bounds how much of an error response body is
 	// echoed into error messages.
 	maxErrorBodyBytes = 1024
@@ -87,12 +91,76 @@ type rpcEnv struct {
 
 // captureOptions holds the parsed CLI parameters.
 type captureOptions struct {
+	adapter string
 	chain   string
 	network string
 	from    uint64
 	to      uint64
 	out     string
 	delay   time.Duration
+}
+
+// captureBackend abstracts the chain-family specifics of a capture: how the
+// tip is resolved, how one block plus its receipts are fetched, and how the
+// endpoint shows up in log lines. The evm backend speaks JSON-RPC (hex
+// numbers, batch or per-tx receipts); the tron backend speaks the wallet API
+// (decimal numbers, one per-block receipts call). The fixture envelope,
+// retry pacing, interrupt handling, and atomic writes are shared.
+type captureBackend interface {
+	fetchTip(ctx context.Context) (uint64, error)
+	captureBlock(ctx context.Context, num uint64) (*fixtureBlock, error)
+	redactedEndpoint() string
+}
+
+// newBackend resolves the --adapter flag into a capture backend, reading the
+// adapter's endpoint env. The error names the env var the run is missing.
+func newBackend(opts *captureOptions) (captureBackend, error) {
+	switch opts.adapter {
+	case adapterEVM:
+		return newEVMBackend(opts)
+	case adapterTron:
+		return newTronBackend(opts)
+	default:
+		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s)", opts.adapter, adapterEVM, adapterTron)
+	}
+}
+
+// evmBackend captures over EVM-compatible JSON-RPC. The rpcEnv fields and
+// the capture functions live unchanged in this file; the type only binds
+// them to the captureBackend interface.
+type evmBackend struct {
+	env *rpcEnv
+}
+
+// newEVMBackend reads the EVM endpoint env. The GETH_* names are historical;
+// any compatible JSON-RPC endpoint works.
+func newEVMBackend(opts *captureOptions) (*evmBackend, error) {
+	rpcURL := os.Getenv("GETH_RPC_URL")
+	if rpcURL == "" {
+		return nil, fmt.Errorf("GETH_RPC_URL is required: point it at a JSON-RPC endpoint for %s %s", opts.chain, opts.network)
+	}
+	// The endpoint must be an ARCHIVAL node: fetching an arbitrary historical
+	// block range needs full state/receipt history, which non-archival
+	// (pruned/full) nodes serve only near the tip — deeper ranges return null
+	// blocks or missing receipts and the capture fails partway through.
+	return &evmBackend{env: &rpcEnv{
+		client:     &http.Client{Timeout: httpTimeout},
+		url:        rpcURL,
+		apiKey:     os.Getenv("GETH_API_KEY"),
+		apiKeyType: os.Getenv("GETH_API_KEY_TYPE"),
+	}}, nil
+}
+
+func (b *evmBackend) fetchTip(ctx context.Context) (uint64, error) {
+	return fetchTip(ctx, b.env)
+}
+
+func (b *evmBackend) captureBlock(ctx context.Context, num uint64) (*fixtureBlock, error) {
+	return captureBlock(ctx, b.env, num)
+}
+
+func (b *evmBackend) redactedEndpoint() string {
+	return utils.RedactEndpoint(b.env.url)
 }
 
 // retryableError marks an RPC failure that a retry may fix. retryAfter
@@ -140,12 +208,14 @@ func fixturePrefix(chain string) string {
 
 // fixtureBlock holds one block's verbatim node responses. Receipts is always
 // a JSON array of receipt objects regardless of capture mode, so replay
-// consumers treat both modes uniformly.
+// consumers treat both modes uniformly. Number's encoding is adapter-owned:
+// the evm backend writes a hex quantity, the tron backend a decimal height;
+// the on-disk envelope is identical and the chain label distinguishes them.
 type fixtureBlock struct {
-	Number      string          `json:"number"`       // hex block number
-	Block       json.RawMessage `json:"block"`        // eth_getBlockByNumber(number, full=true) result, verbatim
+	Number      string          `json:"number"`       // evm: hex quantity, tron: decimal height
+	Block       json.RawMessage `json:"block"`        // verbatim block body
 	Receipts    json.RawMessage `json:"receipts"`     // receipt array, verbatim
-	ReceiptMode string          `json:"receipt_mode"` // "batch" or "per-tx"
+	ReceiptMode string          `json:"receipt_mode"` // "batch", "per-tx", or "block"
 }
 
 // fixtureMeta describes the capture. It intentionally carries no endpoint or
@@ -183,25 +253,15 @@ func run(args []string) error {
 		return err
 	}
 
-	rpcURL := os.Getenv("GETH_RPC_URL")
-	if rpcURL == "" {
-		return fmt.Errorf("GETH_RPC_URL is required: point it at a JSON-RPC endpoint for %s %s", opts.chain, opts.network)
-	}
-	// The endpoint must be an ARCHIVAL node: fetching an arbitrary historical
-	// block range needs full state/receipt history, which non-archival
-	// (pruned/full) nodes serve only near the tip — deeper ranges return null
-	// blocks or missing receipts and the capture fails partway through.
-	env := &rpcEnv{
-		client:     &http.Client{Timeout: httpTimeout},
-		url:        rpcURL,
-		apiKey:     os.Getenv("GETH_API_KEY"),
-		apiKeyType: os.Getenv("GETH_API_KEY_TYPE"),
+	backend, err := newBackend(opts)
+	if err != nil {
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	tip, err := fetchTip(ctx, env)
+	tip, err := backend.fetchTip(ctx)
 	if err != nil {
 		return fmt.Errorf("resolve current tip: %w", err)
 	}
@@ -215,9 +275,9 @@ func run(args []string) error {
 	// this gosec build does not apply the rule's documented sanitizers
 	// (strings.ReplaceAll, strconv.Quote) interprocedurally.
 	log.Printf("capturing %s %s blocks %d..%d (tip %d) from %s",
-		sanitizeLogLabel(opts.chain), sanitizeLogLabel(opts.network), resolvedFrom, resolvedTo, tip, utils.RedactEndpoint(rpcURL))
+		sanitizeLogLabel(opts.chain), sanitizeLogLabel(opts.network), resolvedFrom, resolvedTo, tip, backend.redactedEndpoint())
 
-	return captureRange(ctx, env, opts, resolvedFrom, resolvedTo)
+	return captureRange(ctx, backend, opts, resolvedFrom, resolvedTo)
 }
 
 // sanitizeLogLabel strips CR/LF from values that originate outside the
@@ -237,6 +297,7 @@ func parseFlags(args []string) (*captureOptions, error) {
 	// binary drop a fixture the acceptance suite's glob never finds.
 	fs.StringVar(&opts.chain, "chain", "", "chain name labelling the fixture (required; e.g. BSC)")
 	fs.StringVar(&opts.network, "network", "", "network name labelling the fixture (required; e.g. Mainnet)")
+	fs.StringVar(&opts.adapter, "adapter", adapterEVM, fmt.Sprintf("capture backend (supported adapters: %s, %s)", adapterEVM, adapterTron))
 	fs.Uint64Var(&opts.from, "from", 0, "first block to capture (0 = defaultBlockCount blocks ending at --to or the tip)")
 	fs.Uint64Var(&opts.to, "to", 0, "last block to capture (0 = the current tip)")
 	fs.StringVar(&opts.out, "out", "", fmt.Sprintf("output fixture path (default %s/<chain>_<from>_<to>%s)", defaultOutDir, fixtureExt))
@@ -252,6 +313,13 @@ func parseFlags(args []string) (*captureOptions, error) {
 	}
 	if strings.TrimSpace(opts.network) == "" {
 		return nil, fmt.Errorf("--network is required (it labels the fixture)")
+	}
+	// Fail before any endpoint is touched: an unknown adapter has no env to
+	// read, and the error must list the supported values.
+	switch opts.adapter {
+	case adapterEVM, adapterTron:
+	default:
+		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s)", opts.adapter, adapterEVM, adapterTron)
 	}
 	return opts, nil
 }
@@ -299,8 +367,11 @@ func fixtureOutPath(opts *captureOptions, fx *replayFixture) string {
 
 // captureRange walks the block range, fills the fixture and saves it. An
 // interrupt (SIGINT/SIGTERM) stops capture and saves whatever was collected
-// so far as a partial fixture instead of losing the work.
-func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, to uint64) error {
+// so far as a partial fixture instead of losing the work. A hard capture
+// failure stops the walk the same way: the blocks before the failing one
+// are valid capture work, so they are salvaged into a partial fixture and
+// the error still surfaces to keep the run's exit non-zero.
+func captureRange(ctx context.Context, backend captureBackend, opts *captureOptions, from, to uint64) error {
 	fx := &replayFixture{
 		Meta: fixtureMeta{
 			Chain:      opts.chain,
@@ -312,16 +383,24 @@ func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, 
 	}
 
 	interrupted := false
-	for num := from; num <= to && !interrupted; num++ {
-		fb, err := captureBlock(ctx, env, num)
+	// failErr records a hard capture failure: the walk stops and the error
+	// is re-raised after the salvage below, keeping the failure visible.
+	var failErr error
+	// lastCaptured feeds the partial fixture's To rewrite; it is only read
+	// after the zero-block check, which guarantees at least one append ran.
+	lastCaptured := from
+	for num := from; num <= to && !interrupted && failErr == nil; num++ {
+		fb, err := backend.captureBlock(ctx, num)
 		if err != nil {
 			if ctx.Err() != nil {
 				interrupted = true
 				break
 			}
-			return fmt.Errorf("block %d: %w", num, err)
+			failErr = fmt.Errorf("block %d: %w", num, err)
+			break
 		}
 		fx.Blocks = append(fx.Blocks, *fb)
+		lastCaptured = num
 		log.Printf("captured block %d (%d/%d, %s receipts)", num, num-from+1, to-from+1, fb.ReceiptMode)
 
 		// The pause paces the next request, so it must not run after the
@@ -334,22 +413,31 @@ func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, 
 		}
 	}
 
-	// Zero blocks is not a fixture: the only way here is an interrupt
-	// landing before the first block completed (a real block error returns
-	// directly above), so the file would be an empty marker whose _partial
-	// name silently replaces a complete capture in the suite's latest-file
-	// pick. Nothing mid-capture was lost, so there is nothing to salvage.
+	// Zero blocks is not a fixture: a real block error re-raises as-is and
+	// an interrupt reports its own reason, and neither writes a file, since
+	// an empty _partial marker would be the newest file in testdata and
+	// silently replace a complete capture in the suite's latest-file pick.
+	// Nothing mid-capture was lost, so there is nothing to salvage.
 	if len(fx.Blocks) == 0 {
+		if failErr != nil {
+			return failErr
+		}
 		return fmt.Errorf("interrupted before any block completed; no fixture written (requested %d..%d)", from, to)
 	}
 	if interrupted {
 		// Runs with at least one block: a zero-block run returned above.
 		// To is rewritten to the block actually captured last so the
 		// fixture name never promises a range the file does not contain.
-		last, _ := parseHexUint(fx.Blocks[len(fx.Blocks)-1].Number)
-		fx.Meta.To = last
+		fx.Meta.To = lastCaptured
 		fx.Meta.CapturePartial = true
 		log.Printf("interrupted - saving partial fixture (%d blocks)", len(fx.Blocks))
+	} else if failErr != nil {
+		// The failing block is the capture's natural end: rewriting To and
+		// marking the fixture partial mirrors the interrupt salvage, and
+		// the error is re-raised after the save so scripts still see it.
+		fx.Meta.To = lastCaptured
+		fx.Meta.CapturePartial = true
+		log.Printf("capture failed, saving partial fixture (%d blocks)", len(fx.Blocks))
 	}
 	fx.Meta.BlockCount = len(fx.Blocks)
 
@@ -358,6 +446,9 @@ func captureRange(ctx context.Context, env *rpcEnv, opts *captureOptions, from, 
 		return fmt.Errorf("save fixture: %w", err)
 	}
 	log.Printf("saved %d blocks to %s", len(fx.Blocks), out)
+	if failErr != nil {
+		return fmt.Errorf("%w (salvaged %d blocks to %s)", failErr, len(fx.Blocks), out)
+	}
 	return nil
 }
 
@@ -448,11 +539,13 @@ func fetchTip(ctx context.Context, env *rpcEnv) (uint64, error) {
 	return tip, nil
 }
 
-// rpcCall performs one JSON-RPC request, retrying transport errors and HTTP
-// 429/5xx responses with Retry-After or exponential backoff. JSON-RPC
-// envelope errors are not retried: they are the node's answer (e.g. a missing
-// eth_getBlockReceipts method) and the caller decides what to do with them.
-func rpcCall(ctx context.Context, env *rpcEnv, method string, params any) (json.RawMessage, error) {
+// withRetries wraps one request attempt in the shared retry loop: transport
+// errors and HTTP 429/5xx responses retry with Retry-After or exponential
+// backoff; anything else is the endpoint's answer and returns immediately
+// for the caller to interpret. Both capture backends (the EVM JSON-RPC
+// transport and the Tron wallet API) share it; each supplies its own once
+// function carrying its request shape and error wrapping.
+func withRetries(ctx context.Context, method string, once func() (json.RawMessage, error)) (json.RawMessage, error) {
 	var lastErr error
 	for attempt := range maxRetries {
 		if attempt > 0 {
@@ -466,7 +559,7 @@ func rpcCall(ctx context.Context, env *rpcEnv, method string, params any) (json.
 			}
 		}
 
-		result, err := rpcOnce(ctx, env, method, params)
+		result, err := once()
 		if err == nil {
 			return result, nil
 		}
@@ -476,6 +569,16 @@ func rpcCall(ctx context.Context, env *rpcEnv, method string, params any) (json.
 		}
 	}
 	return nil, fmt.Errorf("%s: giving up after %d attempts: %w", method, maxRetries, lastErr)
+}
+
+// rpcCall performs one JSON-RPC request, retrying transport errors and HTTP
+// 429/5xx responses with Retry-After or exponential backoff. JSON-RPC
+// envelope errors are not retried: they are the node's answer (e.g. a missing
+// eth_getBlockReceipts method) and the caller decides what to do with them.
+func rpcCall(ctx context.Context, env *rpcEnv, method string, params any) (json.RawMessage, error) {
+	return withRetries(ctx, method, func() (json.RawMessage, error) {
+		return rpcOnce(ctx, env, method, params)
+	})
 }
 
 // rpcOnce issues a single JSON-RPC request and returns the raw result bytes.

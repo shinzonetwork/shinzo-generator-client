@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# Capture one suitable Tron block for the golden freeze: scan backwards from
+# the tip for a block that exercises the full wallet-API pipeline, then write
+# the verbatim getblockbynum and gettransactioninfobyblocknum bodies into
+# golden/tron/testdata/. HEIGHT= pins an explicit block and skips the scan;
+# a pinned block still runs the same suitability checks and fails loudly if
+# it does not qualify. Requires TRON_RPC_URL; TRON_API_KEY is optional and
+# sent as the Tron-Pro-Api-Key header only when set, so providers that
+# embed the key in the URL work without a dummy value. Neither the endpoint
+# nor the key is ever written into the fixtures.
+#
+# The freeze is a single-block freeze: the loader reads every file in the
+# blocks/ and receipts/ folders, so the script refuses to run when a fixture
+# is already present and FORCE=1 replaces it, removing the old pair only
+# after the new block qualified.
+set -euo pipefail
+
+HEIGHT="${HEIGHT:-}"
+FORCE="${FORCE:-}"
+SCAN_LIMIT="${SCAN_LIMIT:-500}"
+START_OFFSET="${START_OFFSET:-20}"
+SLEEP_SECS="${SLEEP_SECS:-0.3}"
+
+BLOCKS_DIR="golden/tron/testdata/blocks"
+RECEIPTS_DIR="golden/tron/testdata/receipts"
+
+for dep in curl jq; do
+	command -v "$dep" >/dev/null 2>&1 || {
+		echo "ERROR: $dep is required but not installed"
+		exit 1
+	}
+done
+
+[ -n "${TRON_RPC_URL:-}" ] || {
+	echo "ERROR: TRON_RPC_URL not set (wallet-API base URL, e.g. https://api.trongrid.io)"
+	exit 1
+}
+[ -d golden ] || {
+	echo "ERROR: run this script from the repository root (no golden/ directory here)"
+	exit 1
+}
+
+# has_fixture reports whether a fixture folder already holds a JSON file.
+# The glob loop needs no nullglob: an unmatched glob stays literal and the
+# -e test rejects it.
+has_fixture() {
+	[ -d "$1" ] || return 1
+	local f
+	for f in "$1"/*.json; do
+		[ -e "$f" ] && return 0
+	done
+	return 1
+}
+
+if [ "$FORCE" != "1" ] && { has_fixture "$BLOCKS_DIR" || has_fixture "$RECEIPTS_DIR"; }; then
+	echo "ERROR: golden/tron/testdata already holds a fixture:"
+	for dir in "$BLOCKS_DIR" "$RECEIPTS_DIR"; do
+		for f in "$dir"/*.json; do
+			[ -e "$f" ] && echo "  $f"
+		done
+	done
+	echo ""
+	echo "The tron freeze is a single-block freeze: the loader reads every file in"
+	echo "blocks/ and receipts/, so a second capture would silently turn it into a"
+	echo "multi-block freeze. Re-run with FORCE=1 to replace it, or clear the two"
+	echo "folders manually."
+	exit 1
+fi
+if [ -z "${TRON_API_KEY:-}" ]; then
+	echo "Note: TRON_API_KEY not set; requests go out unauthenticated (fine when the key is embedded in the URL)"
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# wallet_post posts a JSON body to a wallet-API path and writes the response
+# to a file. A business failure is HTTP 200 with an {"Error": ...} body, so
+# the response is validated after the fact rather than by status code. The
+# auth header is appended only when a key is set: providers like Alchemy
+# embed the key in the URL, and the production client sends it the same way.
+# The command is assembled as an array that always starts with curl, so the
+# expansion stays safe under set -u on old bash even when the header is
+# skipped.
+wallet_post() {
+	local path="$1" payload="$2" outfile="$3"
+	local -a cmd=(curl -sS --fail --retry 3 --retry-delay 2)
+	if [ -n "${TRON_API_KEY:-}" ]; then
+		cmd+=(-H "Tron-Pro-Api-Key: $TRON_API_KEY")
+	fi
+	cmd+=(-H "Content-Type: application/json" -d "$payload" "${TRON_RPC_URL}${path}" -o "$outfile")
+	if ! "${cmd[@]}"; then
+		return 1
+	fi
+	if jq -e 'type == "object" and has("Error")' "$outfile" >/dev/null 2>&1; then
+		return 1
+	fi
+	return 0
+}
+
+fetch_tip() {
+	local out="$TMP/tip.json"
+	wallet_post "/wallet/getnowblock" '{}' "$out" || {
+		echo "ERROR: cannot reach ${TRON_RPC_URL} (/wallet/getnowblock failed)"
+		exit 1
+	}
+	jq -r '.block_header.raw_data.number // 0' "$out"
+}
+
+# fail_reasons prints a verdict block to stderr and returns 1.
+fail_reasons() {
+	local num="$1"
+	shift
+	echo "Block $num not suitable:" >&2
+	local reason
+	for reason in "$@"; do
+		echo "  - $reason" >&2
+	done
+	return 1
+}
+
+# check_suitable validates one block+receipts pair against the freeze's
+# coverage bar: transactions present, receipts complete and pinned to the
+# block, both contract outcomes, both contract kinds, and the derived
+# document inputs present (logs, internal transfers, at least one internal
+# transfer carrying a non-zero callValue, so the frozen rows exercise a
+# real amount). On success it prints the justification and returns 0.
+check_suitable() {
+	local num="$1" ts="$2" block_file="$3" receipts_file="$4"
+
+	local tx_count
+	tx_count=$(jq '(.transactions // []) | length' "$block_file")
+
+	if ! jq -e 'type == "array"' "$receipts_file" >/dev/null 2>&1; then
+		fail_reasons "$num" "receipts body is not an array" || return 1
+	fi
+	local receipts_count
+	receipts_count=$(jq 'length' "$receipts_file")
+
+	local -a reasons=()
+	[ "$tx_count" -gt 0 ] ||
+		reasons+=("no transactions")
+	[ "$receipts_count" -eq "$tx_count" ] ||
+		reasons+=("receipt count $receipts_count != transaction count $tx_count")
+	[ "$(jq --argjson num "$num" --argjson ts "$ts" \
+		'map(select(.blockNumber != $num or .blockTimeStamp != $ts)) | length' \
+		"$receipts_file")" -eq 0 ] ||
+		reasons+=("receipt pin broken: blockNumber or blockTimeStamp differs from the block header")
+	[ "$(jq 'map(select((.log // []) | length > 0)) | length' "$receipts_file")" -gt 0 ] ||
+		reasons+=("no event logs")
+	[ "$(jq 'map(select((.internal_transactions // []) | length > 0)) | length' "$receipts_file")" -gt 0 ] ||
+		reasons+=("no internal transfers")
+	# The document builder reads the first callValueInfo entry, so the check
+	# demands the value exactly where the frozen amount will come from; a
+	# TRC-10 movement qualifies too, its token amount is the callValue.
+	local valued
+	valued=$(jq 'map(.internal_transactions[]? | select(((.callValueInfo // [])[0].callValue // 0) > 0)) | length' "$receipts_file")
+	[ "$valued" -gt 0 ] ||
+		reasons+=("no internal transfer with a non-zero callValue")
+
+	local successful
+	successful=$(jq '[.transactions[] | select((.ret[0].contractRet // "") == "SUCCESS")] | length' "$block_file")
+	local failed=$((tx_count - successful))
+	[ "$successful" -gt 0 ] ||
+		reasons+=("no SUCCESS contractRet")
+	[ "$failed" -gt 0 ] ||
+		reasons+=("no failed contractRet")
+	[ "$(jq '[.transactions[] .raw_data.contract[]? | select(.type == "TransferContract")] | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no TransferContract")
+	[ "$(jq '[.transactions[] .raw_data.contract[]? | select(.type == "TriggerSmartContract")] | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no TriggerSmartContract")
+
+	if [ "${#reasons[@]}" -gt 0 ]; then
+		fail_reasons "$num" "${reasons[@]}" || return 1
+	fi
+
+	echo "Block $num qualifies:"
+	echo "  transactions: $tx_count (SUCCESS: $successful, failed: $failed)"
+	echo "  receipts: $receipts_count, all pinned to block $num / timestamp $ts"
+	echo "  logs: $(jq '[.[].log // [] | length] | add' "$receipts_file") entries"
+	echo "  internal transfers: $(jq '[.[].internal_transactions // [] | length] | add' "$receipts_file") entries ($valued with a non-zero callValue)"
+	return 0
+}
+
+pinned=0
+start=0
+if [ -n "$HEIGHT" ]; then
+	pinned=1
+	start="$HEIGHT"
+else
+	tip=$(fetch_tip)
+	start=$((tip - START_OFFSET))
+	echo "Tip at block $tip; scanning back from $start (limit $SCAN_LIMIT blocks)"
+fi
+
+block_file="$TMP/block.json"
+receipts_file="$TMP/receipts.json"
+
+i=0
+while [ "$i" -lt "$SCAN_LIMIT" ]; do
+	num=$((start - i))
+	i=$((i + 1))
+
+	if ! wallet_post "/wallet/getblockbynum" "{\"num\": $num}" "$block_file"; then
+		echo "ERROR: fetching block $num failed (network or API error)"
+		exit 1
+	fi
+
+	# An unknown height arrives as HTTP 200 with body {}: the header number
+	# decodes to 0, so 0 or a mismatch means the node does not have this
+	# block and the scan has run past the available history.
+	body_num=$(jq -r '.block_header.raw_data.number // 0' "$block_file")
+	if [ "$body_num" -ne "$num" ]; then
+		echo "ERROR: block $num not found or empty (got number $body_num); stopping"
+		exit 1
+	fi
+	ts=$(jq -r '.block_header.raw_data.timestamp' "$block_file")
+
+	if ! wallet_post "/wallet/gettransactioninfobyblocknum" "{\"num\": $num}" "$receipts_file"; then
+		echo "ERROR: fetching receipts for block $num failed (network or API error)"
+		exit 1
+	fi
+
+	if reasons="$(check_suitable "$num" "$ts" "$block_file" "$receipts_file" 2>&1)"; then
+		if has_fixture "$BLOCKS_DIR" || has_fixture "$RECEIPTS_DIR"; then
+			# Replacement, not accumulation: the loader reads every file in
+			# these folders, so a forced recapture removes the old pair.
+			# Removal happens only after the new block qualified: a failed
+			# scan keeps the old freeze intact.
+			rm -f "$BLOCKS_DIR"/*.json "$RECEIPTS_DIR"/*.json
+			echo "Removed the previous tron fixture (forced recapture)."
+		fi
+		mkdir -p "$BLOCKS_DIR" "$RECEIPTS_DIR"
+		cp "$block_file" "$BLOCKS_DIR/$num.json"
+		cp "$receipts_file" "$RECEIPTS_DIR/$num.json"
+		echo "$reasons"
+		echo ""
+		echo "Wrote:"
+		echo "  $BLOCKS_DIR/$num.json"
+		echo "  $RECEIPTS_DIR/$num.json"
+		echo ""
+		echo "Next steps:"
+		echo "  go test -tags=integration ./golden/... -run Golden -golden-update"
+		echo "  review golden/tron/testdata and commit it together with the goldens"
+		exit 0
+	fi
+
+	# check_suitable's verdict was captured into $reasons (stderr was merged
+	# into the substitution), so surface it here for the scan trail. A
+	# pinned block must not be skipped; the scan walks one block further
+	# down instead.
+	echo "$reasons" >&2
+	if [ "$pinned" -eq 1 ]; then
+		exit 1
+	fi
+	echo "  trying one block lower ..."
+	sleep "$SLEEP_SECS"
+done
+
+echo "ERROR: no suitable block found within $SCAN_LIMIT blocks below $start; raise SCAN_LIMIT and retry"
+exit 1
