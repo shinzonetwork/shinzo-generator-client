@@ -232,15 +232,15 @@ func TestFetchBlock_UnknownHashKeepsNotFound(t *testing.T) {
 	_, err := f.FetchBlock(context.Background(), 7)
 	require.Error(t, err)
 	assert.True(t, pkgerrors.IsErrNotFound(err), "the unknown-hash outcome keeps its not-found text")
-	assert.NotErrorIs(t, err, errUndoDataUnavailable, "the two -5 flavors stay distinct")
+	assert.NotErrorIs(t, err, errBlockPruned, "the unknown-hash -5 never wraps into the pruned-block sentinel")
 	assert.NotErrorIs(t, err, errArchiveNotConfigured)
 	assert.Equal(t, 0, fake.callCount("getblock verbosity 3 archive"))
 }
 
-// TestFetchBlock_UndoDataWithoutArchive pins the operator error: the pruned
+// TestFetchBlock_PrunedWithoutArchive pins the operator error: the pruned
 // outcome names BITCOIN_ARCHIVE_RPC_URL and never classifies as not-found,
 // which would send the processor into an infinite retry.
-func TestFetchBlock_UndoDataWithoutArchive(t *testing.T) {
+func TestFetchBlock_PrunedWithoutArchive(t *testing.T) {
 	t.Parallel()
 
 	fake := newFakeRPCClient()
@@ -249,7 +249,7 @@ func TestFetchBlock_UndoDataWithoutArchive(t *testing.T) {
 		return block.Hash, nil
 	}
 	fake.blockFn = func(_ context.Context, _ string) (*Block, error) {
-		return nil, errUndoDataUnavailable
+		return nil, errBlockPruned
 	}
 	fake.archiveFn = func(_ context.Context, _ string) (*Block, error) {
 		return nil, errArchiveNotConfigured
@@ -264,7 +264,7 @@ func TestFetchBlock_UndoDataWithoutArchive(t *testing.T) {
 	assert.Equal(t, 1, fake.callCount("getblock verbosity 3 archive"))
 }
 
-func TestFetchBlock_UndoDataRoutesToArchive(t *testing.T) {
+func TestFetchBlock_PrunedRoutesToArchive(t *testing.T) {
 	t.Parallel()
 
 	primary := fakeBlock(7)
@@ -272,11 +272,11 @@ func TestFetchBlock_UndoDataRoutesToArchive(t *testing.T) {
 	fake := newFakeRPCClient()
 	fake.hashByHeight[7] = primary.Hash
 	fake.blockFn = func(_ context.Context, _ string) (*Block, error) {
-		return nil, errUndoDataUnavailable
+		return nil, errBlockPruned
 	}
 	// The archive is keyed by the same content hash the primary endpoint was
 	// asked for: both endpoints address the same block, they only differ in
-	// which heights their undo data still covers.
+	// which heights they still store.
 	fake.archiveByHash[primary.Hash] = archived
 	f := NewFetcher(fake, 6)
 
@@ -296,10 +296,10 @@ func TestFetchBlock_ArchiveAlsoPruned(t *testing.T) {
 		return fakeBitcoinHash("block-7"), nil
 	}
 	fake.blockFn = func(_ context.Context, _ string) (*Block, error) {
-		return nil, errUndoDataUnavailable
+		return nil, errBlockPruned
 	}
 	fake.archiveFn = func(_ context.Context, _ string) (*Block, error) {
-		return nil, errUndoDataUnavailable
+		return nil, errBlockPruned
 	}
 	f := NewFetcher(fake, 6)
 

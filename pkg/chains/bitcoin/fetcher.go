@@ -189,8 +189,8 @@ func (f *Fetcher) verifyChainAndFloor(ctx context.Context, client *Client, ident
 // Error classification is deliberately narrow: heights past the tip (Core's
 // -8) are wrapped into not-found so the processor's tip-wait retry engages,
 // Core's unknown-hash -5 keeps its own not-found text for the walk-back, and
-// the pruned-node undo-data outcome routes to the archive endpoint, with its
-// hard operator error when none is configured. Nothing here retries: the
+// the pruned-data outcome routes to the archive endpoint, with its hard
+// operator error when none is configured. Nothing here retries: the
 // processor owns retries, and the client never retries RPC errors.
 func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	if f.client == nil {
@@ -208,7 +208,7 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 	}
 	block, err := f.client.GetBlockVerbosity3(ctx, blockHash)
 	if err != nil {
-		if stderrors.Is(err, errUndoDataUnavailable) {
+		if stderrors.Is(err, errBlockPruned) {
 			return f.fetchFromArchive(ctx, height, blockHash)
 		}
 		return nil, err
@@ -218,19 +218,19 @@ func (f *Fetcher) FetchBlock(ctx context.Context, height int64) (any, error) {
 
 // fetchFromArchive completes the pruned-height fetch against the archive
 // endpoint. Each failure shape gets its own message so the operator can
-// distinguish a missing configuration from an archive that is itself pruned;
-// both stay free of the not-found substrings, keeping them out of the retry
-// loops that not-found classification drives.
+// distinguish a missing configuration from an archive that has pruned the
+// height too; both stay free of the not-found substrings, keeping them out
+// of the retry loops that not-found classification drives.
 func (f *Fetcher) fetchFromArchive(ctx context.Context, height int64, hash string) (any, error) {
 	block, err := f.client.GetBlockVerbosity3FromArchive(ctx, hash)
 	if err == nil {
 		return block, nil
 	}
 	if stderrors.Is(err, errArchiveNotConfigured) {
-		return nil, fmt.Errorf("height %d needs undo data this node has pruned and no archive endpoint is configured: %w", height, err)
+		return nil, fmt.Errorf("height %d is pruned on this node and no archive endpoint is configured: %w", height, err)
 	}
-	if stderrors.Is(err, errUndoDataUnavailable) {
-		return nil, fmt.Errorf("archive fallback also lacks undo data for block %s: %w", hash, err)
+	if stderrors.Is(err, errBlockPruned) {
+		return nil, fmt.Errorf("archive fallback has also pruned block %s: %w", hash, err)
 	}
 	return nil, err
 }

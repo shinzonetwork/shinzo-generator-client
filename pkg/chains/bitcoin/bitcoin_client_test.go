@@ -400,10 +400,10 @@ func TestNewClient_APIKeyHeaderCustomType(t *testing.T) {
 	assert.Empty(t, call.Header.Get("X-Api-Key"))
 }
 
-func TestGetBlockVerbosity3_UndoDataUnavailableSentinel(t *testing.T) {
+func TestGetBlockVerbosity3_PrunedBlockSentinel(t *testing.T) {
 	t.Parallel()
 	server := newCoreRPCServer(t, func(_ recordedCall) mockResponse {
-		return serveErr(int(btcjson.ErrRPCBlockNotFound), "Block not available (undo data is not available)")
+		return serveErr(int(btcjson.ErrRPCMisc), "Block not available (pruned data)")
 	})
 	cfg := testConfig()
 	cfg.RPCURL = server.URL
@@ -411,7 +411,7 @@ func TestGetBlockVerbosity3_UndoDataUnavailableSentinel(t *testing.T) {
 
 	_, err := client.GetBlockVerbosity3(t.Context(), testBlockHash)
 	require.Error(t, err)
-	require.ErrorIs(t, err, errUndoDataUnavailable)
+	require.ErrorIs(t, err, errBlockPruned)
 	assert.Contains(t, err.Error(), "not available")
 	assert.Equal(t, 1, server.callCount(rpcMethodGetBlock),
 		"an RPC error surfaces on the first attempt: no in-client retry")
@@ -428,7 +428,7 @@ func TestGetBlockVerbosity3_UnknownHashKeepsNotFound(t *testing.T) {
 
 	_, err := client.GetBlockVerbosity3(t.Context(), testBlockHash)
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, errUndoDataUnavailable, "message text keeps the two -5 variants distinct")
+	assert.NotErrorIs(t, err, errBlockPruned, "the unknown-hash -5 never wraps into the pruned-block sentinel")
 	var rpcErr *btcjson.RPCError
 	require.ErrorAs(t, err, &rpcErr)
 	assert.Equal(t, btcjson.ErrRPCBlockNotFound, rpcErr.Code)
@@ -492,7 +492,7 @@ func TestRPCErrorType(t *testing.T) {
 		{"method not found", &btcjson.RPCError{Code: btcjson.ErrRPCMethodNotFound.Code, Message: "Method not found"}, "method_not_found"},
 		{"wrapped method not found", errors.Join(errors.New("wrap"), &btcjson.RPCError{Code: btcjson.ErrRPCMethodNotFound.Code}), "method_not_found"},
 		{"block not found", &btcjson.RPCError{Code: btcjson.ErrRPCBlockNotFound, Message: "Block not found"}, "block_not_found"},
-		{"undo data rides the -5 bucket", &undoDataRPCError{rpcErr: &btcjson.RPCError{Code: btcjson.ErrRPCBlockNotFound, Message: "Block not available"}}, "block_not_found"},
+		{"pruned data rides its own bucket", &prunedBlockRPCError{rpcErr: &btcjson.RPCError{Code: btcjson.ErrRPCMisc, Message: "Block not available (pruned data)"}}, "pruned_data"},
 		{"height out of range", &btcjson.RPCError{Code: btcjson.ErrRPCInvalidParameter, Message: "Block height out of range"}, "height_out_of_range"},
 		{"other rpc code", &btcjson.RPCError{Code: -32000, Message: "boom"}, "rpc_error"},
 		{"http 429", &httpStatusError{statusCode: http.StatusTooManyRequests, cause: errors.New("status code: 429, response: \"<html>\"")}, "rate_limited"},
@@ -541,10 +541,10 @@ func collectSumPoints(t *testing.T, reader *sdkmetric.ManualReader) []metricdata
 	return sum.DataPoints
 }
 
-func TestCountRPCError_UndoDataCountsAsArchiveFloorSignal(t *testing.T) {
+func TestCountRPCError_PrunedDataCountsAsArchiveFloorSignal(t *testing.T) {
 	t.Parallel()
 	server := newCoreRPCServer(t, func(_ recordedCall) mockResponse {
-		return serveErr(int(btcjson.ErrRPCBlockNotFound), "Block not available (undo data is not available)")
+		return serveErr(int(btcjson.ErrRPCMisc), "Block not available (pruned data)")
 	})
 	client, reader := countTestClient(t, server)
 
@@ -556,7 +556,7 @@ func TestCountRPCError_UndoDataCountsAsArchiveFloorSignal(t *testing.T) {
 	assert.Equal(t, int64(1), points[0].Value)
 	assert.Equal(t, attribute.NewSet(
 		attribute.String("rpc.method", rpcMethodGetBlock),
-		attribute.String("error.type", "block_not_found"),
+		attribute.String("error.type", "pruned_data"),
 	), points[0].Attributes)
 }
 
@@ -595,7 +595,7 @@ func TestCountRPCError_ContextCanceledSkipped(t *testing.T) {
 func TestArchiveRouting(t *testing.T) {
 	t.Parallel()
 	primary := newCoreRPCServer(t, func(_ recordedCall) mockResponse {
-		return serveErr(int(btcjson.ErrRPCBlockNotFound), "Block not available (undo data is not available)")
+		return serveErr(int(btcjson.ErrRPCMisc), "Block not available (pruned data)")
 	})
 	archive := newCoreRPCServer(t, func(_ recordedCall) mockResponse {
 		return mockBlockAt(t, testBlock())
@@ -607,7 +607,7 @@ func TestArchiveRouting(t *testing.T) {
 	require.True(t, client.ArchiveConfigured())
 
 	_, err := client.GetBlockVerbosity3(t.Context(), testBlockHash)
-	require.ErrorIs(t, err, errUndoDataUnavailable)
+	require.ErrorIs(t, err, errBlockPruned)
 
 	fallback, err := client.GetBlockVerbosity3FromArchive(t.Context(), testBlockHash)
 	require.NoError(t, err)
@@ -621,7 +621,7 @@ func TestArchiveRouting(t *testing.T) {
 func TestArchiveNotConfigured(t *testing.T) {
 	t.Parallel()
 	server := newCoreRPCServer(t, func(_ recordedCall) mockResponse {
-		return serveErr(int(btcjson.ErrRPCBlockNotFound), "Block not available (undo data is not available)")
+		return serveErr(int(btcjson.ErrRPCMisc), "Block not available (pruned data)")
 	})
 	cfg := testConfig()
 	cfg.RPCURL = server.URL

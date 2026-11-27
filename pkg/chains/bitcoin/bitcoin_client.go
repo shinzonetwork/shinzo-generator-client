@@ -46,22 +46,24 @@ const (
 	// fees. No rpcclient method issues it, so it travels through RawRequest.
 	blockVerbosityUndoData = 3
 
-	// undoDataMarker is the stable fragment of Bitcoin Core's -5 variant
-	// reporting unavailable undo data ("Block not available (undo data is
-	// not available)"). The other -5 variant ("Block not found") reports an
-	// unknown hash, and the two failures route differently: unknown-hash
-	// keeps its not-found text for walk-back matching, undo-data absence is
-	// the archive-floor signal.
-	undoDataMarker = "undo data"
+	// prunedDataMarker is the stable fragment of Bitcoin Core's misc-error
+	// flavor for data the node has pruned away ("Block not available
+	// (pruned data)", thrown before undo data is ever read). The other -1
+	// flavor ("Block not available (not fully downloaded)") is a transient
+	// download race and deliberately does not match, and the -5 "Block not
+	// found" answer reports an unknown hash: unknown-hash keeps its
+	// not-found text for walk-back matching, pruned data is the
+	// archive-floor signal.
+	prunedDataMarker = "pruned data"
 )
 
 var (
-	// errUndoDataUnavailable tags the pruned-node outcome: this node's undo
-	// data no longer covers the requested block. Its message deliberately
-	// avoids the "not found" and "does not exist" fragments
-	// pkg/errors.IsErrNotFound keys on, so the fetcher routes the outcome to
-	// the archive fallback without a mistaken not-found classification.
-	errUndoDataUnavailable = stderrors.New("block undo data is unavailable on this node")
+	// errBlockPruned tags the pruned-node outcome: this node no longer
+	// stores the requested block. Its message deliberately avoids the
+	// "not found" and "does not exist" fragments pkg/errors.IsErrNotFound
+	// keys on, so the fetcher routes the outcome to the archive fallback
+	// without a mistaken not-found classification.
+	errBlockPruned = stderrors.New("the node has pruned this block")
 
 	// errArchiveNotConfigured reports that the archive fallback endpoint has
 	// never been configured, surfacing the env var instead of a confusing
@@ -71,8 +73,8 @@ var (
 
 // Client is the Bitcoin Core JSON-RPC client. rpcclient runs in HTTP
 // POST mode because Bitcoin Core has no websocket RPC surface; a second
-// client serves the optional archive fallback endpoint for heights whose
-// undo data the primary node has pruned away.
+// client serves the optional archive fallback endpoint for heights the
+// primary node has pruned away.
 type Client struct {
 	client        *rpcclient.Client
 	archiveClient *rpcclient.Client
@@ -294,9 +296,9 @@ func (c *Client) rawGetBlockVerbosity3(ctx context.Context, client *rpcclient.Cl
 // wrapRPCError normalizes one failed RPC call before it leaves the client:
 // transport failures get their endpoint URL redacted, rpcclient's untyped
 // "status code: %d" transport string is promoted to a typed error for
-// classification, and the pruned-node flavor of Core's -5 answer gets the
-// undo-data sentinel wrapped underneath it. RPC errors are never retried by
-// the client: rpcclient's HTTP POST transport retries only connection
+// classification, and Core's -1 answer for pruned data gets the pruned-block
+// sentinel wrapped underneath it. RPC errors are never retried by the
+// client: rpcclient's HTTP POST transport retries only connection
 // establishment, so one outcome reaches the caller on the first attempt.
 func wrapRPCError(err error) error {
 	if err == nil {
@@ -307,28 +309,29 @@ func wrapRPCError(err error) error {
 	}
 	var rpcErr *btcjson.RPCError
 	if stderrors.As(err, &rpcErr) &&
-		rpcErr.Code == btcjson.ErrRPCBlockNotFound &&
-		strings.Contains(rpcErr.Message, undoDataMarker) {
-		return &undoDataRPCError{rpcErr: rpcErr}
+		rpcErr.Code == btcjson.ErrRPCMisc &&
+		strings.Contains(rpcErr.Message, prunedDataMarker) {
+		return &prunedBlockRPCError{rpcErr: rpcErr}
 	}
 	return utils.RedactHTTPError(err)
 }
 
-// undoDataRPCError joins the pruned-node sentinel with the originating -5
-// error. Custom Unwrap keeps both reachable the way errors.Is and errors.As
-// expect, without the fmt verb the vet printf check rejects for a value
-// receiver type. The Error text leads with the sentinel, so not-found
-// matching on the composed message cannot read this outcome as not-found.
-type undoDataRPCError struct {
+// prunedBlockRPCError joins the pruned-block sentinel with the originating
+// -1 error. Custom Unwrap keeps both reachable the way errors.Is and
+// errors.As expect, without the fmt verb the vet printf check rejects for a
+// value receiver type. The Error text leads with the sentinel, so
+// not-found matching on the composed message cannot read this outcome as
+// not-found.
+type prunedBlockRPCError struct {
 	rpcErr *btcjson.RPCError
 }
 
-func (e *undoDataRPCError) Error() string {
-	return errUndoDataUnavailable.Error() + ": " + e.rpcErr.Error()
+func (e *prunedBlockRPCError) Error() string {
+	return errBlockPruned.Error() + ": " + e.rpcErr.Error()
 }
 
-func (e *undoDataRPCError) Unwrap() []error {
-	return []error{errUndoDataUnavailable, e.rpcErr}
+func (e *prunedBlockRPCError) Unwrap() []error {
+	return []error{errBlockPruned, e.rpcErr}
 }
 
 // httpStatusError carries the status code of a non-JSON-RPC transport
@@ -378,8 +381,8 @@ func parseHTTPStatusError(err error) (*httpStatusError, bool) {
 // countRPCError counts one failed RPC call at the error.type grain.
 // Caller-aborted calls and heights past the tip (Core's -8, the routine
 // outcome of polling ahead while waiting for the next block) are expected,
-// not failures; the pruned-or-missing-undo-data outcome is deliberately
-// counted as the archive-floor signal, alongside every other failure.
+// not failures; the pruned-data outcome is deliberately counted as the
+// archive-floor signal, alongside every other failure.
 func (c *Client) countRPCError(ctx context.Context, method string, err error) {
 	if c.rpcErrors == nil || err == nil || isContextError(err) {
 		return
@@ -396,9 +399,14 @@ func (c *Client) countRPCError(ctx context.Context, method string, err error) {
 
 // rpcErrorType buckets one failure for the error.type metric attribute, so
 // dashboards separate rate limiting, HTTP transport failures, method
-// availability, block unavailability, height range, generic RPC codes and
-// context-driven timeouts.
+// availability, block unavailability, pruned data, height range, generic
+// RPC codes and context-driven timeouts. The pruned-block type is checked
+// before the code switch: the wrapped -1 would otherwise surface through
+// Unwrap and drown in the generic rpc_error bucket.
 func rpcErrorType(err error) string {
+	if _, ok := stderrors.AsType[*prunedBlockRPCError](err); ok {
+		return "pruned_data"
+	}
 	if rpcErr, ok := stderrors.AsType[*btcjson.RPCError](err); ok {
 		// The btcjson package defines the -32601 code as a *RPCError
 		// variable while -5 and -8 are bare RPCErrorCode constants, so the

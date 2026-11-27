@@ -192,9 +192,9 @@ type BitcoinConfig struct {
 	// tip minus this depth. 0 or negative = DefaultBitcoinConfirmationDepth.
 	ConfirmationDepth int `yaml:"confirmation_depth"` // (env: BITCOIN_CONFIRMATION_DEPTH)
 	// ArchiveRPCURL is an optional fallback endpoint on an unpruned node,
-	// used to fetch blocks whose undo data is unavailable. Pruned nodes
-	// discard undo data below their prune height, and verbosity-3 lookups
-	// need that data to backfill denormalized prevout information.
+	// used to fetch blocks the primary node has pruned. Pruned nodes
+	// discard block and undo data below their prune height, so verbosity-3
+	// lookups below it fail and route here for the full payload.
 	ArchiveRPCURL string `yaml:"archive_rpc_url"` // (env: BITCOIN_ARCHIVE_RPC_URL)
 	// DialTimeoutSeconds bounds the startup RPC dial phase. 0 or negative =
 	// DefaultBitcoinDialTimeoutSeconds.

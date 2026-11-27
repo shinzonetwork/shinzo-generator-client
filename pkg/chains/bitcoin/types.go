@@ -127,7 +127,7 @@ type VerboseBlockHeader struct {
 // ChainInfo mirrors the fields of Bitcoin Core's getblockchaininfo result
 // that document the archive floor: Pruned reports whether the node runs
 // pruned mode, and PruneHeight the lowest block it still stores, above
-// which undo data (and therefore verbosity 3) remains available.
+// which block data (and therefore verbosity 3) remains available.
 type ChainInfo struct {
 	Chain         string
 	Blocks        int64

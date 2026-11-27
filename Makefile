@@ -70,7 +70,8 @@ bitcoin-build:
 	elif grep -aFq "$(VERSION)" bin/block_poster_bitcoin; then \
 		echo "✅ version injected: $(VERSION)"; \
 	else \
-		echo "❌ version injection failed: binary does not contain '$(VERSION)' — check the -X symbol path"; exit 1; \
+		echo "❌ version injection failed: binary does not contain '$(VERSION)' - check the -X symbol path"; exit 1; \
+	fi
 
 tron-build:
 	go build $(LDFLAGS) -o bin/block_poster_tron ./cmd/block_poster/tron/

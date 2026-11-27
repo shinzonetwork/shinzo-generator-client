@@ -153,6 +153,85 @@ func TestBlockReMarshalsCoreShape(t *testing.T) {
 	assert.JSONEq(t, coreShapedBlock, string(remarshaled))
 }
 
+// TestBlockDecodesWithoutUndoData pins Core's behavior for a block whose
+// data is present but whose undo data is not: verbosity 3 answers normally
+// and simply omits the per-transaction fee and the per-input prevout, the
+// shape a getblockfrompeer-fetched block produces. The pruned-block failure
+// never looks like this; it is an RPC error, not a trimmed payload.
+func TestBlockDecodesWithoutUndoData(t *testing.T) {
+	t.Parallel()
+
+	const noUndoBlock = `{
+	  "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	  "height": 184498,
+	  "version": 2,
+	  "merkleroot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	  "tx": [
+	    {
+	      "txid": "cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01",
+	      "hash": "cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01cb01",
+	      "version": 1,
+	      "locktime": 0,
+	      "vin": [
+	        {
+	          "coinbase": "046e482c1c0106",
+	          "sequence": 4294967295
+	        }
+	      ],
+	      "vout": [
+	        {
+	          "value": 50.2207,
+	          "n": 0,
+	          "scriptPubKey": {
+	            "hex": "76a91481b02c27b21004aeb4df5265dd90d4d56f56f84a88ac",
+	            "type": "pubkeyhash"
+	          }
+	        }
+	      ]
+	    },
+	    {
+	      "txid": "d001d001d001d001d001d001d001d001d001d001d001d001d001d001d001d001",
+	      "hash": "d002d002d002d002d002d002d002d002d002d002d002d002d002d002d002d002",
+	      "version": 1,
+	      "locktime": 0,
+	      "vin": [
+	        {
+	          "txid": "e000e000e000e000e000e000e000e000e000e000e000e000e000e000e000e000",
+	          "vout": 0,
+	          "scriptSig": { "hex": "00" },
+	          "sequence": 4294967295
+	        }
+	      ],
+	      "vout": [
+	        {
+	          "value": 857.0439,
+	          "n": 0,
+	          "scriptPubKey": {
+	            "hex": "76a91481b02c27b21004aeb4df5265dd90d4d56f56f56f84a88ac",
+	            "type": "pubkeyhash"
+	          }
+	        }
+	      ]
+	    }
+	  ],
+	  "time": 1349355010,
+	  "nonce": 2642787427,
+	  "bits": "1a0facdc",
+	  "chainwork": "0000000000000000000000000000000000000000000000012b621dea8f398887"
+	}`
+
+	var block Block
+	require.NoError(t, json.Unmarshal([]byte(noUndoBlock), &block))
+
+	require.Len(t, block.Tx, 2)
+	spender := block.Tx[1]
+	assert.Nil(t, spender.Fee, "Core omits the fee when block undo data is not available")
+	require.Len(t, spender.Vin, 1)
+	assert.Nil(t, spender.Vin[0].Prevout, "Core omits the prevout when block undo data is not available")
+	assert.Empty(t, spender.Vin[0].TxInWitness, "the no-undo fixture carries no witness entries")
+	assert.Equal(t, "e000e000e000e000e000e000e000e000e000e000e000e000e000e000e000e000", spender.Vin[0].TxID)
+}
+
 func TestBtcToSatoshis(t *testing.T) {
 	t.Parallel()
 
