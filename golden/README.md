@@ -7,8 +7,9 @@ node, reads every stored document back, and compares the result with the
 committed golden files. Any change to what the indexer stores shows up as a
 golden diff that has to be reviewed before it lands.
 
-The suite is behind the `integration` build tag and runs as part of
-`make integration-test`. No network access and no running node are needed:
+The suite is behind the `integration` build tag and runs via
+`make golden-test` (or the per-chain `ethereum-golden-test` /
+`tron-golden-test` targets). No network access and no running node are needed:
 the only endpoint is the in-process mock server each chain's spec brings,
 and it serves exactly the calls the pipeline makes. Anything unexpected
 fails loudly, so stray traffic cannot pass silently.
@@ -34,10 +35,10 @@ whole store back.
 go test -tags=integration ./golden/... -count=1
 ```
 
-Or together with the rest of the integration suite:
+Or through the make umbrella:
 
 ```bash
-make integration-test
+make golden-test
 ```
 
 ## Regenerating goldens

@@ -251,7 +251,7 @@ harness bug.
 
 So live per-block time ≈ acceptance average + (real RPC time − loopback time)
 + those residuals. This suite answers the
-*"is the pipeline fast enough"* question, the live suite (`make integration-test`)
+*"is the pipeline fast enough"* question, the live suite (`make live-test`)
 answers *"does it hold with the network in the loop"*.
 
 ## 3. The report

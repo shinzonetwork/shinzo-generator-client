@@ -162,15 +162,20 @@ func TestApplyDefaults_BitcoinChainName(t *testing.T) {
 		cfg.Chain.Adapter = BitcoinAdapter
 		applyDefaults(cfg)
 		assert.Equal(t, "Bitcoin", cfg.Chain.Name)
-		assert.Equal(t, "Mainnet", cfg.Chain.Network)
+		// The network has no default: chain.network must be named explicitly,
+		// and validateChainConfig rejects an empty one with ErrChainUnset.
+		assert.Empty(t, cfg.Chain.Network)
 	})
 
-	t.Run("fully empty config resolves adapter before chain name", func(t *testing.T) {
+	t.Run("fully empty config defaults the adapter only", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{}
 		applyDefaults(cfg)
 		assert.Equal(t, DefaultChainAdapter, cfg.Chain.Adapter)
-		assert.Equal(t, "Ethereum", cfg.Chain.Name)
+		// Only the tron and bitcoin adapters name their chain; an EVM
+		// deployment must set chain.name itself, and validateChainConfig
+		// rejects an unnamed one.
+		assert.Empty(t, cfg.Chain.Name)
 	})
 
 	t.Run("preset name preserved", func(t *testing.T) {
@@ -291,6 +296,8 @@ func TestLoadConfig_BitcoinYAML(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	configContent := `
 chain:
+  name: Bitcoin
+  network: Mainnet
   adapter: "bitcoin"
 defradb:
   embedded: true

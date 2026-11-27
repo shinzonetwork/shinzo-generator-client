@@ -1037,12 +1037,10 @@ func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRe
 	}, nil
 }
 
-// GetSourceChainInfo returns the ShinzoHub registration source chain metadata
-// for this indexer. The chain family is resolved from chain.adapter, not
-// chain.name: EVM chains register with their EIP-155 chain ID, non-EVM chains
-// register with ID 0, and the default ethereum setup is pinned to ID 1 while
-// every other EVM chain registers with its lowercased name and configured
-// chain ID.
+// GetSourceChainInfo returns the source chain this generator registers on
+// ShinzoHub: the configured chain name lowercased and the configured chain
+// ID. Nothing is inferred from chain.adapter or chain.network; a non-EVM
+// chain registers with ID 0 by leaving chain_id unset.
 func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
 		return "", 0

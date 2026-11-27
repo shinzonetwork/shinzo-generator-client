@@ -2,20 +2,23 @@
 
 ## Mock Tests
 ```bash
-# Ethereum and Bitcoin suites in one run
+# Ethereum, Tron, and Bitcoin suites in one run
 make integration-test
 
 # Or per chain
 make ethereum-integration-test
+make tron-integration-test
 make bitcoin-integration-test
 ```
 Self-contained suite with synthetic mock data (build tag `integration`). No
 chain endpoint, no credentials, no external dependencies.
 
 ## Live Tests
-End-to-end tests with real chain data. Both are gated on `GETH_RPC_URL`. The
-Ethereum suite additionally requires `GETH_WS_URL` and `GETH_API_KEY`; for BSC
-they are optional (see its table below).
+End-to-end tests with real chain data, one target per chain. The Ethereum and
+BSC legs skip with a notice while `GETH_RPC_URL` is unset (the Ethereum suite
+additionally requires `GETH_WS_URL` and `GETH_API_KEY`; for BSC they are
+optional, see its table below). The Tron and Bitcoin targets fail fast with
+setup instructions while `TRON_RPC_URL` / `BITCOIN_RPC_URL` are unset.
 
 ## Tron Mock Suite
 ```bash
@@ -48,14 +51,12 @@ source .env
 ### Ethereum
 
 ```bash
-# Run with build tag
-make integration-test
-
-# Or per chain
-make ethereum-integration-test
-make bitcoin-integration-test
+make ethereum-live-test
 ```
-End-to-end live tests. The Ethereum legs require `GETH_RPC_URL`, `GETH_WS_URL`, `GETH_API_KEY`; the Bitcoin legs require `BITCOIN_RPC_URL`. Each leg skips with a notice while its endpoint is unset.
+End-to-end live tests against a Geth-compatible endpoint: `GETH_RPC_URL` is
+required, plus `GETH_WS_URL` and `GETH_API_KEY`; the leg skips with a notice
+while the endpoint is unset. The Bitcoin, BSC, and Tron live legs have their
+own sections below.
 
 ## Bitcoin Tests
 
@@ -80,8 +81,9 @@ export BITCOIN_ARCHIVE_RPC_URL=...              # optional archive fallback
 export BITCOIN_LIVE_NETWORK=Mainnet             # optional, default Mainnet
 make bitcoin-live-test
 ```
-Skipped with exit 0 while `BITCOIN_RPC_URL` is unset, so the mock legs stay
-green. The endpoint needs basic auth (user and password environment
+`make bitcoin-live-test` fails fast with setup instructions while
+`BITCOIN_RPC_URL` is unset, so a bare mock run never touches a chain
+endpoint. The endpoint needs basic auth (user and password environment
 variables) or a cookie file. The suite waits up to 30m for two newly
 produced heights, which is what Bitcoin's roughly ten-minute block cadence
 requires, asserts block and transaction field integrity plus one signed
@@ -90,9 +92,6 @@ only advances across an idle window. A local regtest node is the suggested
 endpoint since it needs no external account; mine periodically with
 `bitcoin-cli -regtest generatetoaddress 1 <address>` so the two-height wait
 completes inside the 30m window.
-
-make ethereum-live-test
-```
 
 ### BSC
 

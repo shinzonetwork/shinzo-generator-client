@@ -162,8 +162,9 @@ test-local:
 integration-test: ethereum-integration-test tron-integration-test bitcoin-integration-test
 	@echo "🧪 All integration test legs complete"
 
-# Ethereum legs: the GraphQL mock suites and the golden freeze, then the
-# live suite against a Geth-compatible endpoint when GETH_RPC_URL is set.
+# Ethereum leg: the GraphQL mock suite. The golden freeze runs through the
+# golden-test targets and the live suite through ethereum-live-test, so this
+# target touches no chain endpoint and needs no credentials.
 ethereum-integration-test:
 	@echo "🧪 Running Ethereum integration tests..."
 	@echo "📦 Mock tests (fast):"
@@ -174,8 +175,8 @@ tron-integration-test:
 	@echo "📦 Mock tests (fast):"
 	@go test -tags=integration -v ./integration/tron/
 
-# Bitcoin legs: the scripted-core mock suite, then the live smoke against a
-# Bitcoin Core endpoint when BITCOIN_RPC_URL is set.
+# Bitcoin leg: the scripted-core mock suite. The live smoke runs through
+# bitcoin-live-test, so this target touches no chain endpoint.
 bitcoin-integration-test:
 	@echo "🧪 Running Bitcoin integration tests..."
 	@echo "📦 Mock tests (fast):"
@@ -405,9 +406,10 @@ help:
 	@echo "  evm-build          - Build only bin/block_poster_evm"
 	@echo "  tron-build         - Build only bin/block_poster_tron"
 	@echo "  test               - Run all tests with summary"
-	@echo "  integration-test   - Run the Ethereum and Bitcoin integration suites (no chain endpoint, no credentials)"
-	@echo "  ethereum-integration-test - Run the Ethereum mock and live legs"
-	@echo "  bitcoin-integration-test  - Run the Bitcoin mock and live legs"
+	@echo "  integration-test   - Run the Ethereum, Tron, and Bitcoin mock integration suites (no chain endpoint, no credentials)"
+	@echo "  ethereum-integration-test - Run the Ethereum mock integration suite"
+	@echo "  tron-integration-test     - Run the Tron mock integration suite"
+	@echo "  bitcoin-integration-test  - Run the Bitcoin mock integration suite"
 	@echo "  bitcoin-live-test  - Run the Bitcoin live smoke suite (needs BITCOIN_RPC_URL)"
 	@echo "  coverage           - Run tests with coverage report"
 	@echo "  clean              - Clean build artifacts"

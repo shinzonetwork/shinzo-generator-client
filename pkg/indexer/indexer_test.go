@@ -853,10 +853,11 @@ func TestUpdateBlockInfo_ConcurrentAccess(t *testing.T) {
 }
 
 // TestGetSourceChainInfo pins the ShinzoHub registration chain metadata
-// policy: the chain family comes from chain.adapter (EVM chains register with
-// their EIP-155 ID, non-EVM chains with ID 0) and only the default ethereum
-// mainnet setup is pinned to ID 1, while every other EVM chain registers with
-// its lowercased chain name and configured EIP-155 chain ID.
+// policy: registration reports the configured chain name lowercased and the
+// configured chain ID verbatim. Nothing is inferred from chain.adapter or
+// chain.network: a non-EVM chain registers with ID 0 by leaving chain_id
+// unset, and an EVM deployment must set chain_id itself because
+// validateChainConfig rejects a zero one.
 func TestGetSourceChainInfo(t *testing.T) {
 	t.Parallel()
 
@@ -880,7 +881,13 @@ func TestGetSourceChainInfo(t *testing.T) {
 			wantID:    0,
 		},
 		{
-			name: "bitcoin mainnet",
+			name:      "unvalidated empty config infers nothing",
+			cfg:       &config.Config{},
+			wantChain: "",
+			wantID:    0,
+		},
+		{
+			name: "bitcoin mainnet registers by name with id 0",
 			cfg: &config.Config{Chain: config.ChainConfig{
 				Adapter: config.BitcoinAdapter,
 				Name:    "Bitcoin",
@@ -890,45 +897,37 @@ func TestGetSourceChainInfo(t *testing.T) {
 			wantID:    0,
 		},
 		{
-			name: "bitcoin mainnet matching is case insensitive",
+			name: "bitcoin signet registers by name too",
 			cfg: &config.Config{Chain: config.ChainConfig{
-				Adapter: "Bitcoin",
-				Name:    "BTC",
-				Network: "mainnet",
+				Adapter: config.BitcoinAdapter,
+				Name:    "Bitcoin",
+				Network: "Signet",
 			}},
 			wantChain: "bitcoin",
 			wantID:    0,
 		},
 		{
-			name: "bitcoin testnet reports nothing",
+			name: "the chain name is trimmed and lowercased",
 			cfg: &config.Config{Chain: config.ChainConfig{
 				Adapter: config.BitcoinAdapter,
-				Name:    "Bitcoin",
-				Network: "Testnet",
+				Name:    " Bitcoin ",
+				Network: "Mainnet",
 			}},
-			wantChain: "",
+			wantChain: "bitcoin",
 			wantID:    0,
 		},
 		{
-			name: "bitcoin with no network reports nothing",
-			cfg: &config.Config{Chain: config.ChainConfig{
-				Adapter: config.BitcoinAdapter,
-			}},
-			wantChain: "",
-			wantID:    0,
-		},
-		{
-			name: "bitcoin adapter wins over chain name",
+			name: "registration follows the chain name, not the adapter",
 			cfg: &config.Config{Chain: config.ChainConfig{
 				Adapter: config.BitcoinAdapter,
 				Name:    "Ethereum",
 				Network: "Mainnet",
 			}},
-			wantChain: "bitcoin",
+			wantChain: "ethereum",
 			wantID:    0,
 		},
 		{
-			name: "chain name without the bitcoin adapter registers by name and id",
+			name: "evm adapter with a non-evm name registers by name and id",
 			cfg: &config.Config{Chain: config.ChainConfig{
 				Adapter: config.DefaultChainAdapter,
 				Name:    "Bitcoin",
@@ -938,16 +937,11 @@ func TestGetSourceChainInfo(t *testing.T) {
 			wantID:    0,
 		},
 		{
-			name:      "default config registers ethereum mainnet",
-			cfg:       &config.Config{},
-			wantChain: "ethereum",
-			wantID:    1,
-		},
-		{
-			name: "ethereum mainnet",
+			name: "ethereum mainnet registers with its configured id",
 			cfg: &config.Config{Chain: config.ChainConfig{
 				Name:    "Ethereum",
 				Network: "Mainnet",
+				ChainID: 1,
 			}},
 			wantChain: "ethereum",
 			wantID:    1,

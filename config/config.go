@@ -34,16 +34,16 @@ var (
 	SupportedChainAdapters = []string{DefaultChainAdapter, TronChainAdapter, BitcoinAdapter} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
 )
 
-var (	
+var (
 	// ErrChainUnset is returned when the config does not name the chain to index.
 	ErrChainUnset = errors.New("chain.name and chain.network are required")
 	// ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
-  	ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
+	ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
 	// ErrInvalidChainName is returned when the chain name or network cannot be part of a collection name.
-    ErrInvalidChainName = errors.New("chain name and network must each be an upper-case letter followed by letters or digits")
+	ErrInvalidChainName = errors.New("chain name and network must each be an upper-case letter followed by letters or digits")
 )
 
-const ( 
+const (
 	// DefaultChainAdapter is the default chain adapter type, used when chain.adapter is unset.
 	DefaultChainAdapter = "evm"
 	// TronChainAdapter is the chain adapter for Tron indexing, used in the SupportedChainAdapters
@@ -57,7 +57,7 @@ const (
 // wallet API when tron.dial_timeout_seconds is unset, zero or negative.
 const DefaultTronDialTimeoutSeconds = 10
 
-// Default Bitcoin config values
+// Default Bitcoin config values.
 const (
 	// DefaultBitcoinConfirmationDepth is the default finality floor for the
 	// bitcoin adapter: the finalized height is the tip minus this many blocks.
@@ -200,7 +200,6 @@ type BitcoinConfig struct {
 	// DefaultBitcoinDialTimeoutSeconds.
 	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"` // (env: BITCOIN_DIAL_TIMEOUT_SECONDS)
 }
-
 
 // IndexerConfig represents indexer configuration.
 type IndexerConfig struct {
@@ -361,8 +360,10 @@ func LoadConfig(path string) (*Config, error) {
 // applyDefaults sets default values for optional configuration.
 func applyDefaults(cfg *Config) {
 	// The adapter default comes first so the chain-name default below can
-	// follow the adapter: a Tron and Bitcoin deployments that omits chain.name must not
-	// end up with Ethereum-prefixed collections built from tron SDL.
+	// follow the adapter: a Tron or Bitcoin deployment that omits chain.name
+	// must not end up with collection prefixes built from another adapter's
+	// SDL. Only these two adapters name their chain; an EVM deployment must
+	// set chain.name itself, and validateChainConfig rejects an unnamed one.
 	// The literals stay local to config: the depguard boundary forbids
 	// importing pkg/chains here, and "Ethereum" was hardcoded the same way.
 	if cfg.Chain.Adapter == "" {
@@ -491,6 +492,7 @@ func validateConfig(cfg *Config) error {
 func (b *BitcoinConfig) AuthConfigured() bool {
 	return (b.RPCUser != "" && b.RPCPassword != "") || b.CookiePath != ""
 }
+
 // validateBitcoinConfig enforces the bitcoin adapter's operator-facing rules.
 // Unexpanded ${VAR} yaml placeholders are exempt: they are non-empty strings,
 // so they pass the non-empty checks by construction, and deployment envsubst
@@ -722,6 +724,7 @@ func applyTronEnvOverrides(cfg *Config) {
 		}
 	}
 }
+
 // applyBitcoinEnvOverrides applies Bitcoin environment variable overrides.
 func applyBitcoinEnvOverrides(cfg *Config) {
 	if btcRPCURL := os.Getenv("BITCOIN_RPC_URL"); btcRPCURL != "" {
@@ -756,7 +759,6 @@ func applyBitcoinEnvOverrides(cfg *Config) {
 		}
 	}
 }
-
 
 // applyIndexerEnvOverrides applies indexer environment variable overrides.
 func applyIndexerEnvOverrides(cfg *Config) {
