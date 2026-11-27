@@ -1,4 +1,4 @@
-.PHONY: deps env build evm-build solana-build tron-build ethereum-start solana-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test tron-replay-fetch tron-acceptance-test tron-golden-fetch ethereum-golden-test tron-golden-test solana-live-test solana-replay-fetch solana-acceptance-test
+.PHONY: deps env build evm-build solana-build tron-build ethereum-start solana-start bsc-start tron-start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt node-status test-local help replay-fetch ethereum-acceptance-test deadcode-check bsc-live-test bsc-acceptance-test tron-live-test tron-replay-fetch tron-acceptance-test tron-golden-fetch ethereum-golden-test tron-golden-test solana-golden-test solana-live-test solana-replay-fetch solana-acceptance-test solana-golden-fetch
 
 # Load environment variables from .env file if it exists
 ifneq (,$(wildcard ./.env))
@@ -22,13 +22,13 @@ SOLANA_API_KEY ?=
 # next token as the value, failing the run.
 FROM ?= 0
 TO ?= 0
-# Pinned block height for tron-golden-fetch. Empty = the capture script
-# scans backwards from the tip for a suitable block.
+# Pinned slot height for tron-golden-fetch and solana-golden-fetch. Empty =
+# the capture script scans backwards from the tip for a suitable block.
 HEIGHT ?=
-# Replace switch for tron-golden-fetch. Empty = the capture script refuses
-# to run when golden/tron/testdata already holds a fixture; FORCE=1 makes a
-# recapture replace the existing pair (removed only after the new block
-# qualifies).
+# Replace switch for tron-golden-fetch and solana-golden-fetch. Empty = the
+# capture script refuses to run when its golden testdata folder already
+# holds a fixture; FORCE=1 makes a recapture replace the existing fixture
+# (removed only after the new block qualifies).
 FORCE ?=
 # Tron wallet-API env vars for the tron live smoke (tron-live-test and the
 # TRON phase of integration-test). The suite boots the bundled production
@@ -226,6 +226,9 @@ ethereum-golden-test:
 tron-golden-test:
 	go test -tags=integration ./golden/... -run 'TestGoldenTypedPath/tron' -count=1 -v
 
+solana-golden-test:
+	go test -tags=integration ./golden/... -run 'TestGoldenTypedPath/solana' -count=1 -v
+
 tron-live-test:
 	@echo "🌅 Running tron live smoke test with your wallet-API endpoint..."
 	@if [ -z "$(TRON_RPC_URL)" ]; then \
@@ -407,6 +410,25 @@ tron-golden-fetch:
 	fi
 	@FORCE="$(FORCE)" HEIGHT="$(HEIGHT)" ./scripts/fetch_tron_golden.sh
 
+# solana-golden-fetch captures one suitable mainnet slot for the golden
+# freeze via scripts/fetch_solana_golden.sh (one-time; SOLANA_RPC_URL
+# required, SOLANA_API_KEY optional). It scans back from the confirmed tip
+# for a slot exercising the full pipeline (both transaction outcomes, CPI
+# inner instructions, pre and post token balances, ALT-loaded addresses,
+# log messages, rewards) and writes the verbatim getBlock response into
+# golden/solana/testdata/blocks/. The capture request mirrors the
+# production client exactly. Skipped slots walk the scan one slot lower
+# instead of aborting. HEIGHT pins a slot and skips the scan; a pinned
+# slot is still validated. The freeze is single-block: the script refuses
+# when a fixture exists and FORCE=1 replaces it (the old fixture is
+# removed only after the new slot qualifies).
+solana-golden-fetch:
+	@if [ -z "$(SOLANA_RPC_URL)" ]; then \
+		echo "❌ SOLANA_RPC_URL must be set - golden capture needs a Solana JSON-RPC endpoint (the API key is optional; providers like Helius embed it in the URL)"; \
+		exit 1; \
+	fi
+	@FORCE="$(FORCE)" HEIGHT="$(HEIGHT)" ./scripts/fetch_solana_golden.sh
+
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"
 	@echo "=================================================="
@@ -429,6 +451,7 @@ help:
 	@echo "🧪 Golden freeze (per chain, mock only):"
 	@echo "  ethereum-golden-test - Freeze check for the ethereum pipeline"
 	@echo "  tron-golden-test     - Freeze check for the tron pipeline (needs captured fixtures)"
+	@echo "  solana-golden-test   - Freeze check for the solana pipeline (needs captured fixture)"
 	@echo ""
 	@echo "⏱  Ethereum tip-indexing acceptance (replay):"
 	@echo "  replay-fetch       - Capture a replay fixture (FROM/TO blocks; requires GETH_RPC_URL)"
@@ -446,6 +469,7 @@ help:
 	@echo "⏱  Solana tip-indexing acceptance (replay):"
 	@echo "  solana-replay-fetch - Capture a replay fixture (FROM/TO slots; requires SOLANA_RPC_URL)"
 	@echo "  solana-acceptance-test - Replay the fixture and assert the effective block interval <= the current 200ms slot target"
+	@echo "  solana-golden-fetch - Capture a golden fixture slot (HEIGHT pins; requires SOLANA_RPC_URL; SOLANA_API_KEY optional; FORCE=1 replaces)"
 	@echo ""
 	@echo "🔍 Code Quality:"
 	@echo "  lint               - Run golangci-lint"

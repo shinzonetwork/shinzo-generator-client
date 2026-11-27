@@ -10,7 +10,7 @@ package golden
 // runs once per receipt mode its spec declares: the evm spec exercises both
 // the batch receipt path and the per-tx fallback and the two runs must
 // freeze identical documents, while a chain with a single receipts path
-// (tron) runs once. The freeze is the no-unintended-change gate for the
+// (tron, solana) runs once. The freeze is the no-unintended-change gate for the
 // typed pipeline: regenerate deliberately with -golden-update and review
 // the diff before committing it.
 //
@@ -152,6 +152,18 @@ func goldenCases() []chainCase {
 				},
 			},
 			spec: tronSpec{},
+		},
+		{
+			folder: "solana",
+			cfg: &config.Config{
+				Chain: config.ChainConfig{Name: "Solana", Network: "Mainnet"},
+				Indexer: config.IndexerConfig{
+					MaxDocsPerTxn:      1000,
+					MaxTxDocsPerBatch:  100,
+					MaxLogDocsPerBatch: 100,
+				},
+			},
+			spec: solanaSpec{},
 		},
 	}
 }

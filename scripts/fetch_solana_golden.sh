@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+# Capture one suitable Solana block for the golden freeze: scan backwards
+# from the confirmed tip for a slot that exercises the full getBlock
+# pipeline, then write the verbatim JSON-RPC response body into
+# golden/solana/testdata/blocks/. The capture request mirrors the
+# production client exactly (base64 encoding, full transaction details,
+# confirmed commitment, rewards on, version ceiling 1), because the golden
+# mock replays the body verbatim and the production SDK decodes it: a body
+# captured with different params would stop representing production data.
+# HEIGHT= pins an explicit slot and skips the scan; a pinned slot still
+# runs the same suitability checks and fails loudly if it does not
+# qualify. Requires SOLANA_RPC_URL; SOLANA_API_KEY is optional and sent as
+# the header named by SOLANA_API_KEY_TYPE (default x-api-key) only when
+# set, so providers that embed the key in the URL work without a dummy
+# value. Neither the endpoint nor the key is ever written into the fixture
+# or echoed in errors: providers commonly embed the key in the URL itself.
+#
+# Skipped slots are routine on Solana (a leader may produce nothing for
+# its slot), so a missing block walks the scan one slot lower instead of
+# aborting, unlike the tron capture where a missing block means history
+# ended.
+#
+# The freeze is a single-block freeze: the loader reads every file in
+# blocks/, so the script refuses to run when a fixture is already present
+# and FORCE=1 replaces it, removing the old fixture only after the new
+# slot qualified.
+set -euo pipefail
+
+HEIGHT="${HEIGHT:-}"
+FORCE="${FORCE:-}"
+SCAN_LIMIT="${SCAN_LIMIT:-500}"
+START_OFFSET="${START_OFFSET:-30}"
+SLEEP_SECS="${SLEEP_SECS:-0.3}"
+COMMITMENT="confirmed"
+
+# The exact getBlock config the production client sends (pkg/chains/solana/
+# solana_client.go getBlock). The golden fetcher issues the same request,
+# so the fixture must be the answer to it.
+BLOCK_CONFIG='{"encoding":"base64","transactionDetails":"full","commitment":"'"$COMMITMENT"'","rewards":true,"maxSupportedTransactionVersion":1}'
+TIP_PAYLOAD='{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment":"'"$COMMITMENT"'"}]}'
+
+BLOCKS_DIR="golden/solana/testdata/blocks"
+
+for dep in curl jq; do
+	command -v "$dep" >/dev/null 2>&1 || {
+		echo "ERROR: $dep is required but not installed"
+		exit 1
+	}
+done
+
+[ -n "${SOLANA_RPC_URL:-}" ] || {
+	echo "ERROR: SOLANA_RPC_URL not set (JSON-RPC base URL, e.g. https://api.mainnet-beta.solana.com)"
+	exit 1
+}
+[ -d golden ] || {
+	echo "ERROR: run this script from the repository root (no golden/ directory here)"
+	exit 1
+}
+
+# has_fixture reports whether a fixture folder already holds a JSON file.
+# The glob loop needs no nullglob: an unmatched glob stays literal and the
+# -e test rejects it.
+has_fixture() {
+	[ -d "$1" ] || return 1
+	local f
+	for f in "$1"/*.json; do
+		[ -e "$f" ] && return 0
+	done
+	return 1
+}
+
+if [ "$FORCE" != "1" ] && has_fixture "$BLOCKS_DIR"; then
+	echo "ERROR: golden/solana/testdata already holds a fixture:"
+	for f in "$BLOCKS_DIR"/*.json; do
+		[ -e "$f" ] && echo "  $f"
+	done
+	echo ""
+	echo "The solana freeze is a single-block freeze: the loader reads every file"
+	echo "in blocks/, so a second capture would silently turn it into a"
+	echo "multi-block freeze. Re-run with FORCE=1 to replace it, or clear the"
+	echo "folder manually."
+	exit 1
+fi
+if [ -z "${SOLANA_API_KEY:-}" ]; then
+	echo "Note: SOLANA_API_KEY not set; requests go out unauthenticated (fine when the key is embedded in the URL)"
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# api_header_name normalizes the header name the way the production clients
+# do (strip whitespace, lowercase): a stray space in the env value becomes
+# an invalid header field name otherwise.
+api_header_name() {
+	printf '%s' "${SOLANA_API_KEY_TYPE:-x-api-key}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'
+}
+
+# rpc_post posts one JSON-RPC body to the configured endpoint. The auth
+# header is appended only when a key is set, and the command is assembled
+# as an array that always starts with curl, so the expansion stays safe
+# under set -u on old bash even when the header is skipped.
+rpc_post() {
+	local payload="$1" outfile="$2"
+	local -a cmd=(curl -sS --fail --retry 3 --retry-delay 2)
+	if [ -n "${SOLANA_API_KEY:-}" ]; then
+		cmd+=(-H "$(api_header_name): ${SOLANA_API_KEY}")
+	fi
+	cmd+=(-H "Content-Type: application/json" -d "$payload" "$SOLANA_RPC_URL" -o "$outfile")
+	"${cmd[@]}"
+}
+
+# rpc_missing reports whether a stored JSON-RPC response carries no result:
+# an error envelope or a null result. The endpoint URL is never echoed in
+# the diagnostics; error lines say "the configured SOLANA_RPC_URL".
+rpc_missing() {
+	jq -e '.result == null or .error != null' "$1" >/dev/null 2>&1
+}
+
+# rpc_error_code extracts the error code of a missing-result envelope, or
+# "null-result" when the node answered null without an error field.
+rpc_error_code() {
+	jq -r '.error.code // "null-result"' "$1" 2>/dev/null || echo "null-result"
+}
+
+# block_payload assembles the getBlock request for one slot: the slot as a
+# JSON number and the production client's exact config object.
+block_payload() {
+	local slot="$1"
+	printf '{"jsonrpc":"2.0","id":1,"method":"getBlock","params":[%s,%s]}' "$slot" "$BLOCK_CONFIG"
+}
+
+fetch_tip() {
+	local out="$TMP/tip.json"
+	if ! rpc_post "$TIP_PAYLOAD" "$out"; then
+		echo "ERROR: cannot reach the configured SOLANA_RPC_URL (getSlot failed)"
+		exit 1
+	fi
+	if rpc_missing "$out"; then
+		echo "ERROR: getSlot failed against the configured SOLANA_RPC_URL (rpc error $(rpc_error_code "$out"))"
+		exit 1
+	fi
+	jq -r '.result' "$out"
+}
+
+# fail_reasons prints a verdict block to stderr and returns 1.
+fail_reasons() {
+	local slot="$1"
+	shift
+	echo "Slot $slot not suitable:" >&2
+	local reason
+	for reason in "$@"; do
+		echo "  - $reason" >&2
+	done
+	return 1
+}
+
+# check_suitable validates one captured getBlock body against the freeze's
+# coverage bar: transactions present, both transaction outcomes, CPI inner
+# instructions, a transaction carrying both pre and post token balances,
+# ALT-loaded addresses, log messages, and a non-empty rewards array, so
+# every frozen collection gets rows with real content. With base64
+# encoding the transaction binary is a ["<b64>", "base64"] pair but the
+# metadata stays plain JSON, so every check reads .meta directly. On
+# success it prints the justification and returns 0.
+check_suitable() {
+	local slot="$1" block_file="$2"
+
+	local tx_count
+	tx_count="$(jq '.result.transactions | length' "$block_file")"
+
+	local -a reasons=()
+	[ "$tx_count" -gt 0 ] ||
+		reasons+=("no transactions")
+	[ "$(jq '[.result.transactions[] | select(.meta.err == null)] | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no successful transaction (meta.err null)")
+	[ "$(jq '[.result.transactions[] | select(.meta.err != null)] | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no failed transaction (meta.err non-null)")
+	[ "$(jq '[.result.transactions[] | select((.meta.innerInstructions // []) | length > 0)] | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no CPI inner instructions")
+	[ "$(jq '[.result.transactions[] | select(((.meta.preTokenBalances // []) | length > 0) and ((.meta.postTokenBalances // []) | length > 0))] | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no transaction with both pre and post token balances")
+	[ "$(jq '[.result.transactions[] | select((((.meta.loadedAddresses.writable // []) + (.meta.loadedAddresses.readonly // [])) | length) > 0)] | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no transaction with ALT-loaded addresses")
+	[ "$(jq '[.result.transactions[] | select((.meta.logMessages // []) | length > 0)] | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no log messages")
+	[ "$(jq '.result.rewards | length' "$block_file")" -gt 0 ] ||
+		reasons+=("no rewards array entries")
+
+	local blockhash
+	blockhash="$(jq -r '.result.blockhash // ""' "$block_file")"
+	[ -n "$blockhash" ] || reasons+=("no blockhash")
+	[ "$blockhash" != "11111111111111111111111111" ] || reasons+=("all-ones zero blockhash")
+
+	if [ "${#reasons[@]}" -gt 0 ]; then
+		fail_reasons "$slot" "${reasons[@]}" || return 1
+	fi
+
+	echo "Slot $slot qualifies:"
+	echo "  transactions: $tx_count"
+	echo "  rewards: $(jq '.result.rewards | length' "$block_file") entries"
+	return 0
+}
+
+pinned=0
+start=0
+if [ -n "$HEIGHT" ]; then
+	pinned=1
+	start="$HEIGHT"
+else
+	tip="$(fetch_tip)"
+	start=$((tip - START_OFFSET))
+	echo "Confirmed tip at slot $tip; scanning back from $start (limit $SCAN_LIMIT slots)"
+fi
+
+block_file="$TMP/block.json"
+
+i=0
+while [ "$i" -lt "$SCAN_LIMIT" ]; do
+	slot=$((start - i))
+	i=$((i + 1))
+
+	if ! rpc_post "$(block_payload "$slot")" "$block_file"; then
+		echo "ERROR: fetching slot $slot failed (network or API error)"
+		exit 1
+	fi
+
+	# A null result or the node's skip/not-available codes mean the leader
+	# produced nothing here or the node lacks the block: routine below the
+	# tip, so the scan walks one slot lower. Any other rejection fails
+	# loudly.
+	if rpc_missing "$block_file"; then
+		code="$(rpc_error_code "$block_file")"
+		case "$code" in
+		-32007 | -32004 | -32009 | null-result)
+			echo "  slot $slot skipped or unavailable (code $code); trying one slot lower ..."
+			sleep "$SLEEP_SECS"
+			continue
+			;;
+		esac
+		echo "ERROR: slot $slot fetch rejected (rpc error $code: $(jq -r '.error.message // "unknown"' "$block_file" 2>/dev/null || echo unknown))"
+		exit 1
+	fi
+
+	if reasons="$(check_suitable "$slot" "$block_file" 2>&1)"; then
+		if has_fixture "$BLOCKS_DIR"; then
+			# Replacement, not accumulation: the loader reads every file
+			# in blocks/, so a forced recapture removes the old fixture.
+			# Removal happens only after the new slot qualified: a failed
+			# scan keeps the old freeze intact.
+			rm -f "$BLOCKS_DIR"/*.json
+			echo "Removed the previous solana fixture (forced recapture)."
+		fi
+		mkdir -p "$BLOCKS_DIR"
+		cp "$block_file" "$BLOCKS_DIR/$slot.json"
+		echo "$reasons"
+		echo ""
+		echo "Wrote:"
+		echo "  $BLOCKS_DIR/$slot.json"
+		echo ""
+		echo "Next steps:"
+		echo "  go test -tags=integration ./golden/... -run 'TestGoldenTypedPath/solana' -golden-update -count=1 -v"
+		echo "  review golden/solana/testdata and commit it together with the goldens"
+		exit 0
+	fi
+
+	# check_suitable's verdict was captured into $reasons (stderr was
+	# merged into the substitution), so surface it here for the scan
+	# trail. A pinned slot must not be skipped; the scan walks one slot
+	# further down instead.
+	echo "$reasons" >&2
+	if [ "$pinned" -eq 1 ]; then
+		exit 1
+	fi
+	sleep "$SLEEP_SECS"
+done
+
+echo "ERROR: no suitable slot found within $SCAN_LIMIT slots below $start; raise SCAN_LIMIT and retry"
+exit 1
