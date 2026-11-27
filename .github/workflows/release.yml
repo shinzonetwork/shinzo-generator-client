@@ -9,11 +9,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: 'go.mod'
-      - run: make build
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up mise
+        uses: jdx/mise-action@v5
+
+      - name: Build EVM generator binary
+        run: mise run evm-build
 
   release:
     needs: build
@@ -22,11 +25,14 @@ jobs:
       packages: write
       contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: 'go.mod'
-      - run: make evm-build
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up mise
+        uses: jdx/mise-action@v5
+
+      - name: Build generator binary
+        run: mise run evm-build
 
       - name: Verify version injection
         run: |

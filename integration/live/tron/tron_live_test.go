@@ -92,7 +92,7 @@ func TestMain(m *testing.M) {
 	defraPort := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
 
-	cfg, err := config.LoadConfig("../../config/config_tron.yml")
+	cfg, err := config.LoadConfig("../../../config/config_tron.yml")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "TestMain: cannot load config/config_tron.yml: %v\n", err)
 		_ = os.RemoveAll(storeDir)

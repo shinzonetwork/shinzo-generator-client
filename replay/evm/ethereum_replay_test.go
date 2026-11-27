@@ -20,7 +20,7 @@ var ethereumSpec = replaySpec{
 	fixtureGlob:        "ethereum_blocks_*.json",
 	defaultTarget:      12 * time.Second,
 	targetDurationHint: "10s or 12s",
-	skipHint:           "make replay-fetch",
+	skipHint:           "mise run replay-fetch --from START_BLOCK --to END_BLOCK",
 }
 
 // TestEthereumReplayAcceptance replays the newest captured Ethereum fixture

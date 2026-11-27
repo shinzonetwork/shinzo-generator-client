@@ -32,8 +32,8 @@ import (
 )
 
 // scrubReplayEnv unsets every env override applyEnvOverrides honors so the
-// shipped config yaml is the only input the config loader sees. The Makefile
-// exports the developer's .env into every target, and without this a stray
+// shipped config yaml is the only input the config loader sees. mise loads
+// the developer's .env into every task, and without this a stray
 // INDEXER_MAX_DOCS_PER_TXN or badger cache value would silently change the
 // measured configuration between machines (TRON_ joins GETH_: the loader's
 // TRON_ connection vars are scrubbed, and the suite's knobs live under
