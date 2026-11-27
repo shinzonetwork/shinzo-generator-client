@@ -382,6 +382,11 @@ func suitePhaseStartup(t *testing.T) {
 		t.Errorf("%d RPC requests reached the mock without the configured %s header",
 			missing, solanaDefaultAuthHdr)
 	}
+	// The genesis-hash network pin runs on every Connect: at least one probe
+	// proves the identity guard fired before any block indexing.
+	if probes := solanaChain.genesisProbeCount(); probes < 1 {
+		t.Errorf("expected at least 1 genesis-hash probe from Connect, got %d", probes)
+	}
 }
 
 // suitePhaseFieldAssertions verifies the stored documents field by field

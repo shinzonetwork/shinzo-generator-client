@@ -203,13 +203,16 @@ func requireSlotHeader(t *testing.T, got, want chains.BlockHeader) {
 type fakeSlotClient struct {
 	mu sync.Mutex
 
-	blockFn                                                    func(ctx context.Context, slot uint64) (*Block, error)
-	archiveFn                                                  func(ctx context.Context, slot uint64) (*Block, error)
-	tip                                                        uint64
-	tipErr                                                     error
-	finalized                                                  uint64
-	finalErr                                                   error
-	blockCalls, archiveCalls, tipCalls, finalCalls, closeCalls int
+	blockFn    func(ctx context.Context, slot uint64) (*Block, error)
+	archiveFn  func(ctx context.Context, slot uint64) (*Block, error)
+	tip        uint64
+	tipErr     error
+	finalized  uint64
+	finalErr   error
+	genesis    string
+	genesisErr error
+
+	blockCalls, archiveCalls, tipCalls, finalCalls, genesisCalls, closeCalls int
 }
 
 func (f *fakeSlotClient) GetBlock(ctx context.Context, slot uint64) (*Block, error) {
@@ -247,6 +250,16 @@ func (f *fakeSlotClient) GetFinalizedSlot(context.Context) (uint64, error) {
 		return 0, f.finalErr
 	}
 	return f.finalized, nil
+}
+
+func (f *fakeSlotClient) GetGenesisHash(context.Context) (string, error) {
+	f.mu.Lock()
+	f.genesisCalls++
+	f.mu.Unlock()
+	if f.genesisErr != nil {
+		return "", f.genesisErr
+	}
+	return f.genesis, nil
 }
 
 func (f *fakeSlotClient) Close() error {

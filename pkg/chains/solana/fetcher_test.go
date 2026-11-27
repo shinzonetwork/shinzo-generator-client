@@ -3,6 +3,7 @@ package solana
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -52,10 +53,117 @@ func TestNewFetcherFromConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, f.rewards)
 	assert.Equal(t, "confirmed", f.commitment)
+	// The configured network is the genesis-check identity; unset defaults
+	// to Mainnet like the converter's prefix fallback.
+	assert.Equal(t, defaultNetwork, f.network)
+
+	f, err = NewFetcherFromConfig(&config.Config{
+		Chain:  config.ChainConfig{Network: "Devnet"},
+		Solana: config.SolanaConfig{NodeURL: "https://r", Commitment: "confirmed"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Devnet", f.network)
 
 	cfgNil := (*config.Config)(nil)
 	_, err = NewFetcherFromConfig(cfgNil)
 	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// Connect: the genesis-hash chain-identity guard.
+// ---------------------------------------------------------------------------
+
+// TestFetcher_Connect_ChecksGenesisHash pins the startup identity guard: the
+// endpoint's getGenesisHash answer must match the per-network table for the
+// configured chain.network, mirroring the EVM adapter's chain-id check and
+// the Tron adapter's genesis-blockID check. A config pointed at another
+// cluster's RPC must fail at startup, before the indexer opens its store.
+func TestFetcher_Connect_ChecksGenesisHash(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		network       string
+		genesisBody   string // empty means the route falls through to method-not-found
+		wantNoRequest bool
+		wantMismatch  bool
+		wantErr       string
+	}{
+		{
+			name:        "ServesConfiguredNetwork",
+			network:     "Mainnet",
+			genesisBody: jsonRPCResult(t, genesisHashes["Mainnet"]),
+		},
+		{
+			name:         "ServesAnotherNetwork",
+			network:      "Mainnet",
+			genesisBody:  jsonRPCResult(t, genesisHashes["Devnet"]),
+			wantMismatch: true,
+			wantErr:      "endpoint reports genesis hash",
+		},
+		{
+			name:        "RPCErrorIsConnectionFailure",
+			network:     "Mainnet",
+			genesisBody: jsonRPCErrorEnvelope(-32000, "server busy"),
+			wantErr:     "read genesis hash",
+		},
+		{
+			name:        "WhitespaceGatewayHashFailsClosed",
+			network:     "Devnet",
+			genesisBody: jsonRPCResult(t, "  "+genesisHashes["Devnet"]+"  "),
+			wantErr:     "invalid hash",
+		},
+		{
+			name:          "UnsupportedNetworkFailsClosed",
+			network:       "Localnet",
+			wantNoRequest: true,
+			wantErr:       "Devnet, Mainnet, Testnet",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := newFakeRPCServer(t, func(method string) (int, http.Header, string) {
+				if method == "getGenesisHash" && tc.genesisBody != "" {
+					return 0, nil, tc.genesisBody
+				}
+				return 0, nil, ""
+			})
+
+			f, err := NewFetcherFromConfig(&config.Config{
+				Chain:  config.ChainConfig{Name: "Solana", Network: tc.network},
+				Solana: config.SolanaConfig{NodeURL: srv.URL, Commitment: "confirmed"},
+			})
+			require.NoError(t, err)
+
+			err = f.Connect(context.Background())
+			_, total := srv.requestHeaders(t, "getGenesisHash")
+			switch {
+			case tc.wantNoRequest:
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.wantErr)
+				assert.Nil(t, f.client, "a failed Connect must not retain the client, so a retry re-runs the check")
+				assert.Equal(t, 0, total, "an unsupported network must fail closed before any request")
+			case tc.wantMismatch:
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.wantErr)
+				assert.ErrorIs(t, err, errNetworkMismatch)
+				assert.ErrorContains(t, err, genesisHashes["Devnet"])
+				assert.ErrorContains(t, err, `"Mainnet"`)
+				assert.False(t, errors.IsErrNotFound(err), "the mismatch must not enter the not-found retry loop")
+				assert.Nil(t, f.client, "a failed Connect must not retain the client, so a retry re-runs the check")
+			case tc.wantErr != "":
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tc.wantErr)
+				assert.Nil(t, f.client, "a failed Connect must not retain the client, so a retry re-runs the check")
+			default:
+				require.NoError(t, err)
+				assert.NotNil(t, f.client)
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

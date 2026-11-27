@@ -533,6 +533,39 @@ func TestGetFirstAvailableBlock_MethodMissingWrapped(t *testing.T) {
 	assert.Contains(t, err.Error(), "getFirstAvailableBlock")
 }
 
+func TestGetGenesisHash_ReturnsClusterIdentity(t *testing.T) {
+	t.Parallel()
+
+	srv := newFakeRPCServer(t, func(method string) (int, http.Header, string) {
+		if method == "getGenesisHash" {
+			return 0, nil, jsonRPCResult(t, genesisHashes["Mainnet"])
+		}
+		return 0, nil, ""
+	})
+	client := testClient(t, srv.URL)
+
+	hash, err := client.GetGenesisHash(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, genesisHashes["Mainnet"], hash)
+
+	body := srv.requestBody(t, "getGenesisHash")
+	assert.NotEmpty(t, body)
+	assert.Contains(t, body, `"method":"getGenesisHash"`, "the genesis probe carries no parameters, so only the method name distinguishes it")
+}
+
+func TestGetGenesisHash_MethodMissingWrapped(t *testing.T) {
+	t.Parallel()
+
+	srv := newFakeRPCServer(t, func(string) (int, http.Header, string) {
+		return 0, nil, ""
+	})
+	client := testClient(t, srv.URL)
+
+	_, err := client.GetGenesisHash(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "getGenesisHash")
+}
+
 // ---------------------------------------------------------------------------
 // HTTP-layer status handling: non-2xx responses become typed errors, and the
 // JSON-RPC 200 envelopes classify through the RPC error code path.

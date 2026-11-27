@@ -19,9 +19,6 @@ const (
 	// defaultChainName is the fallback chain name when config is empty.
 	defaultChainName = "Solana"
 
-	// defaultNetwork is the fallback network name when config is empty.
-	defaultNetwork = "Mainnet"
-
 	// highestBlockQueryLimit keeps the tip query at a single row: corruption
 	// at the highest slot indicates a writer bug, not purge residue.
 	highestBlockQueryLimit = 1

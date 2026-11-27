@@ -4,6 +4,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,7 @@ type rpcClient interface {
 	GetBlockFromArchive(ctx context.Context, slot uint64) (*Block, error)
 	GetSlot(ctx context.Context) (uint64, error)
 	GetFinalizedSlot(ctx context.Context) (uint64, error)
+	GetGenesisHash(ctx context.Context) (string, error)
 	Close() error
 }
 
@@ -65,6 +67,10 @@ type Fetcher struct {
 	rewards      bool
 	dialTimeout  time.Duration
 
+	// network is the chain.network value Connect pins the endpoint to via
+	// the genesis-hash table. Empty defaults to Mainnet at construction.
+	network string
+
 	// notifier drives the WS slotSubscribe hint gate. nil unless Connect
 	// launched one (wsURL configured); all methods are nil-safe.
 	notifier *slotNotifier
@@ -84,6 +90,10 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		return nil, errors.NewConfigurationError("solana", "NewFetcherFromConfig", "config is nil", "", nil)
 	}
 	maxTxVersion := uint64(cfg.Solana.MaxSupportedTransactionVersion) //nolint:gosec // config validation normalizes this to a positive default
+	network := cfg.Chain.Network
+	if network == "" {
+		network = defaultNetwork
+	}
 	return &Fetcher{
 		nodeURL:      cfg.Solana.NodeURL,
 		archiveURL:   cfg.Solana.ArchiveRPCURL,
@@ -94,13 +104,30 @@ func NewFetcherFromConfig(cfg *config.Config) (*Fetcher, error) {
 		maxTxVersion: maxTxVersion,
 		rewards:      cfg.Solana.RewardsEnabled(),
 		dialTimeout:  time.Duration(cfg.Solana.DialTimeoutSeconds) * time.Second,
+		network:      network,
 	}, nil
 }
 
-// Connect builds the RPC client and issues one getSlot health check so a bad
-// endpoint or API key fails at startup rather than at the first fetch. HTTP
-// dialing is lazy, so without the check a misconfigured client could sit
-// idle until index time. No-op when the fetcher was built via NewFetcher.
+// errNetworkMismatch reports that the endpoint serves a cluster other than
+// the configured one, established by the genesis-hash check in Connect.
+// There is no normalization step: the SDK decodes the reported hash into its
+// base58 hash type, so the value reaching this comparison is always canonical
+// base58, and a gateway that pads or mangles the hash fails closed at the
+// decode with a clear error instead.
+var errNetworkMismatch = stderrors.New("node serves another chain")
+
+// Connect builds the RPC client and verifies the endpoint's cluster
+// identity before the generator indexes anything: the genesis-hash probe
+// pins the endpoint to the chain.network the config names, so a Mainnet
+// config pointed at a devnet URL fails at startup instead of indexing
+// devnet slots under Mainnet collection names, the same hole the EVM
+// adapter's chain-id check and the Tron adapter's genesis-blockID check
+// close. The probe also serves as the transport health check: one cheap
+// round trip validates URL, auth, and TLS reachability in a proactive call,
+// so HTTP dialing never sits idle until index time. The expected hash is
+// resolved before any request, so an unsupported network fails closed
+// without touching the endpoint. No-op when the fetcher was built via
+// NewFetcher.
 func (f *Fetcher) Connect(ctx context.Context) error {
 	if f.client != nil {
 		return nil
@@ -109,6 +136,12 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, f.dialTimeout)
 		defer cancel()
+	}
+	expected, ok := genesisHashes[f.network]
+	if !ok {
+		return errors.NewConfigurationError("chain", "Connect",
+			fmt.Sprintf("unsupported solana network: the genesis check covers %s", strings.Join(SupportedNetworks(), ", ")),
+			f.network, nil)
 	}
 	client, err := NewClient(ctx, ClientOptions{
 		RPCURL:                         f.nodeURL,
@@ -122,11 +155,16 @@ func (f *Fetcher) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create solana client: %w", err)
 	}
-	// Cheap round-trip through the real transport: validates URL, auth, and
-	// TLS reachability in one proactive call.
-	if _, err := client.GetSlot(ctx); err != nil {
+	genesis, err := client.GetGenesisHash(ctx)
+	if err != nil {
 		_ = client.Close()
-		return errors.NewRPCConnectionFailed("solana", "Fetcher.Connect", f.nodeURL, err)
+		return errors.NewRPCConnectionFailed("solana", "Fetcher.Connect", f.nodeURL,
+			fmt.Errorf("read genesis hash: %w", err))
+	}
+	if genesis != expected {
+		_ = client.Close()
+		return fmt.Errorf("endpoint reports genesis hash %s, but network %q expects %s: %w",
+			genesis, f.network, expected, errNetworkMismatch)
 	}
 	f.client = client
 

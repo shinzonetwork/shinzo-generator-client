@@ -82,6 +82,12 @@ func suitePhaseRestart(t *testing.T) {
 		}
 	}
 
+	// The second indexer's Connect ran its own genesis-hash network pin:
+	// at least two probes total across the suite (one per indexer).
+	if probes := solanaChain.genesisProbeCount(); probes < 2 {
+		t.Errorf("expected at least 2 genesis-hash probes across both indexers, got %d", probes)
+	}
+
 	solanaNextIndexer.indexer.StopIndexing()
 	solanaNextIndexer = nil
 }

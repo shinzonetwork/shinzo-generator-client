@@ -82,12 +82,24 @@ type solanaRPCRequest struct {
 // solanaCallRecorder journals the JSON-RPC surface so the restart phase
 // can prove the resume point: slots requested after the first indexer
 // stopped must all sit at or above the resume height, and every request
-// must carry the configured API key header.
+// must carry the configured API key header. Connect's genesis-hash
+// network-pin probes are journaled separately in genesisProbes because
+// they are connectivity checks, not block indexing.
 type solanaCallRecorder struct {
 	getBlockSlots []int64
 	getSlotCalls  int
+	genesisProbes int
 	missingAuth   int
 }
+
+// solanaMockGenesisHash is Mainnet's genesis hash, the same value the
+// fetcher pins in pkg/chains/solana (genesisHashes["Mainnet"],
+// constants.go); the suite config runs the Mainnet identity, so Connect's
+// network pin compares against exactly this literal. Keeping it here
+// instead of exporting it from the adapter keeps the mock self-contained
+// like every other fixture: if the pinned table ever changes, Connect
+// answers with errNetworkMismatch and this suite fails loudly.
+const solanaMockGenesisHash = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
 
 // solanaMockChain owns the scripted wire blocks, the head, and the
 // recorder.
@@ -314,8 +326,8 @@ func (c *solanaMockChain) checkAuth(r *http.Request) {
 	}
 }
 
-// handleRPC routes the two supported methods and answers with the JSON-RPC
-// 2.0 envelope the jsonrpc client decodes.
+// handleRPC routes the three supported methods and answers with the
+// JSON-RPC 2.0 envelope the jsonrpc client decodes.
 func (c *solanaMockChain) handleRPC(w http.ResponseWriter, r *http.Request) {
 	c.checkAuth(r)
 	var req solanaRPCRequest
@@ -335,10 +347,33 @@ func (c *solanaMockChain) handleRPC(w http.ResponseWriter, r *http.Request) {
 		head, finalized := c.head, c.finalized
 		c.mu.Unlock()
 		c.handleGetSlot(w, req, head, finalized)
+	case "getGenesisHash":
+		// Connect pins the endpoint's network by reading the genesis hash
+		// before any indexing call. The probe is a connectivity check, not
+		// block indexing: it is journaled in rec.genesisProbes, so the
+		// restart phase's no-refetch assertion never sees it. Only the
+		// genesis hash is served because that is all the pin compares.
+		c.rec.genesisProbes++
+		c.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"result":  solanaMockGenesisHash,
+		})
 	default:
 		c.mu.Unlock()
 		c.writeError(w, req.ID, -32601, "method not found")
 	}
+}
+
+// genesisProbeCount reports Connect's genesis-hash network-pin probes.
+// They live outside the getBlockSlots journal on purpose, so the restart
+// phase's no-refetch assertion never sees them.
+func (c *solanaMockChain) genesisProbeCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.rec.genesisProbes
 }
 
 // handleGetBlock serves the scripted block or the null result for a skipped

@@ -381,6 +381,19 @@ func (c *Client) GetFirstAvailableBlock(ctx context.Context) (uint64, error) {
 	return slot, nil
 }
 
+// GetGenesisHash returns the endpoint's genesis hash, the permanent identity
+// of the cluster it serves. Connect compares it against the per-network
+// genesis table so a config pointed at another cluster's RPC refuses to
+// start instead of indexing that cluster under its own collection names.
+func (c *Client) GetGenesisHash(ctx context.Context) (string, error) {
+	hash, err := c.client.GetGenesisHash(ctx)
+	c.countRPCError(ctx, "getGenesisHash", err)
+	if err != nil {
+		return "", fmt.Errorf("getGenesisHash failed: %w", utils.RedactHTTPError(err))
+	}
+	return hash.String(), nil
+}
+
 // Close releases idle pooled connections on both endpoints.
 func (c *Client) Close() error {
 	if c.client != nil {
