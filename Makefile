@@ -313,12 +313,12 @@ stop:
 	fi; \
 	rm -f .defra/block_poster.pid;
 
-# replay-fetch captures a raw replay fixture via the chain-agnostic
+# ethereum-replay-fetch captures a raw replay fixture via the chain-agnostic
 # cmd/fetch_blocks CLI (one-time; needs a real endpoint). FROM/TO are
 # overridable block numbers; the default captures 100 blocks ending at the
 # current tip. Fixtures land in replay/testdata/ (gitignored) as
 # ethereum_blocks_<from>_<to>.json.
-replay-fetch:
+ethereum-replay-fetch:
 	@if [ -z "$(GETH_RPC_URL)" ]; then \
 		echo "❌ GETH_RPC_URL not set - fixture capture needs a JSON-RPC endpoint"; \
 		exit 1; \

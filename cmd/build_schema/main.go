@@ -49,9 +49,6 @@ func run(args []string, stdout io.Writer) error {
 	if err := config.ValidateChainNames(*chain, *network); err != nil {
 		return err
 	}
-	if *adapter != "" && *adapter != config.DefaultChainAdapter && *adapter != config.TronChainAdapter && *adapter != config.SolanaAdapter {
-		return fmt.Errorf("chain adapter %q not yet implemented: only %q, %q, and %q are supported", *adapter, config.DefaultChainAdapter, config.TronChainAdapter, config.SolanaAdapter)
-	}
 
 	cfg := &config.Config{Chain: config.ChainConfig{
 		Name:    *chain,
