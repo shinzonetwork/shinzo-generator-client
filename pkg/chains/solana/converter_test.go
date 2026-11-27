@@ -688,7 +688,7 @@ func TestGetLowestStoredBlockNumber_AfterPurge(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), lowest)
 
-	docIDs, err := c.queryCollectionDocIDs(ctx, td.Node, c.collections.Block, constants.NumberFieldName, 100, 101)
+	docIDs, err := chains.QueryCollectionDocIDs(ctx, td.Node, c.collections.Block, constants.NumberFieldName, 100, 101)
 	require.NoError(t, err)
 	require.Len(t, docIDs, 2)
 

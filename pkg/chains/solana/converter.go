@@ -5,24 +5,15 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/errors"
-	"github.com/shinzonetwork/shinzo-generator-client/pkg/logger"
 	"github.com/sourcenetwork/defradb/node"
 )
 
-const (
-	// defaultChainName is the fallback chain name when config is empty.
-	defaultChainName = "Solana"
-
-	// highestBlockQueryLimit keeps the tip query at a single row: corruption
-	// at the highest slot indicates a writer bug, not purge residue.
-	highestBlockQueryLimit = 1
-)
+// defaultChainName is the fallback chain name when config is empty.
+const defaultChainName = "Solana"
 
 // chainPrefixFromConfig derives the collection prefix (e.g. "Solana__Mainnet")
 // from the chain config. A nil config uses the adapter's default prefix,
@@ -479,12 +470,14 @@ func (c *Converter) buildRewardDocs(block *Block) []map[string]any {
 
 // GetHighestStoredBlockNumber implements chains.Converter.
 func (c *Converter) GetHighestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
-	return c.queryBlockNumber(ctx, n, "DESC", "GetHighestStoredBlockNumber", highestBlockQueryLimit)
+	return chains.QueryBlockNumber(ctx, n, c.collections.Block, constants.NumberFieldName,
+		"DESC", "GetHighestStoredBlockNumber", chains.HighestBlockQueryLimit)
 }
 
 // GetLowestStoredBlockNumber implements chains.Converter.
 func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node) (int64, error) {
-	return c.queryBlockNumber(ctx, n, "ASC", "GetLowestStoredBlockNumber", c.lowestBlockQueryLimit())
+	return chains.QueryBlockNumber(ctx, n, c.collections.Block, constants.NumberFieldName,
+		"ASC", "GetLowestStoredBlockNumber", c.lowestBlockQueryLimit())
 }
 
 // GetDocIDsByBlockRange implements chains.Converter. It returns document IDs
@@ -506,7 +499,7 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 
 	result := make(map[string][]string)
 	for _, col := range cols {
-		docIDs, err := c.queryCollectionDocIDs(ctx, n, col.name, col.field, from, to)
+		docIDs, err := chains.QueryCollectionDocIDs(ctx, n, col.name, col.field, from, to)
 		if err != nil {
 			return nil, fmt.Errorf("query docIDs for %s: %w", col.name, err)
 		}
@@ -515,183 +508,4 @@ func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, fro
 		}
 	}
 	return result, nil
-}
-
-// queryBlockNumber runs the number query with the given ordering
-// ("DESC" or "ASC") and row limit, returning the first row whose number
-// field is parseable. The `_geq: 0` filter excludes rows whose number is
-// missing or null (purge residue): block numbers are non-negative, so every
-// real block including genesis is admitted, while numberless rows, which
-// sort ahead of real numbers under ASC, can never fill the query window.
-// Rows that still arrive unparseable are skipped and reported; all errors
-// are tagged with opName.
-func (c *Converter) queryBlockNumber(ctx context.Context, n *node.Node, order, opName string, queryLimit int) (int64, error) {
-	blockCol := c.collections.Block
-	field := constants.NumberFieldName
-	query := `query {` + blockCol + ` (filter: {` + field + `: {_geq: 0}}, order: {` + field + `: ` + order + `}, limit: ` + strconv.Itoa(queryLimit) + `) { ` + field + ` _docID }}`
-
-	result := n.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return 0, errors.NewQueryFailed("defra", opName, query, result.GQL.Errors[0])
-	}
-
-	data, ok := result.GQL.Data.(map[string]any)
-	if !ok {
-		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no data")
-	}
-
-	var rows []any
-	switch arr := data[blockCol].(type) {
-	case []any:
-		rows = arr
-	case []map[string]any:
-		rows = make([]any, len(arr))
-		for i, m := range arr {
-			rows[i] = m
-		}
-	default:
-		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
-	}
-
-	if len(rows) == 0 {
-		// The number filter hides rows without a number, so an empty result
-		// does not by itself mean the collection is empty. Distinguish the two
-		// cases: no documents at all is benign ("not found"), while documents
-		// without any usable number are corruption and must hard-fail so the
-		// pruner maps them to ErrNoValidBlocks instead of skipping pruning.
-		present, err := c.hasAnyBlockDocs(ctx, n, blockCol, opName)
-		if err != nil {
-			return 0, err
-		}
-		if present {
-			return 0, fmt.Errorf("%s: %w (no rows have a usable number field)", opName, chains.ErrBlockNumberCorrupt)
-		}
-		return 0, errors.NewDocumentNotFound("defra", opName, blockCol, "no blocks")
-	}
-
-	return firstUsableRow(rows, opName)
-}
-
-// firstUsableRow returns the block number of the first parseable row,
-// skipping and summarizing unparseable ones. It reports
-// chains.ErrBlockNumberCorrupt when no row in the window is usable.
-func firstUsableRow(rows []any, opName string) (int64, error) {
-	var skipped []string
-	for _, r := range rows {
-		block, ok := r.(map[string]any)
-		if !ok {
-			skipped = append(skipped, fmt.Sprintf("row=%#v", r))
-			continue
-		}
-		num, ok := parseBlockNumberRow(block)
-		if ok {
-			if len(skipped) > 0 {
-				logger.Sugar.Warnf("%s: skipped %d corrupt block row(s): %s",
-					opName, len(skipped), strings.Join(skipped, "; "))
-			}
-			return num, nil
-		}
-		docID, _ := block["_docID"].(string)
-		raw := block[constants.NumberFieldName]
-		skipped = append(skipped, fmt.Sprintf("docID=%s number=%T(%v)", docID, raw, raw))
-	}
-
-	return 0, fmt.Errorf("%s: %w (all %d rows corrupt: %s)",
-		opName, chains.ErrBlockNumberCorrupt, len(rows), strings.Join(skipped, "; "))
-}
-
-// hasAnyBlockDocs reports whether the collection holds any document,
-// including rows whose number field is missing.
-func (c *Converter) hasAnyBlockDocs(ctx context.Context, n *node.Node, blockCol, opName string) (bool, error) {
-	query := `query {` + blockCol + ` (limit: 1) { _docID }}`
-
-	result := n.DB.ExecRequest(ctx, query)
-	if len(result.GQL.Errors) > 0 {
-		return false, errors.NewQueryFailed("defra", opName, query, result.GQL.Errors[0])
-	}
-
-	data, ok := result.GQL.Data.(map[string]any)
-	if !ok {
-		return false, nil
-	}
-	switch rows := data[blockCol].(type) {
-	case []any:
-		return len(rows) > 0, nil
-	case []map[string]any:
-		return len(rows) > 0, nil
-	}
-	return false, nil
-}
-
-// parseBlockNumberRow extracts the block number from a block query row. It
-// reports false when the number field is missing or has an unparseable type.
-func parseBlockNumberRow(block map[string]any) (int64, bool) {
-	switch v := block[constants.NumberFieldName].(type) {
-	case float64:
-		return int64(v), true
-	case int64:
-		return v, true
-	case int:
-		return int64(v), true
-	default:
-		return 0, false
-	}
-}
-
-// queryCollectionDocIDs queries a single collection for all document IDs
-// whose block-number field falls in [from, to] inclusive. It uses chunked
-// _geq/_leq GraphQL range filters.
-func (c *Converter) queryCollectionDocIDs(ctx context.Context, n *node.Node, colName, field string, from, to int64) ([]string, error) {
-	var allDocIDs []string
-	const chunkSize = 100 //nolint:mnd
-
-	for chunkStart := from; chunkStart <= to; chunkStart += chunkSize {
-		chunkEnd := chunkStart + chunkSize - 1
-		chunkEnd = min(chunkEnd, to)
-
-		query := fmt.Sprintf(
-			`query { %s(filter: {%s: {_geq: %d, _leq: %d}}) { _docID } }`,
-			colName, field, chunkStart, chunkEnd,
-		)
-
-		result := n.DB.ExecRequest(ctx, query)
-		if len(result.GQL.Errors) > 0 {
-			return nil, fmt.Errorf("query %s [%d-%d]: %w", colName, chunkStart, chunkEnd, result.GQL.Errors[0])
-		}
-
-		data, ok := result.GQL.Data.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		raw := data[colName]
-		if raw == nil {
-			continue
-		}
-
-		var docs []any
-		switch typed := raw.(type) {
-		case []any:
-			docs = typed
-		case []map[string]any:
-			docs = make([]any, len(typed))
-			for i, d := range typed {
-				docs[i] = d
-			}
-		default:
-			continue
-		}
-
-		for _, doc := range docs {
-			m, ok := doc.(map[string]any)
-			if !ok {
-				continue
-			}
-			if docID, ok := m["_docID"].(string); ok {
-				allDocIDs = append(allDocIDs, docID)
-			}
-		}
-	}
-
-	return allDocIDs, nil
 }
