@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Check if there is any deadcode outside of the accepted allowlist."
 # Dead-code guard: fail when the deadcode analyzer reports functions that no
 # binary and no test can reach. This is the class that survives golangci-lint
 # (its unused check treats exported symbols as package API) and that once
@@ -12,7 +13,7 @@
 # longer reports warn instead of fail: list staleness must never block.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="${MISE_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 ALLOW="$ROOT/.deadcode-allow"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -23,13 +24,13 @@ cd "$ROOT"
 # (missing tool directive, compile errors). Nonzero with output is treated
 # as reported findings; nonzero with empty output is the failure path.
 rc=0
-out="$(go tool deadcode -test ./... 2>"$TMP/err")" || rc=$?
+out="$(deadcode -test ./... 2>"$TMP/err")" || rc=$?
 if [ "$rc" -ne 0 ] && [ -z "$out" ]; then
 	echo "deadcode: analyzer failed to run:" >&2
 	sed 's/^/  /' "$TMP/err" >&2
 	echo "" >&2
-	echo "If the error says the tool is unknown, add it to go.mod:" >&2
-	echo "  go get -tool golang.org/x/tools/cmd/deadcode" >&2
+	echo "If deadcode is missing, install project tools with:" >&2
+	echo "  mise install" >&2
 	exit 1
 fi
 

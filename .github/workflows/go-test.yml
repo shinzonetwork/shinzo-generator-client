@@ -1,4 +1,4 @@
-# This workflow will run 'go test' on the project when creating a PR (or trying to push to) main
+# This workflow will run the mise test tasks (gotestsum, golden tests) on the project when creating a PR (or trying to push to) main
 name: Go Test CI
 
 on:
@@ -20,19 +20,27 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v7
 
-    - name: Set up Go
-      uses: actions/setup-go@v7
+    - name: Cache Go modules and build cache
+      uses: actions/cache@v6
       with:
-        go-version-file: 'go.mod'
-        cache: true
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+        key: ${{ runner.os }}-go-test-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-test-${{ hashFiles('go.sum') }}-
+          ${{ runner.os }}-go-test-
+
+    - name: Set up mise
+      uses: jdx/mise-action@v5
 
     - name: Get CPU count
       id: cpu
       run: echo "count=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 2)" >> $GITHUB_OUTPUT
-    
+
     - name: Verify build
-      run: go build ./...
-    
+      run: mise x -- go build ./...
+
     - name: Run tests
       env:
         GETH_RPC_URL: ${{ secrets.GETH_RPC_URL }}
@@ -40,17 +48,13 @@ jobs:
         GETH_API_KEY: ${{ secrets.GETH_API_KEY }}
         DEFRADB_URL: http://localhost:9181
         LOG_LEVEL: error
-      run: |
-        go test -parallel=${{ steps.cpu.outputs.count  }} \
-        -covermode=atomic \
-        -coverprofile=coverage.out \
-        ./...
+      run: mise run test-unit --parallel ${{ steps.cpu.outputs.count  }}
 
     - name: Run golden tests
-      run: go test -tags=integration ./golden/... -count=1
+      run: mise run ethereum-golden
 
     - name: Run scrub tests for the replay harness
-      run: go test -tags=acceptance ./replay/tron -run TestReplayConfigKeepsSuiteKnobs -count=1
+      run: mise run tron-replay-scrub-guard
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
