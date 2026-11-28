@@ -2,13 +2,9 @@
 
 ## Mock Tests
 ```bash
-# Ethereum, Tron, and Bitcoin suites in one run
-make integration-test
-
-# Or per chain
-make ethereum-integration-test
-make tron-integration-test
-make bitcoin-integration-test
+mise run evm-integration
+mise run tron-integration
+mise run bitcoin-integration
 ```
 Self-contained suite with synthetic mock data (build tag `integration`). No
 chain endpoint, no credentials, no external dependencies.
@@ -45,13 +41,15 @@ Run it via `make integration-test` (the mock phase includes this suite).
 ## Live Tests  
 ```bash
 # Set environment variables first
+# (mise loads the repo's .env automatically, or export them yourself)
 source .env
 ```
 
 ### Ethereum
 
 ```bash
-make ethereum-live-test
+# Run with build tag
+mise run ethereum-live-test
 ```
 End-to-end live tests against a Geth-compatible endpoint: `GETH_RPC_URL` is
 required, plus `GETH_WS_URL` and `GETH_API_KEY`; the leg skips with a notice
@@ -100,7 +98,7 @@ completes inside the 30m window.
 
 ```bash
 # Run with build tag
-make bsc-live-test
+mise run bsc-live-test
 ```
 
 End-to-end tests against live BSC mainnet (or `BSC_LIVE_NETWORK`), exercising the

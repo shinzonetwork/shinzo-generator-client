@@ -26,12 +26,12 @@ import (
 // See ./integration/ directory for comprehensive integration tests with mock data.
 func TestIndexing_StartDefraFirst(t *testing.T) {
 	t.Parallel()
-	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'make test' for full test suite")
+	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'mise run test' for full test suite")
 }
 
 func TestIndexing(t *testing.T) {
 	t.Parallel()
-	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'make test' for full test suite")
+	t.Skip("This test has been replaced by mock-based integration tests in ./integration/ - run 'mise run test' for full test suite")
 }
 
 // TestCreateIndexer tests indexer creation across valid, nil, and custom configs.

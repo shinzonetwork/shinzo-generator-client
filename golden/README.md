@@ -7,12 +7,13 @@ node, reads every stored document back, and compares the result with the
 committed golden files. Any change to what the indexer stores shows up as a
 golden diff that has to be reviewed before it lands.
 
-The suite is behind the `integration` build tag and runs via
-`make golden-test` (or the per-chain `ethereum-golden-test` /
-`tron-golden-test` targets). No network access and no running node are needed:
-the only endpoint is the in-process mock server each chain's spec brings,
-and it serves exactly the calls the pipeline makes. Anything unexpected
-fails loudly, so stray traffic cannot pass silently.
+The suite is behind the `integration` build tag and runs as part of
+`mise run test` and `mise run *-golden` where * could be any supported network. No network access and no running node are needed:
+the only endpoint is an in-process mock server that answers from the fixture
+files, and it serves exactly the three methods the pipeline calls
+(`eth_getBlockByNumber`, `eth_getBlockReceipts`, `eth_getTransactionReceipt`).
+Any other method fails loudly, so unexpected RPC traffic cannot pass
+silently.
 
 Receipt modes are spec-owned:
 
@@ -32,19 +33,19 @@ whole store back.
 ## Running
 
 ```bash
-go test -tags=integration ./golden/... -count=1
+mise run ethereum-golden
 ```
 
-Or through the make umbrella:
+Or together with the rest of the Ethereum test suites:
 
 ```bash
-make golden-test
+mise run ethereum-test
 ```
 
 ## Regenerating goldens
 
 ```bash
-go test -tags=integration ./golden/... -run Golden -golden-update
+mise run ethereum-golden-update
 ```
 
 Regenerate only when the stored output is meant to change, review the
@@ -121,10 +122,10 @@ and writes the verbatim wallet-API bodies into
 ```bash
 export TRON_RPC_URL=https://api.trongrid.io
 export TRON_API_KEY=<your-trongrid-key>   # optional; header sent only when set
-make tron-golden-fetch
+mise run tron-golden-fetch
 ```
 
-`HEIGHT=<number> make tron-golden-fetch` pins an explicit block and skips
+`HEIGHT=<number> mise run tron-golden-fetch` pins an explicit block and skips
 the scan; a pinned block still runs the suitability checks and fails
 loudly if it does not qualify. The API key is optional: it is sent as the
 `Tron-Pro-Api-Key` header only when set, so providers that embed the key
@@ -137,7 +138,7 @@ fixture already exists (a second capture would silently turn the freeze
 into a multi-block one). To recapture deliberately:
 
 ```bash
-FORCE=1 make tron-golden-fetch
+FORCE=1 mise run tron-golden-fetch
 ```
 
 A forced run replaces the existing pair, and the old pair is removed only
