@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+#MISE description="Fetch block for Bitcoin's golden fixture."
+# Capture one suitable Bitcoin mainnet block for the golden freeze: scan
+# backwards from the tip for a block that exercises the full verbosity-3
+# pipeline, then write the verbatim getblock verbosity-3 response into
+# golden/bitcoin/testdata/blocks/. Bitcoin has no receipts call, the fee and
+# the prevout undo data ride inline in the block body, so one file per block
+# is the whole capture.
+#
+# Requires BITCOIN_RPC_URL plus BITCOIN_RPC_USER and BITCOIN_RPC_PASSWORD
+# (basic auth). Verbosity 3 needs the block's undo data, so the documented
+# bar is an archive node (prune=0) on Bitcoin Core 23.0 or newer; pruned
+# nodes qualify only while the block sits above the prune height. An
+# optional BITCOIN_API_KEY rides the lowercased BITCOIN_API_KEY_TYPE header
+# (default x-api-key), mirroring the production client. Neither the endpoint
+# nor any credential is ever written into the fixture.
+#
+# HEIGHT= pins an explicit block and skips the scan; a pinned block still
+# runs the same suitability checks and fails loudly if it does not qualify.
+# The freeze is a single-block freeze: the loader reads every file in
+# blocks/, so the script refuses to run when a fixture is already present
+# and FORCE=1 replaces it, removing the old file only after the new block
+# qualified.
+set -euo pipefail
+
+HEIGHT="${HEIGHT:-}"
+FORCE="${FORCE:-}"
+SCAN_LIMIT="${SCAN_LIMIT:-300}"
+START_OFFSET="${START_OFFSET:-20}"
+MAX_TX="${MAX_TX:-1000}"
+SLEEP_SECS="${SLEEP_SECS:-0.3}"
+
+BLOCKS_DIR="golden/bitcoin/testdata/blocks"
+
+for dep in curl jq; do
+	command -v "$dep" >/dev/null 2>&1 || {
+		echo "ERROR: $dep is required but not installed"
+		exit 1
+	}
+done
+
+[ -n "${BITCOIN_RPC_URL:-}" ] || {
+	echo "ERROR: BITCOIN_RPC_URL not set (Bitcoin Core JSON-RPC endpoint, e.g. http://127.0.0.1:8332)"
+	exit 1
+}
+[ -n "${BITCOIN_RPC_USER:-}" ] || {
+	echo "ERROR: BITCOIN_RPC_USER not set (basic auth user of the RPC endpoint)"
+	exit 1
+}
+[ -n "${BITCOIN_RPC_PASSWORD:-}" ] || {
+	echo "ERROR: BITCOIN_RPC_PASSWORD not set (basic auth password of the RPC endpoint)"
+	exit 1
+}
+[ -d golden ] || {
+	echo "ERROR: run this script from the repository root (no golden/ directory here)"
+	exit 1
+}
+
+# has_fixture reports whether a fixture folder already holds a JSON file.
+# The glob loop needs no nullglob: an unmatched glob stays literal and the
+# -e test rejects it.
+has_fixture() {
+	[ -d "$1" ] || return 1
+	local f
+	for f in "$1"/*.json; do
+		[ -e "$f" ] && return 0
+	done
+	return 1
+}
+
+if [ "$FORCE" != "1" ] && has_fixture "$BLOCKS_DIR"; then
+	echo "ERROR: $BLOCKS_DIR already holds a fixture:"
+	for f in "$BLOCKS_DIR"/*.json; do
+		[ -e "$f" ] && echo "  $f"
+	done
+	echo ""
+	echo "The bitcoin freeze is a single-block freeze: the loader reads every file"
+	echo "in blocks/, so a second capture would silently turn it into a multi-block"
+	echo "freeze. Re-run with FORCE=1 to replace it, or clear the folder manually."
+	exit 1
+fi
+
+api_header_name="$(printf '%s' "${BITCOIN_API_KEY_TYPE:-x-api-key}" | tr '[:upper:]' '[:lower:]')"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# rpc_raw posts one JSON-RPC call and writes the verbatim response body to
+# the given file, printing the HTTP status code. Bitcoin Core reports RPC
+# failures as HTTP 500 with an error envelope, so the status alone is not
+# the verdict; callers run the error checks next. The command is assembled
+# as an array that always starts with curl, so the expansion stays safe
+# under set -u on old bash even when the api-key header is skipped.
+rpc_raw() {
+	local method="$1" params="$2" outfile="$3" status
+	local -a cmd=(curl -sS --retry 3 --retry-delay 2)
+	if [ -n "${BITCOIN_API_KEY:-}" ]; then
+		cmd+=(-H "${api_header_name}: ${BITCOIN_API_KEY}")
+	fi
+	cmd+=(-u "${BITCOIN_RPC_USER}:${BITCOIN_RPC_PASSWORD}"
+		-H "Content-Type: application/json"
+		-d "{\"jsonrpc\":\"1.0\",\"id\":\"shinzo-golden\",\"method\":\"${method}\",\"params\":${params}}"
+		"${BITCOIN_RPC_URL}" -o "$outfile" -w '%{http_code}')
+	status="$("${cmd[@]}")"
+	echo "$status"
+}
+
+# rpc performs one call and writes the bare result payload to the given
+# file, failing hard on transport or RPC errors: the scan has no retry
+# story of its own, a broken endpoint must stop it loudly.
+rpc() {
+	local method="$1" params="$2" outfile="$3" raw status
+	raw="$TMP/${method}_raw.json"
+	status=$(rpc_raw "$method" "$params" "$raw")
+	if [ "$status" != "200" ]; then
+		echo "ERROR: $method failed with HTTP $status:" >&2
+		cat "$raw" >&2
+		exit 1
+	fi
+	if ! jq -e '.error == null' "$raw" >/dev/null 2>&1; then
+		echo "ERROR: $method returned an RPC error:" >&2
+		cat "$raw" >&2
+		exit 1
+	fi
+	jq '.result' "$raw" > "$outfile"
+}
+
+# fail_reasons prints a verdict block to stderr and returns 1.
+fail_reasons() {
+	local num="$1"
+	shift
+	echo "Block $num not suitable:" >&2
+	local reason
+	for reason in "$@"; do
+		echo "  - $reason" >&2
+	done
+	return 1
+}
+
+# check_suitable validates one verbosity-3 block body against the freeze's
+# coverage bar: coinbase plus regular transactions, fee and prevout undo
+# data, SegWit witness and wtxid divergence, a taproot script, both
+# output-address shapes, and a satoshi-fraction amount. On success it prints
+# the justification and returns 0. The golden test re-checks the same bar
+# through the typed decode, so a hand-editted fixture cannot sneak through.
+check_suitable() {
+	local num="$1" tx_count="$2" body="$3"
+
+	local -a reasons=()
+
+	[ "$(jq '.height' "$body")" = "$num" ] ||
+		reasons+=("height field does not match the requested height $num")
+	[ "$(jq '.tx[0].vin[0] | has("coinbase")' "$body")" = "true" ] ||
+		reasons+=("the first transaction carries no coinbase input")
+	[ "$tx_count" -gt 1 ] ||
+		reasons+=("no transactions beyond the coinbase")
+
+	local fees
+	fees=$(jq '[.tx[] | select(has("fee"))] | length' "$body")
+	[ "$fees" -gt 0 ] ||
+		reasons+=("no transaction carries a fee; the block's undo data is unavailable (needs an archive node, prune=0)")
+
+	local prevouts
+	prevouts=$(jq '[.tx[].vin[]? | select(has("prevout") and .prevout.value > 0)] | length' "$body")
+	[ "$prevouts" -gt 0 ] ||
+		reasons+=("no input carries denormalized prevout data with a non-zero value")
+
+	local witnesses
+	witnesses=$(jq '[.tx[].vin[]? | select((.txinwitness // []) | length > 0)] | length' "$body")
+	[ "$witnesses" -gt 0 ] ||
+		reasons+=("no input carries witness data; pick a post-SegWit block")
+
+	[ "$(jq '[.tx[] | select(.hash != .txid)] | length > 0' "$body")" = "true" ] ||
+		reasons+=("no transaction with hash != txid; pick a post-SegWit block")
+
+	[ "$(jq '[.tx[].vout[]? | select((.scriptPubKey.address // "") != "")] | length > 0' "$body")" = "true" ] ||
+		reasons+=("no output carries a scriptPubKey address")
+
+	[ "$(jq '[.tx[].vout[]? | select((.scriptPubKey.address // "") == "")] | length > 0' "$body")" = "true" ] ||
+		reasons+=("no address-less output (OP_RETURN or nonstandard); pick a block with one")
+
+	local taproot
+	taproot=$(jq '[.tx[] | .vout[]?.scriptPubKey.type] + [.tx[] | .vin[]?.prevout.scriptPubKey.type] | index("witness_v1_taproot") != null' "$body")
+	[ "$taproot" = "true" ] ||
+		reasons+=("no witness_v1_taproot script; pick a post-Taproot block")
+
+	[ "$(jq '[.tx[].vout[]?.value | select(. != floor)] | length > 0' "$body")" = "true" ] ||
+		reasons+=("no output value with a satoshi fraction")
+
+	if [ "${#reasons[@]}" -gt 0 ]; then
+		fail_reasons "$num" "${reasons[@]}" || return 1
+	fi
+
+	echo "Block $num qualifies:"
+	echo "  transactions: $tx_count (fee-bearing: $fees)"
+	echo "  inputs with prevout data: $prevouts, with witness data: $witnesses"
+	echo "  wtxid divergence and taproot present; addressed and address-less outputs present"
+	return 0
+}
+
+pinned=0
+start=0
+if [ -n "$HEIGHT" ]; then
+	pinned=1
+	start="$HEIGHT"
+else
+	tip_file="$TMP/tip.json"
+	rpc getblockcount '[]' "$tip_file"
+	tip=$(cat "$tip_file")
+	start=$((tip - START_OFFSET))
+	echo "Tip at block $tip; scanning back from $start (limit $SCAN_LIMIT blocks, MAX_TX $MAX_TX)"
+fi
+
+block_raw="$TMP/block.json"
+block_result="$TMP/block_result.json"
+precheck="$TMP/precheck.json"
+
+i=0
+while [ "$i" -lt "$SCAN_LIMIT" ]; do
+	num=$((start - i))
+	i=$((i + 1))
+
+	hash_file="$TMP/hash.json"
+	rpc getblockhash "[$num]" "$hash_file"
+	hash=$(jq -r '.' "$hash_file")
+
+	# The cheap pre-check runs on verbosity 1, whose body lists transaction
+	# hashes only, so heavy verbosity-3 fetches happen for real candidates.
+	rpc getblock "[\"$hash\", 1]" "$precheck"
+	tx_count=$(jq '.tx | length' "$precheck")
+
+	if [ "$tx_count" -gt "$MAX_TX" ]; then
+		echo "  block $num: $tx_count transactions exceeds MAX_TX $MAX_TX; skipping"
+		if [ "$pinned" -eq 1 ]; then
+			exit 1
+		fi
+		continue
+	fi
+
+	status=$(rpc_raw getblock "[\"$hash\", 3]" "$block_raw")
+	if [ "$status" != "200" ] || ! jq -e '.error == null' "$block_raw" >/dev/null 2>&1; then
+		echo "ERROR: getblock for height $num failed (HTTP $status):" >&2
+		cat "$block_raw" >&2
+		exit 1
+	fi
+	jq '.result' "$block_raw" > "$block_result"
+
+	if reasons="$(check_suitable "$num" "$tx_count" "$block_result" 2>&1)"; then
+		if has_fixture "$BLOCKS_DIR"; then
+			# Replacement, not accumulation: the loader reads every file in
+			# this folder, so a forced recapture removes the old file.
+			# Removal happens only after the new block qualified: a failed
+			# scan keeps the old freeze intact.
+			rm -f "$BLOCKS_DIR"/*.json
+			echo "Removed the previous bitcoin fixture (forced recapture)."
+		fi
+		mkdir -p "$BLOCKS_DIR"
+		cp "$block_raw" "$BLOCKS_DIR/$num.json"
+		echo "$reasons"
+		echo ""
+		echo "Wrote:"
+		echo "  $BLOCKS_DIR/$num.json"
+		echo ""
+		echo "Next steps:"
+		echo "  mise run bitcoin-golden-update"
+		echo "  review golden/bitcoin/testdata and commit it together with the goldens"
+		exit 0
+	fi
+
+	# check_suitable's verdict was captured into $reasons (stderr was merged
+	# into the substitution), so surface it here for the scan trail. A
+	# pinned block must not be skipped; the scan walks one block further
+	# down instead.
+	echo "$reasons" >&2
+	if [ "$pinned" -eq 1 ]; then
+		exit 1
+	fi
+	echo "  trying one block lower ..."
+	sleep "$SLEEP_SECS"
+done
+
+echo "ERROR: no suitable block found within $SCAN_LIMIT blocks below $start; raise SCAN_LIMIT, raise MAX_TX, or pin a known block with HEIGHT="
+exit 1

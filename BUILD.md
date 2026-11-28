@@ -41,6 +41,8 @@ The compiled binary goes into `./bin`. The generator ships one binary per chain 
 | `mise run tron-integration` | Run the fast mock integration suite for Tron (embedded DefraDB, synthetic data, no chain endpoint). |
 | `mise run bitcoin-integration` | Run the fast mock integration suite for Bitcoin (embedded DefraDB, synthetic data, no chain endpoint). |
 | `mise run ethereum-golden` | Run the Ethereum golden tests. |
+| `mise run tron-golden` | Run the Tron golden tests. |
+| `mise run bitcoin-golden` | Run the Bitcoin golden tests. |
 | `mise run ethereum-live-test` | Run live integration tests for Ethereum |
 | `mise run bsc-live-test` | Run live integration tests for BSC |
 | `mise run tron-live-test` | Run live integration tests for Tron |

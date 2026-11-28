@@ -153,6 +153,18 @@ func goldenCases() []chainCase {
 			},
 			spec: tronSpec{},
 		},
+		{
+			folder: "bitcoin",
+			cfg: &config.Config{
+				Chain: config.ChainConfig{Name: "Bitcoin", Network: "Mainnet"},
+				Indexer: config.IndexerConfig{
+					MaxDocsPerTxn:      1000,
+					MaxTxDocsPerBatch:  100,
+					MaxLogDocsPerBatch: 100,
+				},
+			},
+			spec: bitcoinSpec{},
+		},
 	}
 }
 
