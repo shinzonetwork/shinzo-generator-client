@@ -338,7 +338,7 @@ func (c *EthereumClient) GetHeaderByHash(ctx context.Context, hash string) (*eth
 	header, err := client.HeaderByHash(ctx, blockHash)
 	c.countRPCError(ctx, "eth_getBlockByHash", err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get header by hash %s: %w", hash, err)
+		return nil, fmt.Errorf("failed to get header by hash %s: %w", hash, utils.RedactHTTPError(err))
 	}
 
 	return header, nil
@@ -388,7 +388,7 @@ func (c *EthereumClient) headerNumberForTag(ctx context.Context, tag ethrpc.Bloc
 	header, err := client.HeaderByNumber(ctx, big.NewInt(tag.Int64()))
 	c.countRPCError(ctx, "eth_getBlockByNumber", err)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get %s header: %w", tag, err)
+		return 0, fmt.Errorf("failed to get %s header: %w", tag, utils.RedactHTTPError(err))
 	}
 	if header == nil || header.Number == nil {
 		return 0, fmt.Errorf("%s header has no block number", tag)

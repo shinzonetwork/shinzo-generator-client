@@ -307,6 +307,38 @@ func TestGetFinalizedBlockNumber_BothTagsFail(t *testing.T) {
 	assert.Contains(t, err.Error(), "finalized block number unavailable")
 }
 
+// A failed request's error quotes the endpoint URL, which can carry the provider's key.
+func TestHeaderLookups_RedactEndpoint(t *testing.T) {
+	t.Parallel()
+	server := simpleRPCServer()
+	endpoint := server.URL + "/s3cr3t-key"
+	server.Close()
+
+	client, err := NewEthereumClient(t.Context(), endpoint, "", "", "X-Api-Key", 0)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	for _, tc := range []struct {
+		name   string
+		lookup func() error
+	}{
+		{"header by hash", func() error {
+			_, err := client.GetHeaderByHash(context.Background(), fakeHash("any"))
+			return err
+		}},
+		{"finalized height", func() error {
+			_, err := client.GetFinalizedBlockNumber(context.Background())
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.lookup()
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "s3cr3t-key")
+		})
+	}
+}
+
 // --- GetTransactionReceipt with mock server ---
 
 func TestGetTransactionReceipt_Success(t *testing.T) {
