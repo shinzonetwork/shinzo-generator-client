@@ -5,7 +5,9 @@ repeatable verdict: capture real blocks once, replay them through the
 production pipeline and orchestration on any machine, and assert the
 effective per-block interval stays within the chain's block time (12 seconds on Ethereum;
 450 ms on BSC mainnet since the Fermi hardfork in January 2026;
-3 seconds on Tron mainnet).
+3 seconds on Tron mainnet;
+200 ms per slot on Solana mainnet since the slot-time reduction completed in
+October 2026).
 
 ```
 capture (one-time, needs a real endpoint)          acceptance (mise run ethereum-replay)
@@ -85,6 +87,56 @@ writes, and redaction are shared with the EVM path unchanged.
   the blocks captured before it into a partial fixture (as `capture_partial:
   true`) and still exits non-zero, the same way an interrupt does.
 
+### Solana (JSON-RPC capture)
+
+```sh
+export SOLANA_RPC_URL=https://your-solana-endpoint            # any Solana JSON-RPC endpoint; full nodes hold days of ledger, so a near-tip capture works anywhere
+export SOLANA_API_KEY=...                                     # optional
+export SOLANA_API_KEY_TYPE=x-api-key                          # optional header name override (empty keeps the x-api-key fallback)
+export SOLANA_COMMITMENT=confirmed                            # optional; the shipped config's commitment
+
+make solana-replay-fetch                    # 100 slots ending at the confirmed tip
+make solana-replay-fetch FROM=300000000 TO=300000099
+go run ./cmd/fetch_blocks --chain solana --network mainnet --adapter solana --out my_fixture.json
+```
+
+The Solana capture backend (`--adapter solana`) speaks Solana JSON-RPC: tip
+via `getSlot`, blocks via `getBlock` with the exact production call shape
+(`encoding: base64`, `transactionDetails: full`, `rewards: true`,
+`maxSupportedTransactionVersion: 1`), so the fixture bytes decode identically
+through the SDK when the replay mock serves them verbatim. Retries, backoff,
+interrupt handling, partial fixtures, atomic writes, and redaction are shared
+with the EVM path unchanged.
+
+- **There is no receipts call**: the full-fidelity `getBlock` response embeds
+  every transaction's metadata (logs, inner instructions, token balances) and
+  the block rewards, so a fixture entry carries `receipt_mode: "embedded"`
+  and a null `receipts` field.
+- **Only produced slots are recorded**: a Solana leader may miss a slot, and
+  the capture records nothing for it, so the fixture holds exactly the slots
+  the chain filled and gaps between entries are chain skips. The affirmative
+  skip answers (`-32007`, `-32009`) end the slot immediately; the ambiguous
+  spellings (null result, `-32004`) retry a bounded few times first (about
+  one block interval in total) in case a load-balanced endpoint was simply
+  behind, then end the slot without an entry. The replay mock serves the
+  null `getBlock` result for any slot absent from the fixture, which funnels
+  into the same production skip classification as the node's original answer.
+- **Alpenglow note**: Votor has been live on mainnet since October 21, 2026,
+  and under it `confirmed` and `finalized` describe the same state, so the
+  default `confirmed` capture commitment records finalize-state blocks.
+  Alpenglow's 150 ms figure is finality latency, not block cadence; the
+  cadence the acceptance gate keys off is the slot time, 200 ms since the
+  reduction completed in October 2026. Skipped slots still exist under
+  Votor (skip votes and certificates), just rarer.
+- **Ledger floor caveat**: unlike Tron, a full node prunes old blocks. Near-tip
+  captures (the default 100-slot window) work on any endpoint; a capture that
+  reaches below the node's ledger floor fails naming it, so recapture a higher
+  range. Deep historical captures need an archive endpoint, which the capture
+  CLI does not wire.
+- **Slot numbers are decimal**: Solana has no hex encoding, so `number` holds
+  a decimal slot like the Tron modes hold a decimal height; the on-disk
+  envelope is identical and the chain label distinguishes the encoding.
+
 Semantics:
 
 - **Archival node required**: an arbitrary historical block range needs full
@@ -121,17 +173,27 @@ Semantics:
 mise run ethereum-replay      # Ethereum suite (ETHEREUM_* env vars)
 mise run bsc-replay           # BSC suite (BSC_* env vars)
 mise run tron-replay          # Tron suite (TEST_TRON_* env vars)
+mise run solana-replay         # Solana suite (TEST_SOLANA_* env vars)
 ```
 
 Both suites share one implementation. The chain-agnostic harness (timing
 collection, report format, verdicts, background services, config
 bootstrapping) lives in `replay/harness_helpers.go` behind the `acceptance`
-build tag and is imported only by tests. `replay/evm/` carries the EVM mock
+build tag and is imported only by tests; it is contiguous-range machinery,
+because EVM and Tron never leave a gap in their block ranges. The Solana
+suite keeps its gap-aware counterparts (a chain-skipped slot produces no
+timing sample and is a legal gap in the store) locally in `replay/solana/`,
+where its fixture spans skipped slots. `replay/evm/`
+carries the EVM mock
 JSON-RPC node, the fixture handling, and the per-chain specs and test entry
 points (`ethereum_replay_test.go`, `bsc_replay_test.go`); `replay/tron/`
 carries the same shape for the Tron wallet API (mock serving
 `/wallet/*` and `/walletsolidity/*` fixture bytes verbatim, decimal
-block numbers, and the `TestTronReplayAcceptance` entry point).
+block numbers, and the `TestTronReplayAcceptance` entry point); `replay/solana/`
+carries the same shape for Solana JSON-RPC (method-dispatched mock serving
+fixture bytes verbatim, decimal slots, produced-only entries with gaps
+served as null getBlock results, and the `TestSolanaReplayAcceptance` entry
+point).
 
 - Build tag `acceptance`: excluded from `go test ./...` and CI, like the live
   suites.
@@ -176,6 +238,26 @@ intended. The endpoint hook zeroes the Tron section (`tron.node_url` points
 at the mock, `solidity_url` empty resolves `/walletsolidity/*` to the same
 host, which the mock serves).
 
+The Solana suite mirrors every knob with the `TEST_SOLANA_*` prefix (the same
+reasoning as Tron: `SOLANA_*` is the config loader's connection namespace and
+joins the scrub): `TEST_SOLANA_REPLAY_FIXTURE`, `TEST_SOLANA_REPLAY_MAX_BLOCKS`,
+`TEST_SOLANA_TARGET_BLOCK_TIME` (default `200ms`, the slot target since the
+reduction completed in October 2026; e.g. `400ms` for a fixture captured
+before the stages),
+`TEST_SOLANA_REPLAY_PRUNER`, `TEST_SOLANA_REPLAY_PRUNER_INTERVAL_SECONDS`,
+`TEST_SOLANA_REPLAY_PRUNER_MAX_BLOCKS`, `TEST_SOLANA_REPLAY_SNAPSHOT`,
+`TEST_SOLANA_REPLAY_SNAPSHOT_INTERVAL_SECONDS`,
+`TEST_SOLANA_REPLAY_SNAPSHOT_BLOCKS_PER_FILE`
+(same defaults as Ethereum), and boots from the shipped
+`config/config_solana.yaml`. The endpoint hook points `solana.rpc_url` at the
+mock and blanks the WS, key, and archive fields, so the replay fetches blind
+(no slot hint gate) and the client carries the yaml's commitment, version
+ceiling, and rewards flag. The verdict gates on the fixture's entries only,
+every one of them a produced block: chain-skipped gap slots advance through
+the production `ErrHeightSkipped` path without storing, so the wall clock,
+timing samples, and correctness counts run over the entries, with the gaps
+between them accepted as the chain's own skips.
+
 The loop runs through the generator's **`ConcurrentBlockProcessor`** — the real
 production orchestration (worker pool, retry classification, in-order commit,
 per-block `Committed block N` info logs). The worker count comes from the
@@ -189,7 +271,7 @@ the chain's BPS.
 
 The config boots from the suite's shipped yaml (`config/config.yaml` for
 Ethereum, `config/config_bsc.yaml` for BSC, `config/config_tron.yml` for
-Tron), the same files production runs
+Tron, `config/config_solana.yaml` for Solana), the same files production runs
 (`block_poster_evm -config ...`), so chain
 identity, batch sizes, badger caches, `prune_history: true` and the per-cycle
 prune cap are production values, not bench approximations. Only what the

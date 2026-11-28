@@ -62,7 +62,7 @@ type tronBackend struct {
 // (lowercased, header names match case-insensitively on the wire), an empty
 // one keeps the TronGrid standard header.
 func newTronBackend(opts *captureOptions) (*tronBackend, error) {
-	rpcURL := os.Getenv("TRON_RPC_URL")
+	rpcURL := strings.TrimSpace(os.Getenv("TRON_RPC_URL"))
 	if rpcURL == "" {
 		return nil, fmt.Errorf("TRON_RPC_URL is required: point it at a wallet-API endpoint for %s %s", opts.chain, opts.network)
 	}
@@ -73,7 +73,7 @@ func newTronBackend(opts *captureOptions) (*tronBackend, error) {
 	return &tronBackend{env: &tronEnv{
 		client:       &http.Client{Timeout: httpTimeout},
 		url:          rpcURL,
-		apiKey:       os.Getenv("TRON_API_KEY"),
+		apiKey:       strings.TrimSpace(os.Getenv("TRON_API_KEY")),
 		apiKeyHeader: apiKeyHeader,
 	}}, nil
 }
@@ -242,7 +242,9 @@ func tronOnce(ctx context.Context, env *tronEnv, endpoint string, body any) (jso
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, env.url+endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("tron %s: build request: %w", endpoint, err)
+		// url.Parse's error echoes the raw URL, so it is redacted before the
+		// error leaves here (same treatment as the JSON-RPC transport).
+		return nil, fmt.Errorf("tron %s: build request: %w", endpoint, utils.RedactHTTPError(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if env.apiKey != "" {
@@ -251,7 +253,10 @@ func tronOnce(ctx context.Context, env *tronEnv, endpoint string, body any) (jso
 
 	resp, err := env.client.Do(req)
 	if err != nil {
-		return nil, &retryableError{err: fmt.Errorf("tron %s: %w", endpoint, err)}
+		// net/http's client wraps every failed request in a *url.Error whose
+		// Error() echoes the full request URL; these errors surface in the
+		// retry and failure logs, so the URL is reduced to scheme://host.
+		return nil, &retryableError{err: fmt.Errorf("tron %s: %w", endpoint, utils.RedactHTTPError(err))}
 	}
 	defer func() { _ = resp.Body.Close() }()
 

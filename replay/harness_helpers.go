@@ -35,15 +35,14 @@ import (
 // shipped config yaml is the only input the config loader sees. mise loads
 // the developer's .env into every task, and without this a stray
 // INDEXER_MAX_DOCS_PER_TXN or badger cache value would silently change the
-// measured configuration between machines (TRON_ joins GETH_: the loader's
-// TRON_ connection vars are scrubbed, and the suite's knobs live under
-// TEST_TRON_, beyond the blanket prefix). Originals are restored after the
-// test so nothing outside LoadConfig's window observes the scrub.
+// measured configuration between machines (TRON_ and SOLANA_ join GETH_: the
+// loaders' connection vars are scrubbed, and each suite's knobs live under
+// TEST_*, beyond the blanket prefix). Originals are restored after the test
+// so nothing outside LoadConfig's window observes the scrub.
 func scrubReplayEnv(t *testing.T) {
 	t.Helper()
-
 	prefixes := [...]string{
-		"CHAIN_", "GETH_", "TRON_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
+		"CHAIN_", "GETH_", "TRON_", "SOLANA_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
 		"SCHEMA_", "CONVERTER_", "LOGGER_", "SHINZOHUB_",
 	}
 
@@ -151,8 +150,8 @@ func replayServiceInt(t *testing.T, env string, def int) int {
 //
 // overrideEndpoints is the suite's endpoint hook: the mock node replaces the
 // chain adapter's endpoint section and its key fields are blanked. Each suite
-// supplies its own closure (EVM zeroes the Geth section, Tron the Tron
-// section); a nil hook leaves the loaded yaml untouched.
+// supplies its own closure (EVM zeroes the Geth section, Tron and Solana
+// their adapter sections); a nil hook leaves the loaded yaml untouched.
 //
 // expectedChain and expectedNetwork fail the run when the shipped yaml does
 // not define the chain the suite claims: loading the wrong family's config
@@ -165,11 +164,12 @@ func NewReplayConfig(t *testing.T, configPath, expectedChain, expectedNetwork, s
 	// The scrub removes env vars the shipped yamls rely on to pass the
 	// loader's own validation, so known-good placeholders are restored
 	// before the load and replaced by the endpoint hook afterward:
-	// SCHEMA_AUTH_MODE fills the literal "${SCHEMA_AUTH_MODE}" placeholder
-	// (open-schema mode below), TRON_RPC_URL satisfies the tron adapter's
-	// non-empty node_url check (never dialed; the tron hook points it at the mock).
+	// SCHEMA_AUTH_MODE fills the literal "${SCHEMA_AUTH_MODE}" placeholder,
+	// TRON_RPC_URL and SOLANA_RPC_URL the tron and solana adapters' non-empty
+	// endpoint checks (never dialed; the per-suite hook points them at the mock).
 	t.Setenv("SCHEMA_AUTH_MODE", "none")
 	t.Setenv("TRON_RPC_URL", "http://127.0.0.1:1")
+	t.Setenv("SOLANA_RPC_URL", "http://127.0.0.1:1")
 
 	cfg, err := config.LoadConfig(configPath)
 	require.NoError(t, err, "load config yaml")

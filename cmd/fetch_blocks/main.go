@@ -68,8 +68,9 @@ const (
 	receiptModePerTx = "per-tx"
 
 	// Capture adapters selectable via --adapter.
-	adapterEVM  = "evm"
-	adapterTron = "tron"
+	adapterEVM    = "evm"
+	adapterTron   = "tron"
+	adapterSolana = "solana"
 
 	// maxErrorBodyBytes bounds how much of an error response body is
 	// echoed into error messages.
@@ -112,6 +113,13 @@ type captureBackend interface {
 	redactedEndpoint() string
 }
 
+// errBlockSkipped is the captureBackend contract's spelling for a height the
+// chain never filled (a Solana leader skip): the backend answers the
+// sentinel instead of an entry, the walk records nothing for it and moves
+// on, so the fixture holds only produced blocks. A walk that hard-stopped
+// on the first empty height could not produce fixtures on chains that skip.
+var errBlockSkipped = errors.New("block skipped by the chain")
+
 // newBackend resolves the --adapter flag into a capture backend, reading the
 // adapter's endpoint env. The error names the env var the run is missing.
 func newBackend(opts *captureOptions) (captureBackend, error) {
@@ -120,8 +128,10 @@ func newBackend(opts *captureOptions) (captureBackend, error) {
 		return newEVMBackend(opts)
 	case adapterTron:
 		return newTronBackend(opts)
+	case adapterSolana:
+		return newSolanaBackend(opts)
 	default:
-		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s)", opts.adapter, adapterEVM, adapterTron)
+		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s, %s)", opts.adapter, adapterEVM, adapterTron, adapterSolana)
 	}
 }
 
@@ -135,7 +145,7 @@ type evmBackend struct {
 // newEVMBackend reads the EVM endpoint env. The GETH_* names are historical;
 // any compatible JSON-RPC endpoint works.
 func newEVMBackend(opts *captureOptions) (*evmBackend, error) {
-	rpcURL := os.Getenv("GETH_RPC_URL")
+	rpcURL := strings.TrimSpace(os.Getenv("GETH_RPC_URL"))
 	if rpcURL == "" {
 		return nil, fmt.Errorf("GETH_RPC_URL is required: point it at a JSON-RPC endpoint for %s %s", opts.chain, opts.network)
 	}
@@ -143,10 +153,12 @@ func newEVMBackend(opts *captureOptions) (*evmBackend, error) {
 	// block range needs full state/receipt history, which non-archival
 	// (pruned/full) nodes serve only near the tip — deeper ranges return null
 	// blocks or missing receipts and the capture fails partway through.
+	// Endpoint and key are trimmed: a stray space on an .env line would
+	// otherwise fail as an unparseable URL or a malformed header value.
 	return &evmBackend{env: &rpcEnv{
 		client:     &http.Client{Timeout: httpTimeout},
-		url:        rpcURL,
-		apiKey:     os.Getenv("GETH_API_KEY"),
+		url:        strings.TrimSpace(rpcURL),
+		apiKey:     strings.TrimSpace(os.Getenv("GETH_API_KEY")),
 		apiKeyType: os.Getenv("GETH_API_KEY_TYPE"),
 	}}, nil
 }
@@ -206,16 +218,19 @@ func fixturePrefix(chain string) string {
 	return strings.ToLower(chain) + "_blocks_"
 }
 
-// fixtureBlock holds one block's verbatim node responses. Receipts is always
-// a JSON array of receipt objects regardless of capture mode, so replay
-// consumers treat both modes uniformly. Number's encoding is adapter-owned:
-// the evm backend writes a hex quantity, the tron backend a decimal height;
-// the on-disk envelope is identical and the chain label distinguishes them.
+// fixtureBlock holds one block's verbatim node responses. Receipts carries
+// the node's receipt answers verbatim in the mode the adapter recorded: a
+// JSON array for the EVM and Tron modes, null when the block body embeds
+// the receipt metadata (Solana), so replay consumers read ReceiptMode
+// first. Number's encoding is adapter-owned:
+// the evm backend writes a hex quantity, the tron backend a decimal height,
+// and the solana backend a decimal slot; the on-disk envelope is identical
+// and the chain label distinguishes them.
 type fixtureBlock struct {
-	Number      string          `json:"number"`       // evm: hex quantity, tron: decimal height
+	Number      string          `json:"number"`       // evm: hex quantity, tron/solana: decimal
 	Block       json.RawMessage `json:"block"`        // verbatim block body
 	Receipts    json.RawMessage `json:"receipts"`     // receipt array, verbatim
-	ReceiptMode string          `json:"receipt_mode"` // "batch", "per-tx", or "block"
+	ReceiptMode string          `json:"receipt_mode"` // "batch", "per-tx", "block", or "embedded"
 }
 
 // fixtureMeta describes the capture. It intentionally carries no endpoint or
@@ -297,7 +312,7 @@ func parseFlags(args []string) (*captureOptions, error) {
 	// binary drop a fixture the acceptance suite's glob never finds.
 	fs.StringVar(&opts.chain, "chain", "", "chain name labelling the fixture (required; e.g. BSC)")
 	fs.StringVar(&opts.network, "network", "", "network name labelling the fixture (required; e.g. Mainnet)")
-	fs.StringVar(&opts.adapter, "adapter", adapterEVM, fmt.Sprintf("capture backend (supported adapters: %s, %s)", adapterEVM, adapterTron))
+	fs.StringVar(&opts.adapter, "adapter", adapterEVM, fmt.Sprintf("capture backend (supported adapters: %s, %s, %s)", adapterEVM, adapterTron, adapterSolana))
 	fs.Uint64Var(&opts.from, "from", 0, "first block to capture (0 = defaultBlockCount blocks ending at --to or the tip)")
 	fs.Uint64Var(&opts.to, "to", 0, "last block to capture (0 = the current tip)")
 	fs.StringVar(&opts.out, "out", "", fmt.Sprintf("output fixture path (default %s/<chain>_<from>_<to>%s)", defaultOutDir, fixtureExt))
@@ -317,9 +332,9 @@ func parseFlags(args []string) (*captureOptions, error) {
 	// Fail before any endpoint is touched: an unknown adapter has no env to
 	// read, and the error must list the supported values.
 	switch opts.adapter {
-	case adapterEVM, adapterTron:
+	case adapterEVM, adapterTron, adapterSolana:
 	default:
-		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s)", opts.adapter, adapterEVM, adapterTron)
+		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s, %s)", opts.adapter, adapterEVM, adapterTron, adapterSolana)
 	}
 	return opts, nil
 }
@@ -370,7 +385,10 @@ func fixtureOutPath(opts *captureOptions, fx *replayFixture) string {
 // so far as a partial fixture instead of losing the work. A hard capture
 // failure stops the walk the same way: the blocks before the failing one
 // are valid capture work, so they are salvaged into a partial fixture and
-// the error still surfaces to keep the run's exit non-zero.
+// the error still surfaces to keep the run's exit non-zero. A backend may
+// also answer a block with the errBlockSkipped sentinel, its spelling for
+// a height the chain never filled; the walk records nothing for it and
+// moves on, so the fixture holds only produced blocks.
 func captureRange(ctx context.Context, backend captureBackend, opts *captureOptions, from, to uint64) error {
 	fx := &replayFixture{
 		Meta: fixtureMeta{
@@ -391,7 +409,7 @@ func captureRange(ctx context.Context, backend captureBackend, opts *captureOpti
 	lastCaptured := from
 	for num := from; num <= to && !interrupted && failErr == nil; num++ {
 		fb, err := backend.captureBlock(ctx, num)
-		if err != nil {
+		if err != nil && !errors.Is(err, errBlockSkipped) {
 			if ctx.Err() != nil {
 				interrupted = true
 				break
@@ -399,9 +417,17 @@ func captureRange(ctx context.Context, backend captureBackend, opts *captureOpti
 			failErr = fmt.Errorf("block %d: %w", num, err)
 			break
 		}
-		fx.Blocks = append(fx.Blocks, *fb)
-		lastCaptured = num
-		log.Printf("captured block %d (%d/%d, %s receipts)", num, num-from+1, to-from+1, fb.ReceiptMode)
+		// The sentinel is the backend's way of reporting a height the chain
+		// never filled: the fixture holds only produced blocks, so nothing
+		// appends and lastCaptured keeps naming the last recorded block.
+		// The slot still made RPC calls, so it is logged for visibility.
+		if err != nil {
+			log.Printf("block %d has no block on the chain, not recording an entry", num)
+		} else {
+			fx.Blocks = append(fx.Blocks, *fb)
+			lastCaptured = num
+			log.Printf("captured block %d (%d/%d, %s receipts)", num, num-from+1, to-from+1, fb.ReceiptMode)
+		}
 
 		// The pause paces the next request, so it must not run after the
 		// final block: an interrupt landing in that last sleep would mark
@@ -595,18 +621,29 @@ func rpcOnce(ctx context.Context, env *rpcEnv, method string, params any) (json.
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, env.url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		// url.Parse's error echoes the raw URL, which can carry credential
+		// material (Solana gateways commonly take the key as a query
+		// parameter), so it is redacted before the error leaves here.
+		return nil, fmt.Errorf("build request: %w", utils.RedactHTTPError(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	// Both key and header name are required: setting a header with an empty
 	// name is a protocol error, and a key without a name is unusable anyway.
+	// The header name is trimmed and lower-cased here so a stray space on an
+	// .env value cannot reach the transport, which rejects an invalid header
+	// field name only after every retry attempt has burned.
 	if env.apiKey != "" && env.apiKeyType != "" {
-		req.Header.Set(strings.ToLower(env.apiKeyType), env.apiKey)
+		req.Header.Set(strings.ToLower(strings.TrimSpace(env.apiKeyType)), env.apiKey)
 	}
 
 	resp, err := env.client.Do(req)
 	if err != nil {
-		return nil, &retryableError{err: err}
+		// net/http's client wraps every failed request in a *url.Error whose
+		// Error() echoes the full request URL. The endpoint can carry
+		// credential material in its query, and these errors surface in the
+		// capture's retry and failure logs, so the URL is reduced to
+		// scheme://host before the error leaves the transport.
+		return nil, &retryableError{err: utils.RedactHTTPError(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -632,9 +669,24 @@ func rpcOnce(ctx context.Context, env *rpcEnv, method string, params any) (json.
 		return nil, fmt.Errorf("decode rpc response: %w", err)
 	}
 	if envelope.Error != nil {
-		return nil, fmt.Errorf("rpc error %d: %s", envelope.Error.Code, envelope.Error.Message)
+		return nil, &rpcEnvelopeError{code: envelope.Error.Code, message: envelope.Error.Message}
 	}
 	return envelope.Result, nil
+}
+
+// rpcEnvelopeError is a JSON-RPC envelope error the node answered: the code
+// is the node's business answer, not a transport failure, so it is never
+// retried (withRetries only retries retryableError values). Its message is
+// byte-identical to the plain formatting it replaces, so the EVM and Tron
+// paths behave unchanged; the typed code exists so the solana backend can
+// classify missing-slot outcomes without parsing error strings.
+type rpcEnvelopeError struct {
+	code    int
+	message string
+}
+
+func (e *rpcEnvelopeError) Error() string {
+	return fmt.Sprintf("rpc error %d: %s", e.code, e.message)
 }
 
 // isRetryable reports whether the error is worth another attempt.

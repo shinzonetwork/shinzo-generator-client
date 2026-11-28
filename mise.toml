@@ -120,10 +120,27 @@ description = "Running Tron replay test."
 extends = "test:replay"
 vars = { adapter = "tron", test = "TestTronReplayAcceptance" }
 
+[tasks.solana-replay]
+description = "Running Solana replay test."
+extends = "test:replay"
+vars = { adapter = "solana", test = "TestSolanaReplayAcceptance" }
+
 [tasks.tron-replay-scrub-guard]
 description = "Running Tron replay test scrub guard."
 extends = "test:replay"
 vars = { adapter = "tron", test = "TestReplayConfigKeepsSuiteKnobs", timeout = "10s" }
+
+[tasks.solana-replay-scrub-guard]
+description = "Running Solana replay test scrub guard."
+extends = "test:replay"
+vars = { adapter = "solana", test = "TestReplayConfigKeepsSuiteKnobs", timeout = "10s" }
+
+[tasks.replay-scrub-guards]
+description = "Running all replay test scrub guard."
+run = [ 
+    { task = "tron-replay-scrub-guard" },
+    { task = "solana-replay-scrub-guard"}
+]
 
 [tasks.replay-fetch]
 description = "Fetch blocks for the replay test harness."

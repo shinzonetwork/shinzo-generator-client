@@ -81,9 +81,9 @@ func TestParseFlagsAdapter(t *testing.T) {
 
 	t.Run("unknown adapter rejected", func(t *testing.T) {
 		t.Parallel()
-		_, err := parseFlags([]string{"--chain", "tron", "--network", "mainnet", "--adapter", "solana"})
+		_, err := parseFlags([]string{"--chain", "tron", "--network", "mainnet", "--adapter", "litecoin"})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "supported adapters: evm, tron")
+		assert.Contains(t, err.Error(), "supported adapters: evm, tron, solana")
 	})
 }
 

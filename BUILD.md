@@ -50,6 +50,7 @@ The compiled binary goes into `./bin`. The generator ships one binary per chain 
 | `mise run ethereum-replay` | Run replay acceptance test for Ethereum |
 | `mise run bsc-replay` | Run replay acceptance test for BSC |
 | `mise run tron-replay` | Run replay acceptance test for Tron |
+| `mise run solana-replay` | Run replay acceptance test for Solana |
 | `mise run lint` | Run golangci-lint. |
 | `mise run format` | Format code with gofmt and goimports. |
 | `mise run node-status` | Check connectivity and current block number for a blockchain node. Probes Ethereum-compatible JSON-RPC endpoints via `eth_blockNumber`; the Generator itself is chain-agnostic and accepts any compatible JSON-RPC/WebSocket endpoint. |
