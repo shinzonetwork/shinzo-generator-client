@@ -4,7 +4,10 @@ type Bitcoin__Mainnet__Transaction {
     txid: String @index
     hash: String
     blockHash: String @index
-    blockNumber: Int
+    # The pruner, snapshotter, and reorg roller filter this field by height
+    # range; consumer block lookups resolve through blockHash above, so each
+    # access path carries its own index.
+    blockNumber: Int @index
     # Position within the block (0 = coinbase).
     txIndex: Int
     version: Int

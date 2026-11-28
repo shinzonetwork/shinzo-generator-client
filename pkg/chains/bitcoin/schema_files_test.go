@@ -95,9 +95,8 @@ func TestCollectionFiles_DefaultPrefixRetainsSDL(t *testing.T) {
 // its block-number field (number on Block, blockNumber elsewhere), so the
 // pruner's ordering and GetDocIDsByBlockRange range filters are served.
 // SnapshotSignature has no block-number field and is the sole exception.
-// Transaction is the one carve-out inside that contract: transaction
-// lookups run through the indexed blockHash, so its blockNumber field
-// carries no index.
+// Transaction additionally indexes blockHash: consumer block lookups and
+// range filters each ride their own access path.
 func TestCollectionFiles_IndexInvariant(t *testing.T) {
 	t.Parallel()
 	c := NewCollectionNames(DefaultCollectionPrefix)
@@ -113,18 +112,13 @@ func TestCollectionFiles_IndexInvariant(t *testing.T) {
 		if f.File == blockCollectionFile {
 			wanted = "number: Int @index"
 		}
-		if f.File == transactionCollectionFile {
-			assert.NotContains(t, f.SDL, wanted,
-				"%s must not index the block-number field", f.File)
-			assert.Contains(t, f.SDL, "blockNumber: Int",
-				"%s must keep the block-number field", f.File)
-			assert.Contains(t, f.SDL, "blockHash: String @index",
-				"%s must index the blockHash field", f.File)
-			continue
-		}
 		assert.Contains(t, f.SDL, wanted,
 			"%s must declare @index on its block-number field", f.File)
 	}
+
+	transaction := files[3]
+	assert.Contains(t, transaction.SDL, "blockHash: String @index",
+		"the transaction collection must keep its blockHash index for consumer block lookups")
 
 	snapshot := files[2]
 	assert.NotContains(t, snapshot.SDL, "@index",

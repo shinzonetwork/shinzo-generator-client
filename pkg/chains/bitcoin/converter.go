@@ -399,9 +399,8 @@ func (c *Converter) GetLowestStoredBlockNumber(ctx context.Context, n *node.Node
 // inclusive. SnapshotSignature is intentionally excluded: its documents span
 // ranges and a block-range rollback must never delete snapshot history.
 // BlockSignature is included: signatures are minted per stored block and roll
-// back with it. Transaction rides the unindexed blockNumber field here, an
-// accepted deviation because the range stays small and the schema keeps the
-// block lookups on the indexed blockHash instead.
+// back with it. Every queried field is index-backed, so the range filters
+// never degrade into full collection scans.
 func (c *Converter) GetDocIDsByBlockRange(ctx context.Context, n *node.Node, from, to int64) (map[string][]string, error) {
 	cols := []struct {
 		name  string

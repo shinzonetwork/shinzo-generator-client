@@ -30,10 +30,8 @@ const (
 // Every collection except SnapshotSignature must declare an @index on its
 // block-number field (number on Block, blockNumber elsewhere): the pruner
 // orders and filters by it, and GetDocIDsByBlockRange queries it.
-// Transaction is the one carve-out: its block lookups run through the
-// indexed blockHash, so its blockNumber stays unindexed. Enforced
-// by the package's own schema test until the adapter registers with the
-// chain factory registry and the pruner contract test picks it up.
+// Transaction additionally indexes blockHash, the access path for consumer
+// block lookups. Enforced by the package's own schema test.
 type CollectionNames struct {
 	prefix            string
 	Block             string
