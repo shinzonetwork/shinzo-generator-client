@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Fetch block for Solana's golden fixture."
 # Capture one suitable Solana block for the golden freeze: scan backwards
 # from the confirmed tip for a slot that exercises the full getBlock
 # pipeline, then write the verbatim JSON-RPC response body into

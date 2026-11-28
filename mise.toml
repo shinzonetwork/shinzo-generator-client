@@ -1,0 +1,264 @@
+
+[tool_alias]
+deadcode = "go:golang.org/x/tools/cmd/deadcode"
+govulncheck = "go:golang.org/x/vuln/cmd/govulncheck"
+goimports = "go:golang.org/x/tools/cmd/goimports"
+
+[tools]
+go = "1.27.3"
+deadcode = "0.52.0"
+
+[env]
+_.file = ".env"
+
+[vars]
+# Executes the git command dynamically when mise loads the config
+VERSION = "{{ exec(command='git describe --tags --always --dirty 2>/dev/null || echo dev') }}"
+
+# Code quality tasks & templates
+[tasks.format]
+description = "Formatting code and imports."
+tools = { goimports = "0.52.0" }
+run = [
+    "gofmt -s -w .",
+    "goimports -w -local github.com/shinzonetwork/shinzo-generator-client .",
+]
+
+[task_templates."go:lint"]
+description = "Linting check for the codebase."
+tools = { golangci-lint = "2.15.0" }
+vars = { flag = "" }
+run = "golangci-lint run {{ vars.flag }} ./..."
+
+[tasks.lint]
+extends = "go:lint"
+
+[tasks.lint-fix]
+description = "Linting check for the codebase with autorepair."
+extends = "go:lint"
+vars = { flag = "--fix" }
+
+[tasks.vuln]
+tools = { govulncheck = "1.9.0" }
+description = "Static analysis check for the codebase."
+run = "govulncheck ./..."
+
+[tasks.inspect]
+description = "Running all code quality and dependencies vulnerability checks."
+depends = ["lint"]
+run = ["check-deadcode", "check-loc", "vuln"]
+
+# Testing tasks & templates
+[tasks.test-unit]
+description = "Running unit tests with coverage report."
+# Unit tests assert on config defaults and validation errors, so config-state
+# overrides from the .env files would silently flip their outcomes.
+env = { DEFRADB_KEYRING_SECRET = "", INDEXER_START_HEIGHT = "", SCHEMA_AUTH_MODE = "" }
+tools = { gotestsum = "1.13.0" }
+usage= 'flag "--parallel <parallel>" help="Maximum parallel tests" default="4"'
+run = "gotestsum -- -covermode=atomic -coverprofile=coverage.out -parallel=${usage_parallel} ./..."
+
+[task_templates."test:integration"]
+vars = { chain = "" }  # Defaults for Ethereum
+run = "go test -tags=integration  -v ./integration/{{ vars.chain }}"
+
+[tasks.evm-integration]
+description = "Running the EVM integration tests."
+extends = "test:integration"
+
+[tasks.tron-integration]
+description = "Running the Tron integration tests."
+extends = "test:integration"
+vars = { chain = "tron" } 
+
+[tasks.solana-integration]
+description = "Running the Solana integration tests."
+extends = "test:integration"
+vars = { chain = "solana" } 
+
+[task_templates."test:golden"]
+vars = { test = "TestGoldenTypedPath/ethereum" } 
+run = "go test -tags=integration ./golden/... -run {{ vars.test }} -count=1 -v"
+
+[tasks.ethereum-golden]
+description = "Running Ethereum golden tests."
+extends = "test:golden"
+
+[tasks.tron-golden]
+description = "Running Tron golden tests."
+extends = "test:golden"
+vars = { test = "TestGoldenTypedPath/tron" } 
+
+[tasks.solana-golden]
+description = "Running Solana golden tests."
+extends = "test:golden"
+vars = { test = "TestGoldenTypedPath/solana" } 
+
+[tasks.golden]
+description = "Running all golden tests."
+run = [
+    { task = "ethereum-golden" },
+    { task = "tron-golden" },
+    { task = "solana-golden" },
+]
+
+[task_templates."test:golden-update"]
+vars = { test = "TestGoldenTypedPath/ethereum" }
+run = "go test -tags=integration ./golden/... -run {{ vars.test }} -golden-update -count=1 -v"
+
+[tasks.ethereum-golden-update]
+description = "Updating Ethereum golden fixture."
+extends = "test:golden-update"
+
+[tasks.tron-golden-update]
+description = "Updating Tron golden fixture."
+extends = "test:golden-update"
+vars = { test = "TestGoldenTypedPath/tron" }
+
+[tasks.solana-golden-update]
+description = "Updating Solana golden fixture."
+extends = "test:golden-update"
+vars = { test = "TestGoldenTypedPath/solana" }
+
+[task_templates."test:replay"]
+vars = { adapter = "evm", test = "TestEthereumReplayAcceptance", timeout = "30m" }
+run = "go test -tags=acceptance ./replay/{{ vars.adapter }} -run {{ vars.test }} -count=1 -v -timeout {{ vars.timeout }}"
+
+[tasks.ethereum-replay]
+description = "Running Ethereum replay test."
+extends = "test:replay"
+
+[tasks.bsc-replay]
+description = "Running BSC replay test."
+extends = "test:replay"
+vars = { test = "TestBSCReplayAcceptance" }
+
+[tasks.tron-replay]
+description = "Running Tron replay test."
+extends = "test:replay"
+vars = { adapter = "tron", test = "TestTronReplayAcceptance" }
+
+[tasks.solana-replay]
+description = "Running Solana replay test."
+extends = "test:replay"
+vars = { adapter = "solana", test = "TestSolanaReplayAcceptance" }
+
+[tasks.tron-replay-scrub-guard]
+description = "Running Tron replay test scrub guard."
+extends = "test:replay"
+vars = { adapter = "tron", test = "TestReplayConfigKeepsSuiteKnobs", timeout = "10s" }
+
+[tasks.solana-replay-scrub-guard]
+description = "Running Solana replay test scrub guard."
+extends = "test:replay"
+vars = { adapter = "solana", test = "TestReplayConfigKeepsSuiteKnobs", timeout = "10s" }
+
+[tasks.replay-scrub-guards]
+description = "Running all replay test scrub guard."
+run = [ 
+    { task = "tron-replay-scrub-guard" },
+    { task = "solana-replay-scrub-guard" }
+]
+
+[tasks.replay-fetch]
+description = "Fetch blocks for the replay test harness."
+usage = '''
+flag "--chain <chain>" help="Target chain" default="ethereum"
+flag "--network <network>" help="Target network" default="mainnet"
+flag "--adapter <adapter>" help="Target chain adapter" default="evm"
+flag "--from <from>" help="Start block" default="0"
+flag "--to <to>" help="End block" default="0"
+'''
+run = "go run ./cmd/fetch_blocks --chain ${usage_chain} --network ${usage_network} --adapter ${usage_adapter} --from ${usage_from} --to ${usage_to}"
+
+[task_templates."test:live"]
+vars = { chain = "", timeout = "20s" }
+run = "go test -tags=live -v ./integration/live/{{ vars.chain }} -count=1 -timeout={{ vars.timeout }}"
+
+[tasks.ethereum-live-test]
+description = "Running Ethereum live tests."
+extends = "test:live"
+
+[tasks.bsc-live-test]
+description = "Running BSC live tests"
+extends = "test:live"
+vars = { chain = "bsc", timeout = "400s" }
+
+[tasks.tron-live-test]
+description = "Running Tron live tests"
+extends = "test:live"
+vars = { chain = "tron", timeout = "400s" }
+
+[tasks.solana-live-test]
+description = "Running Solana live tests"
+extends = "test:live"
+vars = { chain = "solana", timeout = "400s" }
+
+[tasks.ethereum-test]
+description = "Running all Ethereum-related test suites."
+depends = ["test-unit", "evm-integration", "ethereum-golden"]
+
+[tasks.test]
+description = "Running all test suites (besides replay) for all chains."
+run = [
+    { task = "test-unit"}, 
+    { tasks = ["evm-integration", "tron-integration", "solana-integration"] }, 
+    { tasks = ["ethereum-live-test", "bsc-live-test", "tron-live-test", "solana-live-test"] }, 
+    { tasks = ["ethereum-golden", "tron-golden"]}
+]
+
+# Binary building tasks & templates
+[task_templates."generator:build"]
+vars = { ldflags = '"-X github.com/shinzonetwork/shinzo-generator-client/config.Version={{ vars.VERSION }}"', adapter = "evm" }
+run = "go build -ldflags {{ vars.ldflags }} -o bin/block_poster_{{ vars.adapter }} ./cmd/block_poster/{{ vars.adapter }}/"
+
+[tasks.evm-build]
+description = "Building the EVM generator binary."
+extends = "generator:build"
+
+[tasks.tron-build]
+description = "Building the Tron generator binary."
+extends = "generator:build"
+vars = { adapter = "tron" }
+
+[tasks.solana-build]
+description = "Building the Solana generator binary."
+extends = "generator:build"
+vars = { adapter = "solana" }
+
+[tasks.build-all]
+description = "Building all block_poster, fetch_blocks, and build_schema binaries."
+depends = ["evm-build", "tron-build", "solana-build"]
+run = [
+    "go build -o bin/fetch_blocks ./cmd/fetch_blocks/",
+    "go build -o bin/build_schema ./cmd/build_schema/",
+]
+
+# Generator startup tasks & templates
+[task_templates."generator:start"]
+vars = { adapter = "evm", config = "./config/config.yaml" }
+run = "./bin/block_poster_{{ vars.adapter }} --config {{ vars.config }}"
+
+[tasks.ethereum-start]
+description = "Starting Ethereum generator binary."
+extends = "generator:start"
+
+[tasks.bsc-start]
+description = "Starting BSC generator binary."
+extends = "generator:start"
+vars = { config = "./config/config_bsc.yaml" }
+
+[tasks.tron-start]
+description = "Starting Tron generator binary."
+extends = "generator:start"
+vars = { adapter = "tron", config = "./config/config_tron.yml" }
+
+[tasks.solana-start]
+description = "Starting Solana generator binary."
+extends = "generator:start"
+vars = { adapter = "solana", config = "./config/config_solana.yaml" }
+
+# Cleanup 
+[tasks.clean]
+description = "Cleaning local project binaries and log files."
+run = "rm -rf bin/ logs/logfile.log && mkdir -p logs && touch logs/logfile.log"

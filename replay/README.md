@@ -10,7 +10,7 @@ effective per-block interval stays within the chain's block time (12 seconds on 
 October 2026).
 
 ```
-capture (one-time, needs a real endpoint)          acceptance (make ethereum-acceptance-test)
+capture (one-time, needs a real endpoint)          acceptance (mise run ethereum-replay)
 ┌─────────────┐  eth_getBlockByNumber + receipts   ┌──────────────────────────────────┐
 │             │ ─────────────────────────────────► │ fixture JSON                     │
 │ cmd/        │                                    │ replay/testdata/                 │
@@ -41,11 +41,11 @@ export GETH_RPC_URL=https://your-node-archival-node:8545   # GETH_* names are hi
 export GETH_API_KEY=...                          # optional
 export GETH_API_KEY_TYPE=x-api-key               # optional header name
 
-make build                              # produces ./bin/block_poster_evm and ./bin/fetch_blocks (loads .env itself)
+mise run build-all                     # produces ./bin/block_poster, ./bin/fetch_blocks, ./bin/build_schema (mise loads .env itself)
 ./bin/fetch_blocks --chain ethereum --network mainnet --from 24001000 --to 24001150
 
-make replay-fetch                    # same, via go run (100 blocks ending at the current tip)
-make replay-fetch FROM=1000 TO=1099  # explicit range
+mise run replay-fetch                  # same, via go run (100 blocks ending at the current tip)
+mise run replay-fetch --from 1000 --to 1099  # explicit range
 go run ./cmd/fetch_blocks --chain ethereum --network mainnet --out my_fixture.json  # custom path
 go run ./cmd/fetch_blocks --chain arbitrum --network mainnet  # any EVM-compatible chain
 ```
@@ -57,8 +57,8 @@ export TRON_RPC_URL=https://api.trongrid.io           # java-tron FullNode walle
 export TRON_API_KEY=...                               # optional, recommended to avoid TronGrid rate limits
 export TRON_API_KEY_TYPE=tron-pro-api-key             # optional header name override
 
-make tron-replay-fetch                    # 100 blocks ending at the current tip
-make tron-replay-fetch FROM=52700000 TO=52700099
+mise run replay-fetch --chain tron --adapter tron     # 100 blocks ending at the current tip
+mise run replay-fetch --chain tron --adapter tron --from 52700000 --to 52700099                               
 go run ./cmd/fetch_blocks --chain tron --network mainnet --adapter tron --out my_fixture.json
 ```
 
@@ -170,10 +170,10 @@ Semantics:
 ## 2. Run the acceptance suite
 
 ```sh
-make ethereum-acceptance-test   # Ethereum suite (ETHEREUM_* env vars)
-make bsc-acceptance-test        # BSC suite (BSC_* env vars)
-make tron-acceptance-test       # Tron suite (TEST_TRON_* env vars)
-make solana-acceptance-test     # Solana suite (TEST_SOLANA_* env vars)
+mise run ethereum-replay      # Ethereum suite (ETHEREUM_* env vars)
+mise run bsc-replay           # BSC suite (BSC_* env vars)
+mise run tron-replay          # Tron suite (TEST_TRON_* env vars)
+mise run solana-replay         # Solana suite (TEST_SOLANA_* env vars)
 ```
 
 Both suites share one implementation. The chain-agnostic harness (timing
@@ -333,7 +333,7 @@ harness bug.
 
 So live per-block time ≈ acceptance average + (real RPC time − loopback time)
 + those residuals. This suite answers the
-*"is the pipeline fast enough"* question, the live suite (`make integration-test`)
+*"is the pipeline fast enough"* question, the live suite (`mise run evm-integration`)
 answers *"does it hold with the network in the loop"*.
 
 ## 3. The report
