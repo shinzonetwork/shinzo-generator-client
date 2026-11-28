@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Fetch block for Tron's golden fixture."
 # Capture one suitable Tron block for the golden freeze: scan backwards from
 # the tip for a block that exercises the full wallet-API pipeline, then write
 # the verbatim getblockbynum and gettransactioninfobyblocknum bodies into
