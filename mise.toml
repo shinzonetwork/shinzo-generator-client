@@ -157,7 +157,7 @@ vars = { chain = "tron", timeout = "400s" }
 [tasks.bitcoin-live-test]
 description = "Running Bitcoin live tests"
 extends = "test:live"
-vars = { chain = "bitcoin", timeout = "400s" }
+vars = { chain = "bitcoin", timeout = "15m" } 
 
 [tasks.ethereum-test]
 description = "Running all Ethereum-related test suites."
@@ -221,7 +221,7 @@ vars = { adapter = "tron", config = "./config/config_tron.yml" }
 [tasks.bitcoin-start]
 description = "Starting Bitcoin generator binary."
 extends = "generator:start"
-vars = { adapter = "tron", config = "./config/config_bitcoin.yml" }
+vars = { adapter = "bitcoin", config = "./config/config_bitcoin.yaml" }
 
 # Cleanup 
 [tasks.clean]

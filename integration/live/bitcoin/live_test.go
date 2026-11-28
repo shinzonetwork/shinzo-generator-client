@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -49,6 +50,14 @@ const (
 	livePollTick          = 5 * time.Second
 )
 
+// TestMain initializes console-only logging. The package logger stays nil
+// until one of the Init calls runs, so the suite's log lines would panic on
+// a nil sugared logger without it.
+func TestMain(m *testing.M) {
+	logger.InitConsoleOnly(true)
+	os.Exit(m.Run())
+}
+
 func TestBitcoinLiveSmoke(t *testing.T) {
 	rpcURL := os.Getenv("BITCOIN_RPC_URL")
 	if rpcURL == "" {
@@ -68,6 +77,7 @@ func TestBitcoinLiveSmoke(t *testing.T) {
 		logger.Sugar.Infof("Bitcoin live smoke: archive fallback endpoint opted in (BITCOIN_ARCHIVE_RPC_URL is set)")
 	}
 
+	defraPort := freeDefraPort(t)
 	cfg := &config.Config{
 		Chain: config.ChainConfig{
 			Adapter: config.BitcoinAdapter,
@@ -78,8 +88,10 @@ func TestBitcoinLiveSmoke(t *testing.T) {
 			// IPv6 loopback is the bind address the instance bootstrap leaves
 			// untouched: the literal 127.0.0.1/localhost forms are rewritten
 			// to the LAN IP for peer reachability, which takes the API out of
-			// this host's direct reach in the helpers below.
-			URL:           "[::1]:0",
+			// this host's direct reach in the helpers below. The port is
+			// pre-allocated because the node's resulting API URL does not
+			// carry a host form the port parser covers.
+			URL:           fmt.Sprintf("[::1]:%d", defraPort),
 			KeyringSecret: "shinzo-live-bitcoin-keyring-0001",
 			P2P:           config.DefraDBP2PConfig{Enabled: false, ListenAddr: "/ip4/127.0.0.1/tcp/0"},
 			Store:         config.DefraDBStoreConfig{Path: t.TempDir()},
@@ -122,21 +134,34 @@ func TestBitcoinLiveSmoke(t *testing.T) {
 	t.Cleanup(ix.StopIndexing)
 
 	waitLiveReady(t, ix, errCh)
-	port := ix.GetDefraDBPort()
-	require.Greater(t, port, 0)
 
-	firstCount := liveBlockCount(t, port, networkPrefix(network))
+	firstCount := liveBlockCount(t, defraPort, networkPrefix(network))
 	require.Positive(t, firstCount, "no blocks stored after the initial sync")
 	target := firstCount + 2
 	logger.Sugar.Infof("Bitcoin live smoke: %d heights stored after initial sync, waiting for %d", firstCount, target)
 
-	liveWaitForHeights(t, port, networkPrefix(network), target)
+	liveWaitForHeights(t, defraPort, networkPrefix(network), target)
 
-	assertLiveStoredDocs(t, port, network)
+	assertLiveStoredDocs(t, defraPort, network)
 
-	liveIdleWindowCheck(t, port, networkPrefix(network))
+	liveIdleWindowCheck(t, defraPort, networkPrefix(network))
 
 	logger.Sugar.Info("Bitcoin live smoke passed: wiring, field integrity, signatures, and progress verified")
+}
+
+// freeDefraPort returns a port that is free at the time of the call, for
+// the embedded node to bind a moment later. The probe listens on the IPv6
+// loopback host the config uses so the probe and the bind share the
+// address family. The suite carries the number from allocation instead of
+// reading the node's API URL back: that URL is not loopback-shaped in the
+// form the port parser covers.
+func freeDefraPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "[::1]:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+	return port
 }
 
 // networkPrefix returns the collection prefix stem of the configured
