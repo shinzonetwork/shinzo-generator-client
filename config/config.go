@@ -40,12 +40,29 @@ const TronChainAdapter = "tron"
 const DefaultTronDialTimeoutSeconds = 10
 
 // SupportedChainAdapters lists every chain adapter validateConfig accepts.
-var SupportedChainAdapters = []string{DefaultChainAdapter, TronChainAdapter} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
+var SupportedChainAdapters = []string{DefaultChainAdapter, TronChainAdapter, SolanaAdapter} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
 
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
 // lets the query skip purge residue with a missing or unparsable number.
 const DefaultLowestBlockQueryLimit = 1
+
+// SolanaAdapter is the non-EVM chain adapter name for Solana, accepted by
+// validateConfig through the SupportedChainAdapters allowlist.
+const SolanaAdapter = "solana"
+
+// DefaultSolanaCommitment is the default commitment level used by the Solana
+// adapter for block fetching.
+const DefaultSolanaCommitment = "confirmed"
+
+// DefaultSolanaMaxSupportedTxVersion is the default maxSupportedTransactionVersion
+// passed to getBlock calls. Blocks containing versioned (v0+) transactions fail
+// with RPC error -32015 unless a supported version is declared.
+const DefaultSolanaMaxSupportedTxVersion = 1
+
+// DefaultSolanaDialTimeoutSeconds is the default startup RPC/WS dial bound for
+// the Solana adapter when solana.dial_timeout_seconds is unset, zero or negative.
+const DefaultSolanaDialTimeoutSeconds = 10
 
 // Version is the generator version, for example "v0.7.0-ethereum-mainnet",
 // set at build time via -ldflags (see the Makefile build target/ mise *build tasks  and the
@@ -118,7 +135,7 @@ type ChainConfig struct {
 	Network string `yaml:"network"`  // e.g. "Mainnet", "Testnet"
 	ChainID uint64 `yaml:"chain_id"` // EVM chain ID the RPC must report from eth_chainId, e.g. 1 for Ethereum mainnet (env: CHAIN_ID)
 	Hub     string `yaml:"hub"`      // ShinzoHub hostname only: no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default) or "tron". Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default), "tron" or "solana". Future: "cosmos", etc. (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -167,6 +184,36 @@ type IndexerConfig struct {
 	// Setting this field in config.yaml will NOT work — the server will start with zero keys,
 	// causing ALL schema requests to return 503 Service Unavailable (fail-closed auth).
 	SchemaAPIKeys []string `yaml:"-"`
+}
+
+// SolanaConfig represents Solana node configuration. It is consumed by the
+// "solana" chain adapter; the "geth" section is the EVM counterpart.
+type SolanaConfig struct {
+	NodeURL    string `yaml:"rpc_url"`
+	WsURL      string `yaml:"ws_url"`
+	APIKey     string `yaml:"api_key"`
+	APIKeyType string `yaml:"api_key_type"`
+	// Commitment is the Solana commitment level used for block fetching.
+	// Only "confirmed" and "finalized" are valid; block RPC methods reject
+	// "processed".
+	Commitment string `yaml:"commitment"`
+	// MaxSupportedTransactionVersion is passed as maxSupportedTransactionVersion
+	// on getBlock calls. 0 or negative = DefaultSolanaMaxSupportedTxVersion.
+	MaxSupportedTransactionVersion int `yaml:"max_supported_transaction_version"`
+	// Rewards controls whether per-block rewards are fetched. Nil = enabled.
+	Rewards *bool `yaml:"rewards"`
+	// ArchiveRPCURL optionally routes historical backfill (slots below the
+	// full-node ledger floor) to an archive endpoint. Empty = disabled.
+	ArchiveRPCURL string `yaml:"archive_rpc_url"`
+	// DialTimeoutSeconds bounds the startup RPC/WS dial phase when positive.
+	// 0 or negative = DefaultSolanaDialTimeoutSeconds (env: SOLANA_DIAL_TIMEOUT_SECONDS).
+	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
+}
+
+// RewardsEnabled reports whether block rewards should be fetched. A nil
+// Rewards pointer means enabled.
+func (s *SolanaConfig) RewardsEnabled() bool {
+	return s.Rewards == nil || *s.Rewards
 }
 
 // LoggerConfig represents logger configuration.
@@ -258,7 +305,8 @@ type Config struct {
 	Chain     ChainConfig     `yaml:"chain"`
 	DefraDB   DefraDBConfig   `yaml:"defradb"`
 	Geth      GethConfig      `yaml:"geth"`
-	Tron      TronConfig      `yaml:"tron"` // inert when chain.adapter is evm
+	Solana    SolanaConfig    `yaml:"solana"` // inert when chain.adapter is evm or tron
+	Tron      TronConfig      `yaml:"tron"`   // inert when chain.adapter is evm or solana
 	Indexer   IndexerConfig   `yaml:"indexer"`
 	Pruner    PrunerConfig    `yaml:"pruner"`
 	Snapshot  SnapshotConfig  `yaml:"snapshot"`
@@ -301,11 +349,14 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// applyDefaults sets default values for optional configuration.
+// applyDefaults sets default values for optional configuration. Chain
+// name/network are deliberately NOT defaulted: the collection prefix is
+// built from both, so validateConfig rejects a config missing either one
+// instead of inventing a prefix the operator never configured.
 func applyDefaults(cfg *Config) {
 	// The adapter default comes first so the chain-name default below can
-	// follow the adapter: a Tron deployment that omits chain.name must not
-	// end up with Ethereum-prefixed collections built from tron SDL.
+	// follow the adapter: a Tron or Solana deployment that omits chain.name must not
+	// end up with Ethereum-prefixed collections built from tron/solana SDL.
 	// The literals stay local to config: the depguard boundary forbids
 	// importing pkg/chains here, and "Ethereum" was hardcoded the same way.
 	if cfg.Chain.Adapter == "" {
@@ -314,8 +365,8 @@ func applyDefaults(cfg *Config) {
 	if cfg.Chain.Name == "" && cfg.Chain.Adapter == TronChainAdapter {
 		// Only the tron adapter names its chain: a Tron deployment that omits
 		// chain.name must not end up with Ethereum-prefixed collections built
-		// from tron SDL. EVM chains must name themselves; validateChainConfig
-		// rejects an unnamed one.
+		// from tron SDL. EVM and Solana chains must name themselves;
+		// validateChainConfig rejects an unnamed one.
 		cfg.Chain.Name = "Tron"
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
@@ -336,6 +387,17 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Indexer.SchemaAuthMode == "" {
 		cfg.Indexer.SchemaAuthMode = constants.SchemaAuthModeToken
+	}
+
+	// Solana defaults (inert when chain.adapter is evm).
+	if strings.TrimSpace(cfg.Solana.Commitment) == "" {
+		cfg.Solana.Commitment = DefaultSolanaCommitment
+	}
+	if cfg.Solana.MaxSupportedTransactionVersion <= 0 {
+		cfg.Solana.MaxSupportedTransactionVersion = DefaultSolanaMaxSupportedTxVersion
+	}
+	if cfg.Solana.DialTimeoutSeconds <= 0 {
+		cfg.Solana.DialTimeoutSeconds = DefaultSolanaDialTimeoutSeconds
 	}
 
 	// Tron defaults. Applied unconditionally; inert when chain.adapter is evm.
@@ -359,8 +421,32 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("chain adapter %q not yet implemented: supported adapters are %s",
 			cfg.Chain.Adapter, strings.Join(SupportedChainAdapters, ", "))
 	}
+
 	if cfg.Chain.Adapter == TronChainAdapter && strings.TrimSpace(cfg.Tron.NodeURL) == "" {
 		return fmt.Errorf("tron adapter requires a non-empty tron.node_url (env: TRON_RPC_URL)")
+	}
+
+	if cfg.Chain.Adapter == SolanaAdapter {
+		if strings.TrimSpace(cfg.Solana.NodeURL) == "" {
+			return fmt.Errorf("solana adapter requires a non-empty solana.rpc_url (env: SOLANA_RPC_URL)")
+		}
+		switch cfg.Solana.Commitment {
+		case DefaultSolanaCommitment, "finalized":
+		default:
+			return fmt.Errorf(
+				"invalid solana.commitment %q: must be %q or %q; block RPC methods reject %q",
+				cfg.Solana.Commitment, DefaultSolanaCommitment, "finalized", "processed",
+			)
+		}
+		// The WebSocket is an optional slot hint; a malformed URL silently degrades
+		// to polling, so a typo must fail at load rather than go unnoticed. An
+		// unexpanded ${VAR} placeholder is resolved by deployment envsubst and
+		// cannot be judged for scheme at load time, so it is exempt.
+		if wsURL := strings.TrimSpace(cfg.Solana.WsURL); wsURL != "" &&
+			!strings.HasPrefix(wsURL, "${") &&
+			!strings.HasPrefix(wsURL, "ws://") && !strings.HasPrefix(wsURL, "wss://") {
+			return fmt.Errorf("invalid solana.ws_url %q: must use the ws:// or wss:// scheme", wsURL)
+		}
 	}
 
 	// Validate the chain-name format as soon as both parts are known, before
@@ -555,7 +641,10 @@ func envPositiveInt(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// applyChainEnvOverrides applies chain and Geth environment variable overrides.
+// applyChainEnvOverrides applies chain-identity and per-adapter environment
+// variable overrides. The chain-agnostic section runs first so a deployment
+// can set CHAIN_NAME and an adapter URL in the same environment; each adapter
+// section lives in its own helper so the adapter vocabulary stays isolated.
 func applyChainEnvOverrides(cfg *Config) error {
 	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
 		cfg.Chain.Name = chainName
@@ -576,6 +665,15 @@ func applyChainEnvOverrides(cfg *Config) error {
 	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
 		cfg.Chain.Adapter = chainAdapter
 	}
+
+	applyGethEnvOverrides(cfg)
+	applySolanaEnvOverrides(cfg)
+	applyTronEnvOverrides(cfg)
+	return nil
+}
+
+// applyGethEnvOverrides applies the EVM adapter's environment variable overrides.
+func applyGethEnvOverrides(cfg *Config) {
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL
 	}
@@ -593,6 +691,37 @@ func applyChainEnvOverrides(cfg *Config) error {
 			cfg.Geth.DialTimeoutSeconds = n
 		}
 	}
+}
+
+// applySolanaEnvOverrides applies the Solana adapter's environment variable overrides.
+func applySolanaEnvOverrides(cfg *Config) {
+	if solanaRPCURL := os.Getenv("SOLANA_RPC_URL"); solanaRPCURL != "" {
+		cfg.Solana.NodeURL = solanaRPCURL
+	}
+	if solanaWsURL := os.Getenv("SOLANA_WS_URL"); solanaWsURL != "" {
+		cfg.Solana.WsURL = solanaWsURL
+	}
+	if solanaAPIKey := os.Getenv("SOLANA_API_KEY"); solanaAPIKey != "" {
+		cfg.Solana.APIKey = solanaAPIKey
+	}
+	if solanaAPIKeyType := os.Getenv("SOLANA_API_KEY_TYPE"); solanaAPIKeyType != "" {
+		cfg.Solana.APIKeyType = solanaAPIKeyType
+	}
+	if solanaArchiveRPCURL := os.Getenv("SOLANA_ARCHIVE_RPC_URL"); solanaArchiveRPCURL != "" {
+		cfg.Solana.ArchiveRPCURL = solanaArchiveRPCURL
+	}
+	if solanaCommitment := os.Getenv("SOLANA_COMMITMENT"); solanaCommitment != "" {
+		cfg.Solana.Commitment = solanaCommitment
+	}
+	if solanaDialTimeout := os.Getenv("SOLANA_DIAL_TIMEOUT_SECONDS"); solanaDialTimeout != "" {
+		if n, err := strconv.Atoi(solanaDialTimeout); err == nil {
+			cfg.Solana.DialTimeoutSeconds = n
+		}
+	}
+}
+
+// applyTronEnvOverrides applies the Tron adapter's environment variable overrides.
+func applyTronEnvOverrides(cfg *Config) {
 	if tronRPCURL := os.Getenv("TRON_RPC_URL"); tronRPCURL != "" {
 		cfg.Tron.NodeURL = tronRPCURL
 	}
@@ -610,7 +739,6 @@ func applyChainEnvOverrides(cfg *Config) error {
 			cfg.Tron.DialTimeoutSeconds = n
 		}
 	}
-	return nil
 }
 
 // applyIndexerEnvOverrides applies indexer environment variable overrides.

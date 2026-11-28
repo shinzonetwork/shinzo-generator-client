@@ -1,0 +1,16 @@
+{
+  "blockHeight": null,
+  "blockTime": null,
+  "blockhash": "11111111111111111111111111111111",
+  "previousBlockhash": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+  "parentSlot": 397234560,
+  "transactions": [],
+  "rewards": [
+    {
+      "pubkey": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "lamports": 0,
+      "postBalance": 0,
+      "rewardType": "Rent"
+    }
+  ]
+}

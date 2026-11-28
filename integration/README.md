@@ -87,6 +87,19 @@ timeout — with no public fallback to blame, a rate-limited or stalled provider
 is a real failure, like on Ethereum. Tests that need indexed data skip when the
 indexer did not warm up.
 
+## Solana Mock Suite
+```bash
+go test -tags=integration -v ./integration/solana/
+```
+Fast tests against a scripted JSON-RPC chain fake: startup and field assertions, skipped-slot advancement (a null getBlock below the confirmed tip must advance the indexer without a false reorg), duplicate-content instruction docIDs (distinct documents split by the positional ordinals), restart/resume from the DB tip with no refetch below the resume height, and the health endpoints phase (`TestSolanaHealthEndpoints`: a dedicated full indexer on its own chain copy, store, and health port, verifying `/health`, `/registration`, `/metrics`, and the schema endpoints; relocated here from `pkg/indexer` because a real StartIndexing run is an integration test even when no external chain is needed). Every indexer Connect also pins the endpoint's cluster by probing `getGenesisHash` against the adapter's per-network table, and the suite journals one probe per Connect (startup requires at least 1, restart requires at least 2). A general fork-flip case is deliberately absent: the generic walk-back resolves chain-side ancestor headers by hash, and the Solana endpoint offers no header-by-hash RPC (the adapter serves only headers it fetched itself), so a flip's uncached discriminator cannot resolve on the Solana adapter; see the Phase 6 note in specs/features/SOLANA-INTEGRATION.md.
+
+## Solana Live Smoke
+```bash
+make solana-live-test
+```
+Runs against a real Solana JSON-RPC endpoint when `SOLANA_RPC_URL` is set (default suggestion: the public devnet `https://api.devnet.solana.com`); the chain network segment comes from `SOLANA_LIVE_NETWORK` (Devnet default, `Solana__Devnet__*` collections). Connect first pins the endpoint's cluster by probing `getGenesisHash` against the per-network genesis table (Mainnet, Devnet, Testnet), so a URL serving another cluster fails fast instead of indexing the wrong chain. Waits for a few real slots, asserts block and transaction field integrity plus one signed BlockSignature per stored slot, verifies the slot count only advances across an idle window (devnet produces skipped slots constantly), and proves the adapter wires a real endpoint into the whole pipeline (not throughput). When `SOLANA_RPC_URL` is unset the `integration-test` target skips it with exit 0.
+
+
 ## Tron Live Smoke
 ```bash
 export TRON_RPC_URL=https://nile.trongrid.io

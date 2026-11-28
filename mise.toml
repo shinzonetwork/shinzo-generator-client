@@ -71,6 +71,11 @@ description = "Running the Tron integration tests."
 extends = "test:integration"
 vars = { chain = "tron" } 
 
+[tasks.solana-integration]
+description = "Running the Solana integration tests."
+extends = "test:integration"
+vars = { chain = "solana" } 
+
 [task_templates."test:golden"]
 vars = { test = "TestGoldenTypedPath/ethereum" } 
 run = "go test -tags=integration ./golden/... -run {{ vars.test }} -count=1 -v"
@@ -149,16 +154,21 @@ description = "Running Tron live tests"
 extends = "test:live"
 vars = { chain = "tron", timeout = "400s" }
 
+[tasks.solana-live-test]
+description = "Running Solana live tests"
+extends = "test:live"
+vars = { chain = "solana", timeout = "400s" }
+
 [tasks.ethereum-test]
 description = "Running all Ethereum-related test suites."
 depends = ["test-unit", "evm-integration", "ethereum-golden"]
 
 [tasks.test]
-description = "Running all test suites (besides replay) for all chains"
+description = "Running all test suites (besides replay) for all chains."
 run = [
     { task = "test-unit"}, 
-    { tasks = ["evm-integration", "tron-integration"] }, 
-    { tasks = ["ethereum-live-test", "bsc-live-test", "tron-live-test"] }, 
+    { tasks = ["evm-integration", "tron-integration", "solana-integration"] }, 
+    { tasks = ["ethereum-live-test", "bsc-live-test", "tron-live-test", "solana-live-test"] }, 
     { tasks = ["ethereum-golden", "tron-golden"]}
 ]
 
@@ -176,9 +186,14 @@ description = "Building the Tron generator binary."
 extends = "generator:build"
 vars = { adapter = "tron" }
 
+[tasks.solana-build]
+description = "Building the Solana generator binary."
+extends = "generator:build"
+vars = { adapter = "solana" }
+
 [tasks.build-all]
 description = "Building all block_poster, fetch_blocks, and build_schema binaries."
-depends = ["evm-build", "tron-build"]
+depends = ["evm-build", "tron-build", "solana-build"]
 run = [
     "go build -o bin/fetch_blocks ./cmd/fetch_blocks/",
     "go build -o bin/build_schema ./cmd/build_schema/",
@@ -202,6 +217,11 @@ vars = { config = "./config/config_bsc.yaml" }
 description = "Starting Tron generator binary."
 extends = "generator:start"
 vars = { adapter = "tron", config = "./config/config_tron.yml" }
+
+[tasks.solana-start]
+description = "Starting Solana generator binary."
+extends = "generator:start"
+vars = { adapter = "solana", config = "./config/config_solana.yaml" }
 
 # Cleanup 
 [tasks.clean]

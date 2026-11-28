@@ -75,6 +75,32 @@ func TestRun_ExplicitEVMAdapter(t *testing.T) {
 	assert.Contains(t, buf.String(), "Ethereum__Mainnet__Block")
 }
 
+func TestRun_SolanaAdapter(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Solana", "--network", "Devnet", "--adapter", config.SolanaAdapter}, &buf))
+	assert.Contains(t, buf.String(), "Solana__Devnet__Block")
+	assert.NotContains(t, buf.String(), evm.DefaultCollectionPrefix)
+}
+
+func TestRun_SolanaSingleFile(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Solana", "--network", "Mainnet", "--adapter", config.SolanaAdapter, "--file", "block.graphql"}, &buf))
+	assert.Contains(t, buf.String(), "type Solana__Mainnet__Block")
+	assert.NotContains(t, buf.String(), "type Solana__Mainnet__Transaction")
+}
+
+func TestRun_SolanaListFiles(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Solana", "--network", "Mainnet", "--adapter", config.SolanaAdapter, "--list-files"}, &buf))
+	output := strings.TrimSpace(buf.String())
+	assert.NotEmpty(t, output)
+	assert.Contains(t, output, "transaction.graphql")
+	assert.NotContains(t, output, "accessListEntry.graphql")
+}
+
 func TestRun_ExplicitTronAdapter(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
@@ -101,7 +127,7 @@ func TestRun_UnknownAdapterFails(t *testing.T) {
 	err := run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--adapter", "cosmos"}, &buf)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `chain adapter "cosmos" not supported`)
-	assert.Contains(t, err.Error(), "evm, tron")
+	assert.Contains(t, err.Error(), "evm, tron, solana")
 	assert.Empty(t, buf.String())
 }
 

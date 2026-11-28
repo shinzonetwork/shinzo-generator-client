@@ -11,6 +11,7 @@ import (
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/solana"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/tron"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
 )
@@ -31,7 +32,7 @@ func run(args []string, stdout io.Writer) error {
 	listFiles := fs.Bool("list-files", false, "List collection filenames in apply order, one per line")
 	chain := fs.String("chain", "", "Chain name for collection prefixes (e.g. Arbitrum). Required.")
 	network := fs.String("network", "", "Network name for collection prefixes (e.g. Mainnet). Required.")
-	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from. Empty selects the default adapter.")
+	adapter := fs.String("adapter", "", "Chain adapter to resolve collections from (evm or solana). Empty selects the default adapter (evm).")
 	file := fs.String("file", "", "Single collection file to output (e.g. block.graphql). Default: full merged SDL.")
 	// The prefix flag is still declared so legacy invocations get a targeted
 	// migration error instead of a generic unknown-flag failure.
@@ -70,6 +71,8 @@ func resolveCollections(adapter string, cfg *config.Config) (chains.Collections,
 		return evm.NewCollectionsFromConfig(cfg)
 	case config.TronChainAdapter:
 		return tron.NewCollectionsFromConfig(cfg)
+	case config.SolanaAdapter:
+		return solana.NewCollectionsFromConfig(cfg)
 	default:
 		return nil, fmt.Errorf("chain adapter %q not supported: supported adapters are %s",
 			adapter, strings.Join(config.SupportedChainAdapters, ", "))

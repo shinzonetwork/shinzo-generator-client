@@ -27,6 +27,7 @@ go.work.sum
 # DefraDB files
 .defra/
 .defra2/
+.defra-solana/
 .defra-tron/
 
 .claude/
