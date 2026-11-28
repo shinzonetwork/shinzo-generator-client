@@ -35,15 +35,16 @@ import (
 // shipped config yaml is the only input the config loader sees. mise loads
 // the developer's .env into every task, and without this a stray
 // INDEXER_MAX_DOCS_PER_TXN or badger cache value would silently change the
-// measured configuration between machines (TRON_ joins GETH_: the loader's
-// TRON_ connection vars are scrubbed, and the suite's knobs live under
-// TEST_TRON_, beyond the blanket prefix). Originals are restored after the
-// test so nothing outside LoadConfig's window observes the scrub.
+// measured configuration between machines (BITCOIN_ and TRON_ join GETH_: the
+// loader's connection vars are scrubbed, and the suites' knobs live under
+// TEST_BITCOIN_/TEST_TRON_, beyond the blanket prefix). Originals are
+// restored after the test so nothing outside LoadConfig's window observes the
+// scrub.
 func scrubReplayEnv(t *testing.T) {
 	t.Helper()
 
 	prefixes := [...]string{
-		"CHAIN_", "GETH_", "TRON_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
+		"CHAIN_", "BITCOIN_", "GETH_", "TRON_", "DEFRADB_", "INDEXER_", "PRUNER_", "SNAPSHOT_",
 		"SCHEMA_", "CONVERTER_", "LOGGER_", "SHINZOHUB_",
 	}
 
@@ -167,9 +168,14 @@ func NewReplayConfig(t *testing.T, configPath, expectedChain, expectedNetwork, s
 	// before the load and replaced by the endpoint hook afterward:
 	// SCHEMA_AUTH_MODE fills the literal "${SCHEMA_AUTH_MODE}" placeholder
 	// (open-schema mode below), TRON_RPC_URL satisfies the tron adapter's
-	// non-empty node_url check (never dialed; the tron hook points it at the mock).
+	// non-empty node_url check, and the BITCOIN_RPC_URL plus basic-auth pair
+	// satisfy the bitcoin adapter's rpc_url and auth validation (never
+	// dialed; the tron and bitcoin hooks point the adapters at the mock).
 	t.Setenv("SCHEMA_AUTH_MODE", "none")
 	t.Setenv("TRON_RPC_URL", "http://127.0.0.1:1")
+	t.Setenv("BITCOIN_RPC_URL", "http://127.0.0.1:1")
+	t.Setenv("BITCOIN_RPC_USER", "replay-placeholder")
+	t.Setenv("BITCOIN_RPC_PASSWORD", "replay-placeholder")
 
 	cfg, err := config.LoadConfig(configPath)
 	require.NoError(t, err, "load config yaml")

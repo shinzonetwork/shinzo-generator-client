@@ -138,10 +138,27 @@ description = "Running Tron replay test."
 extends = "test:replay"
 vars = { adapter = "tron", test = "TestTronReplayAcceptance" }
 
+[tasks.bitcoin-replay]
+description = "Running Bitcoin replay test."
+extends = "test:replay"
+vars = { adapter = "bitcoin", test = "TestBitcoinReplayAcceptance", timeout = "60m" }
+
 [tasks.tron-replay-scrub-guard]
 description = "Running Tron replay test scrub guard."
 extends = "test:replay"
 vars = { adapter = "tron", test = "TestReplayConfigKeepsSuiteKnobs", timeout = "10s" }
+
+[tasks.bitcoin-replay-scrub-guard]
+description = "Running Bitcoin replay test scrub guard."
+extends = "test:replay"
+vars = { adapter = "bitcoin", test = "TestBitcoinReplayConfigKeepsSuiteKnobs", timeout = "10s" }
+
+[tasks.replay-scrub-guards]
+description = "Running all replay test scrub guards."
+run = [ 
+    { task = "tron-replay-scrub-guard" },
+    { task = "bitcoin-replay-scrub-guard" },
+]
 
 [tasks.replay-fetch]
 description = "Fetch blocks for the replay test harness."

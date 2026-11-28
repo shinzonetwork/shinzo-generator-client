@@ -53,8 +53,8 @@ jobs:
     - name: Run all golden tests
       run: mise run golden
 
-    - name: Run scrub tests for the replay harness
-      run: mise run tron-replay-scrub-guard
+    - name: Run all scrub tests for the replay harness
+      run: mise run replay-scrub-guards
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7

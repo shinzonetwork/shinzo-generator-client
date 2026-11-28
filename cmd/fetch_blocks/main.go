@@ -2,7 +2,8 @@
 // replay fixture for the replay acceptance suites. The --adapter flag picks
 // the capture backend: the evm backend speaks transport-only JSON-RPC over
 // HTTP (any EVM-compatible chain), the tron backend speaks the java-tron
-// wallet API. The chain and network are plain parameters (--chain/--network):
+// wallet API, and the bitcoin backend speaks Bitcoin Core's JSON-RPC 1.0
+// dialect. The chain and network are plain parameters (--chain/--network):
 // they only label the fixture and derive its filename.
 //
 // It stores the node's result bytes verbatim, so the replay mock server can
@@ -68,8 +69,9 @@ const (
 	receiptModePerTx = "per-tx"
 
 	// Capture adapters selectable via --adapter.
-	adapterEVM  = "evm"
-	adapterTron = "tron"
+	adapterEVM     = "evm"
+	adapterTron    = "tron"
+	adapterBitcoin = "bitcoin"
 
 	// maxErrorBodyBytes bounds how much of an error response body is
 	// echoed into error messages.
@@ -120,8 +122,10 @@ func newBackend(opts *captureOptions) (captureBackend, error) {
 		return newEVMBackend(opts)
 	case adapterTron:
 		return newTronBackend(opts)
+	case adapterBitcoin:
+		return newBitcoinBackend(opts)
 	default:
-		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s)", opts.adapter, adapterEVM, adapterTron)
+		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s, %s)", opts.adapter, adapterEVM, adapterTron, adapterBitcoin)
 	}
 }
 
@@ -207,15 +211,17 @@ func fixturePrefix(chain string) string {
 }
 
 // fixtureBlock holds one block's verbatim node responses. Receipts is always
-// a JSON array of receipt objects regardless of capture mode, so replay
-// consumers treat both modes uniformly. Number's encoding is adapter-owned:
-// the evm backend writes a hex quantity, the tron backend a decimal height;
-// the on-disk envelope is identical and the chain label distinguishes them.
+// a JSON array of receipt objects regardless of capture mode (an empty array
+// for the bitcoin capture, which has no receipt pass), so replay consumers
+// treat every mode uniformly. Number's encoding is adapter-owned: the evm
+// backend writes a hex quantity, the tron and bitcoin backends a decimal
+// height; the on-disk envelope is identical and the chain label distinguishes
+// them.
 type fixtureBlock struct {
-	Number      string          `json:"number"`       // evm: hex quantity, tron: decimal height
+	Number      string          `json:"number"`       // evm: hex quantity, tron and bitcoin: decimal height
 	Block       json.RawMessage `json:"block"`        // verbatim block body
 	Receipts    json.RawMessage `json:"receipts"`     // receipt array, verbatim
-	ReceiptMode string          `json:"receipt_mode"` // "batch", "per-tx", or "block"
+	ReceiptMode string          `json:"receipt_mode"` // "batch", "per-tx", "block", or "none"
 }
 
 // fixtureMeta describes the capture. It intentionally carries no endpoint or
@@ -297,7 +303,7 @@ func parseFlags(args []string) (*captureOptions, error) {
 	// binary drop a fixture the acceptance suite's glob never finds.
 	fs.StringVar(&opts.chain, "chain", "", "chain name labelling the fixture (required; e.g. BSC)")
 	fs.StringVar(&opts.network, "network", "", "network name labelling the fixture (required; e.g. Mainnet)")
-	fs.StringVar(&opts.adapter, "adapter", adapterEVM, fmt.Sprintf("capture backend (supported adapters: %s, %s)", adapterEVM, adapterTron))
+	fs.StringVar(&opts.adapter, "adapter", adapterEVM, fmt.Sprintf("capture backend (supported adapters: %s, %s, %s)", adapterEVM, adapterTron, adapterBitcoin))
 	fs.Uint64Var(&opts.from, "from", 0, "first block to capture (0 = defaultBlockCount blocks ending at --to or the tip)")
 	fs.Uint64Var(&opts.to, "to", 0, "last block to capture (0 = the current tip)")
 	fs.StringVar(&opts.out, "out", "", fmt.Sprintf("output fixture path (default %s/<chain>_<from>_<to>%s)", defaultOutDir, fixtureExt))
@@ -317,9 +323,9 @@ func parseFlags(args []string) (*captureOptions, error) {
 	// Fail before any endpoint is touched: an unknown adapter has no env to
 	// read, and the error must list the supported values.
 	switch opts.adapter {
-	case adapterEVM, adapterTron:
+	case adapterEVM, adapterTron, adapterBitcoin:
 	default:
-		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s)", opts.adapter, adapterEVM, adapterTron)
+		return nil, fmt.Errorf("--adapter %q not supported (supported adapters: %s, %s, %s)", opts.adapter, adapterEVM, adapterTron, adapterBitcoin)
 	}
 	return opts, nil
 }
