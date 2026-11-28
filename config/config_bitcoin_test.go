@@ -42,14 +42,20 @@ func bitcoinTestConfig() *Config {
 	return cfg
 }
 
-// neutralizeBitcoinEnv pins the chain-identity and bitcoin env overrides to
-// empty values: every override reader skips an empty value, and godotenv
-// cannot inject from a .env file for a key already present in the process
-// environment, so the fixture is the only input the config loader sees.
+// neutralizeBitcoinEnv pins the chain-identity, bitcoin, and geth env
+// overrides to empty values: every override reader skips an empty value, and
+// godotenv cannot inject from a .env file for a key already present in the
+// process environment, so the fixture is the only input the config loader
+// sees. The geth keys are pinned because the loader reads the repository's
+// .env file on every call, and the bitcoin deployment assertions require the
+// geth section to stay empty.
 func neutralizeBitcoinEnv(t *testing.T) {
 	t.Helper()
 
-	for _, key := range append([]string{"CHAIN_ADAPTER", "CHAIN_NAME", "CHAIN_NETWORK"}, bitcoinEnvKeys...) {
+	for _, key := range append([]string{
+		"CHAIN_ADAPTER", "CHAIN_NAME", "CHAIN_NETWORK",
+		"GETH_RPC_URL", "GETH_WS_URL", "GETH_API_KEY", "GETH_API_KEY_TYPE", "GETH_DIAL_TIMEOUT_SECONDS",
+	}, bitcoinEnvKeys...) {
 		t.Setenv(key, "")
 	}
 }
