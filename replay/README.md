@@ -5,7 +5,7 @@ repeatable verdict: capture real blocks once, replay them through the
 production pipeline and orchestration on any machine, and assert the
 effective per-block interval stays within the chain's block time (12 seconds on Ethereum;
 450 ms on BSC mainnet since the Fermi hardfork in January 2026;
-3 seconds on Tron mainnet).
+3 seconds on Tron mainnet; 10 minutes on Bitcoin mainnet).
 
 ```
 capture (one-time, needs a real endpoint)          acceptance (mise run ethereum-replay)
@@ -85,6 +85,48 @@ writes, and redaction are shared with the EVM path unchanged.
   the blocks captured before it into a partial fixture (as `capture_partial:
   true`) and still exits non-zero, the same way an interrupt does.
 
+### Bitcoin (Core JSON-RPC capture)
+
+```sh
+export BITCOIN_RPC_URL=http://your-node:8332            # Bitcoin Core JSON-RPC endpoint (HTTP POST)
+export BITCOIN_RPC_USER=...                             # basic-auth pair, or BITCOIN_API_KEY below
+export BITCOIN_RPC_PASSWORD=...
+export BITCOIN_API_KEY=...                              # hosted providers only (Core itself has no key header)
+export BITCOIN_API_KEY_TYPE=x-api-key                   # optional header name override
+
+mise run replay-fetch --chain bitcoin --adapter bitcoin               # 100 blocks ending at the current tip
+mise run replay-fetch --chain bitcoin --adapter bitcoin --from 900000 --to 900049
+go run ./cmd/fetch_blocks --chain bitcoin --network mainnet --adapter bitcoin --out my_fixture.json
+```
+
+The Bitcoin capture backend (`--adapter bitcoin`) speaks Bitcoin Core's JSON-RPC
+1.0 dialect: the tip via `getblockcount`, the height-to-hash index via
+`getblockhash`, and the block body via `getblock` verbosity 3 (the parsed shape
+the production adapter indexes: per-input prevout undo data and
+per-transaction fees). Retries, backoff, interrupt handling, partial fixtures,
+atomic writes, and redaction are shared with the EVM path unchanged.
+
+- **No receipts exist**: Bitcoin has no receipt pass, so each fixture block
+  records `receipt_mode: "none"` with empty receipts; the fixture envelope
+  stays identical across adapters.
+- **Block numbers are decimal**, like the Tron mode.
+- **Verbatim and echo-checked**: the capture stores the verbosity-3 result
+  bytes verbatim and verifies the body's `hash`/`height` echo the requested
+  pair, so a fixture can never pair a height with the wrong block.
+- **Near-tip lag retries**: a load balancer can answer `getblockhash` with
+  Core's -8 "Block height out of range" for a height another backend node has
+  not indexed yet; that shape retries a bounded few times with backoff
+  (seconds, not one 10-minute block interval). Any other answer fails the
+  block, and the partial-fixture salvage keeps the earlier ones.
+- **Deep ranges need prune=0**: tip-adjacent captures work on any node, but a
+  pruned node answers "Block not available (pruned data)" for undo data below
+  its prune height, so an explicit historical range needs a full (prune=0)
+  node.
+- **Fixture weight**: a verbosity-3 mainnet block serializes to megabytes
+  (thousands of transactions with inputs and outputs), so the 100-block
+  default capture is a large file and a long replay; explicit 20-50 block
+  ranges are a sensible first capture.
+
 Semantics:
 
 - **Archival node required**: an arbitrary historical block range needs full
@@ -121,9 +163,10 @@ Semantics:
 mise run ethereum-replay      # Ethereum suite (ETHEREUM_* env vars)
 mise run bsc-replay           # BSC suite (BSC_* env vars)
 mise run tron-replay          # Tron suite (TEST_TRON_* env vars)
+mise run bitcoin-replay       # Bitcoin suite (TEST_BITCOIN_* env vars)
 ```
 
-Both suites share one implementation. The chain-agnostic harness (timing
+The suites share one implementation. The chain-agnostic harness (timing
 collection, report format, verdicts, background services, config
 bootstrapping) lives in `replay/harness_helpers.go` behind the `acceptance`
 build tag and is imported only by tests. `replay/evm/` carries the EVM mock
@@ -131,7 +174,10 @@ JSON-RPC node, the fixture handling, and the per-chain specs and test entry
 points (`ethereum_replay_test.go`, `bsc_replay_test.go`); `replay/tron/`
 carries the same shape for the Tron wallet API (mock serving
 `/wallet/*` and `/walletsolidity/*` fixture bytes verbatim, decimal
-block numbers, and the `TestTronReplayAcceptance` entry point).
+block numbers, and the `TestTronReplayAcceptance` entry point); `replay/bitcoin/`
+carries the same shape for Bitcoin Core (a mock serving `getblock*` fixture
+bytes verbatim in Core's JSON-RPC 1.0 dialect, decimal block numbers, and the
+`TestBitcoinReplayAcceptance` entry point).
 
 - Build tag `acceptance`: excluded from `go test ./...` and CI, like the live
   suites.
@@ -176,6 +222,23 @@ intended. The endpoint hook zeroes the Tron section (`tron.node_url` points
 at the mock, `solidity_url` empty resolves `/walletsolidity/*` to the same
 host, which the mock serves).
 
+The Bitcoin suite mirrors every knob with the `TEST_BITCOIN_*` prefix:
+`TEST_BITCOIN_REPLAY_FIXTURE`, `TEST_BITCOIN_REPLAY_MAX_BLOCKS`,
+`TEST_BITCOIN_TARGET_BLOCK_TIME` (default `10m`, Bitcoin mainnet's block
+interval), `TEST_BITCOIN_REPLAY_PRUNER`, `TEST_BITCOIN_REPLAY_PRUNER_INTERVAL_SECONDS`,
+`TEST_BITCOIN_REPLAY_PRUNER_MAX_BLOCKS`, `TEST_BITCOIN_REPLAY_SNAPSHOT`,
+`TEST_BITCOIN_REPLAY_SNAPSHOT_INTERVAL_SECONDS`,
+`TEST_BITCOIN_REPLAY_SNAPSHOT_BLOCKS_PER_FILE`
+(same defaults as Ethereum), and boots from the shipped
+`config/config_bitcoin.yaml`. Like `TEST_TRON_*`, the knobs deliberately live
+outside the chain's config namespace: `BITCOIN_*` is reserved for the
+connection vars the config loader reads, and the env scrub unsets every
+`BITCOIN_*` var so a developer `.env` cannot leak into the measurement. The
+endpoint hook points the bitcoin adapter at the mock and blanks the archive
+endpoint and auth material; the replay client is built directly against the
+mock with throwaway basic auth, so the loader's placeholder values never
+reach the wire.
+
 The loop runs through the generator's **`ConcurrentBlockProcessor`** — the real
 production orchestration (worker pool, retry classification, in-order commit,
 per-block `Committed block N` info logs). The worker count comes from the
@@ -189,15 +252,17 @@ the chain's BPS.
 
 The config boots from the suite's shipped yaml (`config/config.yaml` for
 Ethereum, `config/config_bsc.yaml` for BSC, `config/config_tron.yml` for
-Tron), the same files production runs
+Tron, `config/config_bitcoin.yaml` for Bitcoin), the same files production
+runs
 (`block_poster_evm -config ...`), so chain
 identity, batch sizes, badger caches, `prune_history: true` and the per-cycle
 prune cap are production values, not bench approximations. Only what the
 bench cannot take from it is overridden: the mock endpoint, the temp store and
 snapshot dir, P2P off, no health server, open schema auth, a throwaway keyring,
-and the forced-fast cadence below. Env overrides (`CHAIN_*`, `GETH_*`,
-`DEFRADB_*`, `INDEXER_*`, `PRUNER_*`, `SNAPSHOT_*`, `SCHEMA_*`, `CONVERTER_*`,
-`LOGGER_*`, `SHINZOHUB_*` — what a developer `.env` carries) are scrubbed for
+and the forced-fast cadence below. Env overrides (`CHAIN_*`, `BITCOIN_*`,
+`GETH_*`, `TRON_*`, `DEFRADB_*`, `INDEXER_*`, `PRUNER_*`, `SNAPSHOT_*`,
+`SCHEMA_*`, `CONVERTER_*`, `LOGGER_*`, `SHINZOHUB_*` — what a developer `.env`
+carries) are scrubbed for
 the load, so the shipped yaml is the only input and the measurement reproduces.
 
 The embedded DefraDB node (real badger on disk, loopback bind) runs with the
