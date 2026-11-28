@@ -37,7 +37,8 @@ func TestBitcoinHealthEndpoints(t *testing.T) {
 	t.Cleanup(serverFake.Close)
 
 	healthPort := freeHealthPort(t)
-	cfg := btcIndexerConfig(serverFake.URL, t.TempDir(), config.IndexerConfig{
+	defraPort := freeDefraPort(t)
+	cfg := btcIndexerConfig(serverFake.URL, defraPort, t.TempDir(), config.IndexerConfig{
 		StartHeight:      100,
 		ConcurrentBlocks: 1,
 		MaxDocsPerTxn:    100,

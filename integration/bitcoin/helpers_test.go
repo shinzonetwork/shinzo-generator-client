@@ -50,11 +50,11 @@ var defraP2PDisabled = config.DefraDBP2PConfig{Enabled: false, ListenAddr: "/ip4
 const defraTestHost = "[::1]"
 
 // btcIndexerConfig builds the full StartIndexing config for the bitcoin
-// adapter against the scripted fake: an embedded node on a random port, a
-// store under the given directory, and signing enabled through the node
-// keyring.
-func btcIndexerConfig(rpcURL, storeDir string, idx config.IndexerConfig) *config.Config {
-	return btcIndexerConfigWithBitcoinConfig(btcRPCConfig(rpcURL), storeDir, idx)
+// adapter against the scripted fake: an embedded node on the pre-allocated
+// port, a store under the given directory, and signing enabled through the
+// node keyring.
+func btcIndexerConfig(rpcURL string, defraPort int, storeDir string, idx config.IndexerConfig) *config.Config {
+	return btcIndexerConfigWithBitcoinConfig(btcRPCConfig(rpcURL), defraPort, storeDir, idx)
 }
 
 // btcRPCConfig fills the Bitcoin Core section the honest way: basic auth
@@ -72,7 +72,7 @@ func btcRPCConfig(rpcURL string) config.BitcoinConfig {
 
 // btcIndexerConfigWithBitcoinConfig lets callers swap the bitcoin section
 // (api-key coverage in the health suite) while keeping the generic shape.
-func btcIndexerConfigWithBitcoinConfig(bc config.BitcoinConfig, storeDir string, idx config.IndexerConfig) *config.Config {
+func btcIndexerConfigWithBitcoinConfig(bc config.BitcoinConfig, defraPort int, storeDir string, idx config.IndexerConfig) *config.Config {
 	return &config.Config{
 		Chain: config.ChainConfig{
 			Adapter: config.BitcoinAdapter,
@@ -80,7 +80,7 @@ func btcIndexerConfigWithBitcoinConfig(bc config.BitcoinConfig, storeDir string,
 			Network: "Mainnet",
 		},
 		DefraDB: config.DefraDBConfig{
-			URL:           defraTestHost + ":0",
+			URL:           fmt.Sprintf("%s:%d", defraTestHost, defraPort),
 			KeyringSecret: "test-secret-for-keyring-12345678",
 			P2P:           defraP2PDisabled,
 			Store:         config.DefraDBStoreConfig{Path: storeDir},
@@ -97,6 +97,21 @@ func btcIndexerConfigWithBitcoinConfig(bc config.BitcoinConfig, storeDir string,
 func freeHealthPort(t *testing.T) int {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+	return port
+}
+
+// freeDefraPort returns a port that is free at the time of the call, for
+// the embedded node to bind a moment later. The probe listens on
+// defraTestHost so the probe and the node's bind share the address family.
+// The suites carry the number from allocation instead of reading the
+// node's API URL back: that URL is not loopback-shaped in the form the
+// port parser covers.
+func freeDefraPort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", defraTestHost+":0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
 	require.NoError(t, listener.Close())

@@ -31,7 +31,8 @@ func TestBitcoinIndexerLifecycle(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	storeDir := t.TempDir()
-	cfg := btcIndexerConfig(server.URL, storeDir, config.IndexerConfig{
+	defraPort := freeDefraPort(t)
+	cfg := btcIndexerConfig(server.URL, defraPort, storeDir, config.IndexerConfig{
 		StartHeight:      100,
 		ConcurrentBlocks: 1,
 		MaxDocsPerTxn:    100,
@@ -45,12 +46,10 @@ func TestBitcoinIndexerLifecycle(t *testing.T) {
 
 	t.Run("startup and field assertions", func(t *testing.T) {
 		waitForBlocks(t, ix, errCh, 104, 90*time.Second)
-		port := ix.GetDefraDBPort()
-		require.Greater(t, port, 0)
 
-		assertStoredRange(t, port, 100, 104)
-		assertHotBlockFields(t, port, 104)
-		assertBlockSignaturesStored(t, port, 100, 104)
+		assertStoredRange(t, defraPort, 100, 104)
+		assertHotBlockFields(t, defraPort, 104)
+		assertBlockSignaturesStored(t, defraPort, 100, 104)
 	})
 
 	t.Run("fork flip", func(t *testing.T) {
@@ -61,25 +60,22 @@ func TestBitcoinIndexerLifecycle(t *testing.T) {
 		// waiter would never see one.
 		chain.armFork(105, 107)
 		waitForBlocks(t, ix, errCh, 107, 90*time.Second)
-		port := ix.GetDefraDBPort()
-		require.Greater(t, port, 0)
 
-		assertCanonicalHeightStored(t, port, 105)
-		assertOrphanPurged(t, port, 105)
-		assertStoredRange(t, port, 100, 107)
-		assertBlockSignaturesStored(t, port, 105, 107)
+		assertCanonicalHeightStored(t, defraPort, 105)
+		assertOrphanPurged(t, defraPort, 105)
+		assertStoredRange(t, defraPort, 100, 107)
+		assertBlockSignaturesStored(t, defraPort, 105, 107)
 	})
 
 	t.Run("restart and resume", func(t *testing.T) {
-		port := ix.GetDefraDBPort()
-		require.Greater(t, port, 0)
-		before := storedDocsByHeight(t, port, 100, 107)
+		before := storedDocsByHeight(t, defraPort, 100, 107)
 
 		ix.StopIndexing()
 
 		chain.setTip(109)
 		marker := server.callMarker()
-		resumeCfg := btcIndexerConfig(server.URL, storeDir, config.IndexerConfig{
+		resumePort := freeDefraPort(t)
+		resumeCfg := btcIndexerConfig(server.URL, resumePort, storeDir, config.IndexerConfig{
 			StartHeight:      0,
 			ConcurrentBlocks: 1,
 			MaxDocsPerTxn:    100,
@@ -92,8 +88,6 @@ func TestBitcoinIndexerLifecycle(t *testing.T) {
 		t.Cleanup(ix2.StopIndexing)
 
 		waitForBlocks(t, ix2, errCh2, 109, 90*time.Second)
-		resumePort := ix2.GetDefraDBPort()
-		require.Greater(t, resumePort, 0)
 
 		// The store tip before the stop sat at 107, so resume lands at 108
 		// once the scripted chain advanced by two heights, a gap smaller
