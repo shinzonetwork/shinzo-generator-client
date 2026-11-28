@@ -89,6 +89,19 @@ description = "Running Tron golden tests."
 extends = "test:golden"
 vars = { test = "TestGoldenTypedPath/tron" } 
 
+[tasks.bitcoin-golden]
+description = "Running Bitcoin golden tests."
+extends = "test:golden"
+vars = { test = "TestGoldenTypedPath/bitcoin" }
+
+[tasks.golden]
+description = "Running all golden tests."
+run = [
+    { task = "ethereum-golden" },
+    { task = "tron-golden" },
+    { task = "bitcoin-golden" }
+]
+
 [task_templates."test:golden-update"]
 vars = { test = "TestGoldenTypedPath/ethereum" }
 run = "go test -tags=integration ./golden/... -run {{ vars.test }} -golden-update -count=1 -v"
@@ -101,6 +114,11 @@ extends = "test:golden-update"
 description = "Updating Tron golden fixture."
 extends = "test:golden-update"
 vars = { test = "TestGoldenTypedPath/tron" }
+
+[tasks.bitcoin-golden-update]
+description = "Updating Bitcoin golden fixture."
+extends = "test:golden-update"
+vars = { test = "TestGoldenTypedPath/bitcoin" }
 
 [task_templates."test:replay"]
 vars = { adapter = "evm", test = "TestEthereumReplayAcceptance", timeout = "30m" }
@@ -169,7 +187,7 @@ run = [
     { task = "test-unit"}, 
     { tasks = ["evm-integration", "tron-integration", "bitcoin-integration"] }, 
     { tasks = ["ethereum-live-test", "bsc-live-test", "tron-live-test", "bitcoin-live-test"] }, 
-    { tasks = ["ethereum-golden", "tron-golden"]}
+    { tasks = ["ethereum-golden", "tron-golden", "bitcoin-golden"]}
 ]
 
 # Binary building tasks & templates
