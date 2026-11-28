@@ -204,7 +204,7 @@ run = [
     { task = "test-unit"}, 
     { tasks = ["evm-integration", "tron-integration", "solana-integration"] }, 
     { tasks = ["ethereum-live-test", "bsc-live-test", "tron-live-test", "solana-live-test"] }, 
-    { tasks = ["ethereum-golden", "tron-golden"]}
+    { tasks = ["ethereum-golden", "tron-golden", "solana-golden"] }
 ]
 
 # Binary building tasks & templates
