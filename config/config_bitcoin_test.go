@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
@@ -55,44 +54,6 @@ func neutralizeBitcoinEnv(t *testing.T) {
 	}
 }
 
-// scrubTestEnv unsets every env override applyEnvOverrides honours, so a
-// deployment file or fixture is the only input the config loader sees.
-// Originals are restored after the test so nothing outside LoadConfig's
-// window observes the scrub. Unset keys would let godotenv inject values
-// from a .env file; no .env exists beside the config package, so nothing
-// re-injects the scrubbed keys mid-test.
-func scrubTestEnv(t *testing.T) {
-	t.Helper()
-
-	prefixes := [...]string{
-		"BITCOIN_", "CHAIN_", "CONVERTER_", "DEFRADB_", "GETH_",
-		"INDEXER_", "LOGGER_", "PRUNER_", "SCHEMA_", "SHINZOHUB_", "SNAPSHOT_",
-	}
-
-	for _, key := range os.Environ() {
-		key = key[:strings.IndexByte(key, '=')]
-		matched := false
-		for _, p := range prefixes {
-			if strings.HasPrefix(key, p) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		old, had := os.LookupEnv(key)
-		require.NoError(t, os.Unsetenv(key))
-		t.Cleanup(func() {
-			if had {
-				require.NoError(t, os.Setenv(key, old))
-			} else {
-				require.NoError(t, os.Unsetenv(key))
-			}
-		})
-	}
-}
-
 func TestValidateConfig_Bitcoin(t *testing.T) {
 	t.Parallel()
 
@@ -110,11 +71,6 @@ func TestValidateConfig_Bitcoin(t *testing.T) {
 		}, false, ""},
 		{"depth at upper bound", func(cfg *Config) {
 			cfg.Bitcoin.ConfirmationDepth = maxBitcoinConfirmationDepth
-		}, false, ""},
-		{"unexpanded yaml placeholders pass", func(cfg *Config) {
-			cfg.Bitcoin.RPCURL = "${BITCOIN_RPC_URL}"
-			cfg.Bitcoin.RPCUser = "${BITCOIN_RPC_USER}"
-			cfg.Bitcoin.RPCPassword = "${BITCOIN_RPC_PASSWORD}"
 		}, false, ""},
 		{"empty rpc_url", func(cfg *Config) { cfg.Bitcoin.RPCURL = "" }, true, "rpc_url"},
 		{"whitespace rpc_url", func(cfg *Config) { cfg.Bitcoin.RPCURL = "   " }, true, "rpc_url"},
@@ -305,10 +261,6 @@ func TestBitcoinConfig_AuthConfigured(t *testing.T) {
 		{"password only", BitcoinConfig{RPCPassword: "p"}, false},
 		{"cookie only", BitcoinConfig{CookiePath: "/bitcoin/.cookie"}, true},
 		{"all auth kinds present", BitcoinConfig{RPCUser: "u", RPCPassword: "p", CookiePath: "/bitcoin/.cookie"}, true},
-		{"placeholder credentials count as configured", BitcoinConfig{
-			RPCUser:     "${BITCOIN_RPC_USER}",
-			RPCPassword: "${BITCOIN_RPC_PASSWORD}",
-		}, true},
 	}
 
 	for _, tt := range tests {
@@ -386,27 +338,47 @@ func TestLoadConfig_BitcoinYAML_Invalid(t *testing.T) {
 	}
 }
 
-// TestLoadConfig_ConfigBitcoinYAML is the guard test for the shipped bitcoin
-// deployment file. config_bitcoin.yaml carries schema_auth_mode as the
-// literal "${SCHEMA_AUTH_MODE}" placeholder: yaml parsing never expands it
-// and the scrub removes the env var that would normally fill it in, so a
-// known-good literal keeps schema-auth validation deterministic, mirroring
-// how production resolves the placeholder at deployment time. The other
-// placeholders are non-empty strings that pass the bitcoin rules by
-// construction, so the raw file validates before any substitution.
+// TestLoadConfig_ConfigBitcoinYAML guards the shipped bitcoin deployment
+// file. Its bitcoin fields ship empty on purpose: the loader never expands
+// a "${VAR}" placeholder, so an unset variable would otherwise hand the
+// client a literal string. With a neutralized environment the file must
+// therefore fail fast with the loader's own validation message, and with
+// the env variables a deployment supplies it loads green while the
+// optional fields read as genuinely unset.
 func TestLoadConfig_ConfigBitcoinYAML(t *testing.T) {
-	scrubTestEnv(t)
-	t.Setenv("SCHEMA_AUTH_MODE", constants.SchemaAuthModeNone)
+	// The subtests stay sequential: both mutate the process environment,
+	// which must not race with a concurrent LoadConfig reading it.
+	t.Run("unset env fails fast with the validation message", func(t *testing.T) {
+		neutralizeBitcoinEnv(t)
+		t.Setenv("SCHEMA_AUTH_MODE", "")
 
-	cfg, err := LoadConfig("config_bitcoin.yaml")
-	require.NoError(t, err, "the shipped bitcoin deployment file must parse and validate")
+		_, err := LoadConfig("config_bitcoin.yaml")
+		require.Error(t, err, "the shipped file must fail fast when the required env overrides are missing")
+		assert.Contains(t, err.Error(), "bitcoin.rpc_url is required")
+	})
 
-	assert.Equal(t, BitcoinAdapter, cfg.Chain.Adapter, "Chain.Adapter")
-	assert.Equal(t, "Bitcoin", cfg.Chain.Name, "Chain.Name")
-	assert.Equal(t, "Mainnet", cfg.Chain.Network, "Chain.Network")
-	assert.Equal(t, "${BITCOIN_RPC_URL}", cfg.Bitcoin.RPCURL, "unexpanded rpc_url placeholder preserved literally")
-	assert.True(t, cfg.Bitcoin.AuthConfigured(), "placeholder credentials count as configured until envsubst resolves them")
-	assert.Equal(t, 6, cfg.Bitcoin.ConfirmationDepth, "shipped confirmation depth")
-	assert.Equal(t, 10, cfg.Bitcoin.DialTimeoutSeconds, "shipped dial timeout")
-	assert.Empty(t, cfg.Geth.NodeURL, "the bitcoin deployment file carries no geth section")
+	t.Run("env overrides load it green", func(t *testing.T) {
+		neutralizeBitcoinEnv(t)
+		t.Setenv("BITCOIN_RPC_URL", "http://bitcoin-core:8332")
+		t.Setenv("BITCOIN_RPC_USER", "shinzorpc")
+		t.Setenv("BITCOIN_RPC_PASSWORD", "temp-fixtures-only")
+		t.Setenv("SCHEMA_AUTH_MODE", constants.SchemaAuthModeNone)
+
+		cfg, err := LoadConfig("config_bitcoin.yaml")
+		require.NoError(t, err, "the shipped bitcoin deployment file must parse and validate")
+
+		assert.Equal(t, BitcoinAdapter, cfg.Chain.Adapter, "Chain.Adapter")
+		assert.Equal(t, "Bitcoin", cfg.Chain.Name, "Chain.Name")
+		assert.Equal(t, "Mainnet", cfg.Chain.Network, "Chain.Network")
+		assert.Equal(t, "http://bitcoin-core:8332", cfg.Bitcoin.RPCURL, "Bitcoin.RPCURL from env")
+		assert.Equal(t, "shinzorpc", cfg.Bitcoin.RPCUser, "Bitcoin.RPCUser from env")
+		assert.True(t, cfg.Bitcoin.AuthConfigured(), "Bitcoin.AuthConfigured")
+		assert.Equal(t, 6, cfg.Bitcoin.ConfirmationDepth, "shipped confirmation depth")
+		assert.Equal(t, 10, cfg.Bitcoin.DialTimeoutSeconds, "shipped dial timeout")
+		assert.Empty(t, cfg.Bitcoin.CookiePath, "the shipped file leaves the cookie path unset")
+		assert.Empty(t, cfg.Bitcoin.ArchiveRPCURL, "the shipped file leaves the optional archive endpoint unset")
+		assert.Empty(t, cfg.Bitcoin.APIKey, "the shipped file leaves the optional api key unset")
+		assert.Empty(t, cfg.Bitcoin.APIKeyType, "the shipped file leaves the optional api key type unset")
+		assert.Empty(t, cfg.Geth.NodeURL, "the bitcoin deployment file carries no geth section")
+	})
 }

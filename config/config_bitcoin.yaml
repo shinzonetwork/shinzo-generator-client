@@ -55,18 +55,22 @@ defradb:
     # num_level_zero_tables_stall: 30  # L0 tables that trigger write stalls
     # Badger value log configuration
     value_log_file_size_mb: 128      # Size of each vlog file (smaller = more effective GC)
+# Fields below default to empty on purpose: the loader never expands a
+# "${VAR}" placeholder, so an unset variable would hand the client a literal
+# string. Supply real values through the BITCOIN_* env overrides (or edit
+# them in here); validation then fails fast on anything still required.
 bitcoin:
-  rpc_url: "${BITCOIN_RPC_URL}"                  # Bitcoin Core JSON-RPC endpoint (env: BITCOIN_RPC_URL)
+  rpc_url: ""                                    # Bitcoin Core JSON-RPC endpoint, required (env: BITCOIN_RPC_URL)
   # Bitcoin Core RPC accepts only basic auth or cookie auth (no API-key header support);
   # one mechanism is required: rpc_user+rpc_password, or cookie_path instead.
-  rpc_user: "${BITCOIN_RPC_USER}"                # basic-auth user (env: BITCOIN_RPC_USER)
-  rpc_password: "${BITCOIN_RPC_PASSWORD}"        # basic-auth password (env: BITCOIN_RPC_PASSWORD)
-  cookie_path: "${BITCOIN_COOKIE_PATH}"          # Bitcoin Core .cookie file; used when user/password are unset (env: BITCOIN_COOKIE_PATH)
+  rpc_user: ""                                   # basic-auth user (env: BITCOIN_RPC_USER)
+  rpc_password: ""                               # basic-auth password (env: BITCOIN_RPC_PASSWORD)
+  cookie_path: ""                                # Bitcoin Core .cookie file; used when user/password are unset (env: BITCOIN_COOKIE_PATH)
   # For hosted providers (own-endpoint alternatives), not Bitcoin Core itself.
-  api_key: "${BITCOIN_API_KEY}"                  # Auth header for hosted providers (env: BITCOIN_API_KEY)
-  api_key_type: "${BITCOIN_API_KEY_TYPE}"        # Header name, lowercased; empty falls back to the client default (env: BITCOIN_API_KEY_TYPE)
+  api_key: ""                                    # Auth header for hosted providers (env: BITCOIN_API_KEY)
+  api_key_type: ""                               # Header name, lowercased; empty falls back to the client default (env: BITCOIN_API_KEY_TYPE)
   confirmation_depth: 6                          # Finality floor in blocks: finalized height = tip minus this depth. Valid range 6..100; 0 or negative = 6 (env: BITCOIN_CONFIRMATION_DEPTH)
-  archive_rpc_url: "${BITCOIN_ARCHIVE_RPC_URL}"  # Optional unpruned-node fallback endpoint (env: BITCOIN_ARCHIVE_RPC_URL)
+  archive_rpc_url: ""                            # Optional unpruned-node fallback endpoint (env: BITCOIN_ARCHIVE_RPC_URL)
   dial_timeout_seconds: 10                       # Startup RPC dial timeout; 0 or negative = 10 (env: BITCOIN_DIAL_TIMEOUT_SECONDS)
 indexer:
   start_height: 0           # 0 = auto-detect from chain tip; set a block number to start from a specific height
@@ -79,7 +83,7 @@ indexer:
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
-  schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
+  schema_auth_mode: "" # Auth mode for schema endpoint: none, token, mtls; empty = token (env: SCHEMA_AUTH_MODE)
   # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
   # You MUST set keys via the SCHEMA_API_KEYS environment variable (comma-separated).
   # Example: SCHEMA_API_KEYS=key1,key2,key3

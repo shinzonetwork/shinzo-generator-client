@@ -486,17 +486,12 @@ func validateConfig(cfg *Config) error {
 
 // AuthConfigured reports whether Bitcoin Core authentication is present:
 // user+password basic auth or a cookie file. Bitcoin Core denies
-// unauthenticated RPC. Unexpanded ${VAR} yaml placeholders count as
-// configured: they are non-empty, and deployment envsubst resolves them
-// before the client dials.
+// unauthenticated RPC.
 func (b *BitcoinConfig) AuthConfigured() bool {
 	return (b.RPCUser != "" && b.RPCPassword != "") || b.CookiePath != ""
 }
 
 // validateBitcoinConfig enforces the bitcoin adapter's operator-facing rules.
-// Unexpanded ${VAR} yaml placeholders are exempt: they are non-empty strings,
-// so they pass the non-empty checks by construction, and deployment envsubst
-// resolves them while the BITCOIN_* env overrides carry real values.
 func validateBitcoinConfig(b *BitcoinConfig) error {
 	if strings.TrimSpace(b.RPCURL) == "" {
 		return fmt.Errorf("bitcoin.rpc_url is required: set rpc_url (env: BITCOIN_RPC_URL)")
