@@ -15,7 +15,7 @@ git clone git@github.com:shinzonetwork/shinzo-generator-client.git
 cd shinzo-generator-client
 cp .env.sample .env   # fill in your node credentials
 mise install
-mise run evm-build
+mise run build-all
 ```
 
 The compiled binary goes into `./bin`. The generator ships one binary per chain adapter: 
@@ -41,6 +41,8 @@ The compiled binary goes into `./bin`. The generator ships one binary per chain 
 | `mise run tron-integration` | Run the fast mock integration suite for Tron (embedded DefraDB, synthetic data, no chain endpoint). |
 | `mise run solana-integration` | Run the fast mock integration suite for Solana (embedded DefraDB, synthetic data, no chain endpoint). |
 | `mise run ethereum-golden` | Run the Ethereum golden tests. |
+| `mise run tron-golden` | Run the Tron golden tests. |
+| `mise run solana-golden` | Run the Solana golden tests. |
 | `mise run ethereum-live-test` | Run live integration tests for Ethereum |
 | `mise run bsc-live-test` | Run live integration tests for BSC |
 | `mise run tron-live-test` | Run live integration tests for Tron |

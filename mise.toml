@@ -89,6 +89,19 @@ description = "Running Tron golden tests."
 extends = "test:golden"
 vars = { test = "TestGoldenTypedPath/tron" } 
 
+[tasks.solana-golden]
+description = "Running Solana golden tests."
+extends = "test:golden"
+vars = { test = "TestGoldenTypedPath/solana" } 
+
+[tasks.golden]
+description = "Running all golden tests."
+run = [
+    { task = "ethereum-golden" },
+    { task = "tron-golden" },
+    { task = "solana-golden" },
+]
+
 [task_templates."test:golden-update"]
 vars = { test = "TestGoldenTypedPath/ethereum" }
 run = "go test -tags=integration ./golden/... -run {{ vars.test }} -golden-update -count=1 -v"
@@ -101,6 +114,11 @@ extends = "test:golden-update"
 description = "Updating Tron golden fixture."
 extends = "test:golden-update"
 vars = { test = "TestGoldenTypedPath/tron" }
+
+[tasks.solana-golden-update]
+description = "Updating Solana golden fixture."
+extends = "test:golden-update"
+vars = { test = "TestGoldenTypedPath/solana" }
 
 [task_templates."test:replay"]
 vars = { adapter = "evm", test = "TestEthereumReplayAcceptance", timeout = "30m" }
@@ -139,7 +157,7 @@ vars = { adapter = "solana", test = "TestReplayConfigKeepsSuiteKnobs", timeout =
 description = "Running all replay test scrub guard."
 run = [ 
     { task = "tron-replay-scrub-guard" },
-    { task = "solana-replay-scrub-guard"}
+    { task = "solana-replay-scrub-guard" }
 ]
 
 [tasks.replay-fetch]
@@ -186,7 +204,7 @@ run = [
     { task = "test-unit"}, 
     { tasks = ["evm-integration", "tron-integration", "solana-integration"] }, 
     { tasks = ["ethereum-live-test", "bsc-live-test", "tron-live-test", "solana-live-test"] }, 
-    { tasks = ["ethereum-golden", "tron-golden"]}
+    { tasks = ["ethereum-golden", "tron-golden", "solana-golden"] }
 ]
 
 # Binary building tasks & templates

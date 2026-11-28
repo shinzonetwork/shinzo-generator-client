@@ -50,8 +50,8 @@ jobs:
         LOG_LEVEL: error
       run: mise run test-unit --parallel ${{ steps.cpu.outputs.count  }}
 
-    - name: Run golden tests
-      run: mise run ethereum-golden
+    - name: Run all golden tests
+      run: mise run golden
 
     - name: Run scrub tests for the replay harness
       run: mise run replay-scrub-guards
