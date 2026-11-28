@@ -1037,8 +1037,10 @@ func (i *ChainIndexer) SignRegistrationMessage(message string) (server.DefraPKRe
 	}, nil
 }
 
-// GetSourceChainInfo returns the source chain this generator registers on ShinzoHub: the
-// configured chain name in lower case and the configured chain ID.
+// GetSourceChainInfo returns the source chain this generator registers on
+// ShinzoHub: the configured chain name lowercased and the configured chain
+// ID. Nothing is inferred from chain.adapter or chain.network; a non-EVM
+// chain registers with ID 0 by leaving chain_id unset.
 func (i *ChainIndexer) GetSourceChainInfo() (string, uint64) {
 	if i == nil || i.cfg == nil {
 		return "", 0

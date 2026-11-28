@@ -98,11 +98,26 @@ func TestRun_TronMainnetSchema(t *testing.T) {
 func TestRun_UnknownAdapterFails(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	err := run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--adapter", "cosmos"}, &buf)
+	err := run([]string{"build_schema", "--chain", "Ethereum", "--network", "Mainnet", "--adapter", "litecoin"}, &buf)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `chain adapter "cosmos" not supported`)
-	assert.Contains(t, err.Error(), "evm, tron")
+	assert.Contains(t, err.Error(), `chain adapter "litecoin" not supported`)
+	assert.Contains(t, err.Error(), "evm, tron, bitcoin")
 	assert.Empty(t, buf.String())
+}
+
+func TestRun_ExplicitBitcoinAdapter(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Bitcoin", "--network", "Signet", "--adapter", config.BitcoinAdapter}, &buf))
+	sdl := buf.String()
+	assert.NotEmpty(t, sdl)
+	assert.Contains(t, sdl, "Bitcoin__Signet__Block")
+	assert.Contains(t, sdl, "Bitcoin__Signet__TxInput")
+	assert.NotContains(t, sdl, evm.DefaultCollectionPrefix, "no EVM leak in the bitcoin schema")
+
+	var bufFiles bytes.Buffer
+	require.NoError(t, run([]string{"build_schema", "--chain", "Bitcoin", "--network", "Mainnet", "--adapter", config.BitcoinAdapter, "--list-files"}, &bufFiles))
+	assert.Contains(t, bufFiles.String(), "txInput.graphql", "bitcoin adapter must list its own collection files")
 }
 
 func TestRun_SingleFile(t *testing.T) {

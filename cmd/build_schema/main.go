@@ -10,6 +10,7 @@ import (
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains"
+	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/bitcoin"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/evm"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/chains/tron"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/schema"
@@ -70,6 +71,8 @@ func resolveCollections(adapter string, cfg *config.Config) (chains.Collections,
 		return evm.NewCollectionsFromConfig(cfg)
 	case config.TronChainAdapter:
 		return tron.NewCollectionsFromConfig(cfg)
+	case config.BitcoinAdapter:
+		return bitcoin.NewCollectionsFromConfig(cfg)
 	default:
 		return nil, fmt.Errorf("chain adapter %q not supported: supported adapters are %s",
 			adapter, strings.Join(config.SupportedChainAdapters, ", "))

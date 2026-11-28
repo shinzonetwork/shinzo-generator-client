@@ -3,14 +3,18 @@
 ## Mock Tests
 ```bash
 mise run evm-integration
+mise run tron-integration
+mise run bitcoin-integration
 ```
 Self-contained suite with synthetic mock data (build tag `integration`). No
 chain endpoint, no credentials, no external dependencies.
 
 ## Live Tests
-End-to-end tests with real chain data. Both are gated on `GETH_RPC_URL`. The
-Ethereum suite additionally requires `GETH_WS_URL` and `GETH_API_KEY`; for BSC
-they are optional (see its table below).
+End-to-end tests with real chain data, one target per chain. The Ethereum and
+BSC legs skip with a notice while `GETH_RPC_URL` is unset (the Ethereum suite
+additionally requires `GETH_WS_URL` and `GETH_API_KEY`; for BSC they are
+optional, see its table below). The Tron and Bitcoin targets fail fast with
+setup instructions while `TRON_RPC_URL` / `BITCOIN_RPC_URL` are unset.
 
 ## Tron Mock Suite
 ```bash
@@ -47,6 +51,48 @@ source .env
 # Run with build tag
 mise run ethereum-live-test
 ```
+End-to-end live tests against a Geth-compatible endpoint: `GETH_RPC_URL` is
+required, plus `GETH_WS_URL` and `GETH_API_KEY`; the leg skips with a notice
+while the endpoint is unset. The Bitcoin, BSC, and Tron live legs have their
+own sections below.
+
+## Bitcoin Tests
+
+Both Bitcoin suites read the collection prefix from the deployment config:
+`Bitcoin__<Network>` for a Bitcoin Core endpoint.
+
+### Mock suite (scripted Bitcoin Core fake)
+```bash
+go test -tags=integration -v ./integration/bitcoin/
+```
+A full indexer run against a scripted Bitcoin Core JSON-RPC fake with an
+embedded DefraDB node. One ordered lifecycle test covers startup field
+integrity, a one-block fork flip, and a stop/extend/restart resume; a health
+test polls the live health, registration, metrics, and schema endpoints and
+audits the authentication coverage on the recorded wire. No external
+dependencies.
+
+### Live smoke (real Bitcoin Core)
+```bash
+export BITCOIN_RPC_URL=http://127.0.0.1:18443   # required
+export BITCOIN_ARCHIVE_RPC_URL=...              # optional archive fallback
+export BITCOIN_LIVE_NETWORK=Mainnet             # optional, default Mainnet
+make bitcoin-live-test
+```
+`make bitcoin-live-test` fails fast with setup instructions while
+`BITCOIN_RPC_URL` is unset, so a bare mock run never touches a chain
+endpoint. The endpoint needs basic auth (user and password environment
+variables) or a cookie file. Connect refuses to start when the node's chain
+name or genesis hash does not match `BITCOIN_LIVE_NETWORK`, so a regtest run
+must set `BITCOIN_LIVE_NETWORK=Regtest` (the default Mainnet would be
+refused). The suite waits up to 30m for two newly
+produced heights, which is what Bitcoin's roughly ten-minute block cadence
+requires, asserts block and transaction field integrity plus one signed
+BlockSignature document per stored height, and verifies the height count
+only advances across an idle window. A local regtest node is the suggested
+endpoint since it needs no external account; mine periodically with
+`bitcoin-cli -regtest generatetoaddress 1 <address>` so the two-height wait
+completes inside the 30m window.
 
 ### BSC
 

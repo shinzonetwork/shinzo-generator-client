@@ -19,38 +19,60 @@ import (
 // CollectionName is the legacy collection name for the shinzo network.
 const CollectionName = "shinzo"
 
-// DefaultChainAdapter is the default chain adapter type, used when chain.adapter is unset.
-const DefaultChainAdapter = "evm"
-
-// ErrChainUnset is returned when the config does not name the chain to index.
-var ErrChainUnset = errors.New("chain.name and chain.network are required")
-
-// ErrInvalidChainName is returned when the chain name or network cannot be part of a collection name.
-var ErrInvalidChainName = errors.New("chain name and network must each be an upper-case letter followed by letters or digits")
-
-// ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
-var ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
-
-// TronChainAdapter is the non-EVM adapter name, used in the SupportedChainAdapters
-// allowlist and the tron-specific defaults.
-const TronChainAdapter = "tron"
-
-// DefaultTronDialTimeoutSeconds is the default HTTP client timeout for the Tron
-// wallet API when tron.dial_timeout_seconds is unset, zero or negative.
-const DefaultTronDialTimeoutSeconds = 10
-
-// SupportedChainAdapters lists every chain adapter validateConfig accepts.
-var SupportedChainAdapters = []string{DefaultChainAdapter, TronChainAdapter} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
-
 // DefaultLowestBlockQueryLimit is the default row window for the lowest-block
 // number query when converter.lowest_block_query_limit is unset. A window > 1
 // lets the query skip purge residue with a missing or unparsable number.
 const DefaultLowestBlockQueryLimit = 1
 
-// Version is the generator version, for example "v0.7.0-ethereum-mainnet",
-// set at build time via -ldflags (see the Makefile build target/ mise *build tasks  and the
-// Dockerfile builder stage); "dev" when built without injection.
-var Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
+var (
+	// Version is the generator version, for example "v0.7.0-ethereum-mainnet",
+	// set at build time via -ldflags (see the Makefile build target and the
+	// Dockerfile builder stage); "dev" when built without injection.
+	Version = "dev" //nolint:gochecknoglobals // set at build time via -ldflags
+	// SupportedChainAdapters is the adapter allowlist consumed by validateConfig.
+	// Later chain integrations append their adapter and union this list.
+	SupportedChainAdapters = []string{DefaultChainAdapter, TronChainAdapter, BitcoinAdapter} //nolint:gochecknoglobals // fixed allowlist, same pattern as Version
+)
+
+var (
+	// ErrChainUnset is returned when the config does not name the chain to index.
+	ErrChainUnset = errors.New("chain.name and chain.network are required")
+	// ErrChainIDUnset is returned when the config of an EVM chain has no chain ID.
+	ErrChainIDUnset = errors.New("chain.chain_id is required for EVM chains")
+	// ErrInvalidChainName is returned when the chain name or network cannot be part of a collection name.
+	ErrInvalidChainName = errors.New("chain name and network must each be an upper-case letter followed by letters or digits")
+)
+
+const (
+	// DefaultChainAdapter is the default chain adapter type, used when chain.adapter is unset.
+	DefaultChainAdapter = "evm"
+	// TronChainAdapter is the chain adapter for Tron indexing, used in the SupportedChainAdapters
+	// allowlist and the tron-specific defaults.
+	TronChainAdapter = "tron"
+	// BitcoinAdapter is the chain adapter name for Bitcoin Core JSON-RPC indexing.
+	BitcoinAdapter = "bitcoin"
+)
+
+// DefaultTronDialTimeoutSeconds is the default HTTP client timeout for the Tron
+// wallet API when tron.dial_timeout_seconds is unset, zero or negative.
+const DefaultTronDialTimeoutSeconds = 10
+
+// Default Bitcoin config values.
+const (
+	// DefaultBitcoinConfirmationDepth is the default finality floor for the
+	// bitcoin adapter: the finalized height is the tip minus this many blocks.
+	DefaultBitcoinConfirmationDepth = 6
+
+	// maxBitcoinConfirmationDepth is the approved upper bound for
+	// confirmation_depth. A reorg deeper than the floor fails loudly, which is
+	// the intended operator-visible event for extraordinary forks, so an extreme
+	// floor only hides that event.
+	maxBitcoinConfirmationDepth = 100
+
+	// DefaultBitcoinDialTimeoutSeconds is the default startup dial timeout for
+	// bitcoin RPC connections.
+	DefaultBitcoinDialTimeoutSeconds = 10
+)
 
 // DefraDBP2PConfig represents P2P configuration for DefraDB.
 type DefraDBP2PConfig struct {
@@ -118,7 +140,7 @@ type ChainConfig struct {
 	Network string `yaml:"network"`  // e.g. "Mainnet", "Testnet"
 	ChainID uint64 `yaml:"chain_id"` // EVM chain ID the RPC must report from eth_chainId, e.g. 1 for Ethereum mainnet (env: CHAIN_ID)
 	Hub     string `yaml:"hub"`      // ShinzoHub hostname only: no scheme, no port (e.g. "testnet.shinzo.network")
-	Adapter string `yaml:"adapter"`  // chain adapter: DefaultChainAdapter (default) or "tron". Future: "cosmos", etc. (env: CHAIN_ADAPTER)
+	Adapter string `yaml:"adapter"`  // chain adapter: "evm" (default), "tron" , or "bitcoin". Future: "cosmos", etc. (env: CHAIN_ADAPTER)
 }
 
 // GethConfig represents Geth node configuration.
@@ -144,6 +166,39 @@ type TronConfig struct {
 	// DialTimeoutSeconds bounds the HTTP client timeout when positive.
 	// 0 or negative = DefaultTronDialTimeoutSeconds (env: TRON_DIAL_TIMEOUT_SECONDS).
 	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"`
+}
+
+// BitcoinConfig represents Bitcoin Core RPC configuration.
+type BitcoinConfig struct {
+	// RPCURL is the Bitcoin Core JSON-RPC endpoint, HTTP POST mode.
+	RPCURL string `yaml:"rpc_url"` // (env: BITCOIN_RPC_URL)
+	// RPCUser and RPCPassword are the Bitcoin Core basic-auth credentials.
+	// Bitcoin Core accepts only basic auth or cookie auth (no API-key header
+	// support), so one mechanism must be configured.
+	RPCUser     string `yaml:"rpc_user"`     // (env: BITCOIN_RPC_USER)
+	RPCPassword string `yaml:"rpc_password"` // (env: BITCOIN_RPC_PASSWORD)
+	// CookiePath points at Bitcoin Core's .cookie file and is used when user
+	// and password are unset. The cookie file is re-read when its mtime
+	// changes, so a stale-cookie window of up to ~30 seconds after the
+	// daemon rotates the file is expected.
+	CookiePath string `yaml:"cookie_path"` // (env: BITCOIN_COOKIE_PATH)
+	// APIKey enables a per-request auth header for hosted providers. It is
+	// not usable against Bitcoin Core itself, which lacks API-key auth.
+	// APIKeyType lowercased is the header name; empty falls back to the
+	// client's default header name.
+	APIKey     string `yaml:"api_key"`      // (env: BITCOIN_API_KEY)
+	APIKeyType string `yaml:"api_key_type"` // (env: BITCOIN_API_KEY_TYPE)
+	// ConfirmationDepth is the finality floor: the finalized height is the
+	// tip minus this depth. 0 or negative = DefaultBitcoinConfirmationDepth.
+	ConfirmationDepth int `yaml:"confirmation_depth"` // (env: BITCOIN_CONFIRMATION_DEPTH)
+	// ArchiveRPCURL is an optional fallback endpoint on an unpruned node,
+	// used to fetch blocks the primary node has pruned. Pruned nodes
+	// discard block and undo data below their prune height, so verbosity-3
+	// lookups below it fail and route here for the full payload.
+	ArchiveRPCURL string `yaml:"archive_rpc_url"` // (env: BITCOIN_ARCHIVE_RPC_URL)
+	// DialTimeoutSeconds bounds the startup RPC dial phase. 0 or negative =
+	// DefaultBitcoinDialTimeoutSeconds.
+	DialTimeoutSeconds int `yaml:"dial_timeout_seconds"` // (env: BITCOIN_DIAL_TIMEOUT_SECONDS)
 }
 
 // IndexerConfig represents indexer configuration.
@@ -258,7 +313,8 @@ type Config struct {
 	Chain     ChainConfig     `yaml:"chain"`
 	DefraDB   DefraDBConfig   `yaml:"defradb"`
 	Geth      GethConfig      `yaml:"geth"`
-	Tron      TronConfig      `yaml:"tron"` // inert when chain.adapter is evm
+	Tron      TronConfig      `yaml:"tron"`    // inert when chain.adapter is set to "evm" or "bitcoin"
+	Bitcoin   BitcoinConfig   `yaml:"bitcoin"` // inert when chain.adapter is "evm" or "tron"
 	Indexer   IndexerConfig   `yaml:"indexer"`
 	Pruner    PrunerConfig    `yaml:"pruner"`
 	Snapshot  SnapshotConfig  `yaml:"snapshot"`
@@ -304,19 +360,20 @@ func LoadConfig(path string) (*Config, error) {
 // applyDefaults sets default values for optional configuration.
 func applyDefaults(cfg *Config) {
 	// The adapter default comes first so the chain-name default below can
-	// follow the adapter: a Tron deployment that omits chain.name must not
-	// end up with Ethereum-prefixed collections built from tron SDL.
+	// follow the adapter: a Tron or Bitcoin deployment that omits chain.name
+	// must not end up with collection prefixes built from another adapter's
+	// SDL. Only these two adapters name their chain; an EVM deployment must
+	// set chain.name itself, and validateChainConfig rejects an unnamed one.
 	// The literals stay local to config: the depguard boundary forbids
 	// importing pkg/chains here, and "Ethereum" was hardcoded the same way.
 	if cfg.Chain.Adapter == "" {
 		cfg.Chain.Adapter = DefaultChainAdapter
 	}
 	if cfg.Chain.Name == "" && cfg.Chain.Adapter == TronChainAdapter {
-		// Only the tron adapter names its chain: a Tron deployment that omits
-		// chain.name must not end up with Ethereum-prefixed collections built
-		// from tron SDL. EVM chains must name themselves; validateChainConfig
-		// rejects an unnamed one.
 		cfg.Chain.Name = "Tron"
+	}
+	if cfg.Chain.Name == "" && cfg.Chain.Adapter == BitcoinAdapter {
+		cfg.Chain.Name = "Bitcoin"
 	}
 	if cfg.Indexer.ConcurrentBlocks <= 0 {
 		cfg.Indexer.ConcurrentBlocks = 8
@@ -351,6 +408,14 @@ func applyDefaults(cfg *Config) {
 
 	// Converter defaults.
 	cfg.Converter.SetDefaults()
+
+	// Bitcoin defaults.
+	if cfg.Bitcoin.ConfirmationDepth <= 0 {
+		cfg.Bitcoin.ConfirmationDepth = DefaultBitcoinConfirmationDepth
+	}
+	if cfg.Bitcoin.DialTimeoutSeconds <= 0 {
+		cfg.Bitcoin.DialTimeoutSeconds = DefaultBitcoinDialTimeoutSeconds
+	}
 }
 
 // validateConfig validates the configuration.
@@ -361,6 +426,11 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.Chain.Adapter == TronChainAdapter && strings.TrimSpace(cfg.Tron.NodeURL) == "" {
 		return fmt.Errorf("tron adapter requires a non-empty tron.node_url (env: TRON_RPC_URL)")
+	}
+	if cfg.Chain.Adapter == BitcoinAdapter {
+		if err := validateBitcoinConfig(&cfg.Bitcoin); err != nil {
+			return err
+		}
 	}
 
 	// Validate the chain-name format as soon as both parts are known, before
@@ -411,6 +481,32 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+// AuthConfigured reports whether Bitcoin Core authentication is present:
+// user+password basic auth or a cookie file. Bitcoin Core denies
+// unauthenticated RPC.
+func (b *BitcoinConfig) AuthConfigured() bool {
+	return (b.RPCUser != "" && b.RPCPassword != "") || b.CookiePath != ""
+}
+
+// validateBitcoinConfig enforces the bitcoin adapter's operator-facing rules.
+func validateBitcoinConfig(b *BitcoinConfig) error {
+	if strings.TrimSpace(b.RPCURL) == "" {
+		return fmt.Errorf("bitcoin.rpc_url is required: set rpc_url (env: BITCOIN_RPC_URL)")
+	}
+
+	if !b.AuthConfigured() {
+		return fmt.Errorf("bitcoin RPC requires authentication: set rpc_user+rpc_password or cookie_path (env: BITCOIN_RPC_USER, BITCOIN_RPC_PASSWORD, BITCOIN_COOKIE_PATH)")
+	}
+
+	// The approved range is 6..100 inclusive. Zero and negative values are
+	// always replaced by DefaultBitcoinConfirmationDepth in applyDefaults
+	// before validation runs through LoadConfig.
+	if b.ConfirmationDepth < DefaultBitcoinConfirmationDepth || b.ConfirmationDepth > maxBitcoinConfirmationDepth {
+		return fmt.Errorf("bitcoin.confirmation_depth must be in %d..%d inclusive, got %d", DefaultBitcoinConfirmationDepth, maxBitcoinConfirmationDepth, b.ConfirmationDepth)
+	}
 	return nil
 }
 
@@ -555,7 +651,7 @@ func envPositiveInt(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// applyChainEnvOverrides applies chain and Geth environment variable overrides.
+// applyChainEnvOverrides applies chain, Geth, and Bitcoin environment variable overrides.
 func applyChainEnvOverrides(cfg *Config) error {
 	if chainName := os.Getenv("CHAIN_NAME"); chainName != "" {
 		cfg.Chain.Name = chainName
@@ -576,6 +672,17 @@ func applyChainEnvOverrides(cfg *Config) error {
 	if chainAdapter := os.Getenv("CHAIN_ADAPTER"); chainAdapter != "" {
 		cfg.Chain.Adapter = chainAdapter
 	}
+	applyGethEnvOverrides(cfg)
+	applyTronEnvOverrides(cfg)
+	err := applyBitcoinEnvOverrides(cfg)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// applyGethEnvOverrides applies Geth environment variable overrides.
+func applyGethEnvOverrides(cfg *Config) {
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL
 	}
@@ -593,6 +700,10 @@ func applyChainEnvOverrides(cfg *Config) error {
 			cfg.Geth.DialTimeoutSeconds = n
 		}
 	}
+}
+
+// applyTronEnvOverrides applies Tron environment variable overrides.
+func applyTronEnvOverrides(cfg *Config) {
 	if tronRPCURL := os.Getenv("TRON_RPC_URL"); tronRPCURL != "" {
 		cfg.Tron.NodeURL = tronRPCURL
 	}
@@ -609,6 +720,50 @@ func applyChainEnvOverrides(cfg *Config) error {
 		if n, err := strconv.Atoi(tronDialTimeout); err == nil {
 			cfg.Tron.DialTimeoutSeconds = n
 		}
+	}
+}
+
+// applyBitcoinEnvOverrides applies Bitcoin environment variable overrides.
+// The numeric overrides use the erroring parse path rather than a silent
+// ignore: confirmation depth is a safety setting, so a mistyped value must
+// fail the load instead of quietly falling back to the yaml number. Zero and
+// negative values stay accepted; applyDefaults normalizes them to the
+// defaults exactly as the yaml contract promises.
+func applyBitcoinEnvOverrides(cfg *Config) error {
+	if btcRPCURL := os.Getenv("BITCOIN_RPC_URL"); btcRPCURL != "" {
+		cfg.Bitcoin.RPCURL = btcRPCURL
+	}
+	if btcUser := os.Getenv("BITCOIN_RPC_USER"); btcUser != "" {
+		cfg.Bitcoin.RPCUser = btcUser
+	}
+	if btcPassword := os.Getenv("BITCOIN_RPC_PASSWORD"); btcPassword != "" {
+		cfg.Bitcoin.RPCPassword = btcPassword
+	}
+	if btcCookiePath := os.Getenv("BITCOIN_COOKIE_PATH"); btcCookiePath != "" {
+		cfg.Bitcoin.CookiePath = btcCookiePath
+	}
+	if btcAPIKey := os.Getenv("BITCOIN_API_KEY"); btcAPIKey != "" {
+		cfg.Bitcoin.APIKey = btcAPIKey
+	}
+	if btcAPIKeyType := os.Getenv("BITCOIN_API_KEY_TYPE"); btcAPIKeyType != "" {
+		cfg.Bitcoin.APIKeyType = btcAPIKeyType
+	}
+	if btcArchiveURL := os.Getenv("BITCOIN_ARCHIVE_RPC_URL"); btcArchiveURL != "" {
+		cfg.Bitcoin.ArchiveRPCURL = btcArchiveURL
+	}
+	if btcDepth := os.Getenv("BITCOIN_CONFIRMATION_DEPTH"); btcDepth != "" {
+		n, err := strconv.Atoi(btcDepth)
+		if err != nil {
+			return fmt.Errorf("invalid BITCOIN_CONFIRMATION_DEPTH value %q: %w", btcDepth, err)
+		}
+		cfg.Bitcoin.ConfirmationDepth = n
+	}
+	if btcDialTimeout := os.Getenv("BITCOIN_DIAL_TIMEOUT_SECONDS"); btcDialTimeout != "" {
+		n, err := strconv.Atoi(btcDialTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid BITCOIN_DIAL_TIMEOUT_SECONDS value %q: %w", btcDialTimeout, err)
+		}
+		cfg.Bitcoin.DialTimeoutSeconds = n
 	}
 	return nil
 }
